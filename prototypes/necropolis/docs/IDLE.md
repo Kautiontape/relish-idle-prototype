@@ -995,7 +995,9 @@ The policies (the run's manager's, for Shawn):
     weakest `craft.husk.remnants` and `craft.husk.bone`, GUESS) when giants or carvers is short of its want (the full
     pool's, less what the bigs on it bring), the crypt has room for one more (bigs and husks waiting under the cap), a
     remnant is left for the raise and the queue's head doesn't wait on bone. The kind is the one whose slab fill, on
-    the remnants the craft leaves, brings the larger share of a short front's want; a kind that brings none isn't made.
+    the remnants the craft leaves, brings the larger share of a short front's want, and none is made unless that share
+    is at least `KEEP_SHARE`, so the body would be a keeper candidate there. (Without that floor, continuous ground its
+    thin remnants into wits-2 skeletons and its giants front sat at 9/14 from day 3, so it reached Vei after sessions.)
     It runs before the raise, so the husk rises in the same look. **The player's reason:** remnants pile up unused
     (83 in sessions by day 8 before this) while a front Vei will test is short; a player grinds the weakest into a body
     for that front, but not with the bone the next build is waiting on.

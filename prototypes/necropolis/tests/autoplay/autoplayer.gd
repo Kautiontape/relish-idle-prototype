@@ -643,7 +643,9 @@ func _craft_husk() -> void:
 ## a remnant would be left for the raise, the bone covers economy.json craft.husk's price, and the queue's head doesn't
 ## wait on bone. The kind (loot.json chest_by_tier 1's husk_kinds) is the one whose slab fill (_slab_fill, on the
 ## remnants the craft leaves: GameState.husk_craft_pick) brings the larger share of a short front's want, in list order
-## on a tie; a kind that brings none is never made.
+## on a tie; none is made unless that share is at least KEEP_SHARE, so the body would be a keeper candidate there (a
+## body too weak to keep isn't worth the remnants: continuous at e299d87 ground its thin remnants into wits-2 skeletons
+## and its giants front sat at 9/14 from day 3).
 func _husk_kind(ignore_room: bool) -> String:
 	var hc: Dictionary = c["economy"]["craft"]["husk"]
 	var n := int(hc["remnants"])
@@ -679,7 +681,7 @@ func _husk_kind(ignore_room: bool) -> String:
 			if sc > best_sc:
 				best_sc = sc
 				best = str(kind)
-	return best
+	return best if best_sc >= KEEP_SHARE else ""
 
 
 ## Giants and carvers where the bigs on the front (front == it) bring less than its want (_big_want, at Vei's full pool):

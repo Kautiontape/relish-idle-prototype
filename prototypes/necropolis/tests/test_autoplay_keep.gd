@@ -156,20 +156,32 @@ func _husk_policy(c: Dictionary) -> void:
 		b.new_game()
 		b.s.remnants.clear()
 		b.s.husks.clear()
-		for i in n + 1:
+		for i in n:  # the craft's: the weakest
 			b.s.remnants.append({"uid": b.s._mint_uid("r"), "aspect": "wits", "rarity": "common", "magnitude": 1 + i % 3})
+		for _i in 2:  # left for the raise: a skeleton's two nerve slots, wits 10, over KEEP_SHARE of giants' want
+			b.s.remnants.append({"uid": b.s._mint_uid("r"), "aspect": "wits", "rarity": "rare", "magnitude": 5})
 		b.s.town_sim.bone = 120.0
 		return b
 	var a: Autoplayer = mk.call("a")
 	a._craft_husk()
-	t.ok(a.crafted.size() == 1 and str(a.crafted[0][1]) == "skeleton" and a.s.husks.size() == 1 and a.s.remnants.size() == 1,
-		"both fronts short, room, bone and a remnant to spare: a skeleton is crafted (%s; %d remnant left)" % [str(a.crafted), a.s.remnants.size()])
+	t.ok(a.crafted.size() == 1 and str(a.crafted[0][1]) == "skeleton" and a.s.husks.size() == 1 and a.s.remnants.size() == 2,
+		"both fronts short, room, bone and remnants to spare: a skeleton is crafted (%s; %d remnants left)" % [str(a.crafted), a.s.remnants.size()])
 	a.s.town_sim.bone = 120.0
-	for i in n - 1:
-		a.s.remnants.append({"uid": a.s._mint_uid("r"), "aspect": "wits", "rarity": "common", "magnitude": 1})
+	a.s.remnants.clear()
+	for _i in n:
+		a.s.remnants.append({"uid": a.s._mint_uid("r"), "aspect": "wits", "rarity": "rare", "magnitude": 5})
 	a._craft_husk()
-	t.ok(a.crafted.size() == 1, "the bone back and %d remnants, exactly the craft's (none to spare for the raise): no second craft" % n)
+	t.ok(a.crafted.size() == 1, "the bone back and %d strong remnants, exactly the craft's (none to spare for the raise): no second craft" % n)
 	a.cleanup()
+
+	# the remnants left would fill a skeleton to wits 1 (under KEEP_SHARE of giants' want): no craft
+	var wk: Autoplayer = mk.call("weak")
+	wk.s.remnants.clear()
+	for _i in n + 1:
+		wk.s.remnants.append({"uid": wk.s._mint_uid("r"), "aspect": "wits", "rarity": "common", "magnitude": 1})
+	wk._craft_husk()
+	t.ok(wk.crafted.is_empty(), "a body too weak to keep (wits 1 of giants' want %.1f) isn't made" % float(wk._big_want()["giants"]))
+	wk.cleanup()
 
 	var w: Autoplayer = mk.call("wait")
 	var qr := w.s.cmd_queue_build("", "lot-04")
