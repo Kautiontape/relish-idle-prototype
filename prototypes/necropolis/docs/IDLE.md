@@ -660,7 +660,8 @@ same profile with the game closed.
   (a new game's gold: 12.8 h to its 9 750 with the start Market; BALANCE §5 has the sizing).
 - **Overflow is tallied beside the ledger** (`ledger().stores`; gold and bone are not mass, so the mass
   soak is unaffected and `sinks.store_overflow` stays 0). The report shows how much was not stored (T3.3;
-  W: "Gold is full: 2,162 not stored").
+  W: "Gold is full: 2,162 not stored"), since E4 step 7 as a ready action, not a loss: "Gold filled up, 2,162 not
+  stored: queue more, or raid for relics" (§7).
 
 ## 7. The away report
 When you come back (after any load, or a gap over `idle.report_min_s`, 10 minutes), the map opens on
@@ -704,8 +705,15 @@ a **"While you were away"** panel. It is ordered **gains, then ready actions, th
     `idle.report.full_tol` of its cap: 1%) and the queue empty, the plateau is the wall Shawn asked for, and
     the report says so as a prompt, not neutral text: "Your stores are full and the queue is empty: raid a
     fort for relics" (`kind` `raid`, `target` `""`), in place of "Queue empty" (W: no build can be planned
-    without relics, so the two would contradict each other). The full store's line stays in losses for now
-    (E4 moves it). A non-empty queue never gets this prompt; the wall below is its form.
+    without relics, so the two would contradict each other). The full store's own line is a ready action too
+    (below). A non-empty queue never gets this prompt; the wall below is its form.
+  - **A store that filled up** (E4 step 7, the brief's "stores full: queue more, or raid for relics"; it was a
+    loss until then): each store whose cap clipped at least `idle.report.overflow_min` while you were away gets
+    "Gold filled up, 2,162 not stored: queue more, or raid for relics" (`overflow_fmt`, kind `overflow`, target
+    `queue`), after the queue's lines. "Filled up", not "is full", because the store may have been spent since.
+    What it says to do: queue a build that spends it, or raid for the relics a gated build waits on. With the
+    stores full and the queue empty it follows the raid prompt above, which is the same advice with the amount
+    left out.
   - **The relics wall** (W2, the run's manager for Shawn): a queue of only relic-gated builds is the plateau
     Shawn wants visible, and the walk skips such an entry (`skipped_gate`, reason `no_relics`), so it never
     became a waiting head and the queue got no line. When the absence ends with no entry able to start and at
@@ -727,8 +735,9 @@ a **"While you were away"** panel. It is ordered **gains, then ready actions, th
     report's minute rounding, `since < 60.0` in `StateViews.away_report`, the same as the unpaid line's
     "briefly" in `_unpaid_lines`; not a tuning number.
 - **losses:** "Ashgate retaken: raid it to win it back", villages lost, each building that went unpaid,
-  each building the Thrift stance idled (E3-1),
-  each store that was full ("Gold is full: 2,162 not stored": what came in over its cap, not called waste, W).
+  each building the Thrift stance idled (E3-1). A store that filled up is no longer a loss (E4 step 7: it is
+  a ready action, above; it was "Gold is full: 2,162 not stored" here, W's words for what came in over its cap,
+  never called waste).
   An absence with no losses says **"Nothing lost."**
   - **Unpaid** (R1, the run's manager; W words it as a returning player reads it): one line per building
     that was unpaid at some time during the absence, in lot order, with how long it was stopped in all (its

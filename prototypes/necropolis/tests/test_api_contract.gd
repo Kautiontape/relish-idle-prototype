@@ -615,8 +615,17 @@ func _persistence(s: GameState) -> void:
 	_cmd(s, "cmd_load", ["future"], false)
 	t.ok(s.cmd_load("future")["reason"] == "bad_version" and s.cmd_load("junk")["reason"] == "no_save" and s.cmd_load("nothing")["reason"] == "no_save",
 		"bad_version for a future file, no_save for a corrupt or missing one")
-	# T3.3c: the away report, from a chunked load 10 min on with gold at its cap (an overflow among the losses)
+	# T3.3c: the away report, from a chunked load 10 min on with gold at its cap (an overflow: a ready line since E4
+	# step 7) and one paying building unpaid when you leave (an unpaid line among the losses; until E4 step 7 the
+	# overflow was the loss)
 	s.cmd_debug_grant({"gold": 1.0e9})
+	for lot_id in s.town_sim.buildings:
+		var bd: Dictionary = s.town_sim.buildings[lot_id]
+		var bid := str(bd["building_id"])
+		if str(bd["state"]) == "active" and s.town_sim.upkeep_gold_of(bid) > 0.0 and not s.town_sim.earns_gold(bid):
+			bd["state"] = "unpaid"
+			bd["unpaid_s"] = 0.0
+			break
 	_cmd(s, "cmd_save", ["away"], true)
 	s.clock_override += 600
 	t.ok(s.cmd_load("away", true)["ok"] and s.catching_up(), "(setup) a chunked load 10 min on")

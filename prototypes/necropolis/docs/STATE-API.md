@@ -2313,14 +2313,16 @@ The "While you were away" report, for the map's panel (`AwayLogic`, Phase I).
   bone are each within `idle.report.full_tol` (0.01) of their caps, the raid prompt `"Your stores are full and
   the queue is empty: raid a fort for relics"` (`raid`, `""`: a `raid` line with no fort, which
   `AwayLogic.action` reads as `none` today: additive for map, a meaning change of the kind), in place of
-  `"Queue empty"` (W: no build can be planned without relics).
+  `"Queue empty"` (W: no build can be planned without relics). Last (E4 step 7; text and report rules only, no key
+  or shape change, so no version bump), each store's overflow from the change in `ledger().stores`, from
+  `idle.report.overflow_min` (1) not stored (`overflow`, `"queue"`, so the map's click dives to the queue),
+  `"Gold filled up, 120 not stored: queue more, or raid for relics"`. It was a loss until E4 step 7 (`overflow`,
+  `""`, `"Gold is full: 120 not stored"`).
 - **losses:** each fort retaken during the absence, in order (`retaken`, the fort), `"Vespers retaken: raid
   it to win it back"`, or, when Relish stood there and walked home (its `relish_returned` was collected
   with the rest, so this line and `view_relish().returned` are how the player learns of it), `"Vespers
   retaken, Relish walked home: raid it to win it back"`; each village yours when you left (`player`) and
-  Vei's at the end (`village_lost`, `""`), `"village Lorn lost to Vei"`; each store's overflow from the change
-  in `ledger().stores`, from `idle.report.overflow_min` (1) not stored (`overflow`, `""`), `"Gold is full: 120
-  not stored"` (W: not called waste); before it, from v7 (R1), each building that went unpaid during the absence,
+  Vei's at the end (`village_lost`, `""`), `"village Lorn lost to Vei"`; then, from v7 (R1), each building that went unpaid during the absence,
   in lot order (`unpaid`, its lot id), worded by W: `"<label> stopped for <time>, <store> ran out: <what it
   stopped doing>"`, `"Statue of Relish stopped for 1 h 12 m, gold ran out: lifted no morale, deaths shook the town
   harder"`. The time is the sum of its spells from the collected `building_unpaid` events (true, then false; §6):
@@ -2360,7 +2362,8 @@ Game.state.view_away()  # midgame_2flips loaded 12 h after its save (shipped con
 #             {text: "Queue empty: plan the next build", kind: "queue", target: "queue"}],
 #     losses: [{text: "Old Sluice retaken: raid it to win it back", kind: "retaken", target: "old-sluice"}]}
 # with Ashgate's yield spent before the save, gains and ready add "Ashgate refilled" and "Ashgate refilled: raid
-# it"; with gold near its cap, losses add "Gold is full: 2,162 not stored" (tests/test_away.gd), and, with its bone
+# it"; with gold near its cap, ready adds "Gold filled up, 2,162 not stored: queue more, or raid for relics"
+# (overflow, "queue"; a loss until E4 step 7; tests/test_away.gd), and, with its bone
 # over its cap as midgame_2flips' is, ready shows "Your stores are full and the queue is empty: raid a fort for
 # relics" (raid, "") in place of "Queue empty" (R2; W)
 Game.state.view_away()  # day1 with its bone spent and no mill, a House and a Well queued, loaded 8 h on (R2)

@@ -56,7 +56,9 @@ const PARENT := {
 	# upkeep), so one building_unpaid event fewer in each (15, not 16), and the report gains its "Still stopped" line.
 	# The caught values agree with test_backups' re-pinned pre_vei.
 	"pre_vei": {"live": {"state": "eee267d107ec2fbd", "events": "618ddc3b937abcfb", "n_events": 15},
-		"caught": {"state": "7f1c4934d9f9b71f", "events": "e3093d57d7355dc3", "away": "982d56f53ab916e3", "n_events": 15, "steps": 4321}},
+		"caught": {"state": "7f1c4934d9f9b71f", "events": "e3093d57d7355dc3", "away": "73b76696c5f7c473", "n_events": 15, "steps": 4321}},
+	# E4 step 7: pre_vei's caught report above and PARENT_C3's below re-pinned for the away report only (the full store's
+	# line moved from losses to ready; was 982d56f5… and a3210db8…), as test_backups'; states and events unchanged
 	"midgame_2flips": {"live": {"state": "28455d227ef8dfb9", "events": "ea617806913ef19a", "n_events": 122},
 		"caught": {"state": "a73efc4bf5c5eb49", "events": "b70fcb08d9680016", "away": "167e638fef59771b", "n_events": 240, "steps": 4355}},
 }
@@ -64,7 +66,7 @@ const PARENT := {
 ## from the same harness on a git archive of it (the same with none moved: the siege did nothing there). Re-pinned at
 ## E4 step 3 as PARENT is.
 const PARENT_C3 := {"live": {"state": "b1b8795996bdf3a6", "events": "ea617806913ef19a", "n_events": 122},
-	"caught": {"state": "2d724838b9655d76", "events": "b70fcb08d9680016", "away": "a3210db8ca950ed8", "n_events": 240, "steps": 4355}}
+	"caught": {"state": "2d724838b9655d76", "events": "b70fcb08d9680016", "away": "235bce4c35be01e7", "n_events": 240, "steps": 4355}}
 ## The foreman in the per-kind cases: speed 4 (m = 1.0 + 4 × 0.05 = 1.2), presence 5 (+0.05 morale).
 const FM := {"speed": 4.0, "presence": 5.0}
 

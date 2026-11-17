@@ -20,7 +20,8 @@ extends RefCounted
 ##   queue is empty (not when a store is under full_tol of its cap, nor with a gated entry queued).
 ## - W: the report reads as a returning player speaks: "<name> stopped for <time>, gold ran out: <what it stopped>"
 ##   (briefly under a minute; no tail when it stopped nothing), "<name> started <time> after you left, <why>", "at the
-##   current income of", "needs relics: raid a fort", "Gold is full: <n> not stored", and the raid prompt in place of
+##   current income of", "needs relics: raid a fort", "Gold filled up, <n> not stored: queue more, or raid for relics"
+##   (a ready line since E4 step 7), and the raid prompt in place of
 ##   "Queue empty"; every line of the reports is filled.
 ## Saves go under user://test_away_<pid>, removed at the end. The field is shrunk (8 × 6) and its pre-warm
 ## off, as tests/test_catchup.gd does.
@@ -634,7 +635,8 @@ func _queue_start(c: Dictionary) -> GameState:
 ## Sections (IDLE §7): a 12 h catch-up of _report_start's midgame_2flips gives the streams first (in
 ## idle.report.streams' order, kind stream), Ashgate refilled (gains) and "raid it" (ready, its target the
 ## fort), the 2 husks (target slab), the empty queue with its stores full, so the raid prompt in place of "Queue
-## empty" (W), Old Sluice retaken, Tarnish lost and gold full, "Gold is full: 2,162 not stored" (losses); a 1 h
+## empty" (W), and gold full, "Gold filled up, 2,162 not stored: queue more, or raid for relics" (ready since E4
+## step 7, target the queue); Old Sluice retaken and Tarnish lost (losses); a 1 h
 ## catch-up of _queue_start's gives the builds finished and each queued build's start with when and why: "Inn
 ## started right away", "Bakery started 6 m after you left, when the gold came in" (W).
 func _report_sections(c: Dictionary, n: GameState, q: GameState) -> void:
@@ -665,10 +667,12 @@ func _report_sections(c: Dictionary, n: GameState, q: GameState) -> void:
 	# (E3-3: with u9's siege blunting Ashgate's waves the report loses Bellwether first, then Tarnish)
 	t.ok(_find(rep, "losses", "village_lost", "Tarnish") == {"text": "village Tarnish lost to Vei", "kind": "village_lost", "target": ""}, "losses: village Tarnish lost")
 	var over := float(n.ledger()["stores"]["gold"]["overflow"])
-	var ol := _find(rep, "losses", "overflow")
-	t.ok(over > 1.0 and not ol.is_empty() and ol["text"] == "Gold is full: %s not stored" % _commas(roundi(over)) and ol["target"] == "",
-		"losses: %s" % str(ol.get("text", "")))
-	t.ok(_find(rep, "losses", "overflow", "Bone").is_empty() and float(n.ledger()["stores"]["bone"]["overflow"]) < 1.0,
+	# E4 step 7: the full store is a ready action now (target the queue), and no longer a loss
+	var ol := _find(rep, "ready", "overflow")
+	t.ok(over > 1.0 and not ol.is_empty() and ol["text"] == "Gold filled up, %s not stored: queue more, or raid for relics" % _commas(roundi(over))
+		and ol["target"] == "queue", "ready: %s" % str(ol.get("text", "")))
+	t.ok(_find(rep, "losses", "overflow").is_empty(), "no overflow line among the losses (E4 step 7): %s" % str(rep["losses"].map(func(l): return l["text"])))
+	t.ok(_find(rep, "ready", "overflow", "Bone").is_empty() and float(n.ledger()["stores"]["bone"]["overflow"]) < 1.0,
 		"no bone line: its %.2f bone of overflow is under idle.report.overflow_min" % float(n.ledger()["stores"]["bone"]["overflow"]))
 	# the queue
 	var qr := q.view_away()
@@ -876,7 +880,8 @@ func _report() -> void:
 
 ## W (the run's manager): every line of the reports above, built through the away path, is filled (no "{…}" left,
 ## none empty), and between them they render each form W reworded: the unpaid line for a time and briefly, with its
-## tail and without; a start after you left and right away; a full store; each stuck form "at the current income
+## tail and without; a start after you left and right away; a full store (E4 step 7: "filled up, … not stored: queue
+## more, or raid for relics"); each stuck form "at the current income
 ## of"; and the raid prompt with "Queue empty" not beside it. (The relics forms, which no head reaches through the
 ## walk today, are rendered through StateViews.afford_text in _report_afford_words.)
 func _report_filled(reps: Array) -> void:
@@ -898,7 +903,7 @@ func _report_filled(reps: Array) -> void:
 		"started_now_fmt": func(x: String): return x.ends_with(" started right away"),
 		"started_brief_fmt": func(x: String): return x.contains(" started within a minute of you leaving, ") and not x.contains(" 0 m "),
 		"afford_relics_last_fmt": func(x: String): return x.ends_with(" needs relics: raid a fort"),
-		"overflow_fmt": func(x: String): return x.begins_with("Gold is full: ") and x.ends_with(" not stored"),
+		"overflow_fmt": func(x: String): return x.begins_with("Gold filled up, ") and x.ends_with(" not stored: queue more, or raid for relics"),
 		"afford_never_fmt": func(x: String): return x.contains(" can't be afforded at the current income of ") and x.contains(": move it down, or build a "),
 		"afford_never_last_fmt": func(x: String): return x.contains(" can't be afforded at the current income of ") and x.contains(": build a ") and not x.contains("move it down"),
 		"afford_never_self_fmt": func(x: String): return x.contains(" can't be afforded at the current income of ") and x.ends_with(", and nothing else makes bone: move it down"),

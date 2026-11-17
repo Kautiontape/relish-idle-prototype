@@ -38,15 +38,17 @@ const TIP := {
 	# through 179 waves, one more starting inside the 12 h: 4 424 steps, 365 events less stance_fired); Old Sluice's
 	# retake is unchanged (4 917.2 s). Her backlog gains +224,003 against +216,247, and the report adds "village
 	# Bellwether lost to Vei". With u8 and u9 in the crypt it is 0e4f932's (test_big_undead)
+	# E4 step 7: the away report only (the full store's line moved from losses to ready), as test_backups' re-pin;
+	# state and events unchanged (was 61a7e99c…; pre_vei below was 982d56f5…)
 	"midgame_2flips": {"state": "eddec8267b5eaf04dc486e16370207748e560ca971e6333c08f07ca085f7b9ed",
 		"events": "d65e73ac632b43279456c3e4548c2d3995c93bfad1a7957ed6f4c4c97e95742f",
-		"away": "61a7e99c39d5a96ce519ca8d5ff447f68cd70a6a52752bc2b2e762cd78beefdc", "steps": 4355, "n_events": 237},
+		"away": "de13aae3e94066ceb8fff2588e2bc4e8aae7eab90f8437392b5c264b01528e42", "steps": 4355, "n_events": 237},
 	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i); the standing re-pin rule): the second House
 	# no longer resumes after the floor, so one event fewer (10, not 11; stance_fired aside), and the away report is
 	# test_backups' re-pinned pre_vei report ("Still stopped, ... Build a Market").
 	"pre_vei": {"state": "febd8f3c141aa3793aefe0914417b9817237b176737dae0f6112d6cb97d939a0",
 		"events": "efa1e63ebbc4696325c4165bb19bde5bc21019c63723ee23dab7ee4a6a7bb84d",
-		"away": "982d56f53ab916e3556e91ec088b2d76aa65deac651e44cc8b2b7ded1901727a", "steps": 4321, "n_events": 10},
+		"away": "73b76696c5f7c4735bd20f5090c3d0a61e1295478ece702ce2a4f5e7122ce231", "steps": 4321, "n_events": 10},
 }
 
 

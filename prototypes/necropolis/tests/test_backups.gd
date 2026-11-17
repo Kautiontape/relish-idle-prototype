@@ -49,9 +49,12 @@ const TIP := {
 	# through 179 waves, one more starting inside the 12 h: 4 424 steps, 368 events); Old Sluice's retake is unchanged
 	# (4 917.2 s). Her backlog gains +224,003 against +216,247, and the report adds "village Bellwether lost to Vei".
 	# With u8 and u9 in the crypt it is 0e4f932's (test_big_undead)
+	# E4 step 7 (the standing re-pin rule): the away report only, for the full store's line moving from losses to ready
+	# ("Gold filled up, 193 not stored: queue more, or raid for relics", target the queue); the state and events are
+	# unchanged (was 61a7e99c…). The same for pre_vei below (bone; was 982d56f5…)
 	"midgame_2flips": {"state": "b1469601055f2e47fd6d128250b8edc058229c0f8dd8e7ab3f44433bdf612d86",
 		"events": "3909f7cddb0706c1e8054758b56c73626e73f4d532bf7e19771d441b9036c68e",
-		"away": "61a7e99c39d5a96ce519ca8d5ff447f68cd70a6a52752bc2b2e762cd78beefdc", "steps": 4355, "n_events": 240},
+		"away": "de13aae3e94066ceb8fff2588e2bc4e8aae7eab90f8437392b5c264b01528e42", "steps": 4355, "n_events": 240},
 	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i) on the gold-trap stop; the standing re-pin
 	# rule): its floor sheds as before, but only one of the two Houses resumes, since the second would leave the gold
 	# income (0.60) exactly at the paying upkeep, so one building_unpaid event fewer (15, not 16); the gold climbs at
@@ -59,7 +62,7 @@ const TIP := {
 	# midgame_2flips shed nothing in their 12 h, so they don't move.
 	"pre_vei": {"state": "5bc97b178adac2190e664ae2c2e6a9dbabaacfe28971e2efbc953e9a2f2a3cb4",
 		"events": "e3093d57d7355dc31433aca50040e476c11b5e6fa89ed1372a608aa1860d5a84",
-		"away": "982d56f53ab916e3556e91ec088b2d76aa65deac651e44cc8b2b7ded1901727a", "steps": 4321, "n_events": 15},
+		"away": "73b76696c5f7c4735bd20f5090c3d0a61e1295478ece702ce2a4f5e7122ce231", "steps": 4321, "n_events": 15},
 }
 
 

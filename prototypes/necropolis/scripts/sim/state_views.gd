@@ -1042,7 +1042,15 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 				ready.append(_away_line(str(rep["afford_upkeep_fmt"]).format({
 					"name": _building_name(gs, rep, str(row["building_id"]), int(row["level"])),
 					"rate": _fmt_rate(rep, gs.town_sim.gold_income())}), "queue", "queue"))
-	# losses: each fort retaken (Relish's walk home with it), each village lost, each store's overflow
+	# E4 step 7 (the brief's "stores full: queue more, or raid for relics"): each store that filled up is a ready action,
+	# not a loss: what came in over its cap, and what would use it (a queued build, or the relics a gated one needs).
+	# Kind overflow as before; its target is now the queue
+	var o := _overflow(gs)
+	for k in ["gold", "bone"]:
+		var lost := float(o[k]) - float(b["overflow"][k])
+		if lost >= float(rep["overflow_min"]):
+			ready.append(_away_line(str(rep["overflow_fmt"]).format({"store": str(rep["store_labels"][k]), "n": _fmt_count(rep, lost)}), "overflow", "queue"))
+	# losses: each fort retaken (Relish's walk home with it), each village lost, each building unpaid or idled
 	for id in retaken:
 		var f := gs.realm.fort_by_id(id)
 		var fmt := str(rep["retaken_home_fmt"] if walked.has(id) else rep["retaken_fmt"])
@@ -1052,11 +1060,6 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 			losses.append(_away_line(str(rep["village_lost_fmt"]).format({"village": str(tw["name"])}), "village_lost", ""))
 	losses.append_array(_unpaid_lines(gs, rep, b, evs))
 	losses.append_array(_thrift_lines(gs, rep, b, gs._catchup.thrift_log))
-	var o := _overflow(gs)
-	for k in ["gold", "bone"]:
-		var lost := float(o[k]) - float(b["overflow"][k])
-		if lost >= float(rep["overflow_min"]):
-			losses.append(_away_line(str(rep["overflow_fmt"]).format({"store": str(rep["store_labels"][k]), "n": _fmt_count(rep, lost)}), "overflow", ""))
 	return {"shown": true, "away_s": away_s, "capped": capped, "gains": gains, "ready": ready, "losses": losses}
 
 

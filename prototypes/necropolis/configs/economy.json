@@ -53,7 +53,7 @@
       "retaken_fmt": "{fort} retaken: raid it to win it back",
       "retaken_home_fmt": "{fort} retaken, Relish walked home: raid it to win it back",
       "village_lost_fmt": "village {village} lost to Vei",
-      "overflow_fmt": "{store} is full: {n} not stored", "store_labels": { "gold": "Gold", "bone": "Bone" }, "overflow_min": 1.0,
+      "overflow_fmt": "{store} filled up, {n} not stored: queue more, or raid for relics", "store_labels": { "gold": "Gold", "bone": "Bone" }, "overflow_min": 1.0,
       "afford_wait_fmt": "{name} is waiting on {store}: affordable in {when}",
       "afford_never_fmt": "{name} can't be afforded at the current income of {rate} {store}: move it down, or {raise}",
       "afford_never_last_fmt": "{name} can't be afforded at the current income of {rate} {store}: {raise}",
