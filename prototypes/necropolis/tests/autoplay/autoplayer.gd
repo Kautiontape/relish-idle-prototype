@@ -658,27 +658,27 @@ func _craft_husk() -> void:
 		crafted.append([_r(s.t / 3600.0), kind])
 
 
-## The husk the bot would craft now, "" for none. It crafts when giants or carvers is short (_short_fronts), the crypt has
-## room for one more (the bigs and the husks waiting under the cap; `ignore_room` skips this, for _fill's crypt trigger),
-## a remnant would be left for the raise, the bone covers economy.json craft.husk's price, and the queue's head doesn't
-## wait on bone. The kind (loot.json chest_by_tier 1's husk_kinds) is the one whose slab fill (_slab_fill, on the
-## remnants the craft leaves: GameState.husk_craft_pick) brings the larger share of a short front's want, in list order
-## on a tie; none is made unless that share is at least KEEP_SHARE, so the body would be a keeper candidate there (a
-## body too weak to keep isn't worth the remnants: continuous at e299d87 ground its thin remnants into wits-2 skeletons
-## and its giants front sat at 9/14 from day 3).
+## The husk the bot would craft now, "" for none. It reads the player's source, view_catalog().husk_craft (the E4 review:
+## its kinds, its price and the reason the craft would answer), never the raw configs. It crafts when the craft would
+## go (reason ""; `ignore_room` also takes at_cap, the crypt full, for _fill's crypt trigger), giants or carvers is
+## short (_short_fronts), a remnant would be left for the raise, and the queue's head doesn't wait on bone. The kind
+## (husk_craft.kinds) is the one whose slab fill (_slab_fill, on the remnants the craft leaves:
+## GameState.husk_craft_pick) brings the larger share of a short front's want, in list order on a tie; none is made
+## unless that share is at least KEEP_SHARE, so the body would be a keeper candidate there (a body too weak to keep isn't
+## worth the remnants: continuous at e299d87 ground its thin remnants into wits-2 skeletons and its giants front sat at
+## 9/14 from day 3).
 func _husk_kind(ignore_room: bool) -> String:
-	var hc: Dictionary = c["economy"]["craft"]["husk"]
-	var n := int(hc["remnants"])
-	var tn := s.view_town()
-	if float(tn["bone"]) < float(hc["bone"]):
+	var hc: Dictionary = s.view_catalog()["husk_craft"]
+	var why := str(hc["reason"])
+	if why != "" and not (ignore_room and why == "at_cap"):
 		return ""
+	var n := int(hc["cost"]["remnants"])
 	var inv := s.view_inventory()
 	var rems: Array = inv["remnants"]
 	if rems.size() <= n:
 		return ""
 	var bu := s.view_big_undead()
-	if not ignore_room and int(bu["count"]) + (inv["husks"] as Array).size() >= int(bu["cap"]):
-		return ""
+	var tn := s.view_town()
 	var q: Array = tn["queue"]
 	var h := _head(q)
 	if h >= 0 and str(q[h]["status"]) == "waiting_funds" and str(q[h]["reason"]) == "no_bone":
@@ -693,7 +693,7 @@ func _husk_kind(ignore_room: bool) -> String:
 	var slab: Dictionary = c["town"]["slab"]
 	var best := ""
 	var best_sc := 0.0
-	for kind in c["loot"]["chest_by_tier"]["1"]["husk_kinds"]:
+	for kind in hc["kinds"]:
 		var st: Dictionary = SlabLogic.evaluate(str(kind), _slab_fill(str(kind), rest, slab), slab)["stats"]
 		for fid in short:
 			var fc: Dictionary = c["vei"]["fronts"][fid]
@@ -1745,7 +1745,7 @@ func policy() -> Dictionary:
 		"keep": ("the bigs whose stat brings >= %.2f of what the bigs must bring to giants or carvers, best first, as many as meet each front's want, the better-covered front first; at most cap - %d in all, one front a big" % [KEEP_SHARE, RAID_ROOM]) if keep_fronts else "none",
 		"placement": "the party fills first (oldest bigs, up to %d), fronts by best stat; the first spare foreman at the Market, at the Bone Mill while the head waits on bone; later spares in the crypt; sieges only in away_risk's prepared setup" % PARTY_MAX,
 		"vats": "best case: staffed as soon as a Chapel of Vats exists",
-		"craft": "one phylactery charge whenever it can be crafted and none is held; no simulacra (except away_risk prepared); a t1 husk (economy.json craft.husk: the weakest remnants and bone) when giants or carvers is short of its want, the crypt has room, a remnant is left for the raise and the queue's head doesn't wait on bone, of the kind whose fill brings the larger share of a short front's want",
+		"craft": "one phylactery charge whenever it can be crafted and none is held; no simulacra (except away_risk prepared); a t1 husk (view_catalog().husk_craft: the weakest remnants and bone) when giants or carvers is short of its want, the crypt has room, a remnant is left for the raise and the queue's head doesn't wait on bone, of the kind whose fill brings the larger share of a short front's want",
 		"stances": "vigil and harvest on", "valve": "default (except away_risk prepared)",
 		"schedule": "3 x 20 min sessions a sim day at 00:00, 04:00, 08:00; closed 3 h 40 m, 3 h 40 m, 15 h 40 m",
 	}

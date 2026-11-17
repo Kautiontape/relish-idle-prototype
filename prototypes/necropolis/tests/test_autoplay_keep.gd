@@ -210,6 +210,21 @@ func _husk_policy(c: Dictionary) -> void:
 	t.ok(m._keep.size() == 2 and m.crafted.is_empty(), "both fronts met by their keepers: no craft (%s)" % str(m._keep))
 	m.cleanup()
 
+	# The bot reads the player's source, view_catalog().husk_craft, not its raw configs (the E4 review): its own copy says
+	# the craft costs 1e9 bone and 99 remnants and makes zombies only, the state's (the view's) says 100 bone, n remnants,
+	# skeleton or zombie, so a craft of a skeleton is the view's answer
+	var vw: Autoplayer = mk.call("view")
+	vw.c = cl.duplicate(true)
+	vw.c["economy"]["craft"]["husk"]["bone"] = 1e9
+	vw.c["economy"]["craft"]["husk"]["remnants"] = 99
+	vw.c["loot"]["chest_by_tier"]["1"]["husk_kinds"] = ["zombie"]
+	var hcv: Dictionary = vw.s.view_catalog()["husk_craft"]
+	t.ok(bool(hcv["can_craft"]) and float(hcv["cost"]["bone"]) == 100.0 and hcv["kinds"].has("skeleton"), "(setup) the view: %s" % str(hcv))
+	vw._craft_husk()
+	t.ok(vw.crafted.size() == 1 and str(vw.crafted[0][1]) == "skeleton",
+		"the bot follows the view's price and kinds, not its raw configs: %s" % str(vw.crafted))
+	vw.cleanup()
+
 
 static func _queued(gs: GameState, lot: String) -> bool:
 	for e in gs.view_town()["queue"]:
