@@ -99,6 +99,12 @@ var _banking := false  # bank_bigs' latch: set at the first look that finds gian
 var keep_fronts := true  # E4 step 2: good front bigs stay home (_keepers) and the rest raid; off = the E3 policy
 var _keep: Array = []  # keep_fronts: the keepers' uids at the last look (_place); _raid leaves them home
 var _crypt_up := false  # the crypt-level latch (_fill): set at the first look that keeps a big, or finds the crypt full while a husk waits
+var crypt_up_t := -1.0  # when _crypt_up set (s.t), -1 never; it never clears, so it can't churn (the E4 review's item 5)
+## The keepers' churn (the E4 review's item 5, a report): looks whose keepers changed, keepers dropped while still held
+## (churn proper: a big leaves the fronts with nothing lost), drops re-kept later (flip_backs), and the looks where the
+## other front order won, by the tie-break that chose it (_keepers: met, kept, cov).
+var keep_churn := {"looks": 0, "changes": 0, "drops_held": 0, "flip_backs": 0, "alt_by": {"met": 0, "kept": 0, "cov": 0}}
+var _dropped := {}  # uid: true, a keeper dropped while held (keep_churn's flip_backs)
 var raised: Array = []  # every big raised: [t_h, kind, wits, beef]
 var crafted: Array = []  # every husk crafted (_craft_husk): [t_h, kind]
 var print_rows := true
@@ -496,8 +502,26 @@ func _keepers() -> Dictionary:
 		var kb := _kept_of(best["uids"])
 		if int(alt["met"]) > int(best["met"]) or (int(alt["met"]) == int(best["met"]) and (ka > kb
 				or (ka == kb and float(alt["cov"]) > float(best["cov"]) + 1e-9))):
+			var by := "met" if int(alt["met"]) > int(best["met"]) else ("kept" if ka > kb else "cov")
+			keep_churn["alt_by"][by] = int(keep_churn["alt_by"][by]) + 1
 			best = alt
 	return {} if (best["uids"] as Array).is_empty() else {"uids": best["uids"], "front_of": best["front_of"]}
+
+
+## keep_churn's tally for one look: `was` the last look's keepers, `held` the bigs held now (uids).
+func _count_churn(was: Array, held: Array) -> void:
+	keep_churn["looks"] = int(keep_churn["looks"]) + 1
+	var same := was.size() == _keep.size() and was.all(func(u): return _keep.has(u))
+	if not same:
+		keep_churn["changes"] = int(keep_churn["changes"]) + 1
+	for u in was:
+		if not _keep.has(u) and held.has(u):
+			keep_churn["drops_held"] = int(keep_churn["drops_held"]) + 1
+			_dropped[u] = true
+	for u in _keep:
+		if _dropped.has(u):
+			keep_churn["flip_backs"] = int(keep_churn["flip_backs"]) + 1
+			_dropped.erase(u)
 
 
 ## How many of `uids` are keepers now (_keep, the last look's).
@@ -545,7 +569,9 @@ func _place() -> void:
 	for b in s.view_big_undead()["big_undead"]:
 		uids.append(str(b["uid"]))
 	var keep := _keepers()
+	var was: Array = _keep
 	_keep = (keep.get("uids", []) as Array).duplicate()
+	_count_churn(was, uids)
 	var rest: Array = []
 	for u in uids:
 		if not _keep.has(u):
@@ -751,6 +777,8 @@ func _fill() -> void:
 		var bu := s.view_big_undead()
 		_crypt_up = not _keep.is_empty() or (int(bu["count"]) >= int(bu["cap"])
 			and (not (s.view_inventory()["husks"] as Array).is_empty() or _husk_kind(true) != ""))
+		if _crypt_up:
+			crypt_up_t = s.t
 	var tn := s.view_town()
 	var q: Array = tn["queue"]
 	var qmax := int(tn["queue_max"])
@@ -1818,7 +1846,8 @@ func summary() -> Dictionary:
 		"never": vei_ready_t < 0.0, "ready_wave_t": vei_ready_wave_t,
 		"ready_wave_day": _r(vei_ready_wave_t / DAY) if vei_ready_wave_t >= 0.0 else -1.0,
 		"basis": "ready: fronts at her full pool, at the look and on arrival; ready_wave: at the pool she has then, at the look only",
-		"fronts_daily": fronts_daily, "raised": raised, "crafted": crafted}
+		"fronts_daily": fronts_daily, "raised": raised, "crafted": crafted,
+		"keep_churn": keep_churn, "crypt_up_h": _r(crypt_up_t / 3600.0) if crypt_up_t >= 0.0 else -1.0}
 	out["relics"] = _relics()
 	out["first_t2_raid"] = first_raid.get("t2", {})
 	out["first_t3_raid"] = first_raid.get("t3", {})

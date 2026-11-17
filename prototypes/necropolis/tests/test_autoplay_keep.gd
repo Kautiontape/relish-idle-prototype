@@ -107,6 +107,14 @@ func _two_fronts(c: Dictionary) -> void:
 	_big(bs.s, 0.0, _stat_for(c, w["carvers"], "carvers", 0.41))
 	bs._place()
 	t.ok(bs._keep == gk + [c1], "two more carvers bigs, one front met either way: today's keepers stay (%s)" % str(bs._keep))
+	# churn (the E4 review's item 5): a look on an unchanged state keeps the same keepers and sends no party command
+	bs.record = true
+	var ch0: Dictionary = bs.keep_churn.duplicate(true)
+	bs._place()
+	t.ok(bs._keep == gk + [c1] and bs.cmd_log.is_empty() and int(bs.keep_churn["changes"]) == int(ch0["changes"]),
+		"a repeat look on an unchanged state: the same keepers, no command (%s, %d commands)" % [str(bs._keep), bs.cmd_log.size()])
+	t.ok(int(bs.keep_churn["looks"]) == 3 and int(bs.keep_churn["changes"]) == 1 and int(bs.keep_churn["drops_held"]) == 0
+		and int(bs.keep_churn["flip_backs"]) == 0, "keep_churn over the three looks: one change (the first), no keeper dropped: %s" % str(bs.keep_churn))
 	bs.cleanup()
 
 
