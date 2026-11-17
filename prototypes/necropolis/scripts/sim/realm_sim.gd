@@ -793,6 +793,7 @@ func _step_part(dt: float, inputs: Dictionary, at: float) -> void:
 	# pulls at all) and restarts whenever it doesn't; break_s of it retakes the fort, at that moment.
 	# It counts only the time at 0: from t_undead_out (the part's start when it began there) to
 	# t_undead_back when U left 0 inside the part, else to the part's end
+	var split: Array = []  # (the step 9 review's item 5) the part's settled WAR split, read once at its first retake
 	for i in forts.size():
 		var f: Dictionary = forts[i]
 		if not held_i[i]:
@@ -809,7 +810,7 @@ func _step_part(dt: float, inputs: Dictionary, at: float) -> void:
 		if tb >= 0.0 and tz >= 0.0:
 			var run_s: float = (float(f["zero_s"]) + tb) if u0 <= 0.0 and tz <= 0.0 else tb - tz
 			if run_s >= _break_s - _EPS_S:
-				_retaken(f, i, "broken", at + clampf(tb - (run_s - _break_s), 0.0, dt))
+				_retaken(f, i, "broken", at + clampf(tb - (run_s - _break_s), 0.0, dt), split)
 			else:
 				f["zero_s"] = 0.0
 			continue
@@ -819,7 +820,7 @@ func _step_part(dt: float, inputs: Dictionary, at: float) -> void:
 		# at 0 from tz (from the start when it began there) to the part's end
 		f["zero_s"] = (dt - tz) if u0 > 0.0 else float(f["zero_s"]) + dt
 		if float(f["zero_s"]) >= _break_s - _EPS_S:
-			_retaken(f, i, "broken", at + clampf(dt - (float(f["zero_s"]) - _break_s), 0.0, dt))
+			_retaken(f, i, "broken", at + clampf(dt - (float(f["zero_s"]) - _break_s), 0.0, dt), split)
 
 	# ---- 10. The next wave's warning, its target read from the forts as this part leaves them ----
 	_tithe_warn()
@@ -1219,9 +1220,15 @@ func _u_path(dt: float, u0: float, w_in: float, pull: float, r: float) -> void:
 ## run's manager, 2026-11-17): a fort lost and retaken has already been looted, so losing it costs, not pays.
 ## The event's `war_in` is the settled WAR its margin chip read (margins_of's: the step's target_war split as this
 ## part's dispatch splits it, read before the hold ends), not the part's r_in, which the convoy's sawtooth moves so
-## open and closed read different values (E4 review item 7). `i` is f's index in `forts`.
-func _retaken(f: Dictionary, i: int, cause: String, at: float) -> void:
-	var settled := float(war_at(maxf(0.0, float(_part_inputs.get("target_war", _part_inputs.get("war", 0.0)))))[0][i])
+## open and closed read different values (E4 review item 7). `i` is f's index in `forts`. `split` (an Array) is the
+## part's, filled at its first retake and shared by the rest (the step 9 review's item 5): war_at reads only the part's
+## dispatch, which a retake doesn't touch, so every fort breaking in one part reads the same split whatever their order.
+## Without it (null) the split is read here.
+func _retaken(f: Dictionary, i: int, cause: String, at: float, split: Variant = null) -> void:
+	var w: Array = split if split is Array else []
+	if w.is_empty():
+		w.append_array(war_at(maxf(0.0, float(_part_inputs.get("target_war", _part_inputs.get("war", 0.0)))))[0])
+	var settled := float(w[i])
 	f["held"] = false
 	f["grace_s"] = 0.0
 	f["held_s"] = 0.0

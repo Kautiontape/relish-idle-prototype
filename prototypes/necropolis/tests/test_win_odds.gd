@@ -17,6 +17,7 @@ func run() -> int:
 	_formula()
 	_views_agree()
 	_fight_reads_strain()
+	_sim_blind()
 	_valve_projection()
 	_away_line()
 	return t.failures
@@ -84,7 +85,23 @@ func _fight_reads_strain() -> void:
 		float(a.view_vei()["odds"]), float(b.view_vei()["odds"])])
 
 
-## The map valve's "odds in 10 min" (ValveLogic.payoff) projects the win odds view_vei shows: at a zero differential its
+## The step 9 review's item 3, end to end: nothing the sim steps reads the win odds. Two games, the odds block as shipped
+## and at time_weight 0, cap 1 (the strain: 69542f2's revert proof, kept in the suite), from day 3 with a backlog, stepped
+## an hour of live substeps: their saves (to_dict: the realm, the town, every stock, Vei's queues and clocks) are the same
+## bits, while view_vei's odds differ.
+func _sim_blind() -> void:
+	var a := _game()
+	var b := _game(0.0, 1.0)
+	for s in [a, b]:
+		s.t = 3.0 * 86400.0
+		s.realm.vei["undead_queue"] = 1.4 * float(s._cfg()["K"])
+		for i in 60:
+			s.tick(60.0)  # (uncapped: 120 live substeps a call, no gap)
+	t.ok(float(a.view_vei()["odds"]) != float(b.view_vei()["odds"]), "(setup) the odds differ after the hour: %.4f against %.4f" % [
+		float(a.view_vei()["odds"]), float(b.view_vei()["odds"])])
+	var ja := JSON.stringify(a.to_dict(), "", true)
+	var jb := JSON.stringify(b.to_dict(), "", true)
+	t.ok(ja == jb and a.t == b.t, "an hour of live play at time_weight 0.7 and at 0 saves the same state (%d chars, t %.1f)" % [ja.length(), a.t])
 ## "now" side is win_odds at age + the window on the same strain; without the odds block it is the strain, as before.
 func _valve_projection() -> void:
 	var s := _game()

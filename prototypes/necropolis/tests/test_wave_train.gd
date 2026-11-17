@@ -29,6 +29,7 @@ func run() -> int:
 	_margin_target()
 	_margin_views()
 	_retake_war_in()
+	_retake_war_in_pair()
 	_need_edge()
 	return t.failures
 
@@ -101,6 +102,29 @@ func _retake_war_in() -> void:
 	t.ok(not ev.is_empty() and float(ev["war_in"]) == float(chip.get("war_in", -1.0)) and absf(float(ev["war_in"]) - r_in) > 0.5,
 		"the retake's war_in %.4f is the chip's settled war_in %.4f, not the part's r_in %.4f" % [
 		float(ev.get("war_in", -1.0)), float(chip.get("war_in", -1.0)), r_in])
+
+
+## The step 9 review's item 5: two forts breaking inside one catch-up step each report the settled WAR their own chip read
+## before the step. The split is read once per part (RealmSim's holds), from the part's dispatch, which a retake doesn't
+## touch, so the second retake's war_in doesn't exclude the first fort and the order in `forts` can't move it.
+func _retake_war_in_pair() -> void:
+	t.suite("wave-train-retake-war-pair")
+	var sim := _mk({"ashgate": [0.0, 200.0, 0.0], "old-sluice": [0.0, 200.0, 0.0]}, 1e9)
+	var ins := {"war": 0.05, "target_war": 0.8, "digest_q": 1.2}
+	for k in int(floor((sim._break_s - 5.0) / 0.5)):
+		sim.step(0.5, ins)
+	sim.drain_events()
+	var held_before := RealmSim.is_held(sim.fort_by_id("ashgate")) and RealmSim.is_held(sim.fort_by_id("old-sluice"))
+	var chips := sim.margins_of(ins)
+	sim.step(15.0, ins)
+	var ev := {}
+	for e in sim.drain_events():
+		if e["type"] == "fort_retaken":
+			ev[str(e["fort_id"])] = e
+	t.ok(held_before and ev.has("ashgate") and ev.has("old-sluice"), "(setup) both forts held 5 s before the break, and both break in one 15 s step: %s" % str(ev.keys()))
+	for id in ["ashgate", "old-sluice"]:
+		t.ok(ev.has(id) and float(ev[id]["war_in"]) == float(chips[id]["war_in"]),
+			"%s's war_in %.6f is its chip's %.6f from before the step" % [id, float(ev.get(id, {}).get("war_in", -1.0)), float(chips[id]["war_in"])])
 
 
 ## E4 step 5, ruling B1 (ii): a wave goes to the contested fort with the lowest margin, its settled WAR less its
