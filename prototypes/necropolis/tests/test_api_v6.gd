@@ -1469,6 +1469,8 @@ func _run_checkpoint_api() -> void:
 	for f in bs["fronts"]:
 		f["need"] = 0.0
 		f["have"] = 0.0
+	# E4 step 3: the fixture's backlog is 3000x the parent's (18000 -> 54M, as realm.json K), so it is scaled back
+	bs["backlog"] = float(bs["backlog"]) / 3000.0
 	t.ok(ones and JSON.stringify(bs).sha256_text() == parent_sha,
 		"pre_vei's boss seed: filled_slots 1 on each of its 4 party entries, and otherwise the parent's (35ceaa1), but for its live fronts' need and have (E3-5)")
 	t.ok(m.cmd_run_checkpoint(int(bb["run_id"]), loot)["reason"] == "wrong_kind", "a boss run: wrong_kind")

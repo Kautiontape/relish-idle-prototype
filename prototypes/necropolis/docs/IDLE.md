@@ -777,7 +777,7 @@ dismissed) and the `away_report` event.
 | dead air: active minutes in which nothing has positive projected value | < 10% |
 | continuous play (open all day, always acting), in calendar time to Vei-ready | **10–30% sooner** than sessions. Being present is never pointless, and idle still wins. The throttles are loot recovery and the relic cap. |
 | pure idle from a fresh start (never raids) | never Vei-ready (relics gate the endgame), but a full queue and a supported setup keep growing for about 2–3 days |
-| after an 8 h night away with a sensible setup | the report shows backlog ▲ and at least one thing to do |
+| after an 8 h night away with a sensible setup | the report shows backlog ▲ and at least one thing to do. From E4 step 3 the backlog line ends with Vei's odds before and after ("· odds 0.02 → 0.11" on sessions' first night), and one night never takes them near 1 |
 | away 24 h with the default setup | at least half the held forts lost |
 | away 24 h with a prepared setup (WAR support, siege on the likely targets, weak forts raided before leaving) | at most a quarter lost; Covington never |
 | the first session | GAMEPLAY §6's opening holds: the first dungeon, flip and big undead, and a queue set before leaving |
@@ -869,9 +869,29 @@ The profiles:
     are the same, and all 161 commands answered the same.
   - convergence.gd's catch-up gate leaves the bodies ungated for this reason ("within about one convoy load at any dt").
     The I1 gate keeps them, as "every stock" asks: the run's manager decides.
+  - **Vei's pool, one wave's drawdown (E4 step 3, the manager's ruling (ii)).** At K 36M her odds sit on the steep part
+    of their curve (0.14–0.27 over days 1–2), so the catch-up's backlog gap (0.32–0.38%, within `catchup_tol`; 0.65–0.89%
+    at K 12000, where dOdds/dBacklog was 250 times smaller) moves her tithe period, 210 s × Δodds a wave. The two runs'
+    wave clocks slip 7.9 s by day 1 and 29.8 s by day 2, so at day 2's sample the open run was 11 s into wave 441's
+    surge (pool 553.16) while the closed run's wave was 18.7 s off (pool at its 600 cap): 7.8%.
+    - Her pool refills to its cap within seconds of a wave (at R_vei / q − give, about 16.5/s), well inside a period of
+      about 362 s, so both pools sit in [cap − D, cap] however far the clocks slip, D being one wave's net drawdown:
+      `surge_s × max(0, mult × S_vei + give − R_vei / q)`, with the larger of the two runs' give (her fort shipping,
+      r_shipped less the surge) and q, and the running wave's multiplier, else `tithe.surge_mult`.
+    - `_i1_sample` records her wave state (`_pool_wave`); `i1_compare` applies D only when the two runs' wave states
+      differ (one inside a wave or its refill, the other not, or both drawn on different clocks), else `catchup_tol`;
+      with no refill inside a period D never applies. Each day prints the slip and D. At the step 3 commit day 1 is in
+      the same state (clocks 7.9 s apart, neither drawn: 2%), and day 2 passes on D (250.2; the gap 46.84).
+    - test_i1_gate's pool cases, on day 2's measured samples: the gap passes on D; one over D fails; neither drawn, or
+      both drawn on the same clock, keeps 2% (and fails the gap); no refill keeps 2%.
+    - **E4 item, a report row (not a gate):** the run ends with the first wave whose target fort differs between the two
+      runs. The slip grows about 30 s a day and passes the 150 s warning lead near day 5; past it a target can differ,
+      which this bound doesn't cover. AUTOPLAY_DAYS=8 measures it.
 - **once_per_session**: sessions with exactly one raid a session.
 - **continuous**: open and acting all the time: raids back to back, the queue fed, a look every 60 s while no raid
   fits. It writes a `day_end` row at each boundary and runs until Vei-ready or 8 days.
+- **Vei-ready** in every profile is BALANCE §1's: odds ≥ 0.6 (`VEI_READY_ODDS`) and `fronts_required` fronts met, at
+  Vei's node (E4 step 3 added the odds gate; at `K` 12000 the odds were near 1 from the first night, so it never bound).
 - **pure_idle**: one 20 min setup with no raids (the queue filled and reordered, the stances set, the valve at its
   default), then one close of 7 days (`idle.catchup_max_s`). Builds and levels per 6 h, and the plateau start, come from
   that catch-up's `building_done` events.

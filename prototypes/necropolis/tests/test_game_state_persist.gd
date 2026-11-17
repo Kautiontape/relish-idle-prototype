@@ -681,35 +681,46 @@ func _fixtures() -> void:
 		else:
 			t.ok(back.get("game_id") == SaveIO.game_id_for(str(file["seed"])), "%s: the id a load computes is its seed's" % name)
 			back.erase("game_id")
-		# E2b-2 (api_version 6) writes each fort's hold as held, grace_s and zero_s; the fixtures carry
+		# Each migration check below applies to a fixture written before the field (day1, save api_version 3);
+		# midgame_2flips and pre_vei were re-saved through the sim at E4 step 3 (today's to_dict: from_dict, the
+		# generator's backlog grant, to_dict), so they carry every field and only the round trip at the end judges them.
+		# E2b-2 (api_version 6) writes each fort's hold as held, grace_s and zero_s; an older fixture carries
 		# held_s, which loads as held with that much grace and the zero clock at 0
+		var old_hold: bool = (file["realm"]["forts"][0] as Dictionary).has("held_s")
 		var hold_ok := true
 		for i in (back["realm"]["forts"] as Array).size():
+			if not old_hold:
+				break
 			var bf: Dictionary = back["realm"]["forts"][i]
 			var hs := float(file["realm"]["forts"][i]["held_s"])
 			hold_ok = hold_ok and bf["held"] == (hs > 0.0) and bf["grace_s"] == hs and bf["zero_s"] == 0.0
-			# and the loot yield (v6): a fixture has none, so every fort loads at 1
+			# and the loot yield (v6): an older fixture has none, so every fort loads at 1
 			hold_ok = hold_ok and bf["yield_c"] == 1.0 and bf["yield_t"] == 0.0
 			bf["held_s"] = bf["grace_s"]
 			for k in ["held", "grace_s", "zero_s", "yield_c", "yield_t"]:
 				bf.erase(k)
-		t.ok(hold_ok, "%s: each fort's held_s loads as held, grace_s = held_s, zero_s 0; its yield at 1" % name)
-		# E2b-2 T3.2 writes the ledger's currency tally (`stores`); the fixtures predate it, so it loads 0
+		t.ok(hold_ok, "%s: %s" % [name, "each fort's held_s loads as held, grace_s = held_s, zero_s 0; its yield at 1" if old_hold
+			else "the fixture saves the v6 hold (held, grace_s, zero_s, yield); the round trip judges it"])
+		# E2b-2 T3.2 writes the ledger's currency tally (`stores`); an older fixture predates it, so it loads 0
 		var no_tally: bool = not (file["ledger"] as Dictionary).has("stores")
-		t.ok(no_tally and back["ledger"]["stores"] == {"gold": {"overflow": 0.0}, "bone": {"overflow": 0.0}},
-			"%s: the fixture has no currency tally; it loads 0" % name)
+		t.ok(not no_tally or back["ledger"]["stores"] == {"gold": {"overflow": 0.0}, "bone": {"overflow": 0.0}},
+			"%s: %s" % [name, "the fixture has no currency tally; it loads 0" if no_tally else "the fixture saves its currency tally"])
 		if no_tally:
 			(back["ledger"] as Dictionary).erase("stores")
-		# and the build queue (T3.2): an optional top-level key the fixtures predate; it loads empty
-		t.ok(not file.has("queue") and back["queue"] == [], "%s: the fixture has no build queue; it loads empty" % name)
+		# and the build queue (T3.2): an optional top-level key an older fixture predates; it loads empty
+		t.ok(file.has("queue") or back["queue"] == [], "%s: %s" % [name, "the fixture saves its build queue" if file.has("queue")
+			else "the fixture has no build queue; it loads empty"])
 		if not file.has("queue"):
 			back.erase("queue")
-		# E3-3 (v8) writes each big undead's filled_slots; no fixture carries it, so each loads 1 (the old-save rule)
+		# E3-3 (v8) writes each big undead's filled_slots; an older fixture's big undead lack it, so each loads 1 (the
+		# old-save rule)
 		var fs_ok := true
 		for i in (back["big_undead"] as Array).size():
-			fs_ok = fs_ok and not (file["big_undead"][i] as Dictionary).has("filled_slots") and back["big_undead"][i].get("filled_slots") == 1
+			if (file["big_undead"][i] as Dictionary).has("filled_slots"):
+				continue
+			fs_ok = fs_ok and back["big_undead"][i].get("filled_slots") == 1
 			(back["big_undead"][i] as Dictionary).erase("filled_slots")
-		t.ok(fs_ok, "%s: no big undead in the fixture carries filled_slots; each of its %d loads 1" % [name, (back["big_undead"] as Array).size()])
+		t.ok(fs_ok, "%s: each of its %d big undead without filled_slots in the file loads 1" % [name, (back["big_undead"] as Array).size()])
 		t.ok(back["api_version"] == GameState.API_VERSION, "%s: to_dict stamps today's api_version" % name)
 		if int(file["api_version"]) != int(back["api_version"]):
 			back["api_version"] = int(file["api_version"])

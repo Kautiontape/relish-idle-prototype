@@ -929,15 +929,20 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 	var gains: Array = []
 	var ready: Array = []
 	var losses: Array = []
-	# gains: each stream's net rate and net total, the backlog with its arrow
+	# gains: each stream's net rate and net total, the backlog with its arrow and Vei's odds before and after (E4 step 3:
+	# "away: +N, odds A → B"; odds = backlog / (backlog + K), MECHANICS §3 step 8)
 	var now := away_streams(gs)
+	var k_odds := gs._req_f("realm.K")
 	for id in rep["streams"]:
 		var total := float(now[id]) - float(b["streams"][id])
 		var rate := total / away_s if away_s > 0.0 else 0.0
 		var arrow := str(rep["arrow_up"]) if total > 0.0 else (str(rep["arrow_down"]) if total < 0.0 else str(rep["arrow_flat"]))
 		var fmt := str(rep["backlog_fmt"] if id == "backlog" else rep["stream_fmt"])
+		var b0 := float(b["streams"]["backlog"])
+		var b1 := float(now["backlog"])
 		gains.append(_away_line(fmt.format({"label": str(rep["stream_labels"][id]), "arrow": arrow,
-			"rate": _fmt_rate(rep, rate), "total": _fmt_signed(rep, total)}), "stream", ""))
+			"rate": _fmt_rate(rep, rate), "total": _fmt_signed(rep, total),
+			"odds_from": "%.2f" % (b0 / (b0 + k_odds)), "odds_to": "%.2f" % (b1 / (b1 + k_odds))}), "stream", ""))
 	# builds finished, then each queued build that started, with when (since you left) and why
 	var done: Array = []
 	for e in evs:

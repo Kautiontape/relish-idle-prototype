@@ -43,18 +43,24 @@ const CLOCK := 1_800_000_000  # a "now" for the saves (unix seconds)
 ## run on a git archive of it: each fixture under test_stances' harness configs (the field shrunk), with the big undead
 ## listed moved to the crypt first, 6 h live and 12 h caught up. Hashed: to_dict() less big_undead (the places) and
 ## api_version, the events, the away report (sha256, the first 16 hex digits). Moving u8 or u9 changed nothing there.
+## Re-pinned at E4 step 3 (the standing re-pin rule; the proofs against 0e4f932 and 2287fea were made at their own
+## commits): K 12000 -> 36M with the fixtures' backlog re-saved to match (pre_vei 54M, midgame_2flips 12M, through the
+## sim). day1 moves only its report (the backlog line's "· odds A -> B"); pre_vei keeps its events; midgame starts fewer
+## waves. The caught events and reports agree with test_backups' and test_stances', and PARENT_C3's events still equal
+## PARENT's midgame ones.
 const PARENT := {
 	"day1": {"live": {"state": "b2547329ec83e8b8", "events": "efef071d942cfa48", "n_events": 3},
-		"caught": {"state": "dbed8b898b2a905b", "events": "7adf8ca1cc296dda", "away": "977a359676d37ffb", "n_events": 3, "steps": 4320}},
-	"pre_vei": {"live": {"state": "0f6f9eff6af284ef", "events": "d7ade592df96c8a9", "n_events": 16},
-		"caught": {"state": "882039ef76394e9d", "events": "794d7e0224d331e9", "away": "47c37eeb42384917", "n_events": 16, "steps": 4321}},
-	"midgame_2flips": {"live": {"state": "e1257bdad6bdf175", "events": "40f1447a241a7e7d", "n_events": 175},
-		"caught": {"state": "efb2ac63c701837d", "events": "0bc1a1375468f3e5", "away": "05cda66f6b8dc51f", "n_events": 367, "steps": 4422}},
+		"caught": {"state": "dbed8b898b2a905b", "events": "7adf8ca1cc296dda", "away": "31d28a99e4efc264", "n_events": 3, "steps": 4320}},
+	"pre_vei": {"live": {"state": "d5893ac699094569", "events": "d7ade592df96c8a9", "n_events": 16},
+		"caught": {"state": "a1c5be9164917641", "events": "794d7e0224d331e9", "away": "f1b76d9e37b0b618", "n_events": 16, "steps": 4321}},
+	"midgame_2flips": {"live": {"state": "28455d227ef8dfb9", "events": "ea617806913ef19a", "n_events": 122},
+		"caught": {"state": "a73efc4bf5c5eb49", "events": "b70fcb08d9680016", "away": "167e638fef59771b", "n_events": 240, "steps": 4355}},
 }
 ## The siege commit's parent (2287fea: the foreman at work, no siege acting): midgame_2flips with u9 moved to the crypt,
-## from the same harness on a git archive of it (the same with none moved: the siege did nothing there).
-const PARENT_C3 := {"live": {"state": "94dbf012763c002d", "events": "40f1447a241a7e7d", "n_events": 175},
-	"caught": {"state": "07877cce16f345fc", "events": "0bc1a1375468f3e5", "away": "ca228dfee330c89f", "n_events": 367, "steps": 4422}}
+## from the same harness on a git archive of it (the same with none moved: the siege did nothing there). Re-pinned at
+## E4 step 3 as PARENT is.
+const PARENT_C3 := {"live": {"state": "b1b8795996bdf3a6", "events": "ea617806913ef19a", "n_events": 122},
+	"caught": {"state": "2d724838b9655d76", "events": "b70fcb08d9680016", "away": "a3210db8ca950ed8", "n_events": 240, "steps": 4355}}
 ## The foreman in the per-kind cases: speed 4 (m = 1.0 + 4 × 0.05 = 1.2), presence 5 (+0.05 morale).
 const FM := {"speed": 4.0, "presence": 5.0}
 
@@ -950,8 +956,9 @@ static func _hash_caught(n: GameState) -> Dictionary:
 ## with both moved is kept for _fm_catchup (_mid_off).
 func _identity() -> void:
 	var c: Dictionary = load("res://tests/test_stances.gd").cfgs()
-	for cs in [["day1", [], PARENT["day1"], "0e4f932"], ["pre_vei", [], PARENT["pre_vei"], "0e4f932"],
-			["midgame_2flips", ["u8", "u9"], PARENT["midgame_2flips"], "0e4f932"], ["midgame_2flips", ["u9"], PARENT_C3, "2287fea"]]:
+	for cs in [["day1", [], PARENT["day1"], "0e4f932 (re-pinned at E4 step 3)"], ["pre_vei", [], PARENT["pre_vei"], "0e4f932 (re-pinned at E4 step 3)"],
+			["midgame_2flips", ["u8", "u9"], PARENT["midgame_2flips"], "0e4f932 (re-pinned at E4 step 3)"],
+			["midgame_2flips", ["u9"], PARENT_C3, "2287fea (re-pinned at E4 step 3)"]]:
 		var lv := _live(c, cs[0], cs[1], 21600.0)
 		if cs[1].size() == 2:
 			_mid_off = lv

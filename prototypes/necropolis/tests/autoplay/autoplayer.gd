@@ -41,6 +41,7 @@ const PARTY_MAX := 3  # the largest standard party: raid.json autopilot.party_pr
 const HELD_RAID_YIELD := 0.5  # raid a held fort once its yield_mult is back to this
 const STANCES := ["vigil", "harvest"]
 const BANK_FRONTS := ["giants", "carvers"]  # bank_bigs: the fronts only the bigs fill (no backlog term; carvers' q aside)
+const VEI_READY_ODDS := 0.6  # BALANCE §1's Vei-ready: odds >= 0.6 and fronts_required fronts met (E4 step 3: the odds gate)
 const KEEP_SHARE := 0.25  # keep_fronts: a keeper brings at least this share of what the bigs must bring to its front
 const RAID_ROOM := 2  # keep_fronts: keepers leave the crypt room for this many raiders (two raiders reach t3)
 const SLOT := "ap"
@@ -104,6 +105,7 @@ var cmd_log: Array = []
 var div: Array = []
 var rows: Array = []
 var i1: Array = []
+var wave_targets := {}  # with sample_i1: each tithe wave's fort and start t, by wave_id (the I1 report's target row)
 var notes: Array = []
 var builds: Array = []
 var done: Array = []
@@ -875,13 +877,14 @@ func _vei_check(end_t: float) -> void:
 	if vei_ready_t >= 0.0:
 		return
 	var v := s.view_vei()
-	if int(v["fronts_met"]) < int(v["fronts_required"]) or str(s.view_relish()["state"]) != "home":
+	if int(v["fronts_met"]) < int(v["fronts_required"]) or float(v["odds"]) < VEI_READY_ODDS \
+			or str(s.view_relish()["state"]) != "home":
 		return
 	if not bool(_cmd("move", ["vei"])["ok"]):
 		return
 	_tick_until(func(): return str(s.view_relish()["state"]) == "at_vei", end_t)
 	var v2 := s.view_vei()
-	if bool(v2["can_begin"]) and int(v2["fronts_met"]) >= int(v2["fronts_required"]):
+	if bool(v2["can_begin"]) and int(v2["fronts_met"]) >= int(v2["fronts_required"]) and float(v2["odds"]) >= VEI_READY_ODDS:
 		vei_ready_t = s.t
 	_cmd("move", ["covington"])
 	_tick_until(func(): return str(s.view_relish()["state"]) == "home", end_t + 600.0)
@@ -1148,7 +1151,64 @@ func _i1_sample() -> Dictionary:
 	var bl := {}
 	for b in tn["buildings"]:
 		bl[str(b["lot_id"])] = "%s L%d" % [str(b["building_id"]), int(b["level"])]
-	return {"t": s.t, "stocks": stocks, "floors": floors, "bounds": bounds, "buildings": bl, "held": _held_ids()}
+	return {"t": s.t, "stocks": stocks, "floors": floors, "bounds": bounds, "buildings": bl, "held": _held_ids(),
+		"pool_wave": _pool_wave()}
+
+
+## Vei's tithe clock and her pool's rates at an I1 sample, for i1_compare's pool bound (E4 step 3, the manager's
+## ruling (ii)): the running wave (wave_id -1 when none, its s_left and multiplier), the clock (next_s counts down to
+## wave next_id: the warned one, else the next to be warned), the period it would schedule now, her q and the fort
+## shipping of the last step (r_shipped less the surge), and the configs the bound reads.
+func _pool_wave() -> Dictionary:
+	var tp: Dictionary = s.realm.tithe
+	var wv: Dictionary = tp.get("wave", {})
+	var wn: Dictionary = tp.get("warning", {})
+	var give := float(s.realm.vei["r_shipped"])
+	for f in s.realm.forts:
+		give -= float(f.get("r_surge", 0.0))
+	var r: Dictionary = c["realm"]
+	return {"started": bool(tp.get("started", false)), "wave_id": int(wv.get("wave_id", -1)),
+		"s_left": float(wv.get("s_left", 0.0)), "mult": float(wv.get("mult", -1.0)), "next_s": float(tp.get("next_s", 0.0)),
+		"next_id": int(wn["wave_id"]) if not wn.is_empty() else int(tp.get("next_id", 0)), "period": s.realm.tithe_period(),
+		"q": maxf(1.0, s.realm.digest_q), "give": maxf(0.0, give), "surge_s": float(r["tithe"]["surge_s"]),
+		"surge_mult": float(r["tithe"]["surge_mult"]), "S_vei": float(r["S_vei"]), "R_vei": float(r["R_vei"])}
+
+
+## The I1 gate's bound on Vei's pool (E4 step 3, ruling (ii)), from a closed sample's `a` and an open one's `b`
+## pool_wave. Vei draws her pool down through a wave (its surge plus her fort shipping, less what she converts) and
+## refills it to the cap after; when her refill ends well inside a period, both runs' pools sit in [cap - D, cap]
+## however far their wave clocks have slipped, D being one wave's net drawdown:
+##   D = surge_s x max(0, mult x S_vei + give - R_vei / q),
+## with the larger of the two runs' give and q (the larger q converts slower), and the running wave's multiplier (the
+## larger of the two), else surge_mult (siege and Relish only lower it). `slip` is the closed run's start of a common
+## wave less the open run's (> 0: the open run's waves come first). A run is drawn inside a wave or its refill
+## (D / (R_vei / q - give) after the wave's end). `applies` when the two runs' wave states differ: one drawn and the
+## other not, or both drawn on different clocks; with the same state the pool stays on catchup_tol. `premise` is false
+## when she can't refill (R_vei / q <= give) or the refill doesn't end inside the shorter period; D then never applies.
+static func pool_wave_bound(a: Dictionary, b: Dictionary) -> Dictionary:
+	if a.is_empty() or b.is_empty():
+		return {}
+	var q := maxf(float(a["q"]), float(b["q"]))
+	var give := maxf(float(a["give"]), float(b["give"]))
+	var mult := maxf(float(a["mult"]), float(b["mult"]))
+	if mult < 0.0:
+		mult = float(b["surge_mult"])
+	var surge_s := float(b["surge_s"])
+	var conv := float(b["R_vei"]) / q
+	var d := surge_s * maxf(0.0, mult * float(b["S_vei"]) + give - conv)
+	var refill := conv - give
+	var refill_s := d / refill if refill > 0.0 else INF
+	var premise := refill > 0.0 and surge_s + refill_s < minf(float(a["period"]), float(b["period"]))
+	var n := maxi(int(a["next_id"]), int(b["next_id"]))
+	var slip := (float(a["next_s"]) + float(n - int(a["next_id"])) * float(a["period"])) - (
+		float(b["next_s"]) + float(n - int(b["next_id"])) * float(b["period"]))
+	var drawn := []
+	for w in [a, b]:
+		var since := surge_s - float(w["s_left"]) if int(w["wave_id"]) >= 0 else float(w["period"]) - float(w["next_s"])
+		drawn.append(bool(w["started"]) and (int(w["wave_id"]) >= 0 or since - surge_s <= refill_s))
+	var same: bool = (not drawn[0] and not drawn[1]) or (absf(slip) < 1e-6 and int(a["wave_id"]) == int(b["wave_id"]))
+	return {"bound": d, "slip": slip, "q": q, "give": give, "mult": mult, "refill_s": refill_s if refill > 0.0 else -1.0, "premise": premise,
+		"drawn_closed": drawn[0], "drawn_open": drawn[1], "applies": premise and not same}
 
 
 ## The I1 gate's check of a closed sample `a` against the open one `b`: the same t exactly, every stock within `tol`, the
@@ -1156,8 +1216,12 @@ func _i1_sample() -> Dictionary:
 ## judged by its absolute difference against that bound instead, never tighter than `tol` (with no haulers staffed the
 ## load is 0). The load is carry x the larger of the two runs' staffed haulers (E4 step 0, the E3 review's item 3: the
 ## open run's alone made a closed run with more haulers fail on a load it was allowed). `bounded` holds its delta, bound
-## and both runs' haulers, and it stays out of `worst`. The first quantity that differs, and by how much, leads `why`.
-## tests/test_i1_gate.gd proves each branch on synthetic samples (two loads dropped fails on the bodies).
+## and both runs' haulers, and it stays out of `worst`. Vei's pool is judged the same way within one wave's drawdown
+## (pool_wave_bound's D) when the two runs' wave states differ (E4 step 3, the manager's ruling (ii): her tithe clocks
+## slip apart, so one run can be mid-surge while the other is full); with the same state it stays on `tol`. `pool_wave`
+## holds the bound's working, applied or not. The first quantity that differs, and by how much, leads `why`.
+## tests/test_i1_gate.gd proves each branch on synthetic samples (two loads dropped fails on the bodies; a pool gap over
+## D fails).
 static func i1_compare(a: Dictionary, b: Dictionary, tol: float) -> Dictionary:
 	var why: Array = []
 	var errs := {}
@@ -1167,12 +1231,20 @@ static func i1_compare(a: Dictionary, b: Dictionary, tol: float) -> Dictionary:
 		why.append("t %.2f closed vs %.2f open" % [float(a["t"]), float(b["t"])])
 	var ba: Dictionary = a.get("bounds", {})
 	var bb: Dictionary = b.get("bounds", {})
+	var pw := pool_wave_bound(a.get("pool_wave", {}), b.get("pool_wave", {}))
 	for k in b["stocks"]:
 		var y := float(b["stocks"][k])
 		var den := maxf(absf(y), float(b["floors"].get(k, 1.0)))
 		var d := absf(float(a["stocks"][k]) - y)
 		var e := d / maxf(den, 1e-12)
 		errs[k] = e
+		if k == "vei_pool" and bool(pw.get("applies", false)):
+			var bd := maxf(float(pw["bound"]), tol * den)
+			bounded[k] = {"delta": d, "bound": bd, "wave": pw}
+			if d > bd:
+				why.append("vei_pool %s closed vs %s open (delta %s over the bound %s: one wave's drawdown, the clocks %s s apart)" % [
+					str(_r(float(a["stocks"][k]))), str(_r(y)), str(_r(d)), str(_r(bd)), str(_r(float(pw["slip"])))])
+			continue
 		if ba.has(k) or bb.has(k):
 			var la: Dictionary = ba.get(k, {})
 			var lb: Dictionary = bb.get(k, {})
@@ -1199,7 +1271,7 @@ static func i1_compare(a: Dictionary, b: Dictionary, tol: float) -> Dictionary:
 			why.append("buildings %d closed vs %d open" % [(a["buildings"] as Dictionary).size(), (b["buildings"] as Dictionary).size()])
 	if a["held"] != b["held"]:
 		why.append("held %s closed vs %s open" % [str(a["held"]), str(b["held"])])
-	return {"ok": why.is_empty(), "why": why, "errs": errs, "bounded": bounded, "worst": worst}
+	return {"ok": why.is_empty(), "why": why, "errs": errs, "bounded": bounded, "worst": worst, "pool_wave": pw}
 
 
 # -------------------------------------------------------------------------------------------- away risk ---
@@ -1340,6 +1412,9 @@ func _on_event(e: Dictionary, where: String) -> void:
 			clears.append({"t": t, "fort": str(e["fort_id"])})
 		"tier_up":
 			tiers.append({"t": t, "tier": str(e["tier"]), "where": where})
+		"tithe_wave":
+			if sample_i1:
+				wave_targets[int(e["wave_id"])] = [str(e["fort_id"]), t]
 
 
 ## [gold, bone, relics] of a construction at `level` (buildings.json: cost, then level_costs).
@@ -1844,9 +1919,11 @@ static func run_profile(name: String, t: TestUtil) -> int:
 
 ## The I1 gate (a real assertion): sessions closed (the leader, its commands logged) against sessions_open, the same
 ## commands at the same sim t on a game left open between sessions. At each day's end: the same t exactly, the bodies
-## within one convoy load (job.haul.carry x the larger of the two runs' haulers staffed, i1_compare's `bounds`), every other stock within
+## within one convoy load (job.haul.carry x the larger of the two runs' haulers staffed, i1_compare's `bounds`), Vei's
+## pool within one wave's drawdown when the wave states differ (pool_wave_bound), every other stock within
 ## idle.catchup_tol, the same buildings and levels, the same held forts; and every replayed command answered as the
-## leader's was.
+## leader's was. Each day prints the wave clocks' slip and D; the run ends with a report row (not a gate): the first
+## wave whose target fort differs between the runs (AUTOPLAY_DAYS=8 measures it over 8 days).
 static func _p_i1(t: TestUtil, cfg: Dictionary) -> void:
 	var days := days_env(2)
 	var tol := float(cfg["economy"]["idle"]["catchup_tol"])
@@ -1865,6 +1942,11 @@ static func _p_i1(t: TestUtil, cfg: Dictionary) -> void:
 		var r := i1_compare(lead.i1[d], fol.i1[d], tol)
 		var parts: Array = []
 		for k in r["errs"]:
+			if k == "vei_pool" and (r["bounded"] as Dictionary).has(k):
+				var bp: Dictionary = r["bounded"][k]
+				parts.append("vei_pool %s/%s delta %s, bound %s (one wave's drawdown)" % [str(_r(float(lead.i1[d]["stocks"][k]))),
+					str(_r(float(fol.i1[d]["stocks"][k]))), str(_r(float(bp["delta"]))), str(_r(float(bp["bound"])))])
+				continue
 			if (r["bounded"] as Dictionary).has(k):
 				var bk: Dictionary = r["bounded"][k]
 				parts.append("%s %s/%s delta %s, bound %s (one load: %s x max(%s closed, %s open) haulers)" % [k,
@@ -1876,18 +1958,45 @@ static func _p_i1(t: TestUtil, cfg: Dictionary) -> void:
 		print("  [autoplay] I1 day %d (t %.0f): %s; worst %s %.4f%%; buildings %s; held %s" % [d + 1, float(fol.i1[d]["t"]),
 			", ".join(PackedStringArray(parts)), str(r["worst"][0]), float(r["worst"][1]) * 100.0,
 			"same" if lead.i1[d]["buildings"] == fol.i1[d]["buildings"] else "DIFFER", str(fol.i1[d]["held"])])
-		per.append({"day": d + 1, "t": fol.i1[d]["t"], "ok": r["ok"], "why": r["why"], "errs": r["errs"], "bounded": r["bounded"]})
+		var pw: Dictionary = r["pool_wave"]
+		if not pw.is_empty():
+			print("  [autoplay] I1 day %d pool waves: clocks %s s apart (closed less open), D %s (q %s, give %s, x%s, refill %s s), drawn closed %s open %s: %s" % [
+				d + 1, str(_r(float(pw["slip"]))), str(_r(float(pw["bound"]))), str(_r(float(pw["q"]))), str(_r(float(pw["give"]))),
+				str(_r(float(pw["mult"]))), str(_r(float(pw["refill_s"]))), str(pw["drawn_closed"]), str(pw["drawn_open"]),
+				"D applies" if bool(pw["applies"]) else ("same wave state: catchup_tol" if bool(pw["premise"]) else "no refill inside a period: catchup_tol")])
+		per.append({"day": d + 1, "t": fol.i1[d]["t"], "ok": r["ok"], "why": r["why"], "errs": r["errs"], "bounded": r["bounded"],
+			"pool_wave": pw})
 		if not bool(r["ok"]) and first_bad == "":
 			first_bad = "day %d: %s" % [d + 1, str(r["why"][0])]
-		t.ok(bool(r["ok"]), "I1 day %d: sessions closed equals sessions_open at its end (t equal, the bodies within one convoy load, every other stock within %.0f%%, buildings and levels, held forts)%s" % [
+		t.ok(bool(r["ok"]), "I1 day %d: sessions closed equals sessions_open at its end (t equal, the bodies within one convoy load, Vei's pool within one wave's drawdown when the wave states differ, every other stock within %.0f%%, buildings and levels, held forts)%s" % [
 			d + 1, tol * 100.0, "" if bool(r["ok"]) else ": " + "; ".join(PackedStringArray(r["why"]))])
 	t.ok(lead.i1.size() == days and fol.i1.size() == days, "I1: a sample at each of the %d days' ends (closed %d, open %d)" % [days, lead.i1.size(), fol.i1.size()])
 	t.ok(fol.div.is_empty(), "I1: every one of the %d replayed commands was answered as the closed run's, and every raid resolved the same%s" % [
 		lead.cmd_log.size(), "" if fol.div.is_empty() else ": first " + str(fol.div[0])])
+	# a report row, not a gate (E4 step 3, the manager's ruling): the wave clocks slip apart (the catch-up's backlog gap,
+	# within catchup_tol, moves her odds and so her period), and past the warning lead a wave can pick another target
+	var ids: Array = lead.wave_targets.keys()
+	ids.sort()
+	var both := 0
+	var first_target := {}
+	for id in ids:
+		if not fol.wave_targets.has(id):
+			continue
+		both += 1
+		if str(lead.wave_targets[id][0]) != str(fol.wave_targets[id][0]):
+			var tc := float(lead.wave_targets[id][1])
+			first_target = {"wave_id": id, "day": int(tc / DAY) + 1, "closed": [lead.wave_targets[id][0], _r(tc)],
+				"open": [fol.wave_targets[id][0], _r(float(fol.wave_targets[id][1]))]}
+			break
+	print("  [autoplay] I1 wave targets (a report row, not a gate): %d waves in both runs over %d days; %s" % [both, days,
+		"none differs" if first_target.is_empty() else "the first to differ is wave %d on day %d: %s closed at t %s, %s open at t %s" % [
+			int(first_target["wave_id"]), int(first_target["day"]), str(first_target["closed"][0]), str(first_target["closed"][1]),
+			str(first_target["open"][0]), str(first_target["open"][1])]])
 	# the closed leader's own harness checks too (E4 step 0, the E3 review's item 4): its results validated and applied,
 	# its ledger balanced. Its summary is tagged so a digest of this log can't take it for the sessions profile's.
 	lead.finish(t, {"i1_role": "closed leader of sessions_open"})
-	fol.finish(t, {"i1": {"days": per, "tol": tol, "first_difference": first_bad, "commands": lead.cmd_log.size(), "divergences": fol.div.slice(0, 10)}})
+	fol.finish(t, {"i1": {"days": per, "tol": tol, "first_difference": first_bad, "commands": lead.cmd_log.size(), "divergences": fol.div.slice(0, 10),
+		"wave_targets": {"compared": both, "first_differs": first_target}}})
 	lead.cleanup()
 	fol.cleanup()
 

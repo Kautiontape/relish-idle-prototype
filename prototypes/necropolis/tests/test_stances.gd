@@ -22,10 +22,14 @@ const CLOCK := 1_800_000_000  # a "now" for the saves (unix seconds)
 ## 12 h on, the field shrunk as test_catchup's harness has it. identity() hashes the state (to_dict() less its
 ## stances block and api_version, and from E3-3 less each big undead's filled_slots), the events the catch-up
 ## collected (less stance_fired) and its away report.
+## Re-pinned at E4 step 3 (the standing re-pin rule; the no-stance proof was made at its own commit): K 12000 -> 36M
+## with the fixtures' backlog re-saved to match (pre_vei 54M, midgame_2flips 12M, through the sim). day1's state and
+## events stay, and its report's backlog line gains "· odds A -> B"; pre_vei's events stay; midgame starts fewer waves
+## (4 355 steps). The reports agree with test_backups' and test_big_undead's. The notes below are from before.
 const TIP := {
 	"day1": {"state": "f0770dea4e6b375fdb5c39b93e0522d4b37b46dbb3330e00f22f5c0629cc2c85",
 		"events": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-		"away": "977a359676d37ffbebe0472847672d4adc73cc50b00708cec3a4ce95d8918f6f", "steps": 4320, "n_events": 0},
+		"away": "31d28a99e4efc264f50298e678d56b1fbd8b58a2e932376f5743780b813c523b", "steps": 4320, "n_events": 0},
 	# midgame's state and away report re-baselined at E3-3's foreman: its Market's foreman (u8, m 1.183, presence +0.064)
 	# takes its 12 h gold from +6,912 to +9,094, to the 9,750 cap (193 not stored), so the report's ready line is the
 	# stores-full raid prompt and it gains "Gold is full: 193 not stored"; its morale 0.630 -> 0.694. The events are
@@ -34,12 +38,12 @@ const TIP := {
 	# through 179 waves, one more starting inside the 12 h: 4 424 steps, 365 events less stance_fired); Old Sluice's
 	# retake is unchanged (4 917.2 s). Her backlog gains +224,003 against +216,247, and the report adds "village
 	# Bellwether lost to Vei". With u8 and u9 in the crypt it is 0e4f932's (test_big_undead)
-	"midgame_2flips": {"state": "4a65bfe4c33d8a966445333a4b881fee155bd89f8d138f7c2a991dbaf1df4bda",
-		"events": "e93ac2efbf4fe5c8e6e3e255efb243d1f1aa18668336fcb96b079c679a42ad87",
-		"away": "e2bc458078af958d89e77a3966400d2b4883d8554d32c588a492714cf0782472", "steps": 4424, "n_events": 365},
-	"pre_vei": {"state": "e265430eb891a5c30724b8e1b0e13acc368558d656a6919547410e394e837b5f",
+	"midgame_2flips": {"state": "eddec8267b5eaf04dc486e16370207748e560ca971e6333c08f07ca085f7b9ed",
+		"events": "d65e73ac632b43279456c3e4548c2d3995c93bfad1a7957ed6f4c4c97e95742f",
+		"away": "61a7e99c39d5a96ce519ca8d5ff447f68cd70a6a52752bc2b2e762cd78beefdc", "steps": 4355, "n_events": 237},
+	"pre_vei": {"state": "696f5cf011d7a11b887a9ed080a1e2ea8b490f1fcf88476bea10d99f8c85a5bf",
 		"events": "e998730792cd96410f3549a122acae36123317752337abacf68862b238098db0",
-		"away": "47c37eeb42384917945ace19104f947301da6faf9c612df41baa3cfc32d5de35", "steps": 4321, "n_events": 11},
+		"away": "f1b76d9e37b0b61823342af55ddf419cb305435c162771c7b982288a7940d927", "steps": 4321, "n_events": 11},
 }
 
 

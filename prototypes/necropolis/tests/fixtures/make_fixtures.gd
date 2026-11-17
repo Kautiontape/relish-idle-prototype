@@ -10,6 +10,12 @@ extends SceneTree
 ## Run it again (and commit the JSON) whenever the save shape changes, and whenever E2/E3 can
 ## produce these fields for real. v1_*.json are the E1 (save v1) fixtures, kept for the migration
 ## tests; this script never writes them.
+## NOTE (E4 step 3): this script no longer reproduces the committed day1, midgame_2flips and pre_vei (save v3, from
+## about 9e25dcb): today's sim gives other contents (pre_vei's bone on its cap, its vats and clones, live stances),
+## which moves 32 tests at d0a70c0. At E4 step 3, midgame_2flips and pre_vei were re-saved through the sim instead:
+## from_dict of the committed file, this script's own backlog step (cmd_debug_grant, which books the ledger's debug
+## source; pre_vei 1.5 K, midgame_2flips K / 3), then to_dict. A full regeneration is a later item (the manager's
+## ruling at the step 3 stop).
 
 const OUT := "res://tests/fixtures"
 
@@ -134,9 +140,10 @@ func _midgame() -> Dictionary:
 	if (s.town_sim.haul["convoys"] as Array).size() != 1 or s.relish["state"] != "travelling":
 		_fail("the convoy or the journey is not in flight: %s / %s" % [str(s.town_sim.haul), s.relish["state"]])
 	# HAND-SHAPED VALUE: with the full mint an hour of continuous sim leaves Vei's backlog low (odds
-	# about 0.58, close to pre_vei's 0.6), which does not look mid-game. The backlog is set to 4000
-	# (odds about 0.25) with a debug command.
-	_need(s.cmd_debug_grant({"backlog": 4000.0 - float(s.realm.vei["undead_queue"])}), "backlog")
+	# about 0.58, close to pre_vei's 0.6), which does not look mid-game. The backlog is set to K / 3
+	# (odds 0.25; 4000 at K 12000, 12M at E4 step 3's 36M) with a debug command.
+	var k := float(_cfgs["realm"]["K"])
+	_need(s.cmd_debug_grant({"backlog": k / 3.0 - float(s.realm.vei["undead_queue"])}), "backlog")
 	var d := s.to_dict()
 	# E2 field: the tithe block. The warning mirrors the tithe_warning event (§6).
 	d["realm"]["tithe"] = {"warning": {"wave_id": 1, "fort_id": "ashgate", "eta_s": 150.0, "surge": 24.0}}

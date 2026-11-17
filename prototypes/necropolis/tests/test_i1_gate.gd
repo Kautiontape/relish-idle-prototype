@@ -10,7 +10,8 @@ extends RefCounted
 ## - the closed run staffing more haulers than the open one widens the bound (the open run's alone fails it), either way
 ##   round;
 ## - with no haulers in either run, catchup_tol is the bound;
-## - a stock outside the bounds is still gated by catchup_tol, and the bodies stay out of `worst`.
+## - a stock outside the bounds is still gated by catchup_tol, and the bodies stay out of `worst`;
+## - Vei's pool within one wave's drawdown D when the two runs' wave states differ, else catchup_tol (_pool, E4 step 3).
 
 var t := TestUtil.new()
 var tol := 0.02
@@ -78,4 +79,64 @@ func run() -> int:
 	var gold_off := Autoplayer.i1_compare(_sample(open_b - (load - 1.0), 6.0, 500.0 * 1.03), _sample(open_b, 6.0), tol)
 	t.ok(not bool(gold_off["ok"]) and _why0(gold_off).begins_with("gold") and str(gold_off["worst"][0]) == "gold",
 		"gold 3%% off fails on catchup_tol, and the bodies stay out of worst: %s, worst %s" % [str(gold_off["why"]), str(gold_off["worst"])])
+	_pool(c)
 	return t.failures
+
+
+## Vei's pool (E4 step 3, the manager's ruling (ii)), on day 2's measured samples at K 36M: the closed run full, 18.7 s
+## before wave 441; the open run 11 s into wave 441, its pool drawn to 553.16.
+func _pw(wave_id: int, s_left: float, next_id: int, next_s: float, period: float, q: float, give: float) -> Dictionary:
+	return {"started": true, "wave_id": wave_id, "s_left": s_left, "mult": 3.0 if wave_id >= 0 else -1.0, "next_s": next_s,
+		"next_id": next_id, "period": period, "q": q, "give": give, "surge_s": surge_s, "surge_mult": surge_mult,
+		"S_vei": s_vei, "R_vei": r_vei}
+
+
+func _ps(pool: float, pw: Dictionary) -> Dictionary:
+	var x := _sample(100.0, 6.0)
+	x["stocks"]["vei_pool"] = pool
+	x["floors"]["vei_pool"] = 600.0
+	x["pool_wave"] = pw
+	return x
+
+
+var surge_s := 40.0
+var surge_mult := 3.0
+var s_vei := 8.0
+var r_vei := 50.0
+
+
+## - day 2's gap (46.84, 7.8% of the cap) passes on the pool branch, with D = surge_s x (mult x S_vei + the larger give -
+##   R_vei / the larger q) and the clocks' slip reported;
+## - a gap one over D fails on the pool (removing the D check passes it);
+## - neither run drawn (both full, the clocks apart), or both drawn on the same clock: the gap fails on catchup_tol
+##   (applying D whenever the clocks differ, or always, passes them);
+## - no refill inside a period (R_vei / q under the give): D never applies, the gap fails on catchup_tol.
+func _pool(c: Dictionary) -> void:
+	surge_s = float(c["realm"]["tithe"]["surge_s"])
+	surge_mult = float(c["realm"]["tithe"]["surge_mult"])
+	s_vei = float(c["realm"]["S_vei"])
+	r_vei = float(c["realm"]["R_vei"])
+	var closed := _pw(-1, 0.0, 441, 18.667, 362.3223, 2.23335, 5.87569)
+	var open := _pw(441, 29.0352, 442, 351.225, 362.1876, 2.23233, 3.62326)
+	var d := surge_s * maxf(0.0, 3.0 * s_vei + 5.87569 - r_vei / 2.23335)
+	var day2 := Autoplayer.i1_compare(_ps(600.0, closed), _ps(553.1603, open), tol)
+	var pw: Dictionary = day2["pool_wave"]
+	t.ok(bool(day2["ok"]) and (day2["bounded"] as Dictionary).has("vei_pool") and bool(pw["applies"]),
+		"day 2's pool gap (46.84, 7.8%% of the cap) passes on the pool branch: %s, %s" % [str(day2["why"]), str(pw)])
+	t.near(float(pw["bound"]), d, 1e-9, "D is surge_s x (mult x S_vei + the larger give - R_vei / the larger q) = %s" % str(d))
+	t.near(float(pw["slip"]), 18.667 + 362.3223 - 351.225, 1e-9, "the slip is the closed run's start of wave 442 less the open run's")
+	t.ok(not bool(pw["drawn_closed"]) and bool(pw["drawn_open"]), "the closed run is full, the open one drawn: %s" % str(pw))
+	var over := Autoplayer.i1_compare(_ps(600.0, closed), _ps(600.0 - (d + 1.0), open), tol)
+	t.ok(not bool(over["ok"]) and _why0(over).begins_with("vei_pool"), "a gap one over D (%s) fails on the pool: %s" % [
+		str(d + 1.0), str(over["why"])])
+	var full := _pw(-1, 0.0, 442, 200.0, 362.1876, 2.23233, 3.62326)  # 162 s past wave 441's start: refilled
+	var both_full := Autoplayer.i1_compare(_ps(600.0, closed), _ps(553.1603, full), tol)
+	t.ok(not bool(both_full["ok"]) and _why0(both_full).begins_with("vei_pool") and not bool(both_full["pool_wave"]["applies"]),
+		"neither drawn, the clocks apart: the gap fails on catchup_tol: %s" % str(both_full["why"]))
+	var same_clock := Autoplayer.i1_compare(_ps(600.0, open), _ps(553.1603, open), tol)
+	t.ok(not bool(same_clock["ok"]) and not bool(same_clock["pool_wave"]["applies"]),
+		"both drawn on the same clock: the gap fails on catchup_tol: %s" % str(same_clock["why"]))
+	var slow := _pw(441, 29.0352, 442, 351.225, 362.1876, 20.0, 3.62326)  # R_vei / 20 = 2.5, under the give
+	var no_refill := Autoplayer.i1_compare(_ps(600.0, closed), _ps(553.1603, slow), tol)
+	t.ok(not bool(no_refill["ok"]) and not bool(no_refill["pool_wave"]["premise"]),
+		"no refill inside a period: D never applies, the gap fails on catchup_tol: %s" % str(no_refill["why"]))
