@@ -2150,9 +2150,12 @@ func _fort_readout(f: Dictionary, w_in: float, train := {}, plan := []) -> Dicti
 
 
 ## A new game or a load (cmd_new_game, from_dict): the wave train's cache is emptied and the frame path is
-## off until the shell's next capped tick, so nothing from the old state is served.
+## off until the shell's next capped tick, so nothing from the old state is served. The margin views' memo
+## (_margin_view) goes with it (E4 review item 1): its key doesn't name the valve or Relish, so a state loaded onto
+## the same rev and t with the same fort stocks would otherwise be served the old margins.
 func _reset_train() -> void:
 	_train_cache = {}
+	_margin_memo = {}
 	_frame_path = false
 
 

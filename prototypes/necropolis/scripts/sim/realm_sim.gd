@@ -806,7 +806,7 @@ func _step_part(dt: float, inputs: Dictionary, at: float) -> void:
 		if tb >= 0.0 and tz >= 0.0:
 			var run_s: float = (float(f["zero_s"]) + tb) if u0 <= 0.0 and tz <= 0.0 else tb - tz
 			if run_s >= _break_s - _EPS_S:
-				_retaken(f, "broken", at + clampf(tb - (run_s - _break_s), 0.0, dt))
+				_retaken(f, i, "broken", at + clampf(tb - (run_s - _break_s), 0.0, dt))
 			else:
 				f["zero_s"] = 0.0
 			continue
@@ -816,7 +816,7 @@ func _step_part(dt: float, inputs: Dictionary, at: float) -> void:
 		# at 0 from tz (from the start when it began there) to the part's end
 		f["zero_s"] = (dt - tz) if u0 > 0.0 else float(f["zero_s"]) + dt
 		if float(f["zero_s"]) >= _break_s - _EPS_S:
-			_retaken(f, "broken", at + clampf(dt - (float(f["zero_s"]) - _break_s), 0.0, dt))
+			_retaken(f, i, "broken", at + clampf(dt - (float(f["zero_s"]) - _break_s), 0.0, dt))
 
 	# ---- 10. The next wave's warning, its target read from the forts as this part leaves them ----
 	_tithe_warn()
@@ -1214,7 +1214,11 @@ func _u_path(dt: float, u0: float, w_in: float, pull: float, r: float) -> void:
 ## (cmd_deploy_simulacrum, E3-4) is lost, its charges with it, so the step's later parts raise nothing for it.
 ## GameState sends a siege big undead there home. The fort's loot yield is left as it is (MECHANICS §5.3; the
 ## run's manager, 2026-11-17): a fort lost and retaken has already been looted, so losing it costs, not pays.
-func _retaken(f: Dictionary, cause: String, at: float) -> void:
+## The event's `war_in` is the settled WAR its margin chip read (margins_of's: the step's target_war split as this
+## part's dispatch splits it, read before the hold ends), not the part's r_in, which the convoy's sawtooth moves so
+## open and closed read different values (E4 review item 7). `i` is f's index in `forts`.
+func _retaken(f: Dictionary, i: int, cause: String, at: float) -> void:
+	var settled := float(war_at(maxf(0.0, float(_part_inputs.get("target_war", _part_inputs.get("war", 0.0)))))[0][i])
 	f["held"] = false
 	f["grace_s"] = 0.0
 	f["held_s"] = 0.0
@@ -1225,8 +1229,8 @@ func _retaken(f: Dictionary, cause: String, at: float) -> void:
 		if str(sm.get("fort_id", "")) != str(f["id"]):
 			alive.append(sm)
 	simulacra = alive
-	# (B1 (ii)) the WAR it had and Vei's pressure there, for the away report's cause
-	events.append({"type": "fort_retaken", "fort_id": f["id"], "cause": cause, "war_in": maxf(0.0, float(f.get("r_in", 0.0))),
+	# (B1 (ii)) the settled WAR it had and Vei's pressure there, for the away report's cause
+	events.append({"type": "fort_retaken", "fort_id": f["id"], "cause": cause, "war_in": maxf(0.0, settled),
 		"pressure_mult": hold_mult, "_at": at})
 
 

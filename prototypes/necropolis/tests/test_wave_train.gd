@@ -28,7 +28,79 @@ func run() -> int:
 	_retarget()
 	_margin_target()
 	_margin_views()
+	_retake_war_in()
+	_need_edge()
 	return t.failures
+
+
+## E4 review item 8: the need reads Vei's odds floored to hold.need_odds_step, so two backlogs a hair either side of a
+## bin's edge (as open and closed can be, a convoy phase apart) read needs one bin apart, and the margins and the wave's
+## pick with them. Not a leak: the memo's key is complete, each side memoised to its own recomputed bits, and any
+## backlog inside one bin reads the same bits. Pinned so a change to the bins or the key shows.
+func _need_edge() -> void:
+	t.suite("wave-target-need-edge")
+	var sim := _mk({"ashgate": [3.0 / _r, 0.0, 0.0]}, sim_period())
+	var f := sim.fort_by_id("ashgate")
+	var step := float(sim._need_odds_step)
+	var need := func() -> float: return sim.need_of(f, false, 0.0, false, 0.0, 1.2)
+	# the backlog on the edge of bin 30 (odds 0.30) in the floor's own arithmetic, bisected to a few ulps
+	var lo := 0.0
+	var hi := float(sim._K)
+	for i in 200:
+		var mid := 0.5 * (lo + hi)
+		sim.vei["undead_queue"] = mid
+		if floorf(sim.odds() / step) >= 30.0:
+			hi = mid
+		else:
+			lo = mid
+	sim.vei["undead_queue"] = lo
+	var o_lo := sim.odds()
+	var n_lo: float = need.call()
+	sim.vei["undead_queue"] = hi
+	var o_hi := sim.odds()
+	var n_hi: float = need.call()
+	t.ok((hi - lo) / hi < 1e-12 and floorf(o_lo / step) == 29.0 and floorf(o_hi / step) == 30.0,
+		"(setup) backlogs %s and %s, a hair apart (%.1e relative), read odds %.9f and %.9f: bins 29 and 30" % [str(lo), str(hi),
+		(hi - lo) / hi, o_lo, o_hi])
+	t.ok(n_hi > n_lo and (n_hi - n_lo) / n_lo < 0.05, "a bin apart: the needs %.6f and %.6f (one step's %.3f%%)" % [
+		n_hi, n_lo, 100.0 * (n_hi - n_lo) / n_lo])
+	sim._need_cache = {}
+	var r_hi: float = need.call()
+	sim.vei["undead_queue"] = lo
+	var r_lo: float = need.call()
+	t.ok(r_hi == n_hi and r_lo == n_lo, "each side's memo is its recomputed bits")
+	sim.vei["undead_queue"] = hi * 1.001
+	var in_bin: float = need.call()
+	sim._need_cache = {}
+	t.ok(floorf(sim.odds() / step) == 30.0 and in_bin == n_hi and need.call() == n_hi,
+		"a backlog 0.1%% further into bin 30 (odds %.5f) reads bin 30's bits, memoised and recomputed" % sim.odds())
+
+
+## E4 review item 7: fort_retaken's war_in (the away report's "WAR n/s") is the settled WAR the fort's margin chip
+## read (margins_of at the step's inputs: target_war split as the dispatch splits it), not the part's r_in, which the
+## convoy's sawtooth moves, so open and closed would print different numbers. Ashgate, held with no garrison under a
+## living crowd, breaks with a thin instant WAR (0.05) beside a settled 0.8; no wave comes.
+func _retake_war_in() -> void:
+	t.suite("wave-train-retake-war")
+	var sim := _mk({"ashgate": [0.0, 200.0, 0.0]}, 1e9)
+	var ins := {"war": 0.05, "target_war": 0.8, "digest_q": 1.2}
+	var chip := {}
+	var r_in := -1.0
+	var ev := {}
+	for k in 2000:
+		if not RealmSim.is_held(sim.fort_by_id("ashgate")):
+			break
+		if k > 0:
+			chip = sim.margins_of(ins)["ashgate"]
+			r_in = float(sim.fort_by_id("ashgate")["r_in"])
+		sim.step(0.5, ins)
+	for e in sim.drain_events():
+		if e["type"] == "fort_retaken" and e["fort_id"] == "ashgate":
+			ev = e
+	t.ok(not ev.is_empty() and not chip.is_empty(), "(setup) Ashgate breaks with WAR flowing: %s; its chip before: %s" % [str(ev), str(chip)])
+	t.ok(not ev.is_empty() and float(ev["war_in"]) == float(chip.get("war_in", -1.0)) and absf(float(ev["war_in"]) - r_in) > 0.5,
+		"the retake's war_in %.4f is the chip's settled war_in %.4f, not the part's r_in %.4f" % [
+		float(ev.get("war_in", -1.0)), float(chip.get("war_in", -1.0)), r_in])
 
 
 ## E4 step 5, ruling B1 (ii): a wave goes to the contested fort with the lowest margin, its settled WAR less its
@@ -99,6 +171,9 @@ func _margin_views() -> void:
 			continue
 		var h: Dictionary = s.view_fort(str(f["id"]))["hold"]
 		t.near(float(h["margin"]), float(h["war_in"]) - float(h["need"]), 1e-9, "%s: margin is war_in − need (%s)" % [f["id"], str(h)])
+		var word: Variant = s.view_fort(str(f["id"]))["margin"]
+		t.ok(word is String and str(word) in ["will_fall", "thin", "safe"] and h["margin"] is float,
+			"%s: the forecast's word is the entry's margin (%s), hold.margin the number (E4 review item 10)" % [f["id"], str(word)])
 		t.ok(float(h["pressure_mult"]) == s.hold_mult() and float(h["need"]) > 0.0, "%s: Vei's pressure ×%.3f and a need" % [f["id"], s.hold_mult()])
 		if RealmSim.is_contested(f) and float(h["margin"]) < lm - 0.001:
 			lm = float(h["margin"])
@@ -133,6 +208,16 @@ func _margin_views() -> void:
 	var m3: Dictionary = s._margin_view()
 	s._core_step(0.5)
 	t.ok(not is_same(s._margin_view(), m3) and s._margin_view()["margins"] == fresh.call(), "a step recomputes it")
+	# E4 review item 9: an edit between steps that moves Vei's pressure (a pit started or stopped; here RealmSim's value
+	# set directly, as a debug edit would leave it) reads one value in the chip: pressure_mult and view_hud().hold_mult
+	# are the value the need and the margin beside them were derived at, not GameState.hold_mult re-read live
+	var need0 := float(s.view_fort(low)["hold"]["need"])
+	s.realm.hold_mult = 2.0 * s.hold_mult()
+	var h9: Dictionary = s.view_fort(low)["hold"]
+	t.ok(float(h9["pressure_mult"]) == s.realm.hold_mult and float(s.view_hud()["hold_mult"]) == s.realm.hold_mult
+		and s.realm.hold_mult != s.hold_mult() and float(h9["need"]) > need0,
+		"between steps the chip reads one pressure: ×%.3f beside a need of %.4f (it was %.4f at ×%.3f)" % [
+		float(h9["pressure_mult"]), float(h9["need"]), need0, s.hold_mult()])
 
 
 ## A RealmSim with `held` {fort_id: [undead, living, grace_s]} held and every other fort full of corpses,
@@ -478,12 +563,14 @@ func _reset() -> void:
 	for k in [0, 1]:
 		s.tick(s.substep_s(), cap)
 		s.view_fort("ashgate")
-		t.ok(not s._train_cache.is_empty() and s._frame_path, "(setup) probed, on the frame path")
+		t.ok(not s._train_cache.is_empty() and s._frame_path and not s._margin_memo.is_empty(), "(setup) probed, on the frame path, the margins memoised")
 		if k == 0:
 			s.cmd_new_game(2)
 		else:
 			t.ok(s.cmd_debug_load_fixture("midgame_2flips")["ok"], "(setup) a load")
 		t.ok(s._train_cache.is_empty() and not s._frame_path, "%s: the train's cache is empty and the frame path off" % ["a new game", "a load"][k])
+		# E4 review item 1: the margin views' memo goes too (its key names neither the valve nor Relish)
+		t.ok(s._margin_memo.is_empty(), "%s: the margin views' memo is empty" % ["a new game", "a load"][k])
 		if k == 0:
 			s.realm.hold("ashgate", 0.0)  # a new game holds nothing: hold one to read
 		s.view_fort("ashgate")

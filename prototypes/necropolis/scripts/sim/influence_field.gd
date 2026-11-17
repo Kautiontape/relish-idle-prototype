@@ -92,6 +92,7 @@ func setup(cfg_in: Dictionary, world_size_in: Vector2) -> void:
 	_job_n = 0
 	_next = 0
 	last_advance_cells = 0
+	last_catchup_injects = []
 
 
 func cell_of(pos: Vector2) -> Vector2i:
@@ -138,12 +139,14 @@ func advance(budget_cells: int) -> void:
 ## Computes and publishes everything queued; nothing stays in flight. Called once after the pre-warm
 ## on new game and on load (and at the end of catch-up), so the published field is complete there.
 func flush() -> void:
+	last_catchup_injects = []  # what a step left to overlay is published now (overlay_in_flight)
 	if _n > _pub_n:
 		_work(-1)
 		_publish(_n)
 
 
 func tick(dt: float) -> void:
+	last_catchup_injects = []  # live work follows the step: nothing of it is left to overlay
 	_n += 1
 	_ticks[_n] = {"dt": dt, "seg": _open}
 	_open = []
@@ -196,15 +199,15 @@ func catchup_step(dt: float) -> void:
 	last_catchup_injects = []  # a step that changes nothing has nothing to overlay
 	if not (dt > 0.0):
 		return
-	last_catchup_injects = _open.duplicate()
+	var injs := _open.duplicate()
 	var period := 1.0 / float(cfg.get("tick_hz", 5.0))
 	var n := minf(dt / period, MAX_TICKS)
 	var whole := int(floor(n + 1e-9))
 	if whole < 1 or n > float(cfg.get("catchup_exact_ticks", 8)):
 		_solve(dt)
+		last_catchup_injects = injs
 		return
 	# a short step: its whole ticks are live ticks (exact), the rest of a tick one solve
-	var injs := _open.duplicate()
 	for k in whole:
 		if k > 0:
 			for r in injs:
@@ -216,6 +219,7 @@ func catchup_step(dt: float) -> void:
 		for r in injs:
 			inject(r[0], r[1], r[2], r[3])
 		_solve(frac * period)
+	last_catchup_injects = injs  # last: the ticks and the flush above empty it
 
 
 ## The live arrays as live play reads them after a catchup_step: live play publishes a result lag_ticks
@@ -226,7 +230,8 @@ func catchup_step(dt: float) -> void:
 ## cell). This re-applies the last step's injects lag_ticks times, in order, onto the live arrays only
 ## (green and orange; _apply_inject's arithmetic, capped at 4 as live's), never onto the pipeline's base
 ## (_head), so the next tick or step is unchanged. GameState's catch-up calls it after each field step,
-## before it reads the village owners.
+## before it reads the village owners. Only a catchup_step's injects are re-applied: a tick(), flush() or
+## setup() since then empties them, so a late call re-applies nothing (E4 review item 2).
 func overlay_in_flight() -> void:
 	for k in _lag:
 		for r in last_catchup_injects:

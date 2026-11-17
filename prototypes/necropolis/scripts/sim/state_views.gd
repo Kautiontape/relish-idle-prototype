@@ -51,7 +51,7 @@ static func hud(gs: GameState) -> Dictionary:
 		"bone_war_share": gs._bone_war_share,
 		"workers_steady": gs._workers_steady(), "workers_steady_kept": float(gs._workers_steady_kept()["kept"]),
 		"war_overflow": float(gs.realm.r_war_to_vei), "war_supports": war_supports(gs, gs._fort_wars()),
-		"hold_mult": gs.hold_mult(),  # (v11, B1) Vei's pressure at held forts
+		"hold_mult": gs.realm.hold_mult,  # (v11, B1) Vei's pressure at held forts, as synced (fort_hold's; E4 review item 9)
 		"relics": gs.relics, "relics_cap": gs._cap_of("relics"), "essence": gs.essence, "essence_cap": gs._cap_of("essence"),
 		"sign": ro["sign"], "drain_s": ro["drain_s"], "odds": ro["odds"], "won": gs.won,
 	}
@@ -249,7 +249,9 @@ static func fort(gs: GameState, id: String) -> Dictionary:
 ## (RealmSim.margins_of at the realm inputs): `war_in` the settled WAR to it (the valve's target at the pits'
 ## trough feed, mass/s), `need` its one-wave need (RealmSim.need_of: the least WAR at which one full wave from
 ## its settled garrison doesn't break it), `margin` war_in − need (the lowest contested margin draws the next
-## wave), `pressure_mult` Vei's pressure there (GameState.hold_mult), and the chip's `fall_s` and `margin_cause`.
+## wave), `pressure_mult` Vei's pressure there (RealmSim.hold_mult, the value GameState.hold_mult last synced, so
+## the need and the margin beside it were derived at it even after an edit between steps moved the pits), and the
+## chip's `fall_s` and `margin_cause`.
 ## A fort not held reads zeros, ×1 and "".
 static func fort_hold(gs: GameState, id: String, entry: Dictionary) -> Dictionary:
 	var out := {"war_in": 0.0, "need": 0.0, "margin": 0.0, "pressure_mult": 1.0, "fall_s": -1.0, "margin_cause": ""}
@@ -260,7 +262,7 @@ static func fort_hold(gs: GameState, id: String, entry: Dictionary) -> Dictionar
 	out["war_in"] = float(e.get("war_in", 0.0))
 	out["need"] = float(e.get("need", 0.0))
 	out["margin"] = float(e.get("margin", 0.0))
-	out["pressure_mult"] = gs.hold_mult()
+	out["pressure_mult"] = gs.realm.hold_mult  # (E4 review item 9) the value need and margin were derived at, not re-read live
 	out["fall_s"] = float(entry.get("fall_s", -1.0))
 	out["margin_cause"] = str(entry.get("margin_cause", ""))
 	return out

@@ -171,7 +171,7 @@ func _clear_res(sd: Dictionary) -> Dictionary:
 
 
 ## A new game with Greywall held (living 52, undead 20) and a raid open on it; `retake` retakes it
-## mid-run. Used: RealmSim._retaken(f, "broken", 0.0) called directly (the realm's own zero clock
+## mid-run. Used: RealmSim._retaken(f, its index, "broken", 0.0) called directly (the realm's own zero clock
 ## needs a hold.break_s-long contest), its events dropped (no siege big undead, Relish is in_dungeon).
 ## Returns {s, cleared, loot_banked, relics, yield_c, held}: the clear event count, the loot_banked
 ## count, the relics gained and the fort's yield_c / held after a valid retreat that kills all its living.
@@ -184,7 +184,7 @@ func _mid_run(retake: bool) -> Dictionary:
 	var sd: Dictionary = s.cmd_begin_dungeon("greywall")["seed"]
 	var f: Dictionary = s.realm.fort_by_id("greywall")
 	if retake:
-		s.realm._retaken(f, "broken", 0.0)
+		s.realm._retaken(f, s.realm.forts.find(f), "broken", 0.0)
 		s.realm.events.clear()
 	s.drain_events()
 	var relics0 := s.relics

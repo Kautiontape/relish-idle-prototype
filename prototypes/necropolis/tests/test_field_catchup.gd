@@ -284,4 +284,23 @@ func run() -> int:
 	ov.catchup_step(40.0)
 	bare.catchup_step(40.0)
 	t.ok(ov.green == bare.green and ov.orange == bare.orange and ov.entrench == bare.entrench, "the next step is the same with or without it")
+	# E4 review item 2: only a catchup_step's injects are overlaid. Live work after the step (a tick), a flush or a
+	# setup empties them, so a late overlay_in_flight re-applies nothing onto the live arrays; a short step (its whole
+	# ticks live, a flush, a part solve) still keeps them for its overlay
+	t.ok(ov.last_catchup_injects.size() > 0, "(setup) the step's injects are kept for the overlay (%d)" % ov.last_catchup_injects.size())
+	ov.tick(PERIOD)
+	var g_t := ov.green.duplicate()
+	var o_t := ov.orange.duplicate()
+	ov.overlay_in_flight()
+	t.ok(ov.last_catchup_injects.is_empty() and ov.green == g_t and ov.orange == o_t, "after a tick, a late overlay re-applies nothing")
+	var sh := _clone(settled)
+	s.inject(sh, 600.0, PERIOD)
+	var n_inj := sh._open.size()
+	sh.catchup_step(3.5 * PERIOD)
+	t.ok(n_inj > 0 and sh.last_catchup_injects.size() == n_inj, "a short step keeps its %d injects though it ticks and flushes inside (%d)" % [
+		n_inj, sh.last_catchup_injects.size()])
+	sh.flush()
+	t.ok(sh.last_catchup_injects.is_empty(), "a flush empties them")
+	bare.setup(bare.cfg, bare.world_size)
+	t.ok(bare.last_catchup_injects.is_empty(), "a setup empties them")
 	return t.failures
