@@ -960,9 +960,10 @@ func _cards(t: TestUtil) -> void:
 	t.ok(CardLogic.loot_card_line({"yield_mult": 1.0}, loot) == RaidLoot.card_line({"yield_mult": 1.0}, loot), "the loot line is the dungeon's")
 	t.ok(CardLogic.first_clear_line({"first_clear": true}) == "first clear: guaranteed blueprint", "the first clear's reward")
 	var pin := CardLogic.pinned_odds({"odds": 0.61, "sign": 1, "drain_s": -1.0, "backlog": 18000.0})
-	t.ok(pin == "Your odds 61% ▲ gaining · drains in ∞", "the pinned odds (%s)" % pin)
+	# the ▲ is the backlog's sign, labelled as the strain (E4 step 10, the step 9 review's item 4; was "61% ▲ gaining")
+	t.ok(pin == "Your odds 61% · strain ▲ rising · drains in ∞", "the pinned odds (%s)" % pin)
 	var cards: Dictionary = MapLogic.cfg()["cards"]
-	t.ok(str(cards["vei_odds_label"]).to_lower().contains("your odds") and str(cards["vei_sign_label"]).contains("▲ = winning"), "the Vei card says whose odds and what ▲ means")
+	t.ok(str(cards["vei_odds_label"]).to_lower().contains("your odds") and str(cards["vei_sign_label"]).contains("STRAIN (▲ = rising)"), "the Vei card says whose odds and what ▲ means")
 	var sb := FileAccess.get_file_as_string("res://scripts/map/map_sidebar.gd")
 	t.ok(sb.contains("CardLogic.pinned_odds("), "the odds are pinned in the actions, beside BEGIN")
 

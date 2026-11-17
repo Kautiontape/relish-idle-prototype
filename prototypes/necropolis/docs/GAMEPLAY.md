@@ -247,8 +247,8 @@ dialog says what a death would cost right now.
 - Within 2 minutes you have set the valve, watched a stream respond, and seen the town move.
 - Leaving it alone is how it grows (IDLE.md). Coming back finds it bigger, with forts to retake and
   husks to raise, and the active minutes always have a raid worth doing.
-- At any moment the player can say whether they're winning (the ▲/▼ beside the odds) and why (which
-  stream changed).
+- At any moment the player can say whether they're winning (the odds, with the strain's ▲/▼ beside
+  them: her backlog rising or falling) and why (which stream changed).
 - Each scene has its own verb:
   - macro: commit and redirect;
   - economic: build and set rules;

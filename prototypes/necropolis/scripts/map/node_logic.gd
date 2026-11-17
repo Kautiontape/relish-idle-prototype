@@ -432,6 +432,13 @@ static func drain_line(backlog: float, drain_s: float) -> String:
 	return str(ncfg()["drain_prefix"]) + MapLogic.fmt_drain(drain_s)
 
 
+## The line under Vei's odds: the differential's sign, labelled as her strain, then the drain line
+## ("strain ▲ · drain 8m 40s"). The ▲/▼ is the backlog's sign, while the odds are mostly time
+## (MECHANICS §3.5), so it never sits beside the percent (E4 step 10, the step 9 review's item 4).
+static func strain_line(sign: int, backlog: float, drain_s: float) -> String:
+	return str(ncfg()["strain_line_fmt"]) % [MapLogic.sign_glyph(sign), drain_line(backlog, drain_s)]
+
+
 ## Odds as the integer percent the map prints.
 static func fmt_odds(odds: float) -> String:
 	return "%d%%" % roundi(clampf(odds, 0.0, 1.0) * 100.0)
