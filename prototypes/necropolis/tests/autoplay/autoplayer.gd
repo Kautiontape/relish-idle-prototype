@@ -435,7 +435,9 @@ func _big_want() -> Dictionary:
 ## whose stat there brings at least KEEP_SHARE of the want, best first (ties to the older uid). The front whose candidates
 ## alone cover the larger share of its want (ties to giants) takes its keepers first, as many as meet its want; the other
 ## then takes its own from the bigs left, as many as meet its want. At most cap - RAID_ROOM in all, and a big keeps one
-## front. {uids: the keepers in that order, front_of: {uid: front}}; {} when no big qualifies.
+## front. The other order is taken instead when it meets more fronts, or as many with more coverage (_alloc's cov): a
+## front of weak bigs that fills every place first would leave a front it could have met unkept, and its bigs to raid.
+## {uids: the keepers in that order, front_of: {uid: front}}; {} when no big qualifies.
 func _keepers() -> Dictionary:
 	if not keep_fronts:
 		return {}
@@ -465,8 +467,22 @@ func _keepers() -> Dictionary:
 				break
 		order.append([sum / w, fid, rows, w])
 	order.sort_custom(func(o1, o2): return float(o1[0]) > float(o2[0]) or (float(o1[0]) == float(o2[0]) and str(o1[1]) == "giants"))
+	var best := _alloc(order, k)
+	if order.size() == 2:  # the other order, when it meets more fronts or (as many) covers more
+		var alt := _alloc([order[1], order[0]], k)
+		if int(alt["met"]) > int(best["met"]) or (int(alt["met"]) == int(best["met"]) and float(alt["cov"]) > float(best["cov"]) + 1e-9):
+			best = alt
+	return {} if (best["uids"] as Array).is_empty() else {"uids": best["uids"], "front_of": best["front_of"]}
+
+
+## _keepers' fill in one front order: each front in turn takes its candidates not yet kept, best first, until its want is
+## met, at most k in all. {uids, front_of, met: the fronts whose want it meets, cov: the sum of each front's share, at
+## most 1}.
+static func _alloc(order: Array, k: int) -> Dictionary:
 	var uids: Array = []
 	var front_of := {}
+	var met := 0
+	var cov := 0.0
 	for o in order:
 		var sum := 0.0
 		for r in o[2]:
@@ -478,7 +494,9 @@ func _keepers() -> Dictionary:
 			uids.append(u)
 			front_of[u] = str(o[1])
 			sum += float(r[0])
-	return {} if uids.is_empty() else {"uids": uids, "front_of": front_of}
+		met += 1 if sum >= float(o[3]) else 0
+		cov += minf(1.0, sum / float(o[3]))
+	return {"uids": uids, "front_of": front_of, "met": met, "cov": cov}
 
 
 ## Placement: the party fills first (the oldest bigs, up to PARTY_MAX), each assigned the front of its best stat; the

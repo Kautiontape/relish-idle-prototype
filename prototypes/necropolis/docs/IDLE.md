@@ -969,8 +969,12 @@ The policies (the run's manager's, for Shawn):
     candidate. The front whose candidates alone cover the larger share of its want (ties to giants) takes its keepers
     first, best first, as many as meet its want; the other front then takes its own from the bigs left, the same way.
     At most the big-undead cap less `RAID_ROOM` (2, room for two raiders, who reach t3) in all, and a big keeps one
-    front. **Two fronts from E4 step 2's sizing stop** (the manager's ruling 3); before it only the better-covered front
-    was kept, so at most 2 keepers on 1 front and giants was never kept in sessions.
+    front. The other front order is used instead when it meets more fronts, or as many with more coverage (each
+    front's share capped at 1): in sessions with the husk craft (e299d87, try 1's needs) carvers' weak crafted
+    skeletons (beef 2–3) filled all four places first, giants' wits 6, 5 and 4 were released to raid and died, and
+    giants fell from 15/14 on day 4 to 6/14. **Two fronts from E4 step 2's sizing stop** (the manager's ruling 3);
+    before it only the better-covered front was kept, so at most 2 keepers on 1 front and giants was never kept in
+    sessions.
   - **The player's reason:** a big that brings a good part of a front Vei will test is worth more at home than on a
     raid, where a death loses the whole party (A8). With two fronts short, a player keeps what each needs, and still
     sends two raiders so the raids reach t3.

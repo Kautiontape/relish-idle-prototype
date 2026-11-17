@@ -77,6 +77,20 @@ func _two_fronts(c: Dictionary) -> void:
 		"a big that qualifies on both fronts is kept once, on the front that took it first: %s, %s" % [str(bb._keep), _front(bb.s, both)])
 	bb.cleanup()
 
+	# the order that meets more fronts wins: A brings 0.6 of giants and 0.9 of carvers, B 0.5 of giants, C and D 0.55 of
+	# carvers each. Carvers covers 1.45 alone (A, C) against giants' 1.1 (A, B), but carvers first leaves giants B alone
+	# (one front met); giants first takes A and B, and C and D meet carvers (two)
+	var bo := Autoplayer._bot("keep_test_order", c6, {"print_rows": false})
+	bo.new_game()
+	var a := _big(bo.s, _stat_for(c, w["giants"], "giants", 0.6), _stat_for(c, w["carvers"], "carvers", 0.9))
+	var bg := _big(bo.s, _stat_for(c, w["giants"], "giants", 0.5), 0.0)
+	var cc := _big(bo.s, 0.0, _stat_for(c, w["carvers"], "carvers", 0.55))
+	var dd := _big(bo.s, 0.0, _stat_for(c, w["carvers"], "carvers", 0.55))
+	bo._place()
+	t.ok(bo._keep == [a, bg, cc, dd] and _front(bo.s, a) == "giants" and _front(bo.s, cc) == "carvers",
+		"the order that meets both fronts is kept (giants first: A, B; carvers: C, D): %s, A on %s" % [str(bo._keep), _front(bo.s, a)])
+	bo.cleanup()
+
 
 ## The crypt's levels (the sizing stop's ruling): no crypt entry while the crypt has room; once it is full (big undead at
 ## the cap) and a husk waits, the fill queues crypt level 2 first, and the latch holds after the husk is gone.
