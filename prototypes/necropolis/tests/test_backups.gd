@@ -52,7 +52,10 @@ const TIP := {
 	# E4 step 7 (the standing re-pin rule): the away report only, for the full store's line moving from losses to ready
 	# ("Gold filled up, 193 not stored: queue more, or raid for relics", target the queue); the state and events are
 	# unchanged (was 61a7e99c…). The same for pre_vei below (bone; was 982d56f5…)
-	"midgame_2flips": {"state": "b1469601055f2e47fd6d128250b8edc058229c0f8dd8e7ab3f44433bdf612d86",
+	# E4's in-flight overlay (the standing re-pin rule; IDLE §4): the state only, for Bellwether's end owner (player, as
+	# live play reads Covington's cell, not none); living at its cap of 26 either way, events and report unchanged (was
+	# b1469601…). The proof: the overlay's call disabled passes the old pins
+	"midgame_2flips": {"state": "b2cf7165dc30883c17a277eefcdc27ac4781a4c4cd3b229dec4a7345c26fee6c",
 		"events": "3909f7cddb0706c1e8054758b56c73626e73f4d532bf7e19771d441b9036c68e",
 		"away": "de13aae3e94066ceb8fff2588e2bc4e8aae7eab90f8437392b5c264b01528e42", "steps": 4355, "n_events": 240},
 	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i) on the gold-trap stop; the standing re-pin

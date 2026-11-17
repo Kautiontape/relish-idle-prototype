@@ -57,6 +57,7 @@ func run() -> int:
 	_retakes_bound()
 	_threshold_free()
 	_i1()
+	_i1_field()
 	_determinism()
 	_cleanup()
 	return t.failures
@@ -978,6 +979,10 @@ static func i1(c: Dictionary, start: String, script: Callable, seconds: float, f
 	var out := compare(closed, closed.catchup_events(), open, evs, tol)
 	out["open_t"] = open.t
 	out["closed_t"] = closed.t
+	out["owners"] = [{}, {}]  # each run's village owners by id (closed, open)
+	for i in 2:
+		for v in [closed, open][i].to_dict()["villages"]:
+			out["owners"][i][str(v["id"])] = str(v["owner"])
 	DirAccess.remove_absolute(dir + "/i1.json")
 	DirAccess.remove_absolute(dir)
 	return out
@@ -999,6 +1004,20 @@ func _i1() -> void:
 	print("  [catchup] I1, a new game's session left 30 min, closed vs open: %s" % r["lines"])
 	t.ok(r["ok"] and float(r["open_t"]) == float(r["closed_t"]), "I1: closed for 30 min equals open for 30 min within %.0f%%, the same outcomes: %s" % [
 		tol * 100.0, r["lines"]])
+
+
+## I1's field (E4): a catch-up's village owners read the field as live play does, the step's in-flight
+## injects on top (InfluenceField.overlay_in_flight). In this shrunk field Bellwether shares Covington's
+## cell with an orange inject, so the contest wipes the step's bare result there: without the overlay a
+## caught-up Bellwether read none for its first 80 s here (and, under A1's thinner WAR, the whole half-hour),
+## while open play's read green from its first second (the I1 test's 61.5% town living under A1, Bellwether's
+## migrants). A new game left 60 s, closed (30 field steps of 2 s) against open.
+func _i1_field() -> void:
+	var r := i1(cfgs(), "new", func(_s: GameState) -> void: pass, 60.0, 0.25, 1.0)
+	var o: Array = r["owners"]
+	t.ok(o[0] == o[1] and str(o[1].get("bellwether", "")) == "player",
+		"I1's field: 60 s closed reads the village owners open play does, Bellwether (Covington's cell) held in both: closed %s, open %s" % [
+		str(o[0]), str(o[1])])
 
 
 ## Determinism: the same save and time away give the identical to_dict() twice (and the same events).

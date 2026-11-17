@@ -14,8 +14,10 @@ extends RefCounted
 ##   short one so that none is under idle.field_step_min_s), each on the first core-step boundary at or
 ##   after its planned moment t0 + total_s · k / field_n, the last on the catch-up's end: one live period's
 ##   sources (GameState._inject_sources), then field.catchup_step(the seconds since the last field call),
-##   then the village owners (GameState._update_towns). Nothing injects between field calls, and the
-##   catch-up ends with the field published.
+##   then field.overlay_in_flight (the step's injects lag_ticks times on the published arrays, as live
+##   play reads the field: E4, I1's village in a cell both colours inject), then the village owners
+##   (GameState._update_towns). Nothing injects between field calls, and the catch-up ends with the field
+##   published.
 ## - Chunks: run() advances at most `max_steps` core steps per call. The step sequence and the field
 ##   steps' moments depend only on (the state at begin(), total_s, the configs), so chunking never changes
 ##   the result.
@@ -152,6 +154,7 @@ func _field_steps(gs: GameState, last: bool) -> void:
 	var tick_hz := float(gs._cfg().get("field", {}).get("tick_hz", 5.0))
 	gs._inject_sources(1.0 / tick_hz)
 	gs.field.catchup_step(gs.t - field_last_t)
+	gs.field.overlay_in_flight()  # the owners read the field as live play does (its in-flight injects on top)
 	gs._update_towns(gs._cfg())
 	field_last_t = gs.t
 	field_calls += 1

@@ -40,7 +40,9 @@ const TIP := {
 	# Bellwether lost to Vei". With u8 and u9 in the crypt it is 0e4f932's (test_big_undead)
 	# E4 step 7: the away report only (the full store's line moved from losses to ready), as test_backups' re-pin;
 	# state and events unchanged (was 61a7e99c…; pre_vei below was 982d56f5…)
-	"midgame_2flips": {"state": "eddec8267b5eaf04dc486e16370207748e560ca971e6333c08f07ca085f7b9ed",
+	# E4's in-flight overlay (the standing re-pin rule): the state only, for Bellwether's end owner (player, as live play
+	# reads Covington's cell, not none); living at its cap of 26 either way, events and report unchanged (was eddec826…)
+	"midgame_2flips": {"state": "a78060c3f11cede8bff6d742782271e92630a9d79a74698c2e42eb2a0e74e471",
 		"events": "d65e73ac632b43279456c3e4548c2d3995c93bfad1a7957ed6f4c4c97e95742f",
 		"away": "de13aae3e94066ceb8fff2588e2bc4e8aae7eab90f8437392b5c264b01528e42", "steps": 4355, "n_events": 237},
 	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i); the standing re-pin rule): the second House
@@ -488,10 +490,11 @@ func _thrift_upgrade_held() -> void:
 	n.clock_override = CLOCK + 1800
 	n.cmd_load("thriftup")
 	var lines: Array = n.view_away()["losses"].filter(func(l): return l["kind"] == "unpaid")
-	# Thrift stops acting 19 m in (the town's trade grows): its line ends there, and only then does the upgrade start
-	t.ok(lines.size() == 1 and str(lines[0]["text"]).begins_with("Chapel of Vats") and str(lines[0]["text"]).contains("idled by Thrift for 19 m")
+	# Thrift stops acting 15 m in (the town's trade grows): its line ends there, and only then does the upgrade start.
+	# (19 m before E4's in-flight overlay, when the caught-up Bellwether read none and its migrants never came)
+	t.ok(lines.size() == 1 and str(lines[0]["text"]).begins_with("Chapel of Vats") and str(lines[0]["text"]).contains("idled by Thrift for 15 m")
 		and n.town_sim.buildings["lot-14"]["level"] == 2,
-		"30 min away: Thrift's line for the Chapel ends when Thrift stops (19 m), not at the end of the absence, and the upgrade built after: %s %s" % [
+		"30 min away: Thrift's line for the Chapel ends when Thrift stops (15 m), not at the end of the absence, and the upgrade built after: %s %s" % [
 		n.town_sim.buildings["lot-14"]["state"], str(lines)])
 
 

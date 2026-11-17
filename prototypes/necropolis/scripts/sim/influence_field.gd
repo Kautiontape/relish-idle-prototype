@@ -61,6 +61,8 @@ var _c_slo := PackedInt32Array()  # per row, the span of the cells marked 1 in _
 var _c_shi := PackedInt32Array()
 ## Cells catchup_step's last call updated, summed over its sweeps (tests and readouts only).
 var last_catchup_cells := 0
+## The injects catchup_step's last call consumed (its sources, in order), for overlay_in_flight.
+var last_catchup_injects: Array = []
 ## catchup_step's ticks per call are capped here (1e15 ticks is about 6e6 years): long past every
 ## mode's relaxation, it keeps the tick counts finite (dt = INF) and their int casts in range.
 const MAX_TICKS := 1e15
@@ -191,8 +193,10 @@ func tick(dt: float) -> void:
 ## test_field_catchup.gd; cost and owner agreement with live ticks: tests/slow/field_catchup_bench.gd.
 func catchup_step(dt: float) -> void:
 	last_catchup_cells = 0
+	last_catchup_injects = []  # a step that changes nothing has nothing to overlay
 	if not (dt > 0.0):
 		return
+	last_catchup_injects = _open.duplicate()
 	var period := 1.0 / float(cfg.get("tick_hz", 5.0))
 	var n := minf(dt / period, MAX_TICKS)
 	var whole := int(floor(n + 1e-9))
@@ -212,6 +216,21 @@ func catchup_step(dt: float) -> void:
 		for r in injs:
 			inject(r[0], r[1], r[2], r[3])
 		_solve(frac * period)
+
+
+## The live arrays as live play reads them after a catchup_step: live play publishes a result lag_ticks
+## old with the ticks still in flight re-applied on top (_publish), so dominance_at at an inject cell
+## carries lag_ticks periods of its injects. catchup_step publishes its bare result (as after flush()),
+## and where both colours inject the contest wipes that result, so a village there would read none
+## although live play reads it for the stronger inject (E4: the I1 test's Bellwether, in Covington's
+## cell). This re-applies the last step's injects lag_ticks times, in order, onto the live arrays only
+## (green and orange; _apply_inject's arithmetic, capped at 4 as live's), never onto the pipeline's base
+## (_head), so the next tick or step is unchanged. GameState's catch-up calls it after each field step,
+## before it reads the village owners.
+func overlay_in_flight() -> void:
+	for k in _lag:
+		for r in last_catchup_injects:
+			_apply_inject(false, r[0], r[1], r[2], r[3])
 
 
 ## The solve behind catchup_step: dt seconds in one go (any dt > 0).

@@ -243,9 +243,22 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
     at midgame_2flips and fresh (+0.1%), −24.8 at pre_vei (−4.1%, of 605 live; −11% at 3 h). It moves no
     stock: Covington's living sit at their cap throughout at all three (26, 88 and 16), so the migrants
     above it are dropped in both runs.
+  - **The in-flight overlay** (E4, found under ruling A1's I1 red: town living 61.5% apart at 30 min). Live play
+    reads the field as `_publish` leaves it: a result `field.lag_ticks` (2) old with the ticks still in flight
+    re-applied on top, so an inject cell carries two periods of its injects. `catchup_step` publishes its bare
+    result (as after `flush()`), and where both colours inject the contest wipes that result: on the 8 × 6 field
+    Bellwether shares Covington's cell with an orange inject, and read exactly 0 (none) caught up against +0.94
+    to +0.60 (green) live, so its migrants arrived only live. Each field step now ends with
+    `InfluenceField.overlay_in_flight` (the step's injects `lag_ticks` times on the published arrays only, never
+    the pipeline's base) before the village owners: Bellwether +0.706 at the first field step against +0.699 live,
+    +0.6006 against +0.6005 at 30 min; the threshold-free start's owners go from 1 of 12 apart to 0.
+    Tests: `test_field_catchup` (the inject cells read as live play's published field, worst 0.0000 against the
+    bare step's 0.3080; the base and the next step unchanged), `test_catchup._i1_field` (60 s closed against
+    open, the same owners).
   - **T3.3c's living gap** (`tests/test_away.gd`'s walk-home catch-up, 16 living live against 10.1 caught up)
-    is the shrunk field's: on its 8 × 6 field with no pre-warm, Covington's village is green live and goes
-    unowned at catch-up's first field step, so 0.12 living of migrants arrive in 10 min against 7.2 live.
+    was put down to the shrunk field (on its 8 × 6 field with no pre-warm, Covington's village is green live and
+    goes unowned at catch-up's first field step, so 0.12 living of migrants arrive in 10 min against 7.2 live).
+    It is the in-flight overlay's symptom on the same field (not re-measured since the fix).
     On the shipped field, pre-warmed, the owners match at 10 of 11 samples (one village apart once, not the
     green one), the migrants are 6.84 against 6.87 and both end at the cap of 16.
 - The step sequence depends only on `(save, elapsed, config)`, never on frames. A progress screen
