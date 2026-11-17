@@ -180,9 +180,11 @@ func _vat_override() -> void:
 				c.cmd_staff_vat(slot, v[slot])
 		t.ok(_proj_rows(p) == _town_rows(c), "vats %s: the projection is view_town after cmd_staff_vat on a twin: %s vs %s" % [
 			str(v), str(_proj_rows(p)), str(_town_rows(c))])
-	var one := s.view_staffing_projection(order, {0: true})
+	# vat 1: pre_vei's vat 0 holds a ready clone, which opens no tend slot (E4 step 10; its override is in the loop above)
+	var one := s.view_staffing_projection(order, {1: true})
 	t.ok(one["jobs"][0] == {"id": "tend", "slots": 1, "staffed": 1.0} and one["jobs"][1]["staffed"] == base["jobs"][0]["staffed"] - 1.0,
-		"one vat staffed: the tend slot takes one hand from the stall")
+		"one empty vat staffed: the tend slot takes one hand from the stall")
+	t.ok(_proj_rows(s.view_staffing_projection(order, {0: true})) == _proj_rows(base), "the full vat staffed: no tend slot, as base")
 	t.ok(s.rev == rv and _town_rows(s)["jobs"] == base["jobs"] and not s.vats_staffed.has(true) and s.town_sim.vats_on() == [], "the overrides changed nothing")
 	var on := _vat_game({0: true})
 	var off := on.view_staffing_projection(order, {0: false})

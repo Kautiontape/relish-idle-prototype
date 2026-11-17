@@ -1369,7 +1369,7 @@ processing does.
 - **When each entry becomes affordable** (R2, the E2b-2 vision review's item 3; the run's manager for Shawn:
   the queue never stalls or jumps, so the player gets the data instead: "data, not a skip"). The same walk
   sets each entry's `affordable_in_s` (STATE-API §5.9), `0.0` affordable now, the seconds until it is at
-  today's net rates, `-1.0` never at them:
+  the current net rates, `-1.0` never at them:
   - **net rates:** each store's net now, income less upkeep, from TownSim's last step: the HUD's and
     `view_rates`' net below the cap; at the cap, where theirs clips the income to the upkeep and reads 0, the
     income before the clip (`trade`, `mill`) less the upkeep, since an entry ahead that spends the store
@@ -1789,7 +1789,10 @@ gives it: an idle worker if there is one, else the lowest room staffed below it.
 closes the slot and the hand goes back to the ladder's next room, or idles. The vats are numbered
 as `view_backups` numbers them: in lot order over every built Chapel (unpaid or mid-upgrade too, at
 its built level), then by vat within it. An unpaid Chapel keeps its numbers but offers no slot.
-From E3-2 the tend hand is what grows the vat's clone (above).
+From E3-2 the tend hand is what grows the vat's clone (above). **A ready clone needs no tending** (E4 step 10):
+a staffed vat holding a ready clone closes its slot at the end of the step it fills in, and the hand goes back to
+the ladder; spending the clone reopens it (`GameState._tended_vats`). The vat stays staffed (`view_backups`, the
+save), so it takes its hand again on its own; before, a full vat kept a hand that grew nothing.
 - **Measured:** a save with a Chapel and no staffed vat loses its tenders to the ladder. pre_vei
   (two unstaffed vats, 35 workers on 25 slots, the idle pool at its cap of 10) has 2 tenders fewer:
   they go idle, which puts the idle pool 2 over its cap, so its first step musters 2 workers (80

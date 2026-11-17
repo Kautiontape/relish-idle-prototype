@@ -106,6 +106,7 @@ func run() -> int:
 	DirAccess.make_dir_recursive_absolute(_dir)
 	_tended_only()
 	_fill_time()
+	_ready_frees_hand()
 	_partial()
 	_unstaff_keeps()
 	_unpaid_stops()
@@ -223,7 +224,37 @@ func _fill_time() -> void:
 	var v := s.view_backups()
 	t.ok(v["clones_ready"] == 1 and v["death"]["outcome"] == "clone", "a vat at 1 is a ready clone: clones_ready 1, a death would wake her from it")
 	s.tick(10.0)
-	t.ok(_grow(s, 0) == 1.0 and s.view_backups()["clones_ready"] == 1, "tended on, it holds at 1 (one clone per vat)")
+	t.ok(_grow(s, 0) == 1.0 and s.view_backups()["clones_ready"] == 1, "staffed on, it holds at 1 (one clone per vat)")
+
+
+## A ready clone needs no tending (E4 step 10, the E3 note "a fully staffed vat wastes its tend hand"; MECHANICS §7):
+## the vat stays staffed (the player's choice, view_backups) but its tend slot closes at the end of the step it fills in
+## and the hand goes back to the ladder; spending the clone reopens the slot and the vat grows again; a save keeps it.
+## At b475eb3 the slot stayed open with its hand on a vat at 1 (the revert proof: the closed-slot asserts fail).
+func _ready_frees_hand() -> void:
+	var s := _chapel()
+	s.cmd_staff_vat(0, true)
+	s.vats_grow = [0.999]
+	var twin := _chapel()  # the same game with the vat never staffed: no tend slot at all
+	twin.vats_grow = [0.999]
+	t.ok(int(_tend(s)["slots"]) == 1 and float(_tend(s)["staffed"]) == 1.0, "(setup) vat 0 staffed and tended: %s" % str(_tend(s)))
+	s.tick(10.0)
+	twin.tick(10.0)
+	var v := s.view_backups()
+	t.ok(v["clones_ready"] == 1 and v["vats"][0]["staffed"], "(setup) the clone is ready, the vat still staffed")
+	t.ok(int(_tend(s)["slots"]) == 0 and float(_tend(s)["staffed"]) == 0.0,
+		"a staffed vat with a ready clone opens no tend slot: %s" % str(_tend(s)))
+	var idle_s := float(s.town_sim.staffing.get("idle", 0.0))
+	var idle_t := float(twin.town_sim.staffing.get("idle", 0.0))
+	t.near(idle_s, idle_t, 0.05, "its hand went back to the ladder: idle %.4f, as the never-staffed twin's %.4f" % [idle_s, idle_t])
+	var d: Dictionary = JSON.parse_string(JSON.stringify(s.to_dict()))
+	var l := GameState.new(TestUtil.configs())
+	l.from_dict(d)
+	t.ok(int(_tend(l)["slots"]) == 0 and l.view_backups()["vats"][0]["staffed"], "a load keeps it: staffed, no tend slot (%s)" % str(_tend(l)))
+	t.ok(s.spend_clones(1) == 1 and int(_tend(s)["slots"]) == 1 and float(_tend(s)["staffed"]) == 1.0,
+		"spending the clone reopens the slot and a hand takes it: %s" % str(_tend(s)))
+	s.tick(10.0)
+	t.near(_grow(s, 0), 10.0 * _rate(s), 1e-9, "and the emptied vat grows again")
 
 
 ## Partial tending: tend on top, both vats staffed, 1.5 workers. Tend workers are staffed per Chapel, not per vat, so

@@ -1830,6 +1830,23 @@ func _vats_ready() -> int:
 	return n
 
 
+## The vats that take a tend hand (E4 step 10, MECHANICS §7): staffed, and their clone not yet ready. A ready clone
+## needs no tending, so its vat gives the hand back to the ladder until the clone is spent; vats_staffed (saved, what
+## view_backups shows) keeps the player's choice. TownSim opens a tend slot per vat listed here (set_vats).
+func _tended_vats() -> Array:
+	var out: Array = []
+	for i in vats_staffed.size():
+		out.append(bool(vats_staffed[i]) and _vat_grow(i) < 1.0)
+	return out
+
+
+## Gives TownSim the tended vats (_tended_vats); a no-op while they are unchanged. Called after each backups step and
+## wherever a clone is spent or the staffing changes, so a vat filling or emptying moves its hand at that step's end,
+## live and caught up alike.
+func _sync_tend() -> void:
+	town_sim.set_vats(_tended_vats())
+
+
 ## clones_ready's setter: the total becomes `v` (≥ 0). The spare clones make up what the vats at 1 don't hold;
 ## a total below the vats at 1 empties ready vats from the lowest slot (and no spare is left).
 func _set_clones_ready(v: int) -> void:
@@ -1846,6 +1863,7 @@ func _set_clones_ready(v: int) -> void:
 		if float(vats_grow[i]) >= 1.0:
 			vats_grow[i] = 0.0
 			drop -= 1
+	_sync_tend()
 
 
 ## Spends `n` ready clones (a death's, a boss fight's; MECHANICS §7): each empties the lowest ready vat back to 0,
@@ -1861,6 +1879,8 @@ func spend_clones(n: int) -> int:
 			spent += 1
 	var spare := mini(n - spent, _clones_spare)
 	_clones_spare -= spare
+	if spent > 0:
+		_sync_tend()  # an emptied vat that is staffed takes its tend hand again (E4 step 10)
 	return spent + spare
 
 
@@ -1895,7 +1915,7 @@ func cmd_staff_vat(slot: int, on: bool) -> Dictionary:
 	while vats_staffed.size() <= slot:
 		vats_staffed.append(false)
 	vats_staffed[slot] = on
-	town_sim.set_vats(vats_staffed)
+	_sync_tend()
 	rev += 1
 	return {"ok": true, "reason": "", "staffed": on}
 
@@ -2856,6 +2876,7 @@ func _core_step(dt: float) -> Array:
 	# §3 step 6: the backups (E3-2): the vats grow on the hands TownSim's step gave them, and a dead Relish's
 	# respawn counts down (catch-up clips a step at it: Catchup.next_event_s)
 	_grow_vats(dt, town["vat_hands"])
+	_sync_tend()  # a vat whose clone filled this step gives its tend hand back (E4 step 10)
 	if relish["state"] == "dead":
 		_count_down_respawn(dt)
 	if trickle_on:
@@ -3054,8 +3075,8 @@ func from_dict(d: Dictionary) -> Dictionary:
 	_away = {}  # a load replaces the last report (the next catch-up's, if any, follows)
 	_tiers_seen = [-1, ""]
 	# the vats come back after TownSim's own load: they open the tend slots (refilled, the saved
-	# states kept)
-	town_sim.set_vats(vats_staffed, true)
+	# states kept); a staffed vat holding a ready clone opens none (_tended_vats, E4 step 10), as live play left it
+	town_sim.set_vats(_tended_vats(), true)
 	# the stances (E3-1): the conditions are read again at the loaded t's next beat; the ones acting are given back
 	# to TownSim as saved (Thrift's buildings are in their saved state). A building Thrift idles while Thrift
 	# doesn't act (a hand-made save) goes back to work

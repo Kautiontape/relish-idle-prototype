@@ -6,8 +6,8 @@ extends RefCounted
 ## (test_catchup.gd's accuracy() and compare()). Then I1 over 12 h: a new game's scripted opening, then
 ## closed against open through the frame path. The field is shrunk (8 × 6) as in the default suite.
 ## Run with tests/run.sh --slow --only=catchup_accuracy (a few minutes).
-## - Starts: midgame_2flips and fresh (convergence.gd's: a new game run 10 min). pre_vei is run and
-##   printed, not asserted: its gold reaches its floor about 2.14 h in with no input (one Market against
+## - Starts: midgame_2flips, fresh (convergence.gd's: a new game run 10 min) and pre_vei, asserted again from E4
+##   step 10 (it was run and printed only until the window means landed). Its gold reaches its floor about 2.14 h in with no input (one Market against
 ##   City-tier upkeep, a fixture artifact that is E4's, T3.3a's attribution). From there its pits work (all 6
 ##   since R1's shed order sheds the decorations and passive buildings first; 2 of 6 before) on a store the
 ##   convoy refills a load at a time, so the feed the mint reads (the last step's burned / wanted) is a 10 s
@@ -37,8 +37,9 @@ func run() -> int:
 	for st in ["midgame_2flips", "fresh", "pre_vei"]:
 		var r: Dictionary = cu.accuracy(c, conv.start_json(st), HOURS * 3600.0, tol, WINDOW_S)
 		print("  [catchup_accuracy] %s, %.0f h caught up vs live: %s%s" % [st, HOURS, "pass" if r["ok"] else "FAIL", "; " + str(r["lines"])])
-		if st != "pre_vei":
-			t.ok(r["ok"], "%s: %.0f h caught up against live at 0.5 s within %s: %s" % [st, HOURS, conv._pct(tol), r["lines"]])
+		# pre_vei asserted again from E4 step 10 (handoff E4 item 10): with R1's shed order and the 600 s window means it
+		# passes (b475eb3: every stock within 0.035%, the mint's 12 h endpoint 7.48% on its 8.5 s saw)
+		t.ok(r["ok"], "%s: %.0f h caught up against live at 0.5 s within %s: %s" % [st, HOURS, conv._pct(tol), r["lines"]])
 		# the window's premise (E4 review item 4): a mean over WINDOW_S is off by at most about swing × cycle ÷ window, so
 		# the mint's saw must cycle well inside it (at most a tenth: 10 cycles), or not saw past the tolerance at all.
 		# Measured at the E4 review items' tree: fresh 30.8% on 21.4 s, pre_vei 36.6% on 8.5 s, midgame_2flips none

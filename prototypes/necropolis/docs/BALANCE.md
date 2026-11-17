@@ -151,7 +151,7 @@ E2a added is here with its value.
 | `hold.train_frame_phase`, `hold.train_starve_frames` | 0.5 (of a substep), 30 frames | the train's frame refresh (GameState._train_frame), the build benefit's rule with its own keys: on the frame path it re-probes on a frame with no substep at least this far into the substep interval (the scenes refetch early in it), or, when every frame substeps, after this many such frames in a row. 1.2 ms a probe at midgame_2flips, so it stays off the substep frames (MECHANICS §3.5's cost line) |
 | `tithe.period_s`, `tithe.backlog_scale` | 420, 0.5 | waves come faster as the odds rise |
 | `tithe.warning_s`, `tithe.surge_s`, `tithe.surge_mult` | 150, 40, 3.0 | |
-| `tithe.siege_block`, `tithe.relish_mult` | 0.6, 0.5 | a siege cancels 0.6 of a surge (live from E3-3, read REQUIRED by GameState: flat, one per fort, whatever the big's stats; whether it should scale with them is an E4 question); a surge into the fort Relish stands at is × 0.5 (halved) |
+| `tithe.siege_block`, `tithe.relish_mult` | 0.6, 0.5 | a siege cancels 0.6 of a surge (live from E3-3, read REQUIRED by GameState: flat, one per fort, whatever the big's stats. **E4 step 10 keeps it flat** (the smallest choice, the brief's rule for an open point): one number the margin chip and the forecast credit exactly, and a big's stats already count where it fights (the fronts); scaling it would make the forecast read the big's stats for a lever the player can't see. A second siege at a fort adds nothing; the map's siege menu saying so is a Phase I item); a surge into the fort Relish stands at is × 0.5 (halved) |
 | `tithe.march_back_s` | 60 s | living above a fort's cap march back to Vei's pool at `(L − cap) / march_back_s`; past her pool's cap they are lost (`pool_overflow`). Replaces `tithe.overfill` (2.0, E2b T3.0s). At 60 s a full wave leaves at most 701 above the cap, and waves don't stack past one wave's mass even at the shortest period (MECHANICS §3.4) |
 | `readout.ema_s`, `readout.sign_eps` | 120, 0.05 mass/s | the sign flips past ±`sign_eps` of the EMA |
 | `q.q0` ⟵ `q`, `q.q_forge` ⟵ `q_per_forge`, `q.q_raise_max`, `q.raise_half_mass`, `q.q_max` ⟵ `q_max` | 1.2, 0.1 per level, 0.6, 200 mass, 4.0 | forge steps 0.1 (was 0.25, wider than the knife edge); the circle EMA's half-life is in mass raised, not seconds (`q.raise_ema_s` 600 is gone; IDLE I2) |
@@ -199,7 +199,7 @@ E2a added is here with its value.
 | graveyard, embalmer `effects.lifetime_bonus` | +0.15, +0.5 per level | lifetime × (1 + Σ) |
 | cap effects (live from T2.4) | chapel `vat_slots` 2 (view_backups.vats), guildhall `stance_slots` 1, reliquary `relic_cap` 6 and `essence_cap` 30 | per level, on top of `relics.cap`, `essence.cap` and `stance.base_slots` |
 | E3 effects (data only for now) | watchtower `hint_precision` 1 | per level; `hint_precision` is in `idle.report.unpaid_inert` until the sim reads it |
-| ossuary `effects.craft_slots` | 1 per level | E3-4, the craft gate (MECHANICS §3.6): `cmd_craft` refuses `needs_building` while the built buildings' `craft_slots` sum to under 1. A capacity effect, so an unpaid or Thrift-idled Ossuary still crafts. **Higher Ossuary levels add nothing in E3:** crafting is instant and has no queue, so a second slot changes nothing, and the level-2 and level-3 upgrades (900 / 300 / 6 and 1 350 / 450 / 9) buy nothing. Ossuary L2+ is dead content, an E4 question (slots as parallel crafts, cheaper crafts per level, or one level) |
+| ossuary `effects.craft_slots` | 1 per level | E3-4, the craft gate (MECHANICS §3.6): `cmd_craft` refuses `needs_building` while the built buildings' `craft_slots` sum to under 1. A capacity effect, so an unpaid or Thrift-idled Ossuary still crafts. **Higher Ossuary levels add nothing in E3:** crafting is instant and has no queue, so a second slot changes nothing, and the level-2 and level-3 upgrades (900 / 300 / 6 and 1 350 / 450 / 9) bought nothing. **E4 step 10: one level** (`max_level` 1; the smallest of the three E4 options, parallel crafts or cheaper crafts per level needing code and a reason to craft faster): the 15 relics the bots' ladder spent on it last now go elsewhere |
 | `craft.simulacrum`, `craft.phylactery_charge` | 20 essence + 1 relic; 15 essence | `economy.json`, E3-4, read REQUIRED (`GameState.REQUIRED`): what `cmd_craft` takes. **No stock cap** on the simulacra ready or the charges (the run's manager's ruling): the essence cap (60) and relic cap (12) bind them, so a full essence store makes 3 simulacra or 4 charges. `phylactery.max_per_dungeon` stays the per-dungeon use limit |
 | `relics.cap`, `essence.cap` | 12, 60 (the Reliquary raises both to 18 and 90) | |
 | `big_undead.cap`, `big_undead.per_crypt_level` ⟵ crypt `effects.big_undead_cap` | 4, +1 | the cap is 4 at Crypt level 1, 6 at level 3 (the Crypt's `effects` are empty; the number is here) |
@@ -281,8 +281,8 @@ The rates are measured: `cmd_new_game(1)`, no actions, 1 h at 0.5 s, the mean ne
   Reliquary at Town (relics 18). The tightest price is the Forge's level 8, 8 575 of 8 600. The test
   also fails a per-level Array effect without one entry per level. (A second Market or Bone Mill raises
   a cap further; the check counts one.)
-- **Relics** keep `relics.cap` 12 (+6 with the Reliquary): the largest relic cost is 9 (the Ossuary's
-  level 3); the ladder's are the Chapel's 7 and the Forge's 4 at level 8 (Village, cap 12), so no relic
+- **Relics** keep `relics.cap` 12 (+6 with the Reliquary): the largest relic cost is 7 (the Chapel's,
+  levels 6–8; the Ossuary's level 3 at 9 went with its levels in E4 step 10); the Forge's is 4 at level 8 (Village, cap 12), so no relic
   cost exceeds the cap its tier reaches. Relic income is not checked: L6+ relic costs are untested
   without raids (E4).
 
@@ -311,7 +311,7 @@ Market, Bone Mill and house are relic-free to level 5), and the Forge (relics 1,
 | Crypt | Hamlet | 0 | 0 / 0 | 150 / 60 / 1 | 300 / 120 / 2 |  |  |  |  |  |
 | Raising Pit | Hamlet | 0.03 | 15 / 150 | 30 / 305 | 50 / 450 | 80 / 720 | 130 / 1150 | 210 / 1840 / 1 | 335 / 2945 / 1 | 535 / 4710 / 1 |
 | Charnel House | Hamlet | 0.03 | 15 / 130 | 15 / 130 | 30 / 255 | 50 / 410 | 80 / 655 | 130 / 1050 / 1 | 210 / 1680 / 1 | 335 / 2690 / 1 |
-| Market | Hamlet | 0.03 | 15 / 130 | 15 / 130 | 30 / 255 | 45 / 410 | 75 / 650 | 120 / 1040 / 1 | 190 / 1675 / 1 | 300 / 2685 / 1 |
+| Market | Hamlet | 0.03 | 10 / 90 | 15 / 130 | 30 / 255 | 45 / 410 | 75 / 650 | 120 / 1040 / 1 | 190 / 1675 / 1 | 300 / 2685 / 1 |
 | House | Hamlet | 0.01 | 40 / 10 | 80 / 20 | 120 / 30 | 135 / 70 | 155 / 155 | 175 / 360 / 1 | 200 / 825 / 1 | 225 / 1880 / 1 |
 | Well | Hamlet | 0.01 | 30 / 10 | 60 / 20 | 90 / 30 |  |  |  |  |  |
 | Bakery | Hamlet | 0.01 | 50 / 10 | 100 / 20 | 150 / 30 |  |  |  |  |  |
@@ -322,13 +322,18 @@ Market, Bone Mill and house are relic-free to level 5), and the Forge (relics 1,
 | Embalmer | Village | 0.08 | 35 / 330 / 1 | 70 / 655 / 2 | 110 / 975 / 3 |  |  |  |  |  |
 | Stables | Village | 0.05 | 20 / 200 | 45 / 390 | 65 / 590 |  |  |  |  |  |
 | Chapel of Vats | Village | 0.12 | 300 / 120 / 2 | 600 / 240 / 4 | 900 / 360 / 6 | 1440 / 575 / 6 | 2305 / 920 / 6 | 3690 / 1470 / 7 | 5905 / 2350 / 7 | 9450 / 3760 / 7 |
-| Ossuary Tower | Town | 0.15 | 450 / 150 / 3 | 900 / 300 / 6 | 1350 / 450 / 9 |  |  |  |  |  |
+| Ossuary Tower | Town | 0.15 | 450 / 150 / 3 |  |  |  |  |  |  |  |
 | Guildhall | Town | 0.12 | 350 / 120 / 2 |  |  |  |  |  |  |  |
 | Watchtower | Town | 0.08 | 200 / 80 / 1 |  |  |  |  |  |  |  |
 | Walls and Gate | Village | 0.12 | 400 / 120 / 2 |  |  |  |  |  |  |  |
 | Plaza | Town | 0.15 | 350 / 150 / 2 |  |  |  |  |  |  |  |
 | Statue of Relish | Town | 0.15 | 400 / 150 / 3 |  |  |  |  |  |  |  |
 | Reliquary | Town | 0.2 | 600 / 250 / 4 |  |  |  |  |  |  |  |
+
+**Price steps in order** (E4 step 10, review-t7r1r2 §5): the Market's L1 was the same 15 / 130 as its L2, so L1 is now
+10 / 90. A new game starts with its Market built, so this prices only a Market built again (a demolished start
+Market). The Bone Mill's L1 → L2 (60 / 0 → 20 / 190) stays: a currency handover like the House's below (L1 is gold
+only because a new game has no mill to make bone), and the price rises in total.
 
 **The House's gold → bone handover** (E4 step 8, the brief's item). The House is a living building bought with gold,
 and the only one whose ladder runs past level 3. Config C priced its L4 to L8 on the dead's bone ladder, so L4 went

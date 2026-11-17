@@ -395,7 +395,12 @@ static func staffing_projection(gs: GameState, order: Array, vats: Dictionary) -
 	var o: Array = []
 	for j in order:
 		o.append(str(j))
-	var st: Dictionary = ts.project_staffing(o, vats)["staffing"]
+	# the overrides are staffing, as cmd_staff_vat takes it; a vat holding a ready clone opens no tend slot (E4 step 10,
+	# GameState._tended_vats), so an override on it is tended only while its clone isn't ready
+	var tv := {}
+	for slot in vats:
+		tv[slot] = bool(vats[slot]) and gs._vat_grow(int(slot)) < 1.0
+	var st: Dictionary = ts.project_staffing(o, tv)["staffing"]
 	var lots: Dictionary = st["lots"]
 	var buildings: Array = []
 	for lot_id in BuildRules.built_lots(gs):
