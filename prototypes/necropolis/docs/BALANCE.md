@@ -204,7 +204,8 @@ E2a added is here with its value.
 | `vei.guards` `rate_per_uncleared`, `cap`, `life_s`; `unit.hp`, `unit.dmg` | 1.0/s, 12, 6 s; 49.5, 8.8 | tuned in D-c so no ±5% move swings the win rate by a cliff; hp and dmg sit off Relish's 30-hp hit counts on purpose |
 | `vei.weaves.dmg`, `period_beats` | 13.5, 3 | off the 30-hp hit counts as above |
 | `vei.backups` `revive_hp_frac`, `iframes_s`, `shove_px`, `shove_recover_s`, `ready_trance` | 1.0, 3 s, 180 px, 3 s, false | a revive in the Vei fight is at full hp but does not ready the trance; V1 (1+1) 65%, V2 (0+0) 15% at score 70 |
-| `K`, `S_vei` | 12000, 8.0 | flagged by the audit (×4.8 and ×1.6 canon); calibrate in E4 |
+| `K`, `S_vei` | 36 000 000, 8.0 | `K` E4 step 3: ×3000 for the live backlog (sessions about 5.6M at day 1, 61M at day 5, 140M at day 8; continuous 204M), so sessions reaches odds 0.6 at about day 4.7, continuous at about day 3.4 (28% sooner), and night 1 takes the odds from 0.02 to 0.11, not 0.98 to 0.998. Was 12000 (the audit's ×4.8 canon), sized for the 18k knife edge below. The fixtures' and the demo seed's backlogs were scaled by the same 3000 so their odds stay put. `S_vei` unchanged |
+| `vei.fronts.swarm.per_backlog`, `raw.per_backlog` | 5e-7, 2.5e-7 | E4 step 3 (the manager's ruling: mass alone clears exactly one front, swarm). Swarm is met by mass at about 48M (odds 0.57). Raw's backlog term stays under its need through 8 days of every profile (60% of 58 at ablation_keep's 139M, 88% at continuous's 204M), so raw needs power from bigs. It brings about a quarter of raw's need at sessions' day-5 backlog. Past the 8-day horizon mass alone would clear raw; a saturating term (on the odds) would close that, as a follow-up. Were 0.0006 and 0.0012 |
 
 **Lots per tier** (`economy.json` `town.tiers.<tier>.lot_ids`; sizes are `town.json`'s: lot-01..04 and
 lot-13..16 are size 2, lot-05..12 and lot-17..22 size 1, lot-23 and lot-24 size 3):
@@ -309,6 +310,9 @@ Market, Bone Mill and house are relic-free to level 5), and the Forge (relics 1,
 - **The knife edge** (systems review S5). Odds of 0.6 need a backlog of about 18,000 raw. Vei's undead
   capacity is about 42/s at q 1.2 and about 20/s at q 2.5, so the active run needs about 5–8 pits and
   `q` > 2. Calibrate pits, `K` and `S_vei` together in E4.
+  - **E4 step 3: there is no knife edge in the live game.** The town's inflow outruns her digestion all run, and the
+    backlog grows to about 1e8 by day 8. So `K` and the fronts' `per_backlog` were sized for that scale (§5), not for
+    18k.
 - **Redirect value at low `q`** is small under `cheap`. If the +30% ablation fails, raise
   `raise_rate` or let the redirect add the haul bonus.
 - **FLOOD as a no-brainer** once `q` is high. The tithe waves and WORK's diminishing returns must keep

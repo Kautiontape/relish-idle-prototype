@@ -777,7 +777,7 @@ dismissed) and the `away_report` event.
 | dead air: active minutes in which nothing has positive projected value | < 10% |
 | continuous play (open all day, always acting), in calendar time to Vei-ready | **10–30% sooner** than sessions. Being present is never pointless, and idle still wins. The throttles are loot recovery and the relic cap. |
 | pure idle from a fresh start (never raids) | never Vei-ready (relics gate the endgame), but a full queue and a supported setup keep growing for about 2–3 days |
-| after an 8 h night away with a sensible setup | the report shows backlog ▲ and at least one thing to do |
+| after an 8 h night away with a sensible setup | the report shows backlog ▲ and at least one thing to do. From E4 step 3 the backlog line ends with Vei's odds before and after ("· odds 0.02 → 0.11" on sessions' first night), and one night never takes them near 1 |
 | away 24 h with the default setup | at least half the held forts lost |
 | away 24 h with a prepared setup (WAR support, siege on the likely targets, weak forts raided before leaving) | at most a quarter lost; Covington never |
 | the first session | GAMEPLAY §6's opening holds: the first dungeon, flip and big undead, and a queue set before leaving |
@@ -872,6 +872,8 @@ The profiles:
 - **once_per_session**: sessions with exactly one raid a session.
 - **continuous**: open and acting all the time: raids back to back, the queue fed, a look every 60 s while no raid
   fits. It writes a `day_end` row at each boundary and runs until Vei-ready or 8 days.
+- **Vei-ready** in every profile is BALANCE §1's: odds ≥ 0.6 (`VEI_READY_ODDS`) and `fronts_required` fronts met, at
+  Vei's node (E4 step 3 added the odds gate; at `K` 12000 the odds were near 1 from the first night, so it never bound).
 - **pure_idle**: one 20 min setup with no raids (the queue filled and reordered, the stances set, the valve at its
   default), then one close of 7 days (`idle.catchup_max_s`). Builds and levels per 6 h, and the plateau start, come from
   that catch-up's `building_done` events.

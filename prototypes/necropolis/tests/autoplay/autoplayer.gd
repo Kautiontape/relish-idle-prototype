@@ -41,6 +41,7 @@ const PARTY_MAX := 3  # the largest standard party: raid.json autopilot.party_pr
 const HELD_RAID_YIELD := 0.5  # raid a held fort once its yield_mult is back to this
 const STANCES := ["vigil", "harvest"]
 const BANK_FRONTS := ["giants", "carvers"]  # bank_bigs: the fronts only the bigs fill (no backlog term; carvers' q aside)
+const VEI_READY_ODDS := 0.6  # BALANCE §1's Vei-ready: odds >= 0.6 and fronts_required fronts met (E4 step 3: the odds gate)
 const KEEP_SHARE := 0.25  # keep_fronts: a keeper brings at least this share of what the bigs must bring to its front
 const RAID_ROOM := 2  # keep_fronts: keepers leave the crypt room for this many raiders (two raiders reach t3)
 const SLOT := "ap"
@@ -875,13 +876,14 @@ func _vei_check(end_t: float) -> void:
 	if vei_ready_t >= 0.0:
 		return
 	var v := s.view_vei()
-	if int(v["fronts_met"]) < int(v["fronts_required"]) or str(s.view_relish()["state"]) != "home":
+	if int(v["fronts_met"]) < int(v["fronts_required"]) or float(v["odds"]) < VEI_READY_ODDS \
+			or str(s.view_relish()["state"]) != "home":
 		return
 	if not bool(_cmd("move", ["vei"])["ok"]):
 		return
 	_tick_until(func(): return str(s.view_relish()["state"]) == "at_vei", end_t)
 	var v2 := s.view_vei()
-	if bool(v2["can_begin"]) and int(v2["fronts_met"]) >= int(v2["fronts_required"]):
+	if bool(v2["can_begin"]) and int(v2["fronts_met"]) >= int(v2["fronts_required"]) and float(v2["odds"]) >= VEI_READY_ODDS:
 		vei_ready_t = s.t
 	_cmd("move", ["covington"])
 	_tick_until(func(): return str(s.view_relish()["state"]) == "home", end_t + 600.0)

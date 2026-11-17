@@ -57,16 +57,16 @@ func run() -> int:
 		_u("c1", {"beef": 6.0}, "carvers"),
 		_u("r1", {"power": 7.0}, "raw"),
 	]
-	var fr := VeiFronts.have_need(_info(units, 10000.0, 500.0, 2.0), cfg)
+	var fr := VeiFronts.have_need(_info(units, 20000000.0, 500.0, 2.0), cfg)  # E4 step 3: a live-scale backlog
 	t.ok(fr.size() == 4, "four fronts")
 	var ids: Array = []
 	for f in fr:
 		ids.append(f["id"])
 	t.ok(ids == VeiFronts.FRONT_IDS, "returned in FRONT_IDS order")
 	t.near(float(_by(fr, "giants")["have"]), 8.0, 0.0001, "giants have = sum of wits")
-	t.near(float(_by(fr, "swarm")["have"]), 4.0 + 6.0, 0.0001, "swarm have = presence + 0.0006*backlog")
+	t.near(float(_by(fr, "swarm")["have"]), 4.0 + 10.0, 0.0001, "swarm have = presence + 5e-7*backlog")
 	t.near(float(_by(fr, "carvers")["have"]), 6.0 + 6.0, 0.0001, "carvers have = beef + 3*q")
-	t.near(float(_by(fr, "raw")["have"]), 7.0 + 12.0, 0.0001, "raw have = power + 0.0012*backlog")
+	t.near(float(_by(fr, "raw")["have"]), 7.0 + 5.0, 0.0001, "raw have = power + 2.5e-7*backlog")
 	t.near(float(_by(fr, "giants")["need"]), 14.0 + 10.0, 0.0001, "giants need = base + 0.02*pool")
 	t.near(float(_by(fr, "raw")["need"]), 40.0 + 15.0, 0.0001, "raw need = base + 0.03*pool")
 	t.ok(_by(fr, "giants")["assigned"] == ["g1", "g2"], "assigned lists the counted uids")

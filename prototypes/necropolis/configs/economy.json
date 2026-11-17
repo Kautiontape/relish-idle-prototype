@@ -32,7 +32,7 @@
     "report": {
       "streams": ["backlog", "mint", "workers", "bodies", "gold", "bone", "living"],
       "stream_labels": { "backlog": "backlog", "mint": "mint", "workers": "workers", "bodies": "bodies", "gold": "gold", "bone": "bone", "living": "living" },
-      "stream_fmt": "{label} {rate} · {total}", "backlog_fmt": "{label} {arrow} {rate} · {total}",
+      "stream_fmt": "{label} {rate} · {total}", "backlog_fmt": "{label} {arrow} {rate} · {total} · odds {odds_from} → {odds_to}",
       "arrow_up": "▲", "arrow_down": "▼", "arrow_flat": "■",
       "plus": "+", "minus": "−", "rate_unit": "/s", "thousands": ",", "rate_sig_digits": 2, "rate_max_decimals": 3,
       "builds_one_fmt": "{n} build finished: {names}", "builds_fmt": "{n} builds finished: {names}", "list_sep": " · ",
