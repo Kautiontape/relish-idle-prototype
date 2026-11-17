@@ -1350,7 +1350,7 @@ func _catchup_chunked_api() -> void:
 		"cmd_unqueue": [0], "cmd_reorder_queue": [[]], "cmd_set_job_priority": [GameState.JOB_IDS.duplicate()],
 		"cmd_set_staff_cap": ["lot-02", 1], "cmd_set_stance": ["vigil", true], "cmd_raise_big_undead": ["h1", [], "x"],
 		"cmd_rename_big_undead": ["u1", "x"], "cmd_place_big_undead": ["u1", "crypt"], "cmd_craft": ["simulacrum"],
-		"cmd_deploy_simulacrum": ["ashgate"], "cmd_staff_vat": [0, true], "cmd_set_party": [[]],
+		"cmd_craft_husk": ["skeleton"], "cmd_deploy_simulacrum": ["ashgate"], "cmd_staff_vat": [0, true], "cmd_set_party": [[]],
 		"cmd_assign_front": ["u1", "giants"], "cmd_begin_dungeon": ["ashgate"], "cmd_begin_boss": [],
 		"cmd_abort_dungeon": [], "cmd_run_checkpoint": [1, {"relics": 0, "blueprints": [], "husks": [], "remnants": [], "essence": 0}],
 		"cmd_dismiss_away": [],
