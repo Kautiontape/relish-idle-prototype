@@ -100,13 +100,19 @@ func run() -> int:
 
 	# --- cleared / fronts_met / required ------------------------------------
 	t.suite("vei_cleared")
-	var cu := [_u("g", {"wits": 14.0}, "giants"), _u("s", {"presence": 11.0}, "swarm")]
+	# At pool 0 and backlog 0 a front's need is its need_base, read from vei.json so a re-size can't move the boundary off
+	# it: giants' wits exactly its need (the boundary), swarm's presence one short (its per_stat 1).
+	var g_need := float(cfg["fronts"]["giants"]["need_base"]) / float(cfg["fronts"]["giants"]["per_stat"])
+	var s_short := float(cfg["fronts"]["swarm"]["need_base"]) - 1.0
+	var cu := [_u("g", {"wits": g_need}, "giants"), _u("s", {"presence": s_short}, "swarm")]
 	fr = VeiFronts.have_need(_info(cu), cfg)
+	t.near(float(_by(fr, "giants")["have"]), float(_by(fr, "giants")["need"]), 1e-9, "(setup) giants' have is exactly its need")
 	t.ok(bool(_by(fr, "giants")["cleared"]), "have == need clears")
 	t.ok(not bool(_by(fr, "swarm")["cleared"]), "have < need does not clear")
-	# E4 step 2's sizing (need_base 2): carvers' 3 × q alone clears its need at this pool too, so count the cleared
-	t.ok(VeiFronts.fronts_met(fr) == fr.filter(func(f): return bool(f["cleared"])).size() and VeiFronts.fronts_met(fr) >= 1,
-		"fronts_met counts cleared fronts (%d)" % VeiFronts.fronts_met(fr))
+	# E4 step 2's sizing (carvers need_base 2 against per_q 3): carvers' 3 × q alone clears at this pool, raw is short
+	var cleared_ids: Array = fr.filter(func(f): return bool(f["cleared"])).map(func(f): return str(f["id"]))
+	t.ok(cleared_ids == ["giants", "carvers"] and VeiFronts.fronts_met(fr) == 2,
+		"fronts_met counts cleared fronts: giants and carvers, 2 (%s, %d)" % [str(cleared_ids), VeiFronts.fronts_met(fr)])
 	t.ok(VeiFronts.required(cfg) == 3, "required reads fronts_required")
 	t.ok(VeiFronts.required({}) == 3, "required defaults to 3")
 	t.ok(VeiFronts.required({"fronts_required": 2}) == 2, "required honours cfg")
