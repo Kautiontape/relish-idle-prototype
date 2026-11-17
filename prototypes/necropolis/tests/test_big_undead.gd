@@ -51,8 +51,12 @@ const CLOCK := 1_800_000_000  # a "now" for the saves (unix seconds)
 const PARENT := {
 	"day1": {"live": {"state": "b2547329ec83e8b8", "events": "efef071d942cfa48", "n_events": 3},
 		"caught": {"state": "dbed8b898b2a905b", "events": "7adf8ca1cc296dda", "away": "31d28a99e4efc264", "n_events": 3, "steps": 4320}},
-	"pre_vei": {"live": {"state": "d5893ac699094569", "events": "d7ade592df96c8a9", "n_events": 16},
-		"caught": {"state": "a1c5be9164917641", "events": "794d7e0224d331e9", "away": "f1b76d9e37b0b618", "n_events": 16, "steps": 4321}},
+	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i); the standing re-pin rule), live and caught:
+	# its floor sheds as before, but the second House no longer resumes (it would leave the income exactly at the paying
+	# upkeep), so one building_unpaid event fewer in each (15, not 16), and the report gains its "Still stopped" line.
+	# The caught values agree with test_backups' re-pinned pre_vei.
+	"pre_vei": {"live": {"state": "eee267d107ec2fbd", "events": "618ddc3b937abcfb", "n_events": 15},
+		"caught": {"state": "7f1c4934d9f9b71f", "events": "e3093d57d7355dc3", "away": "982d56f53ab916e3", "n_events": 15, "steps": 4321}},
 	"midgame_2flips": {"live": {"state": "28455d227ef8dfb9", "events": "ea617806913ef19a", "n_events": 122},
 		"caught": {"state": "a73efc4bf5c5eb49", "events": "b70fcb08d9680016", "away": "167e638fef59771b", "n_events": 240, "steps": 4355}},
 }
