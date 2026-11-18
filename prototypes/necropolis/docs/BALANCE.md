@@ -558,6 +558,33 @@ P3's batch re-reads every row).
     for the milestone, not a P3 tune. The faithful grade uses sessions' 5.1667 seed (seed 1, captured at her node: 1
     phylactery and 6 clones, readiness 0.6053, pool 600, backlog 85.04M).
 
+**Phase I P3's batch, at f957849** (the 15 profiles on `git archive f957849`, one seed, with the parking fill and the
+skip-fill ablation row; `reports/economy/wip/tools-p3/pbatch.sh`; digest `b-f957849-digest.txt`, logs `b-f957849/`).
+Its sim is 4ddc25c's: f957849 moves only readouts and text, and every row but the new fields reads as 4ddc25c's batch
+did (ablation_bone is 180121f's rebuilt variant). The targets are the phase-i-draft §4 table's.
+
+| target | measured | verdict |
+|---|---|---|
+| **pure_idle grows 48–72 h** | its last build is 49.8 h into the 7-day close that starts at 0:20 (50.1 h of game time); builds per 6 h 21, 7, 5, 4, 4, 2, 2, 2, 1, then none | **Met** (the ramp, 4ddc25c; Grow on) |
+| **town_only plateaus at 2–3 days** | the last build at 48.19 h, 2.01 days (4ddc25c's `qb_probe`, the same sim; the batch's `builds_per_6h` reads only its longest close, the night) | **Met**, 0.19 h inside |
+| **next affordable**, the gaps between queue starts: S0 10–40 min, S1 1–3 h, S2 4–10 h | sessions: S0 median 11 min (max 22 min, 2 starts); S1 median 19 min (max 1.9 h, 52 starts); S2 median 1.6 h (max 6.3 h, 52 starts) | **S0 met; S1 and S2 missed**, the cause the c15f874 table's row above names: starts bunch inside the sessions |
+| **away build value** 70% or more | sessions 87.2% (the backlog's share 96.1%) | **Met** |
+| **mint swing** under 10% a day | `mint_swing_win` (the 600 s window means): sessions 79, 6.6, 6.6, 18, 8.7, 4.6, 4.4 and 5.4%; town_only 73, 19, 2.5, 1.8, 3.0, 2.1, 3.0 and 4.2%. The raw reading is 23–95% | **Recorded with its cause (R-c, above).** The windows remove the convoy saw (26.6%); what's left is a day's growth (day 1's opening, sessions' day 4). A steady town reads 2–4% |
+| **relics** 6–12 a day | sessions 14, 11, 4, 7, 15, 23, 6 and 16 (96), with the trickle 13 more | **Recorded (R-a, above):** day 1's first clears and the t3/t4 re-flips, a steady 4–9 |
+| **first Vei attempt** 40–60% | the faithful grade at sessions' 5.1667 seed, its own 1 + 6: 9/20 (45%). The odds it reads, 0.46 (refit) | **Met** |
+| **continuous** 10–30% sooner than sessions | 5.0518 against 5.1667: 2.2% | **Missed, recorded (fronts (b), above):** no front runs ahead in continuous, so the needs can't make the lead |
+| **a prepared away loses 0 forts** (replaces "loses 10–25%", V-b) | away_risk_real prepared_72h 0 of 6, midgame_prepared 0 of 2; away_risk prepared (24 h) 0 of 6 | **Met** |
+| **an unprepared away loses some** | midgame_default 1 of 2 (Old Sluice); away_risk default (24 h) 1 of 6 (Chime Fort); default_72h 0 of 6 (it leaves at the WAR the bot plays); the WAR cuts 6 of 6 and 2 of 2 | **Met** |
+| **ablation_held** costs 20–25% | 83 levels against 126 at day 8 (34%), and never Vei-ready; 12 raid relics, with the trickle 13 more (R-b) | **Missed, recorded:** the relic wall shrinks with R-b's trickle (77% before) but holds. The trickle's 2 a day stands against sessions' 12 |
+| **clones at Vei-ready per profile** (P1's vision check (b)), graded at each count on sessions' seed (score 65) | continuous 1 + 10: 16/20 against odds 0.59; sensitivity 1 + 10 (day 5.1667): 16/20 against 0.60; sessions and static (day 5.3334) 1 + 6: 9/20 against 0.46; ablation_skip_fill 1 + 4: 5/20 against 0.23; once_per_session 1 + 2: 1/20 against 0.07 | **Within ten points except at 1 + 10**, which reads 20 points low (the form's ceiling, the odds row above). The grades hold sessions' party, pool and backlog and change only the backups |
+| **the I1 check** (sessions_open, under parking) | the known 3 FAIL (I1 day 1, day 2, the commands; first divergence at 86 400 s, a `craft_husk`) | **As before, no new FAIL** |
+| **R-b's trickle** | sessions 13 paid (a fort held a day) | **Met** |
+| catchup_accuracy, margin_truth (slow) | 16 PASS / 0 FAIL; 34 PASS / 0 FAIL | **Pass** |
+
+The husk price (housekeeping): `economy.craft.husk` costs 500 bone against a new game's 200 bone cap. So the craft waits
+until Bone Mill levels lift the cap past 500 (the ramp's caps 300, 700, …). Not changed: no P3 row calls for it. Bone
+binds the town's levels (the ramp), not the crypt, and relics don't bind sessions (R-a).
+
 ## 6. Known balance risks
 - **The knife edge** (systems review S5). Odds of 0.6 need a backlog of about 18,000 raw. Vei's undead
   capacity is about 42/s at q 1.2 and about 20/s at q 2.5, so the active run needs about 5–8 pits and
