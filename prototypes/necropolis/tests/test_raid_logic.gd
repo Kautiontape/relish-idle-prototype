@@ -2144,8 +2144,8 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 		var head := RaidLogic.death_cause(_dw(), src, "The Warden")
 		var atk := RaidLogic.death_attack(_dw(), src)
 		var nrow := RaidLogic.death_card_rows(_dw(), head, {}, {}, 0, RaidLogic.death_tell(_dw(), src), {}, atk)[1]["text"] as String
-		t.ok(atk != "" and head.ends_with(atk) and nrow.begins_with("The " + atk + " was marked in red first: " + RaidLogic.death_tell(_dw(), src)),
-			"%s: the headline '%s' and the RED TELL row share the word '%s' (%s)" % [src, head, atk, nrow])
+		t.ok(atk != "" and head.ends_with(atk) and nrow.begins_with("The " + atk + " was marked in red") and not nrow.contains(RaidLogic.death_tell(_dw(), src)),
+			"%s: the headline '%s' and the RED TELL row share the word '%s', and the row names no second word for it (%s)" % [src, head, atk, nrow])
 	t.ok(RaidLogic.death_attack(_dw(), "pack") == "" and RaidLogic.death_attack(_dw(), "living") == "" and RaidLogic.death_attack(_dw(), "") == "",
 		"no tell, no attack word")
 	# every RED TELL sentence wraps within the card's value column at its font size, in at most two lines (the card's rows grow for a wrap)

@@ -954,7 +954,7 @@ static func death_card_rows(words: Dictionary, cause: String, banked_counts: Dic
 	var rows: Array = [{"label": str(words.get("label_killed_by", "")), "text": cause, "key": "danger"}]
 	if missed != "":
 		# `attack` (death_attack) is the headline's word for the same blow, so one attack has one name; without it the row names the tell alone
-		var sentence := word_fmt(words, "missed_row_named", [attack, missed]) if attack != "" else word_fmt(words, "missed_row", [missed])
+		var sentence := word_fmt(words, "missed_row_named", [attack]) if attack != "" else word_fmt(words, "missed_row", [missed])
 		rows.append({"label": str(words.get("label_missed", "")), "text": sentence, "key": "danger"})   # V-I1: the tell's name in a plain sentence (the capture's missed_tell stays the bare name)
 	rows.append({"label": str(words.get("label_banked", "")), "text": bl if bl != "" else nothing, "key": "text" if bl != "" else "text_dim"})
 	rows.append({"label": str(words.get("label_lost", "")), "text": lost, "key": "danger" if lost != nothing else "text_dim"})
