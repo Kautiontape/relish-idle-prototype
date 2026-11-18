@@ -1677,7 +1677,7 @@ func _build_reasons(day1: Dictionary) -> void:
 		t.ok(txt != "" and txt != r and not txt.contains("_") and not txt.contains("{"), "reason '%s' has human text: %s" % [r, txt])
 	for r in vcfg["reasons"]:
 		if r != "_unknown":
-			t.ok(r in ALL_REASONS or r in ["no_cost", "catching_up", "wait_slot"], "view.reasons.%s is a documented reason id (no_cost is the town's own: past level_costs; catching_up is every command's, STATE-API §4; wait_slot is economy P3's queue reason, worded before it lands)" % r)
+			t.ok(r in ALL_REASONS or r in ["no_cost", "just_queued", "catching_up", "wait_slot"], "view.reasons.%s is a documented reason id (no_cost and just_queued are the town's own: past level_costs, and a lot a Queue click took since the last bind, BuildSort.send_queue; catching_up is every command's, STATE-API §4; wait_slot is economy P3's queue reason, worded before it lands)" % r)
 	t.ok(BuildSort.reason_text("needs_tier", row, st, bv, vcfg) == "needs Village tier", "reason: needs_tier uses requires.tier")
 	t.ok(BuildSort.reason_text("needs_blueprint", row, st, bv, vcfg) == "needs the Embalmer blueprint: dungeon loot", "reason: needs_blueprint names the blueprint")
 	t.ok(BuildSort.reason_text("needs_building", row, st, bv, vcfg) == "needs a House first", "reason: needs_building names the building")
@@ -1750,8 +1750,9 @@ func _build_queue(day1: Dictionary) -> void:
 	t.ok(TownStandins.queue_entries({"queue": real_q}, local) == real_q and TownStandins.queue_entries({"queue": []}, local).is_empty(),
 		"queue: with a real `queue` key (even empty) the view's entries are shown, never the local ones")
 	var pb := FileAccess.get_file_as_string("res://scripts/town/panel_build.gd")  # panel_build needs the Game autoload: read its source
-	t.ok(pb.contains("Game.state.cmd_queue_build(") and pb.contains("Game.state.cmd_unqueue(") and pb.contains("Game.state.cmd_reorder_queue(")
-		and not vcfg["queue_text"].has("no_commands"),
+	var bs := FileAccess.get_file_as_string("res://scripts/town/build_sort.gd")  # the queue click sends through BuildSort.send_queue
+	t.ok(pb.contains("BuildSort.send_queue(Game.state,") and bs.contains("gs.cmd_queue_build(") and pb.contains("Game.state.cmd_unqueue(")
+		and pb.contains("Game.state.cmd_reorder_queue(") and not vcfg["queue_text"].has("no_commands"),
 		"queue: with the view's queue the Build tab calls cmd_queue_build, cmd_unqueue and cmd_reorder_queue (no 'coming' text)")
 	var q := TownStandins.BuildQueue.new(3, vcfg["cap_buildings"])
 	var ctx := _qctx()

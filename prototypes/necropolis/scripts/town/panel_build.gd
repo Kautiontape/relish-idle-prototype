@@ -867,10 +867,8 @@ func _on_queue(bid: String) -> void:
 
 
 func _on_queue_upgrade() -> void:
-	var entry := _entry_at(_selected_lot)
-	var i := BuildSort.inspect(entry, _st, _bcfg, _bview, _vcfg)
-	_add_queue({"building_id": i["building_id"], "lot_id": _selected_lot, "upgrade": true, "level": i["upgrade"]["level"],
-		"cost": i["upgrade"]["cost"]}, {"cost": i["upgrade"]["cost"]})
+	var e := BuildSort.upgrade_entry(_entry_at(_selected_lot), _selected_lot, _st, _bcfg, _bview, _vcfg)
+	_add_queue(e, {"cost": e["cost"]})
 
 
 func _add_queue(e: Dictionary, row: Dictionary) -> bool:
@@ -888,30 +886,22 @@ func _add_queue(e: Dictionary, row: Dictionary) -> bool:
 	return bool(r["ok"])
 
 
-## The real queue (STATE-API §4.3): cmd_queue_build for a new build or an upgrade (the building on its own lot).
-## Says when it starts from the entry's own `affordable_in_s` (R2); a cap refusal names the real `cap_building`
-## and `cap_level`; `catching_up` reads as a wait (its reason text), like every refusal.
-## Every click is sent (review-town-i-r2 item 4: a second click before the next bind was dropped): its lot skips
-## the lots sent since the bind (_free_lot), so it queues on the next free one, or is refused with why. A refusal
-## after a queued line keeps that line and adds to it.
+## The real queue (STATE-API §4.3): BuildSort.send_queue sends cmd_queue_build, a new build with its id and an
+## upgrade with "" (the building on its own lot), and records the lot it took in _lots_sent. The line says when it
+## starts as the new entry's own queue row does (BuildSort.queued_line: its gate, or its `affordable_in_s`, R2); a cap
+## refusal names the real `cap_building` and `cap_level`; `catching_up` reads as a wait (its reason text), like every
+## refusal. Every click is sent (review-town-i-r2 item 4: a second click before the next bind was dropped): a row's
+## lot skips the lots sent since the bind (_free_lot), so it queues on the next free one, or is refused with why; a
+## card's or an upgrade's fixed lot already sent is refused as just queued. A refusal after a queued line keeps that
+## line and adds to it.
 func _queue_real(e: Dictionary, row: Dictionary) -> bool:
-	var tt: Dictionary = _vcfg.get("queue_text", {})
-	var lot := String(e["lot_id"])
-	var r: Dictionary = {"ok": false, "reason": "no_lot"}  # a new build with no free lot left: nothing to send
-	if lot != "" or bool(e.get("upgrade", false)):
-		r = Game.state.cmd_queue_build(String(e["building_id"]), lot)
+	var r := BuildSort.send_queue(Game.state, e, _lots_sent)
 	if bool(r.get("ok", false)):
-		_lots_sent[lot] = true
 		_cap_box.visible = false
-		var a := float(r.get("affordable_in_s", -1.0))
-		var gate := {"status": "skipped_gate", "reason": String(row.get("reason", "")), "building_id": e["building_id"],
-			"cost": e.get("cost", {})}  # a gated row queues and waits out its gate in its place
-		var when := String(tt.get("queued_now", "")) if a == 0.0 else (
-			BuildSort.fmt(String(tt.get("afford_in", "")), {"t": BuildSort.fmt_eta(a, _vcfg)}) if a > 0.0
-			else (BuildSort.skip_text(gate, _ctx.get("catalog", {}), _st, _bview, _vcfg) if BuildSort.is_gate_wait(gate, _vcfg)
-			else String(tt.get("queued_never", ""))))
-		_say(BuildSort.fmt(String(tt.get("queued_ok", "")), {"label": _label(e["building_id"]), "lot": _lot_name(String(e["lot_id"])),
-			"when": when}))
+		var live: Array = Game.state.view_town().get("queue", [])  # the new entry's own row: its gate, or its start
+		var at := int(r.get("index", -1))
+		var qrow: Dictionary = live[at] if at >= 0 and at < live.size() and String(live[at].get("lot_id", "")) == String(e["lot_id"]) else {}
+		_say(BuildSort.queued_line(e, qrow, float(r.get("affordable_in_s", -1.0)), _ctx.get("catalog", {}), _st, _bview, _vcfg))
 	elif String(r.get("reason", "")) == "cost_exceeds_cap":
 		_show_cap_refusal(e, r)
 	else:

@@ -767,6 +767,57 @@ static func taken_lots(entries: Array, sent: Dictionary) -> Dictionary:
 	return taken
 
 
+## Sends one Build-tab queue click, the one rule every Queue button follows: the catalog row's, the lot card's and
+## the inspector's Queue upgrade (review-town-i-r3). `e` is the panel's entry ({building_id, lot_id, upgrade}).
+## - A new build sends its building id. An upgrade sends "", the API's upgrade form (STATE-API §4.3: the building
+##   on its lot); its own id would be read as a new build and refused as lot_taken or unique.
+## - A new build with no free lot ("") sends nothing: no_lot.
+## - A lot in `sent` (an ok click since the last bind took it) sends nothing: just_queued. The panel queues one entry
+##   per lot (Queue greys once a lot has one), so a second click there is a double-click, never a chained upgrade.
+## - An ok records its lot in `sent`, the panel's _lots_sent, which _free_lot skips and bind clears.
+## Returns the command's result, or that refusal.
+static func send_queue(gs: GameState, e: Dictionary, sent: Dictionary) -> Dictionary:
+	var lot := String(e.get("lot_id", ""))
+	if lot == "":
+		return {"ok": false, "reason": "no_lot", "affordable_in_s": -1.0}
+	if sent.has(lot):
+		return {"ok": false, "reason": "just_queued", "affordable_in_s": -1.0}
+	var up := bool(e.get("upgrade", false))
+	var r: Dictionary = gs.cmd_queue_build("" if up else String(e.get("building_id", "")), lot)
+	if bool(r.get("ok", false)):
+		sent[lot] = true
+	return r
+
+
+## The entry the inspector's Queue upgrade queues for the building `b` (a view_town building) standing on `lot_id`:
+## its next level and that level's cost, as the inspector shows them (inspect).
+static func upgrade_entry(b: Dictionary, lot_id: String, st: Dictionary, bcfg: Dictionary, bview: Dictionary, vcfg: Dictionary) -> Dictionary:
+	var i := inspect(b, st, bcfg, bview, vcfg)
+	return {"building_id": i["building_id"], "lot_id": lot_id, "upgrade": true, "level": i["upgrade"]["level"],
+		"cost": i["upgrade"]["cost"]}
+
+
+## What an accepted queue click says: "Queued House on lot 5: it starts now.", or for an upgrade "Queued the upgrade of
+## Bone Mill to Lv 3 on lot 2: ...", at the level the queue gave it. `row` is the new entry's own row in
+## view_town().queue ({} when not found), so the "when" reads as that row does in the Queue:
+## - an entry skipped for a gate says the gate (skip_text): "queued: waits for 1 relic: raid a fort";
+## - else its start, from its affordable_in_s (R2; `a`, the command's, when there's no row): 0 starts now, > 0 a
+##   wait, -1 never at today's income.
+static func queued_line(e: Dictionary, row: Dictionary, a: float, catalog: Dictionary, st: Dictionary, bview: Dictionary,
+		vcfg: Dictionary) -> String:
+	var tt: Dictionary = vcfg.get("queue_text", {})
+	var when := ""
+	if String(row.get("status", "")) == "skipped_gate":
+		when = skip_text(row, catalog, st, bview, vcfg)
+	else:
+		var at := float(row.get("affordable_in_s", a))
+		when = String(tt.get("queued_now", "")) if at == 0.0 else (fmt(String(tt.get("afford_in", "")), {"t": fmt_eta(at, vcfg)})
+			if at > 0.0 else String(tt.get("queued_never", "")))
+	var up := bool(e.get("upgrade", false))
+	return fmt(String(tt.get("queued_up" if up else "queued_ok", "")), {"label": label_of(String(e.get("building_id", "")), bview),
+		"lot": TownModel.lot_name(String(e.get("lot_id", "")), vcfg), "level": int(row.get("level", e.get("level", 0))), "when": when})
+
+
 ## The lot a catalog row's Queue button takes: of the row's lots not already `taken` (a set {lot id: true}),
 ## the smallest and then the nearest the crypt (`nearest_lot`, as the suggestion does). The lots kept for
 ## the next tier's gate buildings (`reserved`) are left alone unless the row is that gate building or no

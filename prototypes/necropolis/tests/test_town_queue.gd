@@ -28,6 +28,8 @@ func run() -> int:
 	_vat_costed()
 	_p2_counts()
 	_second_click()
+	_queue_upgrade_click()
+	_debug_flags()
 	return t.failures
 
 
@@ -35,7 +37,8 @@ func run() -> int:
 ## sent. The lots an ok command took since the bind count as taken (BuildSort.taken_lots, the Build tab's _free_lot),
 ## so a second click on the same row, against the same stale views, picks the next free lot and queues for real;
 ## with no lot left it is refused as no_lot, in words, and the line saying the first was queued stays
-## (BuildSort.join_said).
+## (BuildSort.join_said). Both clicks go through BuildSort.send_queue, the panel's _queue_real rule, which records
+## the lot it took in `sent` (the panel's _lots_sent): the test never fills `sent` itself (review-town-i-r3 should-fix 1).
 func _second_click() -> void:
 	var s := _state("day1")
 	s.cmd_debug_grant({"gold": 5000.0, "bone": 2000.0})
@@ -48,15 +51,18 @@ func _second_click() -> void:
 	var q0: Array = town.get("queue", [])
 	var sent := {}
 	var first := BuildSort.queue_lot(row, BuildSort.taken_lots(q0, sent), {}, {}, sizes)
-	var r1 := s.cmd_queue_build("house", first)
+	var r1 := BuildSort.send_queue(s, _build_entry("house", first), sent)
 	t.ok(bool(r1.get("ok", false)), "the first click queues a House on %s (%s)" % [first, r1.get("reason", "")])
-	sent[first] = true
+	t.ok(sent.keys() == [first], "send_queue records the lot the ok click took (%s)" % str(sent.keys()))
 	t.ok(BuildSort.queue_lot(row, BuildSort.taken_lots(q0, {}), {}, {}, sizes) == first,
 		"without the sent lots, the stale views would hand the second click %s again (the case the old guard dropped)" % first)
 	var second := BuildSort.queue_lot(row, BuildSort.taken_lots(q0, sent), {}, {}, sizes)
-	var r2 := s.cmd_queue_build("house", second)
+	var r2 := BuildSort.send_queue(s, _build_entry("house", second), sent)
 	t.ok(second != "" and second != first and bool(r2.get("ok", false)),
 		"the second click, before any bind, queues on the next lot: %s then %s (%s)" % [first, second, r2.get("reason", "")])
+	var nl := BuildSort.send_queue(s, _build_entry("house", ""), sent)
+	t.ok(String(nl.get("reason", "")) == "no_lot" and s.view_town()["queue"].size() == q0.size() + 2,
+		"a click with no free lot sends nothing: no_lot (%s)" % nl.get("reason", ""))
 	var on := {}
 	for e in s.view_town().get("queue", []):
 		on[String(e.get("lot_id", ""))] = true
@@ -74,6 +80,116 @@ func _second_click() -> void:
 	t.ok(line.begins_with("Queued House on lot 5: starts now. ") and line.ends_with(no),
 		"a refused click after a queued one keeps the queued line and adds why: '%s'" % line)
 	t.ok(BuildSort.taken_lots([{"lot_id": "lot-07"}], {"lot-05": true}).keys().size() == 2, "taken: the queue's lots and the sent ones")
+
+
+## review-town-i-r3: the panel's Queue upgrade never queued. It sent the standing building's own id, which
+## cmd_queue_build reads as a new build on a taken lot (lot_taken; unique for the Crypt). Every Queue click now goes
+## through BuildSort.send_queue (panel_build.gd needs the autoloads and can't load headless, so the rule _queue_real
+## calls is the static, run here on a real day1 GameState with the entry BuildSort.upgrade_entry builds, as
+## _on_queue_upgrade does):
+## - Queue upgrade sends "" for the building, the API's upgrade form, and queues an upgrade at the next level;
+## - a second click on a lot an ok click took, before the next bind, sends nothing (just_queued), for an upgrade and
+##   for a card's Queue alike: the panel queues one entry per lot (Queue greys once its lot has one), so a second
+##   click is a double-click, never a chained upgrade;
+## - a Queue click on a free lot queues a build;
+## - the queued line reads as an upgrade at its level, with its own queue row's start or gate.
+func _queue_upgrade_click() -> void:
+	var s := _state("day1")
+	s.cmd_debug_grant({"gold": 5000.0, "bone": 2000.0})
+	s.tick(s.substep_s())
+	var views := {"town": s.view_town(), "catalog": s.view_catalog(), "hud": s.view_hud(), "inventory": s.view_inventory()}
+	var st := BuildSort.stocks(views)
+	var bcfg: Dictionary = cfg["buildings"]
+	var bview: Dictionary = cfg["buildings_view"]
+	var cat := _catalog(s)
+	var at := {}
+	for b in views["town"]["buildings"]:
+		at[String(b["lot_id"])] = b
+	t.ok(String(at.get("lot-03", {}).get("building_id", "")) == "charnel_house" and String(at.get("lot-01", {}).get("building_id", "")) == "crypt",
+		"(setup) day1 has the Charnel House on lot-03 and the Crypt on lot-01")
+	if not (at.has("lot-03") and at.has("lot-01")):
+		return
+	var sent := {}
+	var n0: int = s.view_town()["queue"].size()
+	# a relic-free level, funds in hand: it starts now
+	var e := BuildSort.upgrade_entry(at["lot-03"], "lot-03", st, bcfg, bview, vcfg)
+	t.ok(bool(e["upgrade"]) and e["building_id"] == "charnel_house" and int(e["level"]) == 2, "(setup) the inspector's entry: %s" % str(e))
+	var old := s.cmd_queue_build(String(e["building_id"]), "lot-03")
+	t.ok(not bool(old["ok"]) and old["reason"] == "lot_taken", "the bug: the old send (its own id) is a new build, refused %s" % old["reason"])
+	var r1 := BuildSort.send_queue(s, e, sent)
+	var q: Array = s.view_town()["queue"]
+	var row: Dictionary = q.back() if q.size() > n0 else {}
+	t.ok(bool(r1["ok"]) and q.size() == n0 + 1 and bool(row.get("upgrade", false)) and row.get("lot_id", "") == "lot-03"
+		and row.get("building_id", "") == "charnel_house" and int(row.get("level", 0)) == 2,
+		"Queue upgrade queues the upgrade of the Charnel House to Lv 2 (%s; %s)" % [r1.get("reason", ""), str(row)])
+	var line := BuildSort.queued_line(e, row, float(r1["affordable_in_s"]), cat, st, bview, vcfg)
+	t.ok(line == "Queued the upgrade of Charnel House to Lv 2 on lot 3: it starts now.", "its line: '%s'" % line)
+	var r2 := BuildSort.send_queue(s, e, sent)
+	t.ok(not bool(r2["ok"]) and r2["reason"] == "just_queued" and s.view_town()["queue"].size() == n0 + 1,
+		"a second Queue upgrade before the bind sends nothing, no chained upgrade (%s, %d entries)" % [r2["reason"], s.view_town()["queue"].size()])
+	var jq := BuildSort.fmt(String(vcfg["queue_text"]["not_queued"]), {"why": BuildSort.reason_text("just_queued", {}, st, bview, vcfg)})
+	t.ok(jq == "Not queued: that lot is already in the queue.", "just_queued reads '%s'" % jq)
+	# the Crypt: unique, and its Lv 2 costs a relic day1 doesn't hold
+	var ec := BuildSort.upgrade_entry(at["lot-01"], "lot-01", st, bcfg, bview, vcfg)
+	var oc := s.cmd_queue_build(String(ec["building_id"]), "lot-01")
+	t.ok(not bool(oc["ok"]) and oc["reason"] == "unique", "the bug on the Crypt: refused %s" % oc["reason"])
+	var rc := BuildSort.send_queue(s, ec, sent)
+	q = s.view_town()["queue"]
+	var crow: Dictionary = q.back() if q.size() > n0 + 1 else {}
+	t.ok(bool(rc["ok"]) and bool(crow.get("upgrade", false)) and crow.get("building_id", "") == "crypt" and crow.get("status", "") == "skipped_gate"
+		and crow.get("reason", "") == "no_relics", "the Crypt's upgrade queues and waits for its relic (%s; %s)" % [rc.get("reason", ""), str(crow)])
+	var cline := BuildSort.queued_line(ec, crow, float(rc["affordable_in_s"]), cat, st, bview, vcfg)
+	t.ok(cline.begins_with("Queued the upgrade of Crypt to Lv 2 on lot 1: queued: waits for 1 relic") and not cline.contains(String(vcfg["queue_text"]["queued_never"])),
+		"its line names the relic, not today's income: '%s'" % cline)
+	# a Queue click on a free lot queues a build; a second card click on that lot is refused the same way
+	var lot := String((cat["house"]["lots"] as Array)[0])
+	var rb := BuildSort.send_queue(s, _build_entry("house", lot), sent)
+	q = s.view_town()["queue"]
+	t.ok(bool(rb["ok"]) and not bool(q.back().get("upgrade", true)) and q.back().get("building_id", "") == "house" and q.back().get("lot_id", "") == lot,
+		"a Queue click on free %s queues a House build (%s)" % [lot, rb.get("reason", "")])
+	var rr := BuildSort.send_queue(s, _build_entry("house", lot), sent)
+	t.ok(not bool(rr["ok"]) and rr["reason"] == "just_queued" and s.view_town()["queue"].size() == n0 + 3,
+		"a second card Queue on %s before the bind sends nothing (%s)" % [lot, rr["reason"]])
+	t.ok(BuildSort.queued_line(_build_entry("house", lot), q.back(), 0.0, cat, st, bview, vcfg).begins_with("Queued House on %s: " % TownModel.lot_name(lot, vcfg)),
+		"a build's line keeps its words")
+	# the panel's wiring, which no headless test can reach: every Queue goes through _queue_real, which sends with
+	# send_queue on _lots_sent; bind clears it and _free_lot skips it
+	var pb := FileAccess.get_file_as_string("res://scripts/town/panel_build.gd")
+	var qr := _body(pb, "_queue_real")
+	t.ok(qr.contains("BuildSort.send_queue(Game.state, e, _lots_sent)") and not qr.contains("cmd_queue_build") and qr.contains("BuildSort.queued_line("),
+		"_queue_real sends through send_queue with _lots_sent, and says queued_line")
+	t.ok(_body(pb, "_on_queue_upgrade").contains("BuildSort.upgrade_entry(") and _body(pb, "_on_queue_upgrade").contains("_add_queue(")
+		and _body(pb, "_on_card_queue").contains("_add_queue(") and _body(pb, "_on_queue").contains("_add_queue(")
+		and _body(pb, "_add_queue").contains("_queue_real(e, row)"), "Queue upgrade, the card's Queue and the row's Queue all reach _queue_real")
+	t.ok(_body(pb, "bind").contains("_lots_sent = {}") and _body(pb, "_free_lot").contains("_lots_sent"), "bind clears the sent lots; _free_lot skips them")
+
+
+## review-town-i-r3 should-fix 4: --town-hold and --town-grant do nothing in a normal launch. covington.gd reads them
+## through TownSetPiece.debug_has / debug_grant (it needs the autoloads, so the parse is the static). A normal launch
+## from the editor is a debug build (debug_enabled true) with none of them; a release build has debug_enabled false.
+func _debug_flags() -> void:
+	var given := PackedStringArray(["--town-hold", "--town-grant=gold:20000,bone:5000"])
+	var normal := PackedStringArray()
+	t.ok(not TownSetPiece.debug_has(normal, "town-hold", true) and TownSetPiece.debug_grant(normal, true).is_empty(),
+		"a normal launch (a debug build, no args): no hold, no grant")
+	t.ok(not TownSetPiece.debug_has(given, "town-hold", false) and TownSetPiece.debug_grant(given, false).is_empty()
+		and TownSetPiece.debug_arg(given, "town-grant", false) == "", "a release build (debug off): given, they still do nothing")
+	t.ok(TownSetPiece.debug_has(given, "town-hold", true) and TownSetPiece.debug_grant(given, true) == {"gold": 20000.0, "bone": 5000.0},
+		"a harness run with them: the hold and the grant")
+	t.ok(TownSetPiece.debug_grant(PackedStringArray(["--town-grant=gold:x,bone"]), true).is_empty(), "a malformed grant grants nothing")
+	var boot := preload("res://scripts/sim/boot_rule.gd")
+	t.ok(boot.is_harness_args(given) and not boot.is_harness_args(normal), "either makes a harness session: no autosave is touched")
+	var s := GameState.new(cfg)
+	t.ok(not s.debug_enabled and not bool(s.cmd_debug_grant({"gold": 1.0}).get("ok", true)), "a GameState with debug off refuses the grant")
+	var cv := FileAccess.get_file_as_string("res://scripts/town/covington.gd")
+	t.ok(_body(cv, "_debug_set_pieces").contains("if not Game.state.debug_enabled:\n\t\treturn")
+		and _body(cv, "_debug_set_pieces").contains("TownSetPiece.debug_grant(OS.get_cmdline_user_args(), Game.state.debug_enabled)")
+		and _body(cv, "_debug_has").contains("TownSetPiece.debug_has(OS.get_cmdline_user_args(), name, Game.state.debug_enabled)"),
+		"covington's drivers read them through TownSetPiece, behind debug_enabled")
+
+
+func _build_entry(bid: String, lot: String) -> Dictionary:
+	return {"building_id": bid, "lot_id": lot, "upgrade": false, "level": 1, "cost": {}}
 
 
 ## P2's queue fields (queue_slots, queue_list_max), read directly: a gated entry holds no slot, and the list caps at

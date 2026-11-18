@@ -139,3 +139,37 @@ static func transitions(prev: Dictionary, entries: Array, seeded: bool, slab := 
 			starts.append({"uid": uid, "name": SlabLogic.display_name(e, slab) if not slab.is_empty() else String(e.get("name", "")), "lot_id": place.trim_prefix("town:"),
 				"from_lot": was.trim_prefix("town:") if was.begins_with("town:") else ""})
 	return {"starts": starts, "prev": now}
+
+
+# ------------------------------------------------------------- debug args ----
+## The town's debug drivers' args (covington's --town-*: the list at the top of covington.gd), read only when
+## `enabled` (GameState.debug_enabled, OS.is_debug_build() at boot). A normal launch passes none of them, and
+## BootRule makes any of them a harness session, so they never touch the autosave.
+## The value of `--name=value` in `args` ("" when absent or not enabled).
+static func debug_arg(args: PackedStringArray, name: String, enabled: bool) -> String:
+	if not enabled:
+		return ""
+	for arg in args:
+		if arg.begins_with("--%s=" % name):
+			return arg.trim_prefix("--%s=" % name)
+	return ""
+
+
+## Whether `--name` or `--name=value` is in `args` (false when not enabled).
+static func debug_has(args: PackedStringArray, name: String, enabled: bool) -> bool:
+	if not enabled:
+		return false
+	for arg in args:
+		if arg == "--" + name or arg.begins_with("--%s=" % name):
+			return true
+	return false
+
+
+## `--town-grant=gold:20000,bone:5000` as {stock: amount} for cmd_debug_grant ({} when absent or not enabled).
+static func debug_grant(args: PackedStringArray, enabled: bool) -> Dictionary:
+	var grant := {}
+	for pair in debug_arg(args, "town-grant", enabled).split(",", false):
+		var kv := pair.split(":")
+		if kv.size() == 2 and kv[1].is_valid_float():
+			grant[kv[0]] = float(kv[1])
+	return grant

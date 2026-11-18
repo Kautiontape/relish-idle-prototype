@@ -144,24 +144,14 @@ func _read_demo_flag() -> void:
 				printerr("Covington: unknown --town-demo=%s (expected full or tierup)" % mode)
 
 
-## The value of a debug arg `--name=value` ("" absent); only a debug build reads it.
+## The value of a debug arg `--name=value` ("" absent); only a debug build reads it (TownSetPiece.debug_arg).
 func _debug_arg(name: String) -> String:
-	if not Game.state.debug_enabled:
-		return ""
-	for arg in OS.get_cmdline_user_args():
-		if arg.begins_with("--%s=" % name):
-			return arg.trim_prefix("--%s=" % name)
-	return ""
+	return TownSetPiece.debug_arg(OS.get_cmdline_user_args(), name, Game.state.debug_enabled)
 
 
 ## Whether a debug arg is given, with or without a value (`--name` or `--name=value`); debug builds only.
 func _debug_has(name: String) -> bool:
-	if not Game.state.debug_enabled:
-		return false
-	for arg in OS.get_cmdline_user_args():
-		if arg == "--" + name or arg.begins_with("--%s=" % name):
-			return true
-	return false
+	return TownSetPiece.debug_has(OS.get_cmdline_user_args(), name, Game.state.debug_enabled)
 
 
 ## `--town-grow=<sim_seconds>`: plays the town the way the suggestion tells a new player to (the top
@@ -729,11 +719,7 @@ func _debug_set_pieces() -> void:
 			if p.has_method("debug_autoraise"):
 				p.debug_autoraise(float(spec.get("delay_s", 0.0)), true)
 	# `--town-grant=gold:20000,bone:5000`: cmd_debug_grant before the first refresh (a store over its cap, for a shot)
-	var grant := {}
-	for pair in _debug_arg("town-grant").split(",", false):
-		var kv := pair.split(":")
-		if kv.size() == 2 and kv[1].is_valid_float():
-			grant[kv[0]] = float(kv[1])
+	var grant := TownSetPiece.debug_grant(OS.get_cmdline_user_args(), Game.state.debug_enabled)
 	if not grant.is_empty():
 		print("TOWNSET grant %s -> %s" % [str(grant), str(Game.state.cmd_debug_grant(grant).get("ok", false))])
 		_dirty = true

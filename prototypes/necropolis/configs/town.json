@@ -401,6 +401,7 @@
       "needs_blueprint": "needs the {label} blueprint: dungeon loot",
       "needs_building": "needs a {building} first",
       "no_lot": "no free lot fits (size {size})",
+      "just_queued": "that lot is already in the queue",
       "no_gold": "needs {n} {unit}: {fix}",
       "no_bone": "needs {n} {unit}: {fix}",
       "no_relics": "needs {n} {unit}: {fix}",
@@ -569,6 +570,7 @@
         "living_first": "too few living buy at the Market: more housing or an Inn"
       },
       "queued_ok": "Queued {label} on {lot}: {when}.",
+      "queued_up": "Queued the upgrade of {label} to Lv {level} on {lot}: {when}.",
       "slots": "{used} of {max} slots",
       "queued_now": "it starts now",
       "queued_never": "it can't be afforded at today's income yet (see the queue)",
