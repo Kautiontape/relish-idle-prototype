@@ -39,7 +39,7 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	"economy.town.projection_phase", "economy.town.projection_starve_frames", "economy.town.projection_tol.rel",
 	"economy.town.projection_tol.abs", "realm.flip.hold_s", "realm.flip.tier_mult", "economy.morale.death_shock", "vei.loss_backlog_keep",
 	"realm.relish.tide_bias", "economy.queue.max_len", "economy.queue.list_mult", "economy.queue.never_hold_s", "economy.save.level_sanity_max",
-	"economy.relic_trickle.period_s",
+	"economy.relic_trickle.period_s", "economy.relic_trickle.hold_s",
 	"realm.hold.mint_ref", "realm.hold.mint_alpha",  # (E4 step 5, B1: hold_mult)
 	"realm.odds.time_weight", "realm.odds.time_s", "realm.odds.backlog_cap",  # (E4 step 9, option B: win_odds)
 	"realm.odds.backups_mid", "realm.odds.backups_scale",  # (Phase I P3: the odds split, first_odds)
@@ -2759,17 +2759,17 @@ func highest_tier_flipped() -> int:
 	return h
 
 
-## The idle relic trickle pays (the same ruling, MECHANICS §2's relics row): no raidable fort remains, read as every fort at or
-## below the highest tier ever flipped being held, after at least one flip. A player walled at a tier (every fort they
-## can take is theirs, the next tier out of reach) still gets relics; one fort lost back to Vei stops it.
+## The idle relic trickle pays (MECHANICS §2's relics row; Phase I P3, R-b: the brief's "a condition a held fort can
+## meet, such as holding any fort for 24 h", replacing E4 step 9's "every fort at or below the highest tier ever flipped
+## held", which no profile ever met): some fort's hold has lasted economy.json relic_trickle.hold_s unbroken (its
+## held_for_s, RealmSim). A player who keeps one fort a day gets relics while idle; that fort lost back to Vei stops it
+## (another held long enough keeps it).
 func relic_trickle_paying() -> bool:
-	var h := highest_tier_flipped()
-	if h < 1:
-		return false
+	var need := _req_f("economy.relic_trickle.hold_s")
 	for f in realm.forts:
-		if int(f["tier"]) <= h and not RealmSim.is_held(f):
-			return false
-	return true
+		if RealmSim.is_held(f) and float(f.get("held_for_s", 0.0)) >= need:
+			return true
+	return false
 
 
 ## A step of the trickle while it pays: `dt` joins relic_trickle_s, and each economy.json relic_trickle.period_s of it

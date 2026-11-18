@@ -66,7 +66,9 @@ const SAVE_SPEC := {
 const _TOWN_OPTIONAL := {"morale": _F, "shock": _F, "rates": _D, "pending": [_D]}
 ## A realm fort's optional keys, checked when present: the hold as E2b-2 writes it (held, grace_s,
 ## zero_s) and as older saves wrote it (held_s: the seconds of hold left, read as the grace).
-const _FORT_OPTIONAL := {"held": _B, "grace_s": _F, "zero_s": _F, "held_s": _F, "yield_c": _F, "yield_t": _F}
+## v14 (Phase I P3, R-b): held_for_s, the unbroken hold's age, written only while the fort is held and it is above 0 (a
+## fixture's held fort loads at 0 and saves back as its file).
+const _FORT_OPTIONAL := {"held": _B, "grace_s": _F, "zero_s": _F, "held_s": _F, "held_for_s": _F, "yield_c": _F, "yield_t": _F}
 ## v8 (E3-1) adds "thrift": a building the Thrift stance idles (TownSim.buildings).
 const _BUILDING_STATES := ["constructing", "active", "idle", "unpaid", "thrift"]
 ## The stances' state (v8, E3-1): stances.state, optional, {stance id: this} for each stance whose condition has
@@ -591,6 +593,8 @@ static func dump(gs: GameState) -> Dictionary:
 			"r_in": f["r_in"], "r_drain": f["r_drain"], "r_shipped": f["r_shipped"],
 			"r_dead_out": f["r_dead_out"], "r_raised": f["r_raised"],
 		})
+		if RealmSim.is_held(f) and float(f.get("held_for_s", 0.0)) > 0.0:  # (v14, R-b) the hold's age, once it has one
+			forts[-1]["held_for_s"] = float(f.get("held_for_s", 0.0))
 	var villages: Array = []
 	for tw in gs.towns:
 		villages.append({"id": str(tw["id"]), "owner": {"green": "player", "orange": "vei"}.get(tw["control"], "none")})
@@ -726,6 +730,8 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 			f["grace_s"] = hs
 			f["zero_s"] = 0.0
 		f["held_s"] = f["grace_s"]
+		# (v14, R-b) the hold's age: a save without it (before v14, the fixtures) loads a held fort at 0, a fresh hold
+		f["held_for_s"] = maxf(0.0, float(e.get("held_for_s", 0.0))) if f["held"] else 0.0
 		# the loot yield (api_version 6): a save without it read 1.0, so it loads at 1
 		f["yield_c"] = clampf(float(e.get("yield_c", 1.0)), 0.0, 1.0)
 		f["yield_t"] = float(e.get("yield_t", 0.0))

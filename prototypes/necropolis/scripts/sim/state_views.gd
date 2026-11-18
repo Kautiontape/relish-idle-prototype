@@ -63,7 +63,7 @@ static func hud(gs: GameState) -> Dictionary:
 
 
 ## view_hud.relic_trickle (v12, E4 step 9, ruling 3; GameState._relic_trickle): {paying, next_s}: whether it pays now
-## (every fort at or below highest_tier_flipped held), and the paying seconds left to its next relic (-1.0 while not).
+## (v14, R-b: some fort held relic_trickle.hold_s unbroken), and the paying seconds left to its next relic (-1.0 while not).
 static func relic_trickle(gs: GameState) -> Dictionary:
 	var on := gs.relic_trickle_paying()
 	var period := gs._req_f("economy.relic_trickle.period_s")

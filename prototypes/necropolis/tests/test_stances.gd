@@ -59,7 +59,9 @@ const TIP := {
 	# E4 step 5 B1 (ii) (the standing re-pin rule), as test_backups' re-pin: Old Sluice retaken at 4 618.6 s under the
 	# lowest-margin rule (was 4 986.1 s), fort_retaken's two new keys, the retake line's cause. The same proof tree passes
 	# the old pins (was ccdf38fd… / 0466a66d… / e0a288bf…)
-	"midgame_2flips": {"state": "22a85c67268629792e832f5b20a42cb5fbc08e2598b0f152ca6ded8a0e2af944",
+	# Re-pinned at Phase I P3's R-b (the standing re-pin rule): the state only, its held forts saving held_for_s (v14);
+	# the proof as test_backups' (SaveIO's held_for_s writer off: every old pin passes). Was 22a85c67…
+	"midgame_2flips": {"state": "c301fded9ba62c152adb915e5e94b6a45a6ccd051f9263af056310487ad0e3f9",
 		"events": "f17e78e57a431cf40ea91355d57f364ba071f83bb8bec84836dcc7fbe674c33e",
 		"away": "d172a2cf9b4ab0ccc5c2d218d60bd02bb7e8e8ab548e59ac9ec7cce06eb92af1", "steps": 4356, "n_events": 237},
 	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i); the standing re-pin rule): the second House

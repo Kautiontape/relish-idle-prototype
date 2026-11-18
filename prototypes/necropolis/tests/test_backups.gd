@@ -97,7 +97,11 @@ const TIP := {
 	# under hold.mint_ref), so α plays no part. The proof tree (the most-undead rule in _tithe_target and the train,
 	# mint_alpha 0.7, the old line, fort_retaken without the two keys) passes the old pins (was 54ae7149… / 7eb703c3… /
 	# e0a288bf…)
-	"midgame_2flips": {"state": "1ab0643afc8b35208a3264c28c441efc91b71fcb962bd24281253093938b71e9",
+	# Re-pinned at Phase I P3's R-b (the trickle's hold age; the standing re-pin rule): the state only, the forts still
+	# held at its end saving held_for_s (v14; the fixture's load at 0). The events and the report don't move (no fort
+	# reaches the day the trickle needs inside the 12 h). The proof: this tree with SaveIO's held_for_s writer off passes every old pin here,
+	# in test_stances and in test_big_undead (288 PASS, 0 FAIL). Was 1ab0643a…
+	"midgame_2flips": {"state": "bb6fc5dd7fc35fed7dc5cb3cefbbfae7b22146466e4e4ab72bbddb67e53cebb1",
 		"events": "47b8beb6aabf4999e69ed75d1752a7bb724cf79b98c595f6ad5c14e80344f355",
 		"away": "d172a2cf9b4ab0ccc5c2d218d60bd02bb7e8e8ab548e59ac9ec7cce06eb92af1", "steps": 4356, "n_events": 241},
 	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i) on the gold-trap stop; the standing re-pin
