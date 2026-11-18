@@ -34,6 +34,8 @@ func _stale(t: TestUtil) -> void:
 	var rid := int(p["begun"]["run_id"])
 	t.ok(int(s.view_relish()["run_id"]) == rid and not RouterLogic.result_stale("raid", s.view_relish()), "(i) the run is open: a raid result is not stale")
 	t.ok(not RouterLogic.result_stale("boss", s.view_relish()), "(iii) a boss result is never stale by this rule (open run)")
+	# a VALID raid result for the open run, built before the gap (a bare stand-in fails Results.validate first)
+	var valid := StateRuns.end_result(s.run, {}, "retreated")
 	# a gap above idle.gap_s ends the run inside its frame (IDLE I5)
 	var gap := float(TestUtil.configs()["economy"]["idle"]["gap_s"]) * 4.0
 	s.tick(gap, s.max_substeps_per_frame())
@@ -45,6 +47,8 @@ func _stale(t: TestUtil) -> void:
 	t.ok(RouterLogic.result_stale("raid", {}), "no run_id at all reads as -1: stale")
 	var refused := s.apply_result("raid", {"v": 2, "run_id": rid})
 	t.ok(not refused["ok"], "a raid result for the ended run is refused by apply_result (%s; the result here is a bare stand-in), so the router must not call it" % str(refused.get("reason", "")))
+	var refused_valid := s.apply_result("raid", valid)
+	t.ok(not refused_valid["ok"] and ["wrong_run", "duplicate_run"].has(str(refused_valid.get("reason", ""))), "a VALID raid result for the ended run is refused as wrong_run or duplicate_run (%s)" % str(refused_valid.get("reason", "")))
 	var frames := 0
 	while s.catching_up() and frames < 5000:
 		s.tick(1.0 / 60.0, s.max_substeps_per_frame())

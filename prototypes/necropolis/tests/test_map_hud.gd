@@ -89,7 +89,11 @@ func _clarity(t: TestUtil) -> void:
 	t.ok(not HudLogic.goal_shown({"highest_tier_flipped": 1}), "a fort taken: the goal is gone")
 	t.ok(not HudLogic.goal_shown({"highest_tier_flipped": 0, "won": true}), "won: no goal line")
 	var goal := HudLogic.goal_text()
-	t.ok(goal.contains("take Vei's forts") and goal.contains("necropolis") and goal.contains("FLOOD clogs her queue") and goal.contains("raises your odds"), "the goal line states the run and FLOOD: " + goal)
+	t.ok(goal == "Your goal: take Vei's forts, then beat Vei. Beating Vei wins the game.\nFLOOD clogs her queue and raises your odds; face her when they're good.", "the goal line is the glossary's, verbatim: " + goal)
+	var hits: Array = []
+	_the_run_hits(MapLogic.cfg(), "", hits)
+	t.ok(hits.is_empty(), "no map_view.json string calls the whole game 'the run': %s" % str(hits))
+	t.ok(JSON.stringify(MapLogic.cfg()).contains("\"busy\":\"A raid is already open\""), "a busy refusal says raid")
 	t.ok(not goal.to_lower().contains("drown"), "no 'drown Vei' on the goal line")
 	for id in ["mint", "odds", "strain", "drain", "work", "war", "flood"]:
 		t.ok(HudLogic.tip(id) != "", "%s has a tooltip line" % id)
@@ -154,6 +158,24 @@ func _clarity(t: TestUtil) -> void:
 			bright = k
 	var through := Palette.c("ground").lerp(Palette.c(bright), 1.0 - a)
 	t.ok(MapLogic.contrast_ratio(Palette.c("text"), through) >= 4.5, "the goal's text reads 4.5:1 on the strip's plate")
+	var hs := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
+	t.ok(hs.contains("_goal = _label(int(cfg[\"clarity\"][\"goal_size_px\"]), \"text\")") and hs.contains("MapType.style_label(_goal, \"text\", int(cfg[\"clarity\"][\"goal_size_px\"]))"), "the goal is drawn in the text colour at clarity.goal_size_px")
+	t.ok(int(MapLogic.cfg()["clarity"]["goal_size_px"]) >= int(MapLogic.cfg()["objective_size_px"]) + 2 and int(MapLogic.cfg()["clarity"]["goal_size_px"]) >= 15, "the goal is at least 2 px over its old 13 px")
+	print("goal contrast %.2f" % MapLogic.contrast_ratio(Palette.c("text"), through))
+
+
+## Every string value of the config that says "the run" / "A run" for the game (code keys are not values).
+func _the_run_hits(v: Variant, path: String, found: Array) -> void:
+	if v is Dictionary:
+		for k in v:
+			_the_run_hits(v[k], path + "/" + str(k), found)
+	elif v is Array:
+		for i in v.size():
+			_the_run_hits(v[i], path + "/" + str(i), found)
+	elif v is String:
+		var re := RegEx.create_from_string("(?i)(\\bthe run\\b|^run\\b|\\ba run\\b)")
+		if re.search(v as String) != null:
+			found.append(path)
 
 
 func _type(t: TestUtil) -> void:

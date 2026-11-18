@@ -474,6 +474,15 @@ func _comes(t: TestUtil) -> void:
 	t.ok(wids.filter(func(i): return want.has(i)) == want and not wids.has("comes_warn"), "even with a warning due, the card shows it once, not as a block (the pinned line has it): " + str(wids))
 	t.ok(wb["comes_in_head"]["text"] == "WHO COMES IN" and wb["comes_in"]["face"] == "text" and wb["comes_in"]["text"] == "0 come in: garrison 0 (WAR) · starter 0 · big undead 0", "the head and the count, total first, in the text face: " + str(wb["comes_in"]["text"]))
 	t.ok(wb["bring_more"]["key"] == "text_dim" and wb["bring_more"]["text"].contains("draws 3× its share") and wb["bring_more"]["text"].begins_with("More: raise WAR on the valve") and wb["bring_more"]["text"].contains("crypt slab"), "the tide bias reads from config: " + str(wb["bring_more"]["text"]))
+	var warden_s := "To answer a warden, make a big undead at the Crypt slab and put it in your Party."
+	t.ok(wb["comes_plain"]["text"] == "No undead come with you. " + warden_s and wb["comes_plain"]["face"] == "text", "the card leads with a plain line: " + str(wb["comes_plain"]["text"]))
+	var cp_ids: Array = _fc(_fort_entry(), "", back, {}, _loot_cfg())["blocks"].map(func(b): return b["id"])
+	t.ok(cp_ids.find("comes_in_head") + 1 == cp_ids.find("comes_plain") and cp_ids.find("comes_plain") + 1 == cp_ids.find("comes_in"), "the plain line sits between the head and the breakdown")
+	t.ok(CardLogic.comes_plain_text({"garrison": 0, "starter": 0, "bigs": 0, "total": 0}) == "No undead come with you. " + warden_s, "nobody: says so, and how to get a big undead")
+	t.ok(CardLogic.comes_plain_text({"garrison": 0, "starter": 8, "bigs": 0, "total": 8}) == "8 undead come with you. " + warden_s, "8 undead, no bigs: the count, then the warden sentence")
+	t.ok(CardLogic.comes_plain_text({"garrison": 2, "starter": 8, "bigs": 0, "total": 10}) == "10 undead come with you. " + warden_s, "garrison and starter add up")
+	t.ok(CardLogic.comes_plain_text({"garrison": 0, "starter": 8, "bigs": 1, "total": 9}) == "8 undead and 1 big undead come with you.", "with a big undead: both counts, no warden sentence")
+	t.ok(not CardLogic.comes_plain_text({"garrison": 3, "starter": 0, "bigs": 2, "total": 5}).contains("warden"), "bigs in the party: no warden sentence")
 	t.ok(CardLogic.bring_more_text(2.5).contains("2.5×") and CardLogic.bring_more_text(3.0).contains("3×") and not CardLogic.bring_more_text(3.0).contains("3.0"), "no trailing .0")
 	# the pinned line and the descend dialog text
 	t.ok(CardLogic.comes_count_text({"garrison": 2, "starter": 8, "bigs": 1, "total": 11}) == "10 undead and 1 big undead come in", "the pinned count")

@@ -547,9 +547,10 @@
   "drain_label": "DRAIN",
   "clarity": {
     "goal_lines": [
-      "The run: take Vei's forts and grow your necropolis while you're away, until you can beat Vei.",
-      "Beating Vei wins. FLOOD clogs her queue and raises your odds; face her when they're good."
+      "Your goal: take Vei's forts, then beat Vei. Beating Vei wins the game.",
+      "FLOOD clogs her queue and raises your odds; face her when they're good."
     ],
+    "goal_size_px": 15,
     "goal_gap_px": 0.0,
     "valve_line": "WORK: your town's jobs · WAR: your forts · FLOOD: Vei's queue",
     "tips": {
@@ -666,7 +667,7 @@
       "not_travelling": "Relish isn't travelling",
       "not_at_fort": "Relish must stand here first. MOVE her.",
       "not_at_vei": "Relish must stand at Vei's gates. MOVE her.",
-      "busy": "A run is already open",
+      "busy": "A raid is already open",
       "unknown_fort": "That fortress doesn't exist",
       "zero_valve": "The valve can't be shut on all three",
       "negative": "A valve share can't be negative",
@@ -876,7 +877,11 @@
     "retreat_veis": "Retreat at any exit: keep all you found; the fort stays Vei's.",
     "retreat_held": "Retreat at any exit: keep all you found; the fort stays yours.",
     "comes_in_head": "WHO COMES IN",
-    "comes_in_fmt": "%d come in: garrison %d (WAR) · starter %d · big undead %d",
+    "comes_plain_none": "No undead come with you.",
+    "comes_plain_fmt": "%d undead come with you.",
+    "comes_plain_bigs_fmt": "%d undead and %d big undead come with you.",
+    "comes_plain_warden": "To answer a warden, make a big undead at the Crypt slab and put it in your Party.",
+    "comes_in_fmt":"%d come in: garrison %d (WAR) · starter %d · big undead %d",
     "bring_more_fmt": "More: raise WAR on the valve (Relish here draws %s× its share), or raise big undead at the crypt slab for the party.",
     "comes_none": "No undead and no corpses here. Relish never attacks, so this raid can't be won yet.",
     "comes_none_piles": "No undead come in: you'd raise every one inside, from corpse piles. Bring some first.",

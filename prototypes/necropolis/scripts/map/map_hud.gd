@@ -29,7 +29,7 @@ var _drain: Label
 var _tithe: Label
 var _speed_tag: Label
 var _objective: Button
-var _goal: Label  # the run's goal under the strip, while no fort has been taken (HudLogic.goal_shown)
+var _goal: Label  # the game's goal under the strip, while no fort has been taken (HudLogic.goal_shown)
 var _goal_plate: ColorRect
 var _leave: Label  # the quiet state's "Safe to leave" line under the strip (not clickable)
 var _leave_plate: ColorRect
@@ -68,8 +68,8 @@ func _ready() -> void:
 	MapUi.style_button(_objective, int(cfg["objective_size_px"]))
 	_objective.pressed.connect(_on_objective_pressed)
 	add_child(_objective)
-	_goal = _label(int(cfg["objective_size_px"]), "text")
-	MapType.style_label(_goal, "text", int(cfg["objective_size_px"]))
+	_goal = _label(int(cfg["clarity"]["goal_size_px"]), "text")
+	MapType.style_label(_goal, "text", int(cfg["clarity"]["goal_size_px"]))
 	_goal.text = HudLogic.goal_text()
 	_leave = _label(int(cfg["objective_size_px"]), "text")
 	MapType.style_label(_leave, "text", int(cfg["objective_size_px"]))

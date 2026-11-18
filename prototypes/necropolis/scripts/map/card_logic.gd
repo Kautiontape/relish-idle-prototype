@@ -304,6 +304,24 @@ static func comes_in_warning(ci: Dictionary, prof: Dictionary, tier: int, dead: 
 	return {}
 
 
+## The plain first line of WHO COMES IN, from the same counts: "8 undead and 1 big undead come with
+## you.", "No undead come with you."; while the party has no big undead, a second sentence says how
+## to get one.
+static func comes_plain_text(ci: Dictionary) -> String:
+	var u := int(ci.get("garrison", 0)) + int(ci.get("starter", 0))
+	var b := int(ci.get("bigs", 0))
+	var s: String
+	if u + b == 0:
+		s = str(_c().get("comes_plain_none", ""))
+	elif b > 0:
+		s = str(_c().get("comes_plain_bigs_fmt", "%d %d")) % [u, b]
+	else:
+		s = str(_c().get("comes_plain_fmt", "%d")) % u
+	if b == 0:
+		s += " " + str(_c().get("comes_plain_warden", ""))
+	return s
+
+
 ## "11 come in: garrison 2 (WAR) · starter 8 · big undead 1".
 static func comes_in_text(ci: Dictionary) -> String:
 	return str(_c().get("comes_in_fmt", "%d %d %d %d")) % [ci["total"], ci["garrison"], ci["starter"], ci["bigs"]]
