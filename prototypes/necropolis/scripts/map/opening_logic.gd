@@ -165,6 +165,15 @@ static func explain_after_away(seen_tithe: bool, vei_tithe: Dictionary) -> bool:
 	return not seen_tithe and tithe_pending(vei_tithe)
 
 
+## Whether the explanation opens now: "open"; "defer" while the away panel is open (it opens over
+## everything, so the explanation would sit behind it: it waits for the panel to close); "none"
+## when it isn't wanted.
+static func explain_gate(want_open: bool, away_open: bool) -> String:
+	if not want_open:
+		return "none"
+	return "defer" if away_open else "open"
+
+
 ## Vei's own target, from view_vei().tithe: {fort_id, eta_s}. The warned (or waving) fort while
 ## `target` is set, with tithe.eta_s; else the fort the rule would pick now (`next_target`), with
 ## `next_s`; else {fort_id: "", eta_s: -1.0}.

@@ -36,6 +36,30 @@ func _after_away(t: TestUtil) -> void:
 	var src := FileAccess.get_file_as_string("res://scripts/map/map_tithe_explain.gd")
 	var on := src.substr(src.find("func on_event("), src.find("func open_pending(") - src.find("func on_event("))
 	t.ok(on.contains("\"away_report\"") and on.contains("OpeningLogic.explain_after_away(") and on.contains("model.refresh(true)"), "the explanation's away_report branch re-reads the model and opens from the state")
+	_away_gate(t)
+
+
+## The explanation never opens behind the away panel: it waits and opens when the panel closes.
+func _away_gate(t: TestUtil) -> void:
+	t.ok(OpeningLogic.explain_gate(true, false) == "open", "no away panel: the explanation opens at once")
+	t.ok(OpeningLogic.explain_gate(true, true) == "defer", "the away panel is open: it waits")
+	t.ok(OpeningLogic.explain_gate(false, true) == "none", "nothing wanted stays nothing, away panel or not")
+	t.ok(OpeningLogic.explain_gate(false, false) == "none", "nothing wanted, nothing opens")
+	var ex := FileAccess.get_file_as_string("res://scripts/map/map_tithe_explain.gd")
+	t.ok(ex.contains("OpeningLogic.explain_gate(") and ex.contains("func on_away_closed("), "the explanation decides by the gate and has an away-closed entry")
+	var close := ex.substr(ex.find("func on_away_closed("))
+	t.ok(close.contains("OpeningLogic.tithe_pending(") and close.contains("seen.has(MapSeen.TITHE)"), "on the away panel's close it re-checks the seen flag and Vei's tithe in the view, not a latched fort")
+	var aw := FileAccess.get_file_as_string("res://scripts/map/map_away.gd")
+	var cl := aw.substr(aw.find("func _close("), aw.find("func _draw_frame(") - aw.find("func _close("))
+	t.ok(aw.contains("signal closed") and cl.contains("closed.emit()") and cl.contains("visible = false"), "the away panel emits closed where it hides itself")
+	var wm := FileAccess.get_file_as_string("res://scripts/map/world_map.gd")
+	t.ok(wm.contains("away.closed.connect(tithe_explain.on_away_closed)") and wm.contains("tithe_explain.away = away"), "the map wires the away panel's close to the explanation")
+	var a := wm.find("Game.game_event.connect(away.on_event)")
+	var b := wm.find("Game.game_event.connect(tithe_explain.on_event)")
+	t.ok(a >= 0 and b > a, "the away panel sees an away_report before the explanation does (so the gate sees it open)")
+	var mount_away := wm.find("away.open_if_shown()")
+	var mount_pending := wm.find("tithe_explain.open_pending()")
+	t.ok(mount_away >= 0 and mount_pending > mount_away, "at mount the away panel opens before a pending warning is considered")
 
 
 func _forts(flipped := 0, first := true) -> Array:

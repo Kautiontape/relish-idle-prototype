@@ -75,7 +75,6 @@ func _ready() -> void:
 	hud.start()
 	_hold_hud_for_return(return_layer)
 	opening.refresh()
-	tithe_explain.open_pending()
 	_fit()
 	var returned := setpieces.note_return(_arrive_from)  # "taken by you" or "stays Vei's", before the set pieces go live
 	var ease_s := _begin_arrival()
@@ -89,6 +88,7 @@ func _ready() -> void:
 		hud.show_toast(_arrive_toast)
 	hud.inset_changed.connect(func(_inset: float) -> void: _refit())  # the bar's sizes settle a frame later
 	setpieces.note_mount(away.open_if_shown())  # builds finished while away from the map get their callout, unless the away report lists them
+	tithe_explain.open_pending()  # after the away panel: a warning pending at mount waits for it to close
 	_replay_clicks()
 	_hover_arg()
 	for arg in OS.get_cmdline_user_args():
@@ -196,13 +196,15 @@ func _build_ui() -> void:
 	tithe_explain.card = sidebar  # the plate keeps off the open card
 	tithe_explain.toast.connect(hud.show_toast)
 	layer.add_child(tithe_explain)
-	Game.game_event.connect(tithe_explain.on_event)
 	away = MapAway.new()  # last: it opens over everything
 	away.model = model
 	away.demo = Game.state.debug_enabled and OS.get_cmdline_user_args().has("--away=demo")
 	away.acted.connect(_act_on)
 	layer.add_child(away)
 	Game.game_event.connect(away.on_event)
+	tithe_explain.away = away  # the explanation waits while the away panel is open, and opens when it closes
+	away.closed.connect(tithe_explain.on_away_closed)
+	Game.game_event.connect(tithe_explain.on_event)  # after the away panel's, so it sees the panel already open
 	var tip_theme := MapUi.tooltip_theme()  # every map tooltip on its own opaque plate
 	for c in layer.get_children():
 		if c is Control:

@@ -119,11 +119,6 @@ static func pile_value(st: Dictionary) -> float:
 	return lerpf(float(st["from"]), float(st["to"]), k * k * (3.0 - 2.0 * k))
 
 
-## An ease still moving (the ring needs redrawing as it goes).
-static func pile_easing(st: Dictionary) -> bool:
-	return not st.is_empty() and (float(st["t"]) < _n("pile_ease_s")) and not is_equal_approx(float(st["from"]), float(st["to"]))
-
-
 ## `f` with its dead mass replaced by `dead` (what the ring draws while a pile eases).
 static func with_dead(f: Dictionary, dead: float) -> Dictionary:
 	var g := f.duplicate()
