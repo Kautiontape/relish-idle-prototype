@@ -833,7 +833,7 @@ func _payoff(t: TestUtil) -> void:
 		"the vortex strength reads readiness, falling back to odds")
 	t.ok(gfv.vortex({"odds": 0.9, "readiness": 0.0, "sign": 1}) == Vector4.ZERO, "a shown odds alone does not draw the clot")
 	# Phase I P3: first_odds_of, and the payoff's projection through it
-	for r in [[8, 0.453], [4, 0.139], [2, 0.053], [0, 0.010]]:
+	for r in [[9, 0.453], [5, 0.139], [3, 0.053], [0, 0.010]]:  # (P3's grade rows "1+8", "1+4", "1+2", "0+0" are charges + clones, so backups 9, 5, 3, 0)
 		t.near(ValveLogic.first_odds_of(0.6118, int(r[0]), 7.15, 1.76), float(r[1]), 1e-3, "first_odds_of at backups %d" % int(r[0]))
 	t.ok(ValveLogic.first_odds_of(0.6, 7, 7.15, 0.0) == 0.0 and ValveLogic.first_odds_of(0.6, 8, 7.15, 0.0) == 0.6, "scale 0: a step at mid")
 	t.ok(ValveLogic.first_odds_of(0.6, 100, 7.15, 1.76) <= 0.6 and ValveLogic.first_odds_of(0.6, -5, 7.15, 1.76) <= 0.6, "never above the readiness")
