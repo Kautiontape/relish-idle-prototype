@@ -185,20 +185,60 @@ func _place(t: TestUtil, c: Dictionary) -> void:
 	t.ok(float(at["hard"]) > 0.0 and str(at["place"]) == "below" and str(at["form"]) == "one" and float(at["slide"]) == 0.0, "nothing clear: the least hard overlap is taken")
 	var wall_up := {"rings": [], "circles": [], "rects": [Rect2(0.0, 300.0, 1000.0, 200.0)], "soft": []}
 	t.ok(float(SetpieceLogic.callout_place(fort, 30.0, base_y, 16, w, [], wall_up)["hard"]) == 0.0, "(and with only the upper wall, the under row is clear)")
+	# the screen's bounds are hard: the free screen is y 100..800 here
+	var bounds := Rect2(0.0, 100.0, 1000.0, 700.0)
+	var low := SetpieceLogic.callout_place(Vector2(500.0, 780.0), 30.0, 740.0, 16, w, [], {"rings": [], "circles": [], "rects": [], "soft": [], "bounds": bounds})
+	t.ok(str(low["place"]) == "above" and _inside(low, bounds), "a fort 20 px above the bottom inset never gets a place under it")
+	var top := SetpieceLogic.callout_place(Vector2(500.0, 120.0), 30.0, 80.0, 16, w, [], {"rings": [], "circles": [], "rects": [], "soft": [], "bounds": bounds})
+	t.ok(str(top["place"]) == "below" and _inside(top, bounds), "a fort near the top never gets a place crossing the top inset")
+	var lost := SetpieceLogic.callout_place(fort, 30.0, base_y, 16, w, [], {"rings": [], "circles": [], "rects": [], "soft": [], "bounds": Rect2(0.0, 100.0, 50.0, 50.0)})
+	t.ok(lost.has("rects") and str(lost["place"]) == "above", "no place on screen: the one with the least off-screen area (the above row, nearest the bounds)")
+	t.ok(SetpieceLogic.screen_bounds(Vector2(1600.0, 900.0), Vector2(100.0, 50.0), 2.0, 62.0, 852.0) == Rect2(12.0 - 800.0 + 200.0, 74.0 - 450.0 + 100.0, 1576.0, 766.0), "the bounds are the viewport less the edge, the top bar and the bottom bars, in the zoomed frame")
+	# nothing reads as the fort's (drift cap of 1 px): the least hard overlap wins, not the first candidate
+	var wall_above := {"rings": [], "circles": [], "rects": [Rect2(0.0, 400.0, 1000.0, 75.0)], "soft": []}
+	var saved_cap: float = float(c["callout_drift_px"])
+	c["callout_drift_px"] = 1.0
+	at = SetpieceLogic.callout_place(fort, 30.0, base_y, 16, w, [], wall_above)
+	c["callout_drift_px"] = saved_cap
+	t.ok(float(at["hard"]) == 0.0 and str(at["place"]) == "below", "every place fails the ownership rule: the least hard overlap wins, not the centred first")
+	# a line that is up does not hop: the previous choice stays while it is clear, and is re-chosen when blocked
+	var prev := {"form": "one", "place": "above", "slide": 0.2}
+	at = SetpieceLogic.callout_place(fort, 30.0, base_y, 16, w, [], none, prev)
+	t.ok(is_equal_approx(float(at["slide"]), 0.2), "the last place is kept while it is still clear (not snapped back to centred)")
+	at = SetpieceLogic.callout_place(fort, 30.0, base_y, 16, w, [], ring, prev)
+	t.ok(is_equal_approx(float(at["slide"]), -0.35) and float(at["hard"]) == 0.0, "blocked (a ring now under it): it moves, to the first clear place")
 	_shot_geometry(t, c)
 
 
-## The shot's geometry: Old Sluice and Ashgate (and every other fort) at their world.json positions, the
-## return at the framed zoom (the arrival eases out to the fit, about 0.55 on the 1600 x 900 shot),
-## Relish's token above Old Sluice. The retreat line must clear every hard obstacle, and still be Old Sluice's.
+func _inside(place: Dictionary, bounds: Rect2) -> bool:
+	for r in place["rects"]:
+		if not bounds.encloses(r):
+			return false
+	return true
+
+
+## The return shot (--fixture=day1 --teleport=old-sluice --finish-raid): a 1600 x 900 window, every fort at
+## its world.json position, none held (day1 holds no fort, so no chip), Old Sluice's "your first dungeon"
+## tag, Relish's token standing above it with her real halo. The camera is the one the return eases out to,
+## read from a run of that command (the fit: zoom 0.57474949494949 centred on (986.6473, 657.0635), the top
+## bar 62 px tall and the bottom bars from y 852). The retreat line must sit inside the inset screen, clear
+## of every other fort's ring and every plate and the token, and read as Old Sluice's. The sweep re-frames
+## Old Sluice at the same screen point at other zooms.
 func _shot_geometry(t: TestUtil, c: Dictionary) -> void:
 	var forts: Array = TestUtil.load_json("res://configs/world.json")["forts"]
 	var font := ThemeDB.fallback_font
 	var n := NodeLogic.ncfg()
 	var text := SetpieceLogic.return_text(SetpieceLogic.RETREAT, "Old Sluice")
 	var split := SetpieceLogic.split_text(text)
-	for zoom in [0.4, 0.55, 0.8, 1.2]:
+	var vp := Vector2(1600.0, 900.0)
+	var shot_z := 0.57474949494949
+	var shot_cam := Vector2(986.6473, 657.0635)
+	var sluice := Vector2(1420.0, 1305.0)
+	var screen_pt := (sluice - shot_cam) * shot_z + vp * 0.5
+	var on_screen := 0
+	for zoom in [shot_z, 0.4, 0.8, 1.2]:
 		var z: float = zoom
+		var cam_pos := shot_cam if z == shot_z else sluice - (screen_pt - vp * 0.5) / z
 		var own: Array = []
 		var rects: Array = []
 		var rings: Array = []
@@ -220,8 +260,9 @@ func _shot_geometry(t: TestUtil, c: Dictionary) -> void:
 			else:
 				rings.append(Vector3(p.x * z, p.y * z, r))
 				rects.append_array(plates)
-		var halo := float(NodeLogic.relish_radii(z)["halo"]) * z
-		var tok := fp + Vector2(0.0, -ring_r - (float(n["relish_gap_px"]) + float(NodeLogic.relish_radii(z)["halo"]) * z))
+		var halo_w := float(NodeLogic.relish_radii(z)["halo"])  # world px: max(halo r, min screen px / zoom)
+		var halo := halo_w * z
+		var tok := fp - Vector2(0.0, (ring_r / z + float(n["relish_gap_px"]) + halo_w) * z)  # MapNodes: above the fort's reach
 		own.append(Rect2(tok - Vector2(halo, halo), Vector2(halo, halo) * 2.0))
 		var gap := float(c["callout_gap_px"])
 		var base_y := minf(fp.y - ring_r - gap, tok.y - halo - gap)
@@ -229,27 +270,37 @@ func _shot_geometry(t: TestUtil, c: Dictionary) -> void:
 		var widths := {"one": font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x,
 			"a": font.get_string_size(str(split[0]), HORIZONTAL_ALIGNMENT_LEFT, -1, size).x,
 			"b": font.get_string_size(str(split[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, size).x}
-		var at := SetpieceLogic.callout_place(fp, ring_r, base_y, size, widths, own, {"rings": rings, "circles": [Vector3(tok.x, tok.y, halo)], "rects": rects, "soft": []})
-		var covers := true
+		var bounds := SetpieceLogic.screen_bounds(vp, cam_pos, z, 62.0, 852.0)
+		var obs := {"rings": rings, "circles": [Vector3(tok.x, tok.y, halo)], "rects": rects, "soft": [], "bounds": bounds}
+		var at := SetpieceLogic.callout_place(fp, ring_r, base_y, size, widths, own, obs)
+		var inside := true
 		var hits := 0
-		var own_gap := INF
-		var left := INF
-		var right := -INF
+		var halo_hit := false
+		var own_hit := false
 		for r in at["rects"]:
-			left = minf(left, (r as Rect2).position.x)
-			right = maxf(right, (r as Rect2).end.x)
-			own_gap = minf(own_gap, SetpieceLogic.circle_gap(r, Vector3(fp.x, fp.y, ring_r)))
-			for o in own:
-				own_gap = minf(own_gap, SetpieceLogic.rect_gap(r, o))
+			inside = inside and bounds.encloses(r)
 			for ring in rings:
 				if SetpieceLogic.circle_gap(r, ring) < 0.0:
 					hits += 1
 			for o in rects:
 				if (r as Rect2).intersects(o):
 					hits += 1
-		covers = left - float(c["callout_x_margin_px"]) <= fp.x and right + float(c["callout_x_margin_px"]) >= fp.x
-		t.ok(hits == 0, "zoom %s: the retreat line (%s, %s, slide %s) touches no other fort's ring or any fort's plates" % [z, at["form"], at["place"], at["slide"]])
-		t.ok(covers and own_gap <= float(c["callout_drift_px"]), "zoom %s: and it still reads as Old Sluice's (covers its x, %.0f px from its ring or plates)" % [z, own_gap])
+			halo_hit = halo_hit or SetpieceLogic.circle_gap(r, Vector3(tok.x, tok.y, halo)) < 0.0
+			for o in own:
+				own_hit = own_hit or (r as Rect2).intersects(o)
+		var reads := SetpieceLogic._own_gap(at["rects"], fp, Vector3(fp.x, fp.y, ring_r), own, rings, str(at["place"]) in ["left", "right"])
+		var tag := "zoom %.3f (%s, %s, slide %s)" % [z, at["form"], at["place"], at["slide"]]
+		var clear_place := inside and float(at["hard"]) == 0.0 and bool(reads["ok"])
+		if clear_place:
+			on_screen += 1
+		elif z == shot_z:
+			t.ok(false, "%s: the shot's own camera has a clear on-screen place that reads as Old Sluice's" % tag)
+		if clear_place or z == shot_z:  # a crowded zoom may leave none; the shot's own never may
+			t.ok(inside, "%s: inside the inset screen" % tag)
+			t.ok(hits == 0, "%s: touches no other fort's ring or any other fort's plate" % tag)
+			t.ok(not halo_hit and not own_hit, "%s: touches neither Relish's halo nor Old Sluice's own plates" % tag)
+			t.ok(bool(reads["ok"]), "%s: reads as Old Sluice's (%.0f px from its ring or plates, no other ring nearer)" % [tag, float(reads["gap"])])
+	t.ok(on_screen >= 2, "a clear on-screen place that reads as Old Sluice's at %d of 4 zooms, the shot's among them" % on_screen)
 
 
 ## No displayed config string says flip or cleared: the player's word for winning a fort is taken

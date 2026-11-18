@@ -185,6 +185,13 @@ func bar_bottom() -> float:
 	return _bar_plate.size.y
 
 
+## The screen y the bottom bars start at: the speed row (its y from config) or the hint line (the
+## viewport's bottom less hint_bottom_px and its own height), whichever is higher. A callout stays above it.
+func bottom_top() -> float:
+	var hint_top := get_viewport_rect().size.y - float(MapLogic.cfg()["hint_bottom_px"]) - _hint.size.y
+	return minf(_speed_row.position.y, hint_top)
+
+
 ## The right edge (screen px) of the HUD's plates at the top left: the bar, the strip, the goal and the
 ## leave line. The card may rise above `top_inset` only where this stays clear of it.
 func plates_right() -> float:

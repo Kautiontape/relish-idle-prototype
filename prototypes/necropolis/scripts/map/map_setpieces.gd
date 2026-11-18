@@ -43,6 +43,8 @@ var nodes: MapNodes
 var routes: MapRoutes
 var hud: MapHud
 var valve: MapValve
+var cam: MapCamera  # its position and the visible screen place the callouts in the frame
+var _placed := {}  # "<fort>|<text>" -> {sig, lines, choice}: a callout's place, kept until its inputs change
 var layer: MapSetpieceLayer
 
 var _synth: Synth
@@ -315,6 +317,28 @@ func _redraw_fort_all(id: String) -> void:
 ## ring, every fort's name and tag plates, the held forts' chips, Relish's token. Soft: the open card
 ## and the lane callouts, which this layer cannot read (they are MapCallouts' and the card's).
 func _callout(id: String, text: String, alpha: float, key := "undead") -> Array:
+	var ctx := nodes.ctx
+	var grid := float(MapLogic.cfg()["callouts"]["token_key_px"])
+	var cp := cam.position if cam != null else Vector2.ZERO
+	var tok := ctx.relish_pos * ctx.zoom
+	# what the placement depends on (not the frame): the line, the zoom and camera, the viewport, her token on
+	# the callouts' grid, and the model's rev (the held set, the chips)
+	var sig := [text, roundi(ctx.zoom * 1000.0), roundi(cp.x), roundi(cp.y), get_viewport().get_visible_rect().size, ctx.tier,
+		model.rev, roundi(tok.x / grid), roundi(tok.y / grid)]
+	var ck := "%s|%s" % [id, text]
+	var hit: Dictionary = _placed.get(ck, {})
+	if hit.is_empty() or hit["sig"] != sig:
+		var made := _place_callout(id, text, hit.get("choice", {}))  # the last choice stays while it is still free
+		hit = {"sig": sig, "lines": made["lines"], "choice": made["choice"]}
+		_placed[ck] = hit
+	var out: Array = []
+	for l in hit["lines"]:
+		out.append({"kind": "label", "pos": l["pos"], "text": l["text"], "size": int(SetpieceLogic.cfg()["callout_font"]), "key": key, "alpha": alpha})
+	return out
+
+
+## Where `text` goes for the fort `id`: {lines: [{pos (world), text}], choice: {form, place, slide}}.
+func _place_callout(id: String, text: String, prev: Dictionary) -> Dictionary:
 	var f := model.fort(id)
 	var c := SetpieceLogic.cfg()
 	var ctx := nodes.ctx
@@ -355,13 +379,16 @@ func _callout(id: String, text: String, alpha: float, key := "undead") -> Array:
 	if not split.is_empty():
 		widths["a"] = MapNodeLayer.label_width(str(split[0]), size)
 		widths["b"] = MapNodeLayer.label_width(str(split[1]), size)
-	var at := SetpieceLogic.callout_place(p, ring_r, base_y, size, widths, own, obs)
-	var lines: Array = split if str(at["form"]) == "two" else [text]
-	var out: Array = []
-	for i in lines.size():
+	if hud != null:  # the visible screen between the top bar and the bottom bars
+		var cp := cam.position if cam != null else Vector2.ZERO
+		obs["bounds"] = SetpieceLogic.screen_bounds(get_viewport().get_visible_rect().size, cp, z, hud.bar_bottom(), hud.bottom_top())
+	var at := SetpieceLogic.callout_place(p, ring_r, base_y, size, widths, own, obs, prev)
+	var texts: Array = split if str(at["form"]) == "two" else [text]
+	var lines: Array = []
+	for i in texts.size():
 		var pos := (at["pos"] as Vector2) + Vector2(0.0, float(i) * float(c["callout_line_px"]))
-		out.append({"kind": "label", "pos": pos / z, "text": str(lines[i]), "size": size, "key": key, "alpha": alpha})
-	return out
+		lines.append({"pos": pos / z, "text": str(texts[i])})
+	return {"lines": lines, "choice": {"form": at["form"], "place": at["place"], "slide": at["slide"]}}
 
 
 # --- a finished build -------------------------------------------------------------------------

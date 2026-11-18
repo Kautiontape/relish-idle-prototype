@@ -186,6 +186,14 @@ static func fort_plates(pos: Vector2, tier: int, name_w: float, tag_w: float, zo
 	return out
 
 
+## The screen a callout may sit in, in the frame: the viewport inset callout_edge_px on every side, from
+## below the top bar (`top_inset` screen px) to above the bottom bars (`bottom_top`, the screen y they start at).
+static func screen_bounds(viewport: Vector2, cam_pos: Vector2, zoom: float, top_inset: float, bottom_top: float) -> Rect2:
+	var e := _n("callout_edge_px")
+	var r := Rect2(e, top_inset + e, viewport.x - e * 2.0, bottom_top - top_inset - e * 2.0)
+	return HudLogic.screen_to_zoomed(r, cam_pos, zoom, viewport)
+
+
 ## The gap between two rects (0 when they touch or overlap).
 static func rect_gap(a: Rect2, b: Rect2) -> float:
 	var dx := maxf(maxf(a.position.x - b.end.x, b.position.x - a.end.x), 0.0)
@@ -243,13 +251,18 @@ static func _soft(rects: Array, soft: Array) -> float:
 ## [Rect2], soft: [Rect2]}: the HARD ones (every other fort's ring out to its outermost, Relish's
 ## halo, the name and tag plates, the held forts' chips) and the SOFT (the open card, lane callouts).
 ## Candidates in order: centred above; the same row slid by callout_slides x its width; the two-line
-## form centred above, then slid; then the same under the fort's plates. The first with no hard and no
+## form centred above, then slid; then the same under the fort's plates; then, only when those leave
+## nothing clear and on screen, beside the fort's ring (right, then left; no need to cover its x). The first with no hard and no
 ## soft overlap wins, else the first with no hard overlap, else the least hard overlap. A candidate is
 ## only a candidate when it reads as the fort's: its nearest edge within callout_drift_px of the fort's
 ## ring or its own rects, its span covering the fort's x (callout_x_margin_px of play), and no other
-## fort's ring nearer than its own. Returns {form: "one"|"two", place: "above"|"below", slide, pos
-## (centre x, first baseline), rects, hard, soft}.
-static func callout_place(fort: Vector2, ring_r: float, base_y: float, size: int, widths: Dictionary, own: Array, obs: Dictionary) -> Dictionary:
+## fort's ring nearer than its own. `obs.bounds` (the visible screen less the HUD bars) is hard too:
+## a place not wholly inside is dropped before that filter, or, when none fits, the least off-screen
+## one is taken. When nothing reads as the fort's, the least hard overlap wins, the nearer its own fort
+## on a tie. `prev` ({form, place, slide} of the last choice): kept while still on screen, free of hard
+## overlap and the fort's own, so a line up on screen never hops. Returns {form: "one"|"two", place:
+## "above"|"below", slide, pos (centre x, first baseline), rects, hard, soft}.
+static func callout_place(fort: Vector2, ring_r: float, base_y: float, size: int, widths: Dictionary, own: Array, obs: Dictionary, prev := {}) -> Dictionary:
 	var clear := _n("callout_clear_px")
 	var line := _n("callout_line_px")
 	var own_ring := Vector3(fort.x, fort.y, ring_r)
@@ -281,28 +294,71 @@ static func callout_place(fort: Vector2, ring_r: float, base_y: float, size: int
 				var cx := fort.x + float(s) * span
 				var rects := callout_rects(cx, first_by, ws, size)
 				cands.append({"form": fm[0], "place": place, "slide": float(s), "pos": Vector2(cx, first_by), "rects": rects,
-					"hard": _hard(rects, hard_obs, clear), "soft": _soft(rects, soft_obs)})
+					"hard": _hard(rects, hard_obs, clear), "soft": _soft(rects, soft_obs), "side": false})
+	# last resort, where a crowded or cornered fort leaves no row above or under it: beside the fort's ring,
+	# on its middle, callout_side_gap_px off the ring (right, then left); these need not cover the fort's x
+	for place in ["right", "left"]:
+		for fm in forms:
+			var ws: Array = fm[1]
+			var span := 0.0
+			for w in ws:
+				span = maxf(span, float(w))
+			span += float(NodeLogic.ncfg()["plate_pad_px"]) * 2.0
+			var height := float(ws.size() - 1) * line + float(size) * float(NodeLogic.ncfg()["plate_height"])
+			var first_by := fort.y - height * 0.5 + float(size) * float(NodeLogic.ncfg()["plate_ascent"])
+			var cx := fort.x + (ring_r + _n("callout_side_gap_px") + span * 0.5) * (1.0 if place == "right" else -1.0)
+			var rects := callout_rects(cx, first_by, ws, size)
+			cands.append({"form": fm[0], "place": place, "slide": 0.0, "pos": Vector2(cx, first_by), "rects": rects,
+				"hard": _hard(rects, hard_obs, clear), "soft": _soft(rects, soft_obs), "side": true})
+	# the screen's bounds are hard: a place not wholly inside them is dropped first
+	var pool: Array = cands
+	if obs.has("bounds"):
+		var bounds: Rect2 = obs["bounds"]
+		pool = []
+		var least: Dictionary = cands[0]
+		var least_off := INF
+		for cd in cands:
+			var off := 0.0
+			for r in cd["rects"]:
+				var i: Rect2 = (r as Rect2).intersection(bounds)
+				off += (r as Rect2).size.x * (r as Rect2).size.y - maxf(i.size.x * i.size.y, 0.0)
+			if off <= 0.5:  # Rect2 is single precision: a rect on the edge leaves a hair
+				pool.append(cd)
+			elif off < least_off:
+				least_off = off
+				least = cd
+		if pool.is_empty():
+			return least  # nothing fits: the least off-screen
 	var valid: Array = []
-	for cd in cands:
-		if _reads_as_own(cd["rects"], fort, own_ring, own, obs.get("rings", [])):
+	for cd in pool:
+		var own_gap := _own_gap(cd["rects"], fort, own_ring, own, obs.get("rings", []), bool(cd["side"]))
+		cd["own_gap"] = own_gap["gap"]
+		cd["owns"] = own_gap["ok"]
+		if bool(own_gap["ok"]):
 			valid.append(cd)
-	if valid.is_empty():
-		return cands[0]
+	if not prev.is_empty():  # a line that is up does not hop: its last place stays while it is still free
+		for cd in valid:
+			if str(cd["form"]) == str(prev.get("form")) and str(cd["place"]) == str(prev.get("place")) and is_equal_approx(float(cd["slide"]), float(prev.get("slide", 0.0))) and float(cd["hard"]) == 0.0:
+				return cd
 	for cd in valid:
 		if float(cd["hard"]) == 0.0 and float(cd["soft"]) == 0.0:
 			return cd
 	for cd in valid:
 		if float(cd["hard"]) == 0.0:
 			return cd
-	var best: Dictionary = valid[0]
-	for cd in valid:
-		if float(cd["hard"]) < float(best["hard"]) or (float(cd["hard"]) == float(best["hard"]) and float(cd["soft"]) < float(best["soft"])):
+	var from: Array = valid if not valid.is_empty() else pool
+	var best: Dictionary = from[0]
+	for cd in from:
+		var h := float(cd["hard"])
+		var bh := float(best["hard"])
+		if h < bh or (h == bh and (float(cd["own_gap"]) < float(best["own_gap"]) if valid.is_empty() else float(cd["soft"]) < float(best["soft"]))):
 			best = cd
 	return best
 
 
-## Whether a place still reads as the fort's own: see callout_place.
-static func _reads_as_own(rects: Array, fort: Vector2, own_ring: Vector3, own: Array, others: Array) -> bool:
+## How near a place is to its own fort (ring, own rects) and whether it reads as the fort's: see
+## callout_place. {gap, ok}.
+static func _own_gap(rects: Array, fort: Vector2, own_ring: Vector3, own: Array, others: Array, side := false) -> Dictionary:
 	var left := INF
 	var right := -INF
 	var own_gap := INF
@@ -316,9 +372,8 @@ static func _reads_as_own(rects: Array, fort: Vector2, own_ring: Vector3, own: A
 		for c in others:
 			other_gap = minf(other_gap, circle_gap(r, c))
 	var m := _n("callout_x_margin_px")
-	if fort.x < left - m or fort.x > right + m:
-		return false
-	return own_gap <= _n("callout_drift_px") and own_gap <= other_gap
+	var ok := (side or (fort.x >= left - m and fort.x <= right + m)) and own_gap <= _n("callout_drift_px") and own_gap <= other_gap
+	return {"gap": own_gap, "ok": ok}
 
 
 ## The first flip's green ripple at the fort's beat `phase` (Pulse.phase at its hops): {reach
