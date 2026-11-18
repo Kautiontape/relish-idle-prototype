@@ -323,14 +323,18 @@ static func siege_forts(forts: Array) -> Array:
 	return held + rest
 
 
-## The foreman choices: built lots with jobs (level >= 1, slots > 0), in view order.
+## The foreman choices: built job buildings (level >= 1), in view order. A foreman multiplies job output only
+## (the E3-3 ruling), so the menu offers a building whose buildings.json `jobs` aren't empty (`bcfg`), whatever its
+## slots read now (a Chapel's tend slots open only while a vat is staffed); with no `bcfg`, live slots > 0.
 ## -> [{lot_id, label, foreman (uid or "")}]; `labels` = building id -> label.
-static func foreman_lots(buildings: Array, labels: Dictionary) -> Array:
+static func foreman_lots(buildings: Array, labels: Dictionary, bcfg: Dictionary = {}) -> Array:
 	var out: Array = []
 	for b in buildings:
-		if int(b.get("level", 0)) < 1 or int(b.get("slots", 0)) <= 0:
-			continue
 		var bid := String(b.get("building_id", ""))
+		var jobs := not ((bcfg.get(bid, {}) as Dictionary).get("jobs", {}) as Dictionary).is_empty() if not bcfg.is_empty() \
+			else int(b.get("slots", 0)) > 0
+		if int(b.get("level", 0)) < 1 or not jobs:
+			continue
 		out.append({"lot_id": String(b.get("lot_id", "")), "label": String(labels.get(bid, bid.capitalize())),
 			"foreman": String(b.get("foreman", ""))})
 	return out

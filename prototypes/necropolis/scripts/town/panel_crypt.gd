@@ -759,7 +759,7 @@ func _fill_options(row: Dictionary) -> void:
 	var opts: Array = []  # [text, place, disabled, active]
 	if row["mode"] == "foreman":
 		var names := CryptLogic.display_names(_views.get("big_undead", {}).get("big_undead", []), _slab)
-		for l in CryptLogic.foreman_lots(_views.get("town", {}).get("buildings", []), _labels()):
+		for l in CryptLogic.foreman_lots(_views.get("town", {}).get("buildings", []), _labels(), ConfigDb.data.get("buildings", {})):
 			var fm := String(l["foreman"])
 			var taken := fm != "" and fm != uid
 			var text := _tx("taken").format({"label": l["label"], "name": names.get(fm, fm)}) if taken else \

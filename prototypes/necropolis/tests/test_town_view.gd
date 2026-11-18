@@ -4680,8 +4680,8 @@ func _fix3b_cache() -> void:
 	var shell := _read_src("res://scripts/town/covington.gd")
 	t.ok(shell.contains("func project_staffing(order: Array, extra := {})") and shell.contains("view_staffing_projection"),
 		"covington: owns project_staffing, which calls the projection view when GameState has it")
-	t.ok(shell.contains("int(_last_views.get(\"town\", {}).get(\"rev\", -1))") and shell.contains("_hops_cache.fetch(0,"),
-		"covington: the stand-in is keyed on the fetched town rev, the lot hops are computed once")
+	t.ok(shell.contains("_staff_cache.fetch(int(s.rev),") and not shell.contains("TownStandins.project(") and shell.contains("_hops_cache.fetch(0,"),
+		"covington: the projection is the real view, keyed on GameState's rev (the #16 stand-in is retired); the lot hops are computed once")
 	t.ok(shell.contains("RevCache"), "covington: caches the projections and the lot hops by rev")
 
 
@@ -5263,9 +5263,12 @@ func _td1_placeholders(day1: Dictionary, mid: Dictionary, pre: Dictionary) -> vo
 	t.ok(ct["raise_note"] == "preview: nothing is spent and no big undead rises yet", "raise: the note before the hold (%s)" % ct["raise_note"])
 	t.ok(ct["risen_stub"] == "coming: raised undead join the town in a later build", "raise: the after-line (%s)" % ct["risen_stub"])
 	t.ok(float(ct["stub_line_s"]) > 0.0 and float(ct["stub_line_s"]) <= 10.0, "raise: the after-line clears a few seconds after the rings settle (%s s)" % ct["stub_line_s"])
-	t.ok(slab.has("raise_wired") and slab["raise_wired"] == false, "raise: slab.raise_wired is false while the raise is a stub (STANDIN)")
-	t.ok(CryptLogic.raise_is_preview(slab, false), "raise: a stub raise is a preview")
-	t.ok(not CryptLogic.raise_is_preview(slab, true), "raise: once a raise returned a creature, the note goes away")
+	t.ok(slab.has("raise_wired") and slab["raise_wired"] == true and not CryptLogic.raise_is_preview(slab, false),
+		"raise: E3 made the raise real, so slab.raise_wired is on and the preview note never shows (town-i M2)")
+	var stub: Dictionary = slab.duplicate()
+	stub["raise_wired"] = false
+	t.ok(CryptLogic.raise_is_preview(stub, false), "raise: unwired, a raise that returned nothing yet is a preview")
+	t.ok(not CryptLogic.raise_is_preview(stub, true), "raise: once a raise returned a creature, the note goes away")
 	var wired: Dictionary = slab.duplicate()
 	wired["raise_wired"] = true
 	t.ok(not CryptLogic.raise_is_preview(wired, false), "raise: a wired raise needs no note")
@@ -5276,8 +5279,11 @@ func _td1_placeholders(day1: Dictionary, mid: Dictionary, pre: Dictionary) -> vo
 	# backups: the stub outcome/respawn line and the ladder step say 'coming'
 	var tx: Dictionary = vcfg["backups"]
 	var clone := {"outcome": "clone", "respawn_s": 0.0, "loses": []}
-	t.ok(tx.has("numbers_wired") and tx["numbers_wired"] == false, "backups: numbers_wired is false while the view is a stub (STANDIN)")
-	t.ok(BackupsModel.numbers_pending(clone, tx), "backups: a clone with respawn 0 on a stub view reads as pending")
+	t.ok(tx.has("numbers_wired") and tx["numbers_wired"] == true and not BackupsModel.numbers_pending(clone, tx),
+		"backups: E3 made the death numbers real, so numbers_wired is on and nothing reads as pending (town-i M2)")
+	tx = tx.duplicate()
+	tx["numbers_wired"] = false
+	t.ok(BackupsModel.numbers_pending(clone, tx), "backups: unwired, a clone with respawn 0 reads as pending")
 	t.ok(BackupsModel.numbers_pending({"outcome": "unmade", "respawn_s": 600.0}, tx) == false, "backups: a real wait (respawn_s > 0) shows the view is live")
 	t.ok(BackupsModel.numbers_pending({"outcome": "phylactery", "respawn_s": 0.0}, tx) == false, "backups: a phylactery outcome shows the view is live")
 	var live: Dictionary = tx.duplicate()
@@ -5288,7 +5294,8 @@ func _td1_placeholders(day1: Dictionary, mid: Dictionary, pre: Dictionary) -> vo
 	t.ok(BackupsModel.ladder_now_text(tx, true) == "now · numbers coming" and BackupsModel.ladder_now_text(tx, false) == "now", "backups: the ladder's current step says numbers coming")
 	t.ok(BackupsModel.death_sig({"backups": {"death": clone}}) != BackupsModel.death_sig({"backups": {"death": {"outcome": "clone", "respawn_s": 60.0, "loses": []}}}), "backups: a live respawn moves the death signature")
 	# foreman: a 'coming' note by the button and on the placed line
-	t.ok(ct["foreman_coming"] == "coming: a foreman boosts its building in a later build", "foreman: the coming note (%s)" % ct["foreman_coming"])
+	t.ok(not String(ct["foreman_coming"]).contains("coming") and String(ct["foreman_coming"]).contains("speed") and String(ct["foreman_coming"]).contains("morale"),
+		"foreman: the note says what a foreman does (E3-3: speed on job output, presence on morale), not 'coming' (%s)" % ct["foreman_coming"])
 	t.ok(CryptLogic.place_note("town:lot-04", ct) == ct["foreman_coming"] and CryptLogic.place_note("crypt", ct) == "" and CryptLogic.place_note("fort:x", ct) == "",
 		"foreman: only a foreman place carries the note")
 	# no dev tags in any text a player reads

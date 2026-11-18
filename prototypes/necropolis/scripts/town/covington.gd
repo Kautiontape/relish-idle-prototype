@@ -440,19 +440,13 @@ func _binds_now(n: Node) -> bool:
 	return i < 0 or i == _tab or i == 0
 
 
-## The jobs TownSim would staff for job `order`, with `extra` ({vat slot: on}) applied: the projection
-## view when GameState has it (api-request #16), else the display-only stand-in. Made once per (rev,
-## order, extra); the tabs get this as a Callable and never call GameState for it.
+## The jobs TownSim would staff for job `order`, with `extra` ({vat slot: on}) applied: GameState's
+## view_staffing_projection (STATE-API v5, TownSim's own rule; the #16 stand-in is retired). Made once per
+## (rev, order, extra); the tabs get this as a Callable and never call GameState for it.
 func project_staffing(order: Array, extra := {}) -> Array:
-	var s = Game.state
-	var real: bool = s.has_method("view_staffing_projection")  # by name: GameState doesn't declare it yet
-	# the real view is as fresh as GameState; the stand-in reads the views fetched last
-	var key: int = int(s.rev) if real else int(_last_views.get("town", {}).get("rev", -1))
-	return _staff_cache.fetch(key, [order, extra], func() -> Variant:
-		if real:
-			var args: Array = [order] if extra.is_empty() else [order, extra]
-			return (s.callv("view_staffing_projection", args) as Dictionary).get("jobs", [])
-		return TownStandins.project(_last_views, order, ConfigDb.data.get("buildings", {}), extra)["jobs"]) as Array
+	var s: GameState = Game.state
+	return _staff_cache.fetch(int(s.rev), [order, extra], func() -> Variant:
+		return s.view_staffing_projection(order, extra).get("jobs", [])) as Array
 
 
 func _fetch_views() -> Dictionary:

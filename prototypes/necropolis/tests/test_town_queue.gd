@@ -18,7 +18,28 @@ func run() -> int:
 	_affordable()
 	_never()
 	_hud_starved()
+	_foreman_menu()
+	_away_label()
 	return t.failures
+
+
+## The foreman menu offers job buildings only (buildings.json jobs), a Chapel even while no vat is staffed.
+func _foreman_menu() -> void:
+	var blds := [{"building_id": "chapel_of_vats", "lot_id": "lot-13", "level": 1, "slots": 0},
+		{"building_id": "house", "lot_id": "lot-05", "level": 1, "slots": 0},
+		{"building_id": "market", "lot_id": "lot-04", "level": 1, "slots": 2},
+		{"building_id": "bone_mill", "lot_id": "lot-09", "level": 0, "slots": 2}]
+	var ids: Array = CryptLogic.foreman_lots(blds, {}, cfg["buildings"]).map(func(l): return l["lot_id"])
+	t.ok(ids == ["lot-13", "lot-04"], "foreman menu: the Chapel (jobs, no slots open) and the Market; no House, no unbuilt mill (%s)" % str(ids))
+
+
+## The crypt's away line rides on its badge line, so nothing draws a second line where a foreman stands.
+func _away_label() -> void:
+	var lines := TownModel.badge_lines({"badge": "10 idle", "away": "Relish away: slab idle"}, " · ")
+	t.ok(lines.size() == 1 and lines[0][0] == "10 idle · Relish away: slab idle", "away label: one line with the badge (%s)" % str(lines))
+	t.ok(TownModel.badge_lines({"away": "Relish away: slab idle"}, " · ") == [["Relish away: slab idle", "text_dim"]], "away label alone: one line")
+	t.ok(TownModel.badge_lines({"badge": "1 short", "short": 1}, " · ") == [["1 short", "text"]] and TownModel.badge_lines({}, " · ").is_empty(),
+		"a short badge reads in text; nothing draws nothing")
 
 
 func _state(fixture: String) -> GameState:

@@ -549,7 +549,7 @@
       "after": " after {wait}", "at_once": " at once", "wait_s": "{n} s", "wait_min": "{n} min", "wait_switch_s": 90,
       "ladder_header": "What saves her, best first",
       "ladder": {"phylactery": "Phylactery charge", "clone": "Ready clone", "unmade": "Unmade"},
-      "numbers_wired": false, "numbers_coming": "(numbers coming)",
+      "numbers_wired": true, "numbers_coming": "(numbers coming)",
       "ladder_now": "now", "ladder_now_pending": "now · numbers coming", "ladder_mark": "▶", "ladder_off": "·",
       "loses_header": "She would lose",
       "loses_none": "nothing else",
@@ -626,7 +626,7 @@
       "raise_note": "preview: nothing is spent and no big undead rises yet",
       "risen_stub": "coming: raised undead join the town in a later build",
       "stub_line_s": 4.0,
-      "foreman_coming": "coming: a foreman boosts its building in a later build",
+      "foreman_coming": "A foreman's speed speeds its building's jobs; its presence lifts the town's morale.",
       "refused": "The slab refuses: {why}.",
       "roster": "Big undead {count} / {cap}",
       "no_big": "No big undead yet.",
@@ -709,7 +709,7 @@
     },
     "min_remnants": 1,
     "default_name_prefix": "Big ",
-    "raise_wired": false,
+    "raise_wired": true,
     "raise_hold_s": 1.1,
     "silhouettes": {
       "skeleton": {

@@ -41,9 +41,9 @@ static func steady_kept(town: Dictionary, hud: Dictionary) -> float:
 	return float(w.get("total", 0.0)) if float(w.get("muster", 0.0)) > 0.0 else float(w.get("steady", 0.0))
 
 
-# TODO(api-request #16): the staffing a job order would give, display-only, until GameState has
-# `view_staffing_projection(order)` -> {rev, jobs: [{id, slots, staffed}], buildings, idle} (the Jobs
-# and Stances tabs call that whenever it exists, so this switches itself off). Today's assigned hands
+# RETIRED (town-i M2): the staffing a job order would give, display-only, from before GameState had
+# `view_staffing_projection(order)`. The shell (covington.project_staffing) calls the real view now; this and
+# `project` stay only as the tests' model of the vat preview's shape. Today's assigned hands
 # (Σ jobs.staffed) fill the job slots top-down in `order`; a building's staff cap trims its job's room
 # (`bcfg` = buildings.json names the building's job; a site under construction keeps its room).
 # `taken` = hands a vat slot takes off the hands being filled (the backups panel's "staffing takes 1
@@ -51,7 +51,7 @@ static func steady_kept(town: Dictionary, hud: Dictionary) -> float:
 # hands back (a staffed vat already holds its hand in today's jobs, so unstaffing it frees one, and the
 # first job in `order` with room takes it). Only the stand-in says so: TownSim's
 # view_staffing_projection(order, {slot: on}) answers it for real, and `project` below maps one to the other.
-# TODO(api-request #16): this param goes with the stand-in.
+# (`taken` went with the stand-in.)
 # Returns {jobs: [{id, slots, staffed}] in `order`, idle}.
 static func staffing_projection(views: Dictionary, order: Array, bcfg: Dictionary = {}, taken := 0) -> Dictionary:
 	var town: Dictionary = views.get("town", {})
@@ -91,7 +91,7 @@ static func staffing_projection(views: Dictionary, order: Array, bcfg: Dictionar
 ## asked to be staffed (true) or not (false). Today's jobs already hold the hands of the vats that are
 ## staffed (`views.backups.vats`), so only a change costs or frees a hand: a slot asked on that is off
 ## takes one, a slot asked off that is on gives one back. Returns {jobs, idle} like staffing_projection.
-## TODO(api-request #16): goes with staffing_projection once the view exists.
+## Retired with staffing_projection (tests only).
 static func project(views: Dictionary, order: Array, bcfg: Dictionary = {}, extra: Dictionary = {}) -> Dictionary:
 	var staffed := {}
 	for v in views.get("backups", {}).get("vats", []):
