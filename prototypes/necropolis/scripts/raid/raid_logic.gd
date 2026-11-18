@@ -1057,9 +1057,70 @@ static func exposed_tint(level: float, cfg: Dictionary) -> float:
 static func wrap_each(lines: PackedStringArray, font: Font, px: int, max_w: float) -> PackedStringArray:
 	var out := PackedStringArray()
 	for l in lines:
+		var got := PackedStringArray()
 		for w in wrap_chunks(l, font, px, max_w):
-			out.append(w.trim_suffix(" ·"))   # a line that ends where a " · " was cut needs no hanging dot
+			got.append(w.trim_suffix(" ·"))   # a line that ends where a " · " was cut needs no hanging dot
+		# a wrap that leaves one word alone on a line ("... at most once per / dungeon.") is redone evenly
+		if got.size() > 1 and l.contains(" "):
+			for g in got:
+				if not g.contains(" "):
+					got = wrap_balanced(l, font, px, max_w)
+					break
+		out.append_array(got)
 	return out
+
+
+## `text` in lines no wider than `max_w`, as even as the width allows: the fewest lines greedy wrapping needs, at the
+## narrowest width that still needs only that many (so the last line is never a lone word when `text` has more than
+## one). A word wider than `max_w` on its own stays whole. One line when it fits.
+static func wrap_balanced(text: String, font: Font, px: int, max_w: float) -> PackedStringArray:
+	var words := text.split(" ", false)
+	var first := _wrap_words(words, font, px, max_w)
+	if first.size() <= 1:
+		return first
+	var lo := 0.0
+	for w in words:
+		lo = maxf(lo, font.get_string_size(w, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x)
+	var hi := max_w
+	if lo >= hi:
+		return first
+	for _i in 24:   # the narrowest width that still gives the same line count
+		var mid := (lo + hi) * 0.5
+		if _wrap_words(words, font, px, mid).size() <= first.size():
+			hi = mid
+		else:
+			lo = mid
+	return _wrap_words(words, font, px, hi)
+
+
+static func _wrap_words(words: PackedStringArray, font: Font, px: int, max_w: float) -> PackedStringArray:
+	var out := PackedStringArray()
+	var line := ""
+	for wd in words:
+		var trial: String = wd if line == "" else line + " " + wd
+		if line != "" and font.get_string_size(trial, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x > max_w:
+			out.append(line)
+			line = wd
+		else:
+			line = trial
+	if line != "":
+		out.append(line)
+	return out
+
+
+## The retreat panel's rect on a viewport (raid.json hud.retreat `cfg`: w, margin, gap): as wide as cfg w but at most
+## the viewport less a margin each side; centred, then moved right just enough that its left edge clears the stat
+## block's plate (`avoid_right_x`, its right edge) by the gap; then held inside the viewport margins (on a narrow
+## viewport that clamp wins and the panel may cover the block). `height` is the panel's height (centred vertically).
+static func retreat_panel_rect(viewport: Vector2, cfg: Dictionary, avoid_right_x: float, height := 0.0) -> Rect2:
+	var margin := float(cfg.get("margin", 0.0))
+	var gap := float(cfg.get("gap", 0.0))
+	var w := maxf(0.0, minf(float(cfg.get("w", 820.0)), viewport.x - 2.0 * margin))
+	var x := floorf((viewport.x - w) * 0.5)
+	x = maxf(x, avoid_right_x + gap)
+	x = minf(x, viewport.x - margin - w)
+	x = maxf(x, margin)
+	return Rect2(Vector2(x, floorf((viewport.y - height) * 0.5)), Vector2(w, height))
 
 
 ## The LIVING row's value: how many enemies stand here (`words`: raid.json hud.stats enemy / enemies, "%d" in each).

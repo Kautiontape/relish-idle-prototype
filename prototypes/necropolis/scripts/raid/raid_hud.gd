@@ -364,6 +364,7 @@ func refresh() -> void:
 		_retreat_t += _delta_real()
 		if _retreat_t >= 0.25:
 			_retreat_t = 0.0
+			_retreat.avoid_right_x = _stat_plate_right()
 			_retreat.refresh_lines(_retreat_lines())
 	if _door_prompt != null:
 		var dr: String = raid.held_door.row_text()
@@ -803,7 +804,13 @@ static func wrap_chunks(text: String, font: Font, font_px: int, max_w: float) ->
 func open_exit_dialog() -> void:
 	if _retreat == null or raid._ended or not exit_enabled():
 		return
+	_retreat.avoid_right_x = _stat_plate_right()
 	_retreat.open(_retreat_lines())
+
+
+## The stat block plate's real right edge on screen (the retreat panel sits clear of it, RaidLogic.retreat_panel_rect).
+func _stat_plate_right() -> float:
+	return _stats.get_global_rect().end.x if _stats != null else 0.0
 
 
 ## The retreat panel's lines now: what a retreat pays (found loot and carried essence) and what stays. A big

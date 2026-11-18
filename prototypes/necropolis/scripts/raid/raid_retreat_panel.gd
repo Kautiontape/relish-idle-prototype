@@ -17,7 +17,10 @@ signal chosen(retreat: bool)
 ## Sizes: raid.json hud.retreat (`configure`), these defaults when it is absent. Two columns: RETREAT NOW on
 ## the left, IF RELISH FALLS on the right (RaidLogic.retreat_keep_lines / retreat_fall_lines), `cols` = [left, right],
 ## each a list of {text, key}.
-var w := 820.0
+var w := 820.0          # the width asked for (hud.retreat w); `_w` is what the viewport allows
+var margin := 16.0      # hud.retreat margin / gap: RaidLogic.retreat_panel_rect keeps the plate this far in from the viewport's edges and from the stat block
+var gap := 16.0
+var avoid_right_x := 0.0   # the stat block plate's right edge in screen x (the HUD sets it before open); the plate sits right of it plus `gap`
 var pad := 18.0
 var title_px := 20
 var head_px := 16
@@ -35,6 +38,7 @@ var btn_retreat := ""
 var btn_stay := ""
 var foot := ""
 var cols: Array = [[], []]
+var _w := 820.0
 var _retreat_rect := Rect2()
 var _stay_rect := Rect2()
 var _hover := ""
@@ -51,6 +55,9 @@ func _init() -> void:
 ## Sizes from raid.json hud.retreat (the HUD passes it; no autoload is read here). Missing keys keep the defaults.
 func configure(c: Dictionary) -> void:
 	w = float(c.get("w", w))
+	margin = float(c.get("margin", margin))
+	gap = float(c.get("gap", gap))
+	_w = w
 	pad = float(c.get("pad", pad))
 	title_px = int(c.get("title_px", title_px))
 	head_px = int(c.get("head_px", head_px))
@@ -112,7 +119,7 @@ func stay_rect() -> Rect2:
 
 ## One column's width.
 func _col_w() -> float:
-	return (w - 2.0 * pad - col_gap) * 0.5
+	return (_w - 2.0 * pad - col_gap) * 0.5
 
 
 ## The wrapped row count of one line in a column.
@@ -136,16 +143,20 @@ func _col_h(col: Array) -> float:
 
 ## The panel's size for its lines, and the two button rects (local coordinates).
 func _fit() -> void:
+	# the width the viewport allows (RaidLogic.retreat_panel_rect), before the columns are measured with it
+	var vp := get_viewport_rect().size if is_inside_tree() else Vector2.ZERO
+	var cfg := {"w": w, "margin": margin, "gap": gap}
+	_w = RaidLogic.retreat_panel_rect(vp, cfg, avoid_right_x).size.x if vp.x > 0.0 else w
 	var body := maxf(_col_h(cols[0]), _col_h(cols[1]))
 	var h := pad + 30.0 + float(head_px) + 10.0 + body + 14.0 + btn.y + 8.0 + 18.0 + pad
 	custom_minimum_size = Vector2.ZERO   # the plate's size is set outright (a stale, taller minimum would hold a shrunk plate open)
-	size = Vector2(w, h)
+	size = Vector2(_w, h)
 	var by := h - pad - 18.0 - 8.0 - btn.y
-	var x0 := (w - 2.0 * btn.x - btn_gap) * 0.5
+	var x0 := (_w - 2.0 * btn.x - btn_gap) * 0.5
 	_retreat_rect = Rect2(Vector2(x0, by), btn)
 	_stay_rect = Rect2(Vector2(x0 + btn.x + btn_gap, by), btn)
 	if is_inside_tree():
-		position = ((get_viewport_rect().size - size) * 0.5).floor()
+		position = RaidLogic.retreat_panel_rect(vp, cfg, avoid_right_x, h).position
 
 
 ## What `ev` does to the open panel: "retreat" only for a left press on RETREAT, "stay" for a left
@@ -201,7 +212,7 @@ func _draw() -> void:
 	var font := ThemeDB.fallback_font
 	draw_rect(r, Palette.c("ground", plate_alpha))
 	draw_rect(r, Palette.c("relish", 0.8), false, 2.0)
-	draw_string(font, Vector2(pad, pad + 20.0), title, HORIZONTAL_ALIGNMENT_LEFT, w - 2.0 * pad, title_px, Palette.c("vei"))
+	draw_string(font, Vector2(pad, pad + 20.0), title, HORIZONTAL_ALIGNMENT_LEFT, _w - 2.0 * pad, title_px, Palette.c("vei"))
 	var cw := _col_w()
 	var top := pad + 30.0
 	var heads := [head_keep, head_fall]
@@ -219,7 +230,7 @@ func _draw() -> void:
 	_button(_retreat_rect, btn_retreat, Palette.c("relish", 1.0 if _hover == "retreat" else 0.7), Palette.c("vei"))
 	_button(_stay_rect, btn_stay, Palette.c("text_dim", 1.0 if _hover == "stay" else 0.7), Palette.c("text"))
 	draw_string(font, Vector2(0.0, size.y - pad), foot,
-		HORIZONTAL_ALIGNMENT_CENTER, w, 13, Palette.c("text_dim"))
+		HORIZONTAL_ALIGNMENT_CENTER, _w, 13, Palette.c("text_dim"))
 
 
 func _button(rect: Rect2, text: String, border: Color, ink: Color) -> void:

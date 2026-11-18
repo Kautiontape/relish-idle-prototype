@@ -165,7 +165,7 @@
       "drag": "then drag a loop around essence to RAISE undead"
     },
     "retreat": {
-      "_doc": "The retreat panel (RaidRetreatPanel): two columns, RETREAT NOW and IF RELISH FALLS. w is the plate's width; pad its inner margin; title_px/head_px/line_px the title, column-head and line sizes (no text under 13 px); line_h one line's pitch; col_gap the space between the columns; btn_w/btn_h/btn_gap the RETREAT and STAY buttons (btn_h is at least 44, a touch target). The words are RaidLogic.retreat_keep_lines / retreat_fall_lines; keep_prefix leads the left column's count line ('so far: '). head_* are the column heads; keep_all, keep_none, fort_yours, fort_vei and fall_revive the lines. title is the panel's title, btn_retreat and btn_stay the two buttons' words, foot the line under them.",
+      "_doc": "The retreat panel (RaidRetreatPanel): two columns, RETREAT NOW and IF RELISH FALLS. w is the plate's width (at most the viewport less margin each side); margin the least space between the plate and the viewport's edges; gap the least space between the stat block's plate and the retreat plate's left edge (RaidLogic.retreat_panel_rect moves the centred plate right to keep it); pad its inner margin; title_px/head_px/line_px the title, column-head and line sizes (no text under 13 px); line_h one line's pitch; col_gap the space between the columns; btn_w/btn_h/btn_gap the RETREAT and STAY buttons (btn_h is at least 44, a touch target). The words are RaidLogic.retreat_keep_lines / retreat_fall_lines; keep_prefix leads the left column's count line ('so far: '). head_* are the column heads; keep_all, keep_none, fort_yours, fort_vei and fall_revive the lines. title is the panel's title, btn_retreat and btn_stay the two buttons' words, foot the line under them.",
       "title": "LEAVE THE RAID?",
       "btn_retreat": "RETREAT",
       "btn_stay": "STAY",
@@ -180,6 +180,8 @@
       "fall_revive": "a phylactery charge revives her here (at most once per dungeon)",
       "plate_alpha": 1.0,
       "w": 820,
+      "margin": 16,
+      "gap": 16,
       "pad": 18,
       "title_px": 20,
       "head_px": 16,

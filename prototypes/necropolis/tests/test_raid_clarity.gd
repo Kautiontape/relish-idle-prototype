@@ -7,6 +7,7 @@ func run() -> int:
 	var t := TestUtil.new()
 	Palette.configure(TestUtil.load_json("res://configs/palette.json"))
 	_retreat_panel_tests(t)
+	_t5_tests(t)
 	_retreat_line_tests(t)
 	_warden_presence_tests(t)
 	_legend_tests(t)
@@ -845,6 +846,57 @@ func _lu() -> Dictionary:   # loot_uses
 	return _rj()["loot_uses"]
 
 
+## Milestone 2 task 5: the retreat panel clears the stat block and fits the viewport; the stat block's meaning lines
+## never leave a lone word.
+func _t5_tests(t: TestUtil) -> void:
+	t.suite("raid_t5_retreat_place")
+	var rc := _hr()
+	var margin := float(rc.get("margin", 0.0))
+	var gap := float(rc.get("gap", 0.0))
+	var stat_right := 18.0 + 420.0   # the stat block's plate: the box at x 18, the plate 420 px wide
+	t.ok(margin > 0.0 and gap > 0.0, "hud.retreat has a margin and a gap")
+	var r := RaidLogic.retreat_panel_rect(Vector2(1600, 900), rc, stat_right, 300.0)
+	t.ok(r.position.x >= stat_right + gap, "1600x900: the panel's left edge (%.0f) clears the stat block (%.0f) plus the gap (%.0f)" % [r.position.x, stat_right, gap])
+	t.ok(r.end.x <= 1600.0 - margin, "1600x900: the panel's right edge (%.0f) stays inside the margin" % r.end.x)
+	t.ok(is_equal_approx(r.size.x, float(rc["w"])) and r.position.y == floorf((900.0 - 300.0) * 0.5), "1600x900: full width, centred vertically as before")
+	var n := RaidLogic.retreat_panel_rect(Vector2(700, 900), rc, stat_right, 300.0)
+	t.ok(n.size.x <= 700.0 - 2.0 * margin and n.position.x >= margin and n.end.x <= 700.0 - margin, "a 700 px viewport: the panel is %.0f wide at x %.0f, inside the margins" % [n.size.x, n.position.x])
+	var wide := RaidLogic.retreat_panel_rect(Vector2(2600, 900), rc, stat_right, 300.0)
+	t.ok(wide.position.x == floorf((2600.0 - float(rc["w"])) * 0.5), "a wide viewport where centring already clears the block: centred")
+	var tiny := RaidLogic.retreat_panel_rect(Vector2(300, 900), rc, stat_right, 300.0)
+	t.ok(tiny.position.x >= margin and tiny.end.x <= 300.0 - margin, "a 300 px viewport: the viewport clamp wins over the stat block")
+	# the real panel at the clamped width: the two columns and the buttons still fit
+	var p := RaidRetreatPanel.new()
+	p.configure(rc)
+	p.open([_cl(["a"]), _cl(["b"])])
+	t.ok(p.retreat_rect().position.x >= 0.0 and p.stay_rect().end.x <= p.size.x, "the default-width panel keeps both buttons inside it")
+	p.free()
+	var psrc := FileAccess.get_file_as_string("res://scripts/raid/raid_retreat_panel.gd")
+	var hsrc := FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd")
+	t.ok(psrc.contains("RaidLogic.retreat_panel_rect(") and hsrc.contains("avoid_right_x"), "the panel is placed by RaidLogic.retreat_panel_rect, the HUD passes the stat block's right edge")
+
+	t.suite("raid_t5_meaning_wrap")
+	var sw: Dictionary = _hs()
+	var dpx := int(sw["detail_px"])
+	var vcol := 420.0 - 92.0 - 8.0
+	var fnt := ThemeDB.fallback_font
+	var rows := PackedStringArray([str(sw["essence_meaning"])])
+	for k in ["phyl_meaning_charged", "phyl_meaning_none_1", "phyl_meaning_none_2"]:
+		rows.append(str(sw[k]))
+	for row in rows:
+		var got := RaidLogic.wrap_each(PackedStringArray([row]), fnt, dpx, vcol)
+		for ln in got:
+			t.ok(fnt.get_string_size(ln, HORIZONTAL_ALIGNMENT_LEFT, -1, dpx).x <= vcol, "meaning line fits %d px: %s" % [int(vcol), ln])
+			if got.size() > 1:
+				t.ok(ln.strip_edges().contains(" "), "no lone word among %s" % str(got))
+		t.ok(got.size() >= 1 and " ".join(got).replace(" ·", "").replace("·", "").split(" ", false).size() == row.replace("·", "").split(" ", false).size(), "no word lost in %s" % row)
+	var none_lines := RaidLogic.wrap_each(RaidLogic.phylactery_meaning(sw, 0), fnt, dpx, vcol)
+	t.ok(none_lines.size() == 3, "the no-charge PHYLACT. meaning is still 3 lines, so the stat block's height is unchanged (%s)" % str(none_lines))
+	# a word-wrapped line balances: the wrap that left "dungeon." alone now splits evenly
+	var b := RaidLogic.wrap_balanced("revives Relish in place, at most once per dungeon.", fnt, dpx, vcol)
+	t.ok(b.size() == 2 and b[1].split(" ").size() > 1, "wrap_balanced splits the PHYLACT. sentence into two even lines: %s" % str(b))
+
+
 func _retreat_panel_tests(t: TestUtil) -> void:
 	t.suite("raid_retreat_panel")
 	var p := RaidRetreatPanel.new()
@@ -958,7 +1010,7 @@ func _retreat_line_tests(t: TestUtil) -> void:
 
 ## The brightest things the world can put under a HUD plate (cream wall lines, essence motes, the undead and
 ## the living's cores): the worst of them is what a plate's ink must survive.
-const WORLD_BRIGHT := ["vei", "essence", "undead", "living_core", "undead_core"]
+const WORLD_BRIGHT := ["vei", "essence", "undead", "living_core", "undead_core", "text", "relish", "danger"]
 const TEXT_MIN := 4.5
 const LINE_MIN := 3.0
 
