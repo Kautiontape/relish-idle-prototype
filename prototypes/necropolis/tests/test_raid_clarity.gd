@@ -9,7 +9,50 @@ func run() -> int:
 	_retreat_panel_tests(t)
 	_retreat_line_tests(t)
 	_warden_presence_tests(t)
+	_legend_tests(t)
 	return t.failures
+
+
+## T1: the control legend. Open until a fort is taken, then a chip; only a left press on its header or
+## chip toggles it; keys never do. The HUD names Game/ConfigDb, so it is checked by source text.
+func _legend_tests(t: TestUtil) -> void:
+	t.suite("raid_legend")
+	t.ok(RaidLogic.legend_open_at_start(0) and not RaidLogic.legend_open_at_start(1) and not RaidLogic.legend_open_at_start(3),
+		"open at 0 forts taken, collapsed after one or more")
+	var cfg: Dictionary = TestUtil.load_json("res://configs/raid.json").get("hud", {}).get("legend", {})
+	t.ok(cfg.has("_doc") and float(cfg.get("chip_h", 0)) >= 44.0 and float(cfg.get("key_px", 0)) >= 12.0 and float(cfg.get("row_px", 0)) >= 12.0,
+		"hud.legend is documented, with a 44 px chip and text of at least 12 px")
+	var l := RaidLegend.new()
+	l.setup(cfg, true)
+	t.ok(l.focus_mode == Control.FOCUS_NONE and l.mouse_filter == Control.MOUSE_FILTER_STOP, "no focus; it stops the mouse")
+	t.ok(l.get_child_count() == 0, "no child controls")
+	var open_h := l.size.y
+	var open_w := l.size.x
+	l.position = Vector2(18.0, 300.0)
+	var bottom := l.position.y + l.size.y
+	var on_row2 := Vector2(open_w * 0.5, open_h * 0.5)
+	t.ok(not l.classify(_mouse(MOUSE_BUTTON_LEFT, on_row2)), "a left press on the rows does not toggle")
+	t.ok(l.classify(_mouse(MOUSE_BUTTON_LEFT, Vector2(open_w - 20.0, 14.0))), "a left press on the header toggles")
+	l.toggle()
+	t.ok(not l.is_open and l.size.y >= 44.0 and l.size.y < open_h, "collapsed: a chip at least 44 px tall, shorter than the plate")
+	t.ok(is_equal_approx(l.position.y + l.size.y, bottom), "the bottom edge stays put when it collapses")
+	var on_chip := l.size * 0.5
+	var accept := InputEventAction.new()
+	accept.action = &"ui_accept"
+	accept.pressed = true
+	var none := not l.classify(_mouse(MOUSE_BUTTON_RIGHT, on_chip)) and not l.classify(_mouse(MOUSE_BUTTON_LEFT, on_chip, false))
+	for ev in [_key(KEY_SPACE), _key(KEY_ENTER), _key(KEY_ESCAPE), accept]:
+		none = none and not l.classify(ev)
+	t.ok(none, "a right press, a left release and Space, Enter, Esc, ui_accept never toggle")
+	t.ok(l.classify(_mouse(MOUSE_BUTTON_LEFT, on_chip)), "a left press on the chip opens it")
+	l.toggle()
+	t.ok(l.is_open and is_equal_approx(l.size.y, open_h) and is_equal_approx(l.position.y + l.size.y, bottom), "reopened to the same plate, bottom edge fixed")
+	l.free()
+	var hud_src := FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd")
+	t.ok(hud_src.contains("Game.state.view_hud().get(\"highest_tier_flipped\", 0)"), "the HUD reads highest_tier_flipped from view_hud()")
+	var i := hud_src.find("RaidLegend.new()")
+	t.ok(i > 0 and hud_src.substr(maxi(0, i - 400), 400).contains("if not boss_mode:"), "RaidLegend is built only when not boss_mode")
+	t.ok(RegEx.create_from_string("_legend\\.visible = not raid\\._ended").search(hud_src) != null, "the legend hides once the run has ended")
 
 
 ## T3: a sleeping warden reads as a boss. Knobs in configs/raid.json; warden.gd needs Pulse/ConfigDb so

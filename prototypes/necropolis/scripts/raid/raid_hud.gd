@@ -15,6 +15,7 @@ var _hint: Label
 var _meter: Control
 var _exit_btn: Control = null       # dungeon only
 var _retreat: RaidRetreatPanel = null   # dungeon only: the retreat choice (mouse only; Space never confirms)
+var _legend: RaidLegend = null      # dungeon only: the control legend (open until a fort is taken, then a chip)
 var _flash: ColorRect
 var _flash_t := -1.0
 var _banner: Label
@@ -71,6 +72,20 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		pplate.content_margin_bottom = 3.0
 		_door_prompt.add_theme_stylebox_override("normal", pplate)
 		_door_prompt.visible = false
+
+	if not boss_mode:
+		# the control legend (T1): open until a fort has been taken, then a chip; bottom-left, 8 px over the trance meter
+		var open_legend := RaidLogic.legend_open_at_start(int(Game.state.view_hud().get("highest_tier_flipped", 0)))
+		_legend = RaidLegend.new()
+		_legend.setup(ConfigDb.data.get("raid", {}).get("hud", {}).get("legend", {}), open_legend)
+		add_child(_legend)
+		_legend.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+		_legend.anchor_top = 1.0
+		var lsz := _legend.size
+		_legend.offset_left = 18.0
+		_legend.offset_right = 18.0 + lsz.x
+		_legend.offset_bottom = -54.0
+		_legend.offset_top = -54.0 - lsz.y
 
 	_banner_plate = ColorRect.new()
 	_banner_plate.color = Palette.c("ground", 0.72)
@@ -267,6 +282,8 @@ func refresh() -> void:
 		var rc: Dictionary = raid.ledger_v2.raised_counts()
 		st.raised_text = "%d chaff · %d soldier · %d elite" % [rc["chaff"], rc["soldier"], rc["elite"]]
 	_hint.visible = not raid.first_raise_done and not raid._ended
+	if _legend != null:
+		_legend.visible = not raid._ended
 	if retreat_open() and (raid._ended or not exit_enabled()):
 		_retreat.close()   # she walked off the exit (or the run ended): the choice is gone
 	if _door_prompt != null:

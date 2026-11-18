@@ -53,7 +53,17 @@
     "pip_row_max": 24,
     "pip_px": 8.0,
     "label_px": 13,
-    "value_px": 15
+    "value_px": 15,
+    "legend": {
+      "_doc": "The control legend (bottom left, above the trance meter): open every raid until a fort has been taken, then a collapsed chip the player can reopen. Sizes in px; plate_alpha backs it; chip_h is at least 44 (touch target).",
+      "row_px": 14,
+      "key_px": 13,
+      "pad_px": 10,
+      "gap_px": 8,
+      "plate_alpha": 0.86,
+      "chip_w": 140,
+      "chip_h": 44
+    }
   },
   "trace_notch": {
     "len_px": 9.0,
