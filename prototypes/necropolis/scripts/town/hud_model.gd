@@ -251,16 +251,31 @@ static func fmt_dur(seconds: float, hcfg: Dictionary) -> String:
 	return BuildSort.fmt(_t(hcfg, "dur_d"), {"n": ("%.1f" % (seconds / 86400.0)).trim_suffix(".0")})
 
 
-## The store readout: "no cap" (cap < 0), "full: overflowing" (at the cap), "full in 6 h" (net > 0
-## and room left), "" (room left, not filling). IDLE 6.
+## The store readout: "no cap" (cap < 0), "over cap: no income" (shown over the cap: TownSim keeps an excess from
+## before the cap dropped and takes in nothing until it is back under), "full: overflowing" (at the cap), "full in 6 h"
+## (net > 0 and room left), "" (room left, not filling). IDLE 6. Over is judged on the shown (rounded) numbers.
 static func store_text(stock: float, cap: float, net: float, hcfg: Dictionary) -> String:
 	if cap < 0.0:
 		return _t(hcfg, "no_cap")
+	if roundi(stock) > roundi(cap):
+		return _t(hcfg, "over")
 	if stock >= cap:
 		return _t(hcfg, "full")
 	if net > 0.0 and not is_flat(net, hcfg):
 		return BuildSort.fmt(_t(hcfg, "full_in"), {"t": fmt_dur((cap - stock) / net, hcfg)})
 	return ""
+
+
+## A store's stock tooltip: what its two numbers are ("656 gold in store; the store holds 9750."), then over the
+## cap why nothing comes in (text.over_tip), else the readout (store_text). Living: "26 living; room for 26."
+static func stock_tip(id: String, stock: float, cap: float, note: String, hcfg: Dictionary) -> String:
+	var vars := {"n": roundi(stock), "id": id, "cap": roundi(cap)}
+	if cap < 0.0:
+		return BuildSort.fmt(_t(hcfg, "stock_tip_nocap"), vars)
+	var tip := BuildSort.fmt(_t(hcfg, "living_tip" if id == "living" else "stock_tip"), vars)
+	if id != "living" and roundi(stock) > roundi(cap):
+		return "%s %s" % [tip, BuildSort.fmt(_t(hcfg, "over_tip"), vars)]
+	return "%s %s" % [tip, note] if note != "" else tip
 
 
 ## Morale factor ids in display order (`morale_order`: base, dread, shock, then amenities), a

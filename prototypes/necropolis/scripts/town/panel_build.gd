@@ -88,7 +88,8 @@ var _cap_building := ""
 var _tp: BuildSort.Throughput  # the build throughput, measured from the views between binds
 var _pin: PanelContainer
 var _pin_label: Label
-var _q_sent := false  # a queue command went out since the last bind (the double-click guard in _queue_real)
+var _lots_sent := {}  # lots an ok queue command took since the last bind: the next click's lot skips them (_free_lot)
+var _q_line := ""  # the queue line said since the last bind: a refused second click adds to it, never wipes it
 var _scroll_q_s := 0.0  # debug --town-queue: seconds the tab keeps the Queue (its last section) in view
 
 
@@ -194,7 +195,10 @@ func _build_banner() -> void:
 # ------------------------------------------------------------------ bind ----
 func bind(views: Dictionary) -> void:
 	_views = views
-	_q_sent = false  # the queue command sent since the last bind is in these views: the next click may go
+	# the queue commands sent since the last bind are in these views: a command's refresh (covington _refresh_a)
+	# drops the binds pending from before it, so no bind after a click carries views older than the click
+	_lots_sent = {}
+	_q_line = ""
 	_st = BuildSort.stocks(views, _slab)
 	_ctx = BuildSort.queue_context(views, _bcfg, _vcfg)
 	if TownStandins.queue_is_standin(views.get("town", {})):
@@ -847,10 +851,7 @@ func _build_queue_section() -> void:
 ## The lot the row's Queue button takes: the suggestion's rule (BuildSort.queue_lot: smallest free lot, then the
 ## nearest the crypt, the next tier's reserved lots last).
 func _free_lot(row: Dictionary) -> String:
-	var taken := {}
-	for e in _queue_entries():
-		taken[String(e["lot_id"])] = true
-	return BuildSort.queue_lot(row, taken, _reserved, _hops, _sizes)
+	return BuildSort.queue_lot(row, BuildSort.taken_lots(_queue_entries(), _lots_sent), _reserved, _hops, _sizes)
 
 
 func _queued_lot(lot_id: String) -> bool:
@@ -866,10 +867,8 @@ func _on_queue(bid: String) -> void:
 
 
 func _on_queue_upgrade() -> void:
-	var entry := _entry_at(_selected_lot)
-	var i := BuildSort.inspect(entry, _st, _bcfg, _bview, _vcfg)
-	_add_queue({"building_id": i["building_id"], "lot_id": _selected_lot, "upgrade": true, "level": i["upgrade"]["level"],
-		"cost": i["upgrade"]["cost"]}, {"cost": i["upgrade"]["cost"]})
+	var e := BuildSort.upgrade_entry(_entry_at(_selected_lot), _selected_lot, _st, _bcfg, _bview, _vcfg)
+	_add_queue(e, {"cost": e["cost"]})
 
 
 func _add_queue(e: Dictionary, row: Dictionary) -> bool:
@@ -887,33 +886,29 @@ func _add_queue(e: Dictionary, row: Dictionary) -> bool:
 	return bool(r["ok"])
 
 
-## The real queue (STATE-API §4.3): cmd_queue_build for a new build or an upgrade (the building on its own lot).
-## Says when it starts from the entry's own `affordable_in_s` (R2); a cap refusal names the real `cap_building`
-## and `cap_level`; `catching_up` reads as a wait (its reason text), like every refusal.
+## The real queue (STATE-API §4.3): BuildSort.send_queue sends cmd_queue_build, a new build with its id and an
+## upgrade with "" (the building on its own lot), and records the lot it took in _lots_sent. The line says when it
+## starts as the new entry's own queue row does (BuildSort.queued_line: its gate, or its `affordable_in_s`, R2); a cap
+## refusal names the real `cap_building` and `cap_level`; `catching_up` reads as a wait (its reason text), like every
+## refusal. Every click is sent (review-town-i-r2 item 4: a second click before the next bind was dropped): a row's
+## lot skips the lots sent since the bind (_free_lot), so it queues on the next free one, or is refused with why; a
+## card's or an upgrade's fixed lot already sent is refused as just queued. A refusal after a queued line keeps that
+## line and adds to it.
 func _queue_real(e: Dictionary, row: Dictionary) -> bool:
-	# one queue command per bind: a double click would queue twice, and its refusal (lot_taken) overwrite the line
-	# saying the first was queued (the M2 review's should-fix 2)
-	if _q_sent:
-		return false
-	_q_sent = true
-	var tt: Dictionary = _vcfg.get("queue_text", {})
-	var r: Dictionary = Game.state.cmd_queue_build(String(e["building_id"]), String(e["lot_id"]))
+	var r := BuildSort.send_queue(Game.state, e, _lots_sent)
 	if bool(r.get("ok", false)):
 		_cap_box.visible = false
-		var a := float(r.get("affordable_in_s", -1.0))
-		var gate := {"status": "skipped_gate", "reason": String(row.get("reason", "")), "building_id": e["building_id"],
-			"cost": e.get("cost", {})}  # a gated row queues and waits out its gate in its place
-		var when := String(tt.get("queued_now", "")) if a == 0.0 else (
-			BuildSort.fmt(String(tt.get("afford_in", "")), {"t": BuildSort.fmt_eta(a, _vcfg)}) if a > 0.0
-			else (BuildSort.skip_text(gate, _ctx.get("catalog", {}), _st, _bview, _vcfg) if BuildSort.is_gate_wait(gate, _vcfg)
-			else String(tt.get("queued_never", ""))))
-		_say(BuildSort.fmt(String(tt.get("queued_ok", "")), {"label": _label(e["building_id"]), "lot": _lot_name(String(e["lot_id"])),
-			"when": when}))
+		var live: Array = Game.state.view_town().get("queue", [])  # the new entry's own row: its gate, or its start
+		var at := int(r.get("index", -1))
+		var qrow: Dictionary = live[at] if at >= 0 and at < live.size() and String(live[at].get("lot_id", "")) == String(e["lot_id"]) else {}
+		_say(BuildSort.queued_line(e, qrow, float(r.get("affordable_in_s", -1.0)), _ctx.get("catalog", {}), _st, _bview, _vcfg))
 	elif String(r.get("reason", "")) == "cost_exceeds_cap":
 		_show_cap_refusal(e, r)
 	else:
 		var rs := String(r.get("reason", ""))
 		_say(TownUI.refusal(rs, _reason(rs, row), _not_queued(_reason(rs, row))))
+	_q_line = BuildSort.join_said(_q_line, _status.text)  # every click since the bind keeps its line
+	_say(_q_line)
 	command_issued.emit()
 	return bool(r.get("ok", false))
 

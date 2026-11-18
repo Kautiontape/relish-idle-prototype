@@ -61,12 +61,17 @@ var _last_views := {}
 ## first fetch; the rev change shows it on the next one (a debug driver for the Backups tab's screenshot).
 ## `--town-show=<building_id>` opens the Build tab with that building's row focused and scrolled into view
 ## (the backups' "Show the Chapel of Vats" route), for a screenshot of a row below the fold.
+## `--town-hold` holds the raise like `--town-raise` but stops at the name prompt, its field focused (the crypt's
+## name-focus check). `--town-grant=<stock>:<n>[,…]` grants stocks (cmd_debug_grant) after setup's first fetch.
 var _raise_lot := ""
 var _log_set := false  # prints frame numbers of the set-piece beats
 var _frame := 0
 var _walkers_n := 0
 var _grow_label: Label
-var _goal: Label  # the first goal in town (TownGuide.goal), top-left of the town view; hidden once met
+var _cue: ScrollCue  # the dock's "more below" fade over the shown tab's scroll edge
+var _goal: PanelContainer  # the first goal in town (TownGuide.goal), top-left of the town view; hidden once met
+var _goal_head: Label  # the game's goal, over
+var _goal_step: Label  # the step due now
 ## The welcome-back replay (TownReplay): the away strip sits in the dock over the tabs. `_replayed` is the
 ## last away report replayed this session (a static, so a second visit doesn't replay it; never saved);
 ## `_away_check` asks the next fetch to look (setup's first, and each away_report). `_replay_lots` are the lots
@@ -139,24 +144,14 @@ func _read_demo_flag() -> void:
 				printerr("Covington: unknown --town-demo=%s (expected full or tierup)" % mode)
 
 
-## The value of a debug arg `--name=value` ("" absent); only a debug build reads it.
+## The value of a debug arg `--name=value` ("" absent); only a debug build reads it (TownSetPiece.debug_arg).
 func _debug_arg(name: String) -> String:
-	if not Game.state.debug_enabled:
-		return ""
-	for arg in OS.get_cmdline_user_args():
-		if arg.begins_with("--%s=" % name):
-			return arg.trim_prefix("--%s=" % name)
-	return ""
+	return TownSetPiece.debug_arg(OS.get_cmdline_user_args(), name, Game.state.debug_enabled)
 
 
 ## Whether a debug arg is given, with or without a value (`--name` or `--name=value`); debug builds only.
 func _debug_has(name: String) -> bool:
-	if not Game.state.debug_enabled:
-		return false
-	for arg in OS.get_cmdline_user_args():
-		if arg == "--" + name or arg.begins_with("--%s=" % name):
-			return true
-	return false
+	return TownSetPiece.debug_has(OS.get_cmdline_user_args(), name, Game.state.debug_enabled)
 
 
 ## `--town-grow=<sim_seconds>`: plays the town the way the suggestion tells a new player to (the top
@@ -336,6 +331,9 @@ func _build_ui() -> void:
 		b.pressed.connect(_select_tab.bind(i))
 		tab_row.add_child(b)
 		_tabs.append(b)
+	_cue = ScrollCue.new()  # over the shown tab's scroll edge while there's more below (_select_tab points it)
+	_cue.setup(cfg.get("scroll_cue", {}))
+	stack.add_child(_cue)
 	_bound = [_hud, _view] + _panels
 	for n in _bound:
 		n.command_issued.connect(_on_command_issued)
@@ -395,7 +393,12 @@ func _select_tab(i: int) -> void:
 		_panels[k].visible = (k == i)
 		_tabs[k].set_pressed_no_signal(k == i)
 		_tabs[k].add_theme_stylebox_override("normal", TownUI.button_box("active" if k == i else "normal"))
-	if not _last_views.is_empty() and (i != was or i == 0):  # a hidden panel is current the moment it shows
+	var p: Control = _panels[i]  # the Build tab is its own scroll; every other tab holds one
+	var scrolls := p.find_children("*", "ScrollContainer", true, false)
+	_cue.scroll = p if p is ScrollContainer else (scrolls[0] if not scrolls.is_empty() else null)
+	# a hidden panel is current the moment it shows, unless a refresh is due: then `_last_views` may predate a
+	# command (between its phase A and B) and would clear the Build tab's sent lots; phase B binds the tab on show
+	if not _last_views.is_empty() and (i != was or i == 0) and not _dirty and _pending.is_empty():
 		_panels[i].bind(_last_views)
 
 
@@ -543,8 +546,9 @@ func _fetch_views_b(views: Dictionary) -> Dictionary:
 	return views
 
 
-## The first-goal plate: one line in `text` on a ground plate edged in `select`, at guide.goal's x/y in the
-## town view, under the lot card (so an open card is never covered). Hidden until a goal is due.
+## The first-goal plate: the game's goal in bold (goal.head_px) over the step due now (goal.px), both in `text` on a
+## ground plate edged in `select`, at guide.goal's x/y in the town view, under the lot card (so an open card is never
+## covered). Hidden until a goal is due.
 func _build_goal() -> void:
 	var vcfg: Dictionary = ConfigDb.v("town", "view", {})
 	var g: Dictionary = vcfg.get("guide", {}).get("goal", {})
@@ -554,13 +558,23 @@ func _build_goal() -> void:
 	_plates.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_view.add_child(_plates)
 	_view.move_child(_plates, _view.card.get_index())
-	_goal = TownUI.label("", maxi(int(g.get("px", 14)), TownUI.MIN_TEXT), "text")
+	_goal = PanelContainer.new()
 	var sb := TownUI.panel_box()
 	sb.border_color = Palette.c("select")
-	_goal.add_theme_stylebox_override("normal", sb)
+	_goal.add_theme_stylebox_override("panel", sb)
 	_goal.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	_goal.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_goal.visible = false
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 2)
+	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_goal.add_child(col)
+	_goal_head = TownUI.label("", int(g.get("head_px", 18)), "text")
+	_goal_head.add_theme_font_override("font", TownUI.bold_font())
+	_goal_step = TownUI.label("", int(g.get("px", 16)), "text")
+	for l in [_goal_head, _goal_step]:
+		l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		col.add_child(l)
 	_plates.add_child(_goal)
 
 
@@ -611,13 +625,16 @@ func _on_strip_acted(act: String) -> void:
 			_on_return()
 
 
-## Sets the goal line from the fetched views; the label is touched only when the text changes.
+## Sets the goal plate from the fetched views; the labels are touched only when the step changes.
 func _update_goal(views: Dictionary) -> void:
 	if _goal == null:
 		return
-	var text := String(TownGuide.goal(views, ConfigDb.v("town", "view", {}).get("guide", {})).get("text", ""))
-	if text != _goal.text:
-		_goal.text = text
+	var g := TownGuide.goal(views, ConfigDb.v("town", "view", {}).get("guide", {}))
+	var text := String(g.get("text", ""))
+	if text != _goal_step.text:
+		_goal_step.text = text
+		_goal_head.text = String(g.get("head", ""))
+		_goal_head.visible = _goal_head.text != ""
 		_goal.visible = text != ""
 		_goal.reset_size()
 		_plates.reset_size()
@@ -697,6 +714,15 @@ func _debug_set_pieces() -> void:
 		for p in _panels:
 			if p.has_method("debug_autoraise"):
 				p.debug_autoraise(float(spec.get("delay_s", 0.0)))
+	elif _debug_has("town-hold"):  # `--town-hold`: the same mouse hold, stopped at the name prompt (its field focused)
+		for p in _panels:
+			if p.has_method("debug_autoraise"):
+				p.debug_autoraise(float(spec.get("delay_s", 0.0)), true)
+	# `--town-grant=gold:20000,bone:5000`: cmd_debug_grant before the first refresh (a store over its cap, for a shot)
+	var grant := TownSetPiece.debug_grant(OS.get_cmdline_user_args(), Game.state.debug_enabled)
+	if not grant.is_empty():
+		print("TOWNSET grant %s -> %s" % [str(grant), str(Game.state.cmd_debug_grant(grant).get("ok", false))])
+		_dirty = true
 	var place := _debug_arg("town-place").split(":")
 	if place.size() == 2:
 		_log_set = true

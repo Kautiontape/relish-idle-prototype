@@ -47,8 +47,9 @@ static func add_lines(box: Container, bid: String, bcfg: Dictionary, gcfg: Dicti
 
 
 ## The first goal in town: the first `guide.goal.steps` entry whose `until` isn't met in `views`, as
-## {id, text} (text with the lead), or {} once every step is met. `views` needs `town.buildings` and
-## `forts` ([{flipped_count, first_dungeon, name}], the shell's realm digest).
+## {id, head, text}: `head` is the game's goal (goal.head), `text` the step with its lead (the step's own `lead`,
+## else goal.lead). {} once every step is met. `views` needs `town.buildings` and `forts`
+## ([{flipped_count, first_dungeon, name}], the shell's realm digest).
 static func goal(views: Dictionary, gcfg: Dictionary) -> Dictionary:
 	var g: Dictionary = gcfg.get("goal", {})
 	var tiers: Array = g.get("tiers", [])  # a first goal is for a new game: the early tiers only
@@ -58,7 +59,8 @@ static func goal(views: Dictionary, gcfg: Dictionary) -> Dictionary:
 		if _met(step, views):
 			continue
 		var text := BuildSort.fmt(String(step.get("text", "")), {"fort": first_fort(views, g)})
-		return {"id": String(step.get("id", "")), "text": String(g.get("lead", "")) + text}
+		return {"id": String(step.get("id", "")), "head": String(g.get("head", "")),
+			"text": String(step.get("lead", g.get("lead", ""))) + text}
 	return {}
 
 

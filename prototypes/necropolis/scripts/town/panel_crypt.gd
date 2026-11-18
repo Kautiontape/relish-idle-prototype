@@ -44,6 +44,7 @@ var _formed := false
 var _formed_sig := ""
 var _raising := false
 var _auto_t := -1.0  # debug --town-raise: seconds until it starts; -1 = off
+var _auto_at_prompt := false  # debug --town-hold: the auto hold stops at the name prompt
 var _raised_name := ""
 ## The name the last raise was kept under (the slab's own, or what the player typed over it): the debug raise reads it.
 var last_raise_name := ""
@@ -86,6 +87,7 @@ var _craft_why: Label
 var _craft_status: Label
 var _craft_left := -1.0  # seconds until the craft's status line clears (-1 = not timed)
 var _roster_head: Label
+var _places: Label  # one line under the head: what Crypt, Party, Foreman and Siege do (shown with a roster)
 var _no_big: Label
 var _roster: VBoxContainer
 var _rows: Dictionary = {}  # uid -> row nodes
@@ -111,6 +113,8 @@ func _ready() -> void:
 	_build_craft(col)
 	_roster_head = TownUI.label("", _px("roster_name_px"))
 	col.add_child(_roster_head)
+	_places = _wrap(_tx("places_line"), _px("small_px"), "text")  # what the four place buttons do, said once on screen
+	col.add_child(_places)
 	_no_big = TownUI.label(String(_t.get("no_big", "")), _px("text_px"), "text_dim")
 	col.add_child(_no_big)
 	_roster = VBoxContainer.new()
@@ -129,7 +133,12 @@ func _tx(key: String) -> String:
 ## What a siege does, the map's chip in the town's words: "Siege: blocks 60% of a tithe wave here, no kills; a second
 ## adds nothing", the share read from realm.json tithe.siege_block.
 func _siege_line() -> String:
-	return CryptLogic.siege_line(_t, float(ConfigDb.data.get("realm", {}).get("tithe", {}).get("siege_block", 0.0)))
+	return CryptLogic.siege_line(_t, _siege_block())
+
+
+## The share of a tithe wave a siege blocks (realm.json tithe.siege_block).
+func _siege_block() -> float:
+	return float(ConfigDb.data.get("realm", {}).get("tithe", {}).get("siege_block", 0.0))
 
 
 ## The glossary's one line for "husk" (view.guide.jargon), the tooltip wherever the word first shows in this tab.
@@ -374,9 +383,10 @@ func debug_preset(husk_uid: String, remnant_uids: Array) -> void:
 
 ## Debug `--town-raise`: after `delay_s` it holds the raise on the slab and keeps the suggested name, the
 ## real path (_hold_press, _on_suggest), so the set piece can be screenshotted. Needs a creature on the slab
-## (`--town-slab`); waits until there is one.
-func debug_autoraise(delay_s: float) -> void:
+## (`--town-slab`); waits until there is one. `at_prompt` (`--town-hold`) stops at the name prompt instead.
+func debug_autoraise(delay_s: float, at_prompt := false) -> void:
 	_auto_t = maxf(delay_s, 0.0)
+	_auto_at_prompt = at_prompt
 
 
 func _auto_raise(delta: float) -> void:
@@ -387,7 +397,8 @@ func _auto_raise(delta: float) -> void:
 		return
 	if _formed and _prompt.visible:
 		_auto_t = -1.0
-		_on_suggest()
+		if not _auto_at_prompt:
+			_on_suggest()
 	elif not _holding and not _formed and not _raising and _block == "" and String(_board.get("husk", "")) != "":
 		_hold_press(false)
 
@@ -720,6 +731,7 @@ func _sync_roster() -> void:
 	var list: Array = bu.get("big_undead", [])
 	_roster_head.text = _tx("roster").format({"count": int(bu.get("count", 0)), "cap": int(bu.get("cap", 0))})
 	_no_big.visible = list.is_empty()
+	_places.visible = not list.is_empty()
 	var seen := {}
 	# the place words and the open choosers' options read these as well as the creature itself
 	var blds: Array = _views.get("town", {}).get("buildings", [])
@@ -755,8 +767,7 @@ func _make_row(uid: String) -> Dictionary:
 	nm.add_theme_font_override("font", TownUI.bold_font())
 	nm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	head.add_child(nm)
-	var ren := TownUI.button(_tx("rename"))
-	head.add_child(ren)
+	var ren := TownUI.button(_tx("rename"))  # on the button row, after the places: the head is one text line
 	var edit_row := HBoxContainer.new()
 	edit_row.add_theme_constant_override("separation", 6)
 	edit_row.visible = false
@@ -776,14 +787,15 @@ func _make_row(uid: String) -> Dictionary:
 	note.visible = false
 	var row := {"box": box, "name": nm, "edit_row": edit_row, "note": note, "edit": edit, "info": info, "stats": stats,
 		"mode": "", "opts_sig": "", "uid": uid}
+	var tips := CryptLogic.place_tips(_t, _siege_block())
 	for pair in [["crypt", "to_crypt"], ["party", "to_party"], ["foreman", "to_foreman"], ["siege", "to_siege"]]:
 		var b := TownUI.button(_tx(pair[1]))
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.pressed.connect(_on_place_btn.bind(uid, pair[0]))
-		if pair[0] == "siege":
-			b.tooltip_text = _siege_line()
+		b.tooltip_text = String(tips[pair[0]])
 		btns.add_child(b)
 		row[pair[0]] = b
+	btns.add_child(ren)
 	col.add_child(note)
 	var opts := HFlowContainer.new()
 	opts.add_theme_constant_override("h_separation", 6)
@@ -819,8 +831,7 @@ func _update_row(row: Dictionary, e: Dictionary, place_ctx: Array) -> void:
 	row["place"] = place
 	var parts: Array = [String(_slab.get("nouns", {}).get(kind, kind.capitalize())), SlabLogic.role_label(String(e.get("role", "")), _slab),
 		CryptLogic.place_text(place, place_ctx[0], _views.get("fort_names", {}), _t)]
-	var placed_note := CryptLogic.place_note(place, _t)  # a foreman's boost is "coming": said on its placed line too
-	(row["info"] as Label).text = _tx("sep").join(parts) + ("\n" + placed_note if placed_note != "" else "")
+	(row["info"] as Label).text = _tx("sep").join(parts)  # what a place does: the places line under the head, and tooltips
 	var note: Label = row["note"]  # what the open chooser's choice does: a foreman's boost, or a siege's block
 	note.visible = row["mode"] in ["foreman", "siege"]
 	if note.visible:

@@ -23,7 +23,23 @@ func run() -> int:
 	_jargon()
 	_inspect()
 	_upgrade_relics()
+	_scroll_cue()
 	return t.failures
+
+
+## Clarity round 3: a dock tab with more below its scroll edge says so (ScrollCue), so a row the edge cuts reads as
+## more to scroll to; at the end of the scroll, or with nothing below, the cue is gone.
+func _scroll_cue() -> void:
+	Palette.configure(TestUtil.load_json("res://configs/palette.json"))
+	var sc: Dictionary = vcfg["scroll_cue"]
+	var eps := float(sc["eps_px"])
+	t.ok(ScrollCue.more_below(0.0, 500.0, 900.0, eps), "cue: 400 px below the page shows it")
+	t.ok(not ScrollCue.more_below(400.0, 500.0, 900.0, eps) and not ScrollCue.more_below(399.0, 500.0, 900.0, eps),
+		"cue: scrolled to the end (within eps_px), no cue")
+	t.ok(not ScrollCue.more_below(0.0, 500.0, 500.0, eps), "cue: content that fits shows no cue")
+	t.ok(String(sc["text"]).contains("more below") and int(sc["px"]) >= TownUI.MIN_TEXT and Palette.has(String(sc["ink"]))
+		and TownModel.contrast(Palette.c(String(sc["ink"])), Palette.c("ground")) >= 4.5,
+		"cue: '%s' at %d px in a 4.5:1 ink" % [sc["text"], int(sc["px"])])
 
 
 ## The clarity round (clarity-review-1): mint, husk and phylactery get the glossary's one line wherever they show,
@@ -119,8 +135,13 @@ func _goal_new_game() -> void:
 	t.ok(first != "", "(setup) a new game marks a first dungeon")
 	t.ok(not TownGuide.placed(v, "bone_mill") and not TownGuide.fort_taken(v), "(setup) a new game: no Bone Mill, no fort taken")
 	var g := TownGuide.goal(v, gcfg)
-	t.ok(g.get("id", "") == "mill" and String(g.get("text", "")).begins_with("Goal: build a Bone Mill"),
-		"a new game's first goal is the Bone Mill: '%s'" % g.get("text", ""))
+	t.ok(g.get("id", "") == "mill" and String(g.get("text", "")).begins_with("First step: build a Bone Mill"),
+		"a new game's first step is the Bone Mill: '%s'" % g.get("text", ""))
+	# clarity round 3: the game's goal heads the plate, in the glossary's words ("your goal", never "the run")
+	t.ok(String(g.get("head", "")) == "Your goal: take Vei's forts, then beat Vei. Beating Vei wins the game.",
+		"the plate's head is the game's goal: '%s'" % g.get("head", ""))
+	t.ok(not String(g.get("head", "")).to_lower().contains("the run") and not String(g.get("text", "")).to_lower().contains("the run"),
+		"the goal plate never says 'the run'")
 	s.cmd_debug_grant({"gold": 500.0, "bone": 200.0})
 	var lot := ""
 	for row in s.view_catalog()["buildings"]:
@@ -133,6 +154,8 @@ func _goal_new_game() -> void:
 	t.ok(TownGuide.placed(v, "bone_mill"), "a Bone Mill under construction counts as placed")
 	t.ok(g.get("id", "") == "fort" and String(g.get("text", "")).contains(first) and String(g.get("text", "")).contains("Return to the realm"),
 		"once the mill is placed the goal is the first fort, by name: '%s'" % g.get("text", ""))
+	t.ok(String(g.get("text", "")).begins_with("Next step: ") and String(g.get("head", "")).begins_with("Your goal: "),
+		"the next step takes the plate's shared lead, under the same head: '%s'" % g.get("text", ""))
 	v["forts"][0]["flipped_count"] = 1  # a fort taken (held now or retaken since): the state flip_fort leaves
 	t.ok(TownGuide.goal(v, gcfg).is_empty(), "once a fort is taken (and the mill placed) there is no goal")
 	var no_mill: Dictionary = v.duplicate(true)
