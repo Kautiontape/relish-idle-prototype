@@ -327,7 +327,7 @@ static func node_obstacles(cov: Vector2, vei: Vector2, vei_radius: float, backlo
 	var size := int(MapLogic.cfg()["font_label"])
 	var rects: Array = []
 	var lay := NodeLogic.valve_label_layout(NodeLogic.valve_dirs(cov, centroid, vei), NodeLogic.valve_widths(shares), labels_on, z, text_w, float(size))
-	lay = NodeLogic.shift_valve_labels(lay, NodeLogic.panel_sx(panel, cov.x, z), panel)
+	lay = NodeLogic.shift_valve_labels(lay, NodeLogic.panel_sx(panel, cov.x, z), panel, z)
 	for k in lay:
 		var r: Rect2 = lay[k]["rect"]
 		rects.append(Rect2(cov + r.position / z, r.size / z))

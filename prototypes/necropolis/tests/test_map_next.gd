@@ -608,6 +608,31 @@ func _next(t: TestUtil) -> void:
 	t.ok(v4["rule"] == "vei" and v4["text"] == "Vei can be faced: your odds 61%", "can_begin: Vei (%s)" % v4["text"])
 	t.ok(NextLogic.choose(_inp({"readout": {"odds": float(c["next_vei_odds"])}}))["rule"] == "vei", "odds at next_vei_odds: Vei")
 	t.ok(NextLogic.choose(_inp({"readout": {"odds": float(c["next_vei_odds"]) - 0.01}}))["rule"] == "default", "under it, no")
+	# Phase I P3's odds split: the decision reads readiness, the text the shown odds
+	var sp := NextLogic.choose(_inp({"readout": {"odds": 0.05, "readiness": 0.62}}))
+	var sfx := str(c["vei_backups_text"])
+	t.ok(sp["rule"] == "vei" and sp["text"] == "Vei can be faced: your odds 5%; grow clones in the Chapel of Vats to raise them", "readiness 0.62 / odds 0.05: in reach, the text shows 5%% and the backups hint (%s)" % sp["text"])
+	t.ok(sfx == "; grow clones in the Chapel of Vats to raise them" and float(c["vei_backups_below"]) == 0.5, "the backups hint's text and factor are in the config")
+	var no1: String = NextLogic.choose(_inp({"readout": {"odds": 0.4, "readiness": 0.6}}))["text"]
+	t.ok(no1 == "Vei can be faced: your odds 40%", "odds 0.4 / readiness 0.6: over half, no hint (%s)" % no1)
+	var no2: String = NextLogic.choose(_inp({"readout": {"odds": 0.3, "readiness": 0.6}}))["text"]
+	t.ok(no2 == "Vei can be faced: your odds 30%", "odds exactly half the readiness: strict, no hint (%s)" % no2)
+	var no3: String = NextLogic.choose(_inp({"readout": {"odds": 0.62}}))["text"]
+	t.ok(no3 == "Vei can be faced: your odds 62%", "no readiness key (before P3): no hint (%s)" % no3)
+	var no3b: String = NextLogic.choose(_inp({"vei": {"can_begin": true}, "readout": {"odds": 0.3}}))["text"]
+	t.ok(no3b == "Vei can be faced: your odds 30%", "no readiness key, low odds: readiness falls back to the odds, no hint (%s)" % no3b)
+	var no4: String = NextLogic.choose(_inp({"vei": {"can_begin": true}, "readout": {"odds": 0.0, "readiness": 0.0}}))["text"]
+	t.ok(no4 == "Vei can be faced: your odds 0%", "readiness 0: 0 < 0 is false, no hint (%s)" % no4)
+	var c2 := c.duplicate(true)
+	c2["vei_backups_below"] = 0.9
+	var yes2: String = NextLogic.choose(_inp({"readout": {"odds": 0.4, "readiness": 0.6}}), {}, c2)["text"]
+	t.ok(yes2 == "Vei can be faced: your odds 40%" + sfx, "vei_backups_below 0.9: odds 0.4 / readiness 0.6 now gets the hint (%s)" % yes2)
+	c2["vei_backups_below"] = 0.05
+	var no5: String = NextLogic.choose(_inp({"readout": {"odds": 0.05, "readiness": 0.62}}), {}, c2)["text"]
+	t.ok(no5 == "Vei can be faced: your odds 5%", "vei_backups_below 0.05: odds 0.05 / readiness 0.62 loses it (%s)" % no5)
+	t.ok(NextLogic.choose(_inp({"readout": {"odds": 0.9, "readiness": 0.5}}))["rule"] == "default", "readiness 0.5 / odds 0.9: not in reach")
+	t.ok(NextLogic.choose(_inp({"readout": {"odds": 0.58, "readiness": 0.58}}), {"rule": "vei", "target": "vei"})["rule"] == "vei"
+		and NextLogic.choose(_inp({"readout": {"odds": 0.9, "readiness": 0.54}}), {"rule": "vei", "target": "vei"})["rule"] != "vei", "the exit hysteresis reads readiness too")
 	# 4. the plan: the empty queue, else the standing objective
 	t.ok(NextLogic.choose(_inp({"queue": []}))["rule"] == "queue", "an empty queue")
 	t.ok(NextLogic.choose(_inp({"queue": [{"building_id": "pit"}]}))["rule"] != "queue", "a queued build: not this rule")
@@ -821,6 +846,53 @@ func _payoff(t: TestUtil) -> void:
 	var falling := ValveLogic.payoff({"backlog": 1000.0, "diff_ema": -2.0}, {"split": {"work": 12.0, "war": 8.0, "flood": 0.0}, "backlog_diff": -6.0}, k)
 	var fl := ValveLogic.payoff_line(falling, 0.05)
 	t.ok(fl.contains(" · drain ") and fl.contains("▼"), "a shrinking queue is ▼ and shows the drain (%s)" % fl)
+	# Phase I P3: the ground clot reads readiness (view_vei's), falling back to odds
+	var gfv := GroundForces.new(TestUtil.load_json("res://configs/ground.json").get("forces", {}))
+	t.ok(gfv.vortex({"odds": 0.0, "readiness": 0.6, "sign": 1}) == gfv.vortex({"odds": 0.6, "sign": 1}) and gfv.vortex({"odds": 0.6, "sign": 1}) != Vector4.ZERO,
+		"the vortex strength reads readiness, falling back to odds")
+	t.ok(gfv.vortex({"odds": 0.9, "readiness": 0.0, "sign": 1}) == Vector4.ZERO, "a shown odds alone does not draw the clot")
+	# Phase I P3: first_odds_of, and the payoff's projection through it
+	for r in [[9, 0.453], [5, 0.139], [3, 0.053], [0, 0.010]]:  # (P3's grade rows "1+8", "1+4", "1+2", "0+0" are charges + clones, so backups 9, 5, 3, 0)
+		t.near(ValveLogic.first_odds_of(0.6118, int(r[0]), 7.15, 1.76), float(r[1]), 1e-3, "first_odds_of at backups %d" % int(r[0]))
+	t.ok(ValveLogic.first_odds_of(0.6, 7, 7.15, 0.0) == 0.0 and ValveLogic.first_odds_of(0.6, 8, 7.15, 0.0) == 0.6, "scale 0: a step at mid")
+	t.ok(ValveLogic.first_odds_of(0.6, 100, 7.15, 1.76) <= 0.6 and ValveLogic.first_odds_of(0.6, -5, 7.15, 1.76) <= 0.6, "never above the readiness")
+	var ocfg := {"time_weight": 0.4, "time_s": 3600.0, "backlog_cap": 1.0}
+	var proj := {"split": {"work": 4.0, "war": 9.0, "flood": 7.0}, "backlog_diff": 6.1}
+	var plain := ValveLogic.payoff(vei, proj, k, ocfg, 1000.0)
+	t.ok(plain == ValveLogic.payoff({"backlog": 18000.0, "diff_ema": 2.1, "backups": 4}, proj, k, ocfg, 1000.0), "no backups_mid/scale: the readiness as before")
+	var withcfg := ocfg.duplicate()
+	withcfg["backups_mid"] = 7.15
+	withcfg["backups_scale"] = 1.76
+	t.ok(ValveLogic.payoff(vei, proj, k, withcfg, 1000.0) == plain, "no backups in the vei dict: the readiness as before")
+	var fo := ValveLogic.payoff({"backlog": 18000.0, "diff_ema": 2.1, "backups": 4}, proj, k, withcfg, 1000.0)
+	for side in ["now", "then"]:
+		t.near(float(fo[side]["odds"]), ValveLogic.first_odds_of(float(plain[side]["odds"]), 4, 7.15, 1.76), 1e-12, "%s: first odds on that side's readiness" % side)
+	t.ok(float(fo["now"]["odds"]) < float(plain["now"]["odds"]) and fo["now"]["diff"] == plain["now"]["diff"], "the shown odds are lower, the differential unchanged")
+	# the odds cap line: both strains at or past backlog_cap, neither draining
+	var capcfg := {"time_weight": 0.4, "time_s": 3600.0, "backlog_cap": 0.8}
+	var capfmt := str(vc["payoff_capped_fmt"])
+	var capbk := str(vc["payoff_capped_backups"])
+	var psep := str(vc["payoff_sep"])
+	var fp := ValveLogic.payoff({"backlog": 1000000.0, "diff_ema": 2.1}, proj, k, capcfg, 1000.0)
+	t.ok(float(fp["now"]["strain"]) >= 0.8 and float(fp["then"]["strain"]) >= 0.8, "the payoff carries each side's strain")
+	var capline := ValveLogic.payoff_line(fp, 0.05, capcfg)
+	var vei_pre := capline.split(psep)[0]
+	t.ok(capline == vei_pre + psep + capfmt % roundi(float(fp["now"]["odds"]) * 100.0) and not capline.contains("backups will") and not capline.contains("odds in "), "past full on both sides: the capped line from config (%s)" % capline)
+	var capcfg3 := capcfg.duplicate()
+	capcfg3["backups_mid"] = 7.15
+	capcfg3["backups_scale"] = 1.76
+	var fp3 := ValveLogic.payoff({"backlog": 1000000.0, "diff_ema": 2.1, "backups": 4}, proj, k, capcfg3, 1000.0)
+	var capline3 := ValveLogic.payoff_line(fp3, 0.05, capcfg3)
+	t.ok(capline3 == vei_pre + psep + capfmt % roundi(float(fp3["now"]["odds"]) * 100.0) + capbk, "with first odds applied: '; backups will' follows (%s)" % capline3)
+	t.ok(capline3.ends_with("so more FLOOD won't raise them; backups will") and ("odds 61%: her queue is past full, so more FLOOD won't raise them" == capfmt % 61), "the manager's wording")
+	var below := ValveLogic.payoff({"backlog": 3.0 * k, "diff_ema": 2.1}, {"split": {}, "backlog_diff": 2.1}, k, capcfg, 1000.0)
+	t.ok(float(below["now"]["strain"]) < 0.8 and ValveLogic.payoff_line(below, 0.05, capcfg).contains(" · odds in "), "below the cap: today's line")
+	var mixed := {"now": fp["now"], "then": below["now"]}
+	t.ok(ValveLogic.payoff_line(mixed, 0.05, capcfg).contains(" · odds in ") and not ValveLogic.payoff_line(mixed, 0.05, capcfg).contains("past full"), "one side below the cap: today's line")
+	var drainp := ValveLogic.payoff({"backlog": 1000000.0, "diff_ema": -2.0}, {"split": {}, "backlog_diff": -6.0}, k, capcfg, 1000.0)
+	t.ok(float(drainp["now"]["strain"]) >= 0.8 and ValveLogic.payoff_line(drainp, 0.05, capcfg).contains(" · drain "), "a draining side: the drain line, the cap ignored")
+	t.ok(ValveLogic.payoff_line(fp, 0.05).contains(" · odds in ") and ValveLogic.payoff_line(fp, 0.05, {}).contains("% → "), "no odds config: no cap, today's line")
+	t.ok(FileAccess.get_file_as_string("res://scripts/map/map_valve.gd").contains("payoff_line(p, eps, model.realm_cfg.get(\"odds\", {}))"), "the valve passes the odds config")
 	t.ok(ValveLogic.payoff_shown(true, -1.0), "shown while dragging")
 	t.ok(ValveLogic.payoff_shown(false, 0.0) and ValveLogic.payoff_shown(false, float(vc["payoff_hold_s"]) - 0.01), "and for payoff_hold_s after release")
 	t.ok(not ValveLogic.payoff_shown(false, float(vc["payoff_hold_s"])) and not ValveLogic.payoff_shown(false, -1.0), "then hidden; never shown before a drag")

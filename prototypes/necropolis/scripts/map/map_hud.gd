@@ -65,11 +65,16 @@ class TipPlate extends Control:
 var valve: Control  # the HUD's plates a bar tooltip keeps clear of (set by world_map): the valve, the legend, the open card
 var legend: Control
 var card: Control
+var nodes: MapNodes  # set by world_map: Vei's readout and the other map labels a bar tooltip keeps clear of
+var cam: Camera2D  # set by world_map: puts those labels in screen px
+var _placer := TipPlacer.new()  # the shown plate's last placement (headless-tested)
+var _plate_rects: Array = []  # the bar, strip, goal and leave line's rects as _relayout last set them
+var _ro_key: Array = []  # what the cached map readouts below were measured for
+var _ro_rects: Array = []  # the map's readouts in screen px
 var _tip_word: Label  # the bar word the cursor rests on
 var _tip_wait := 0.0  # seconds until its plate shows
 var _tip_plate: TipPlate
 var _tip_size := Vector2.ZERO  # the shown plate's size before any shrink to the viewport
-var _tip_key: Array = []  # HudLogic.tip_key of its last placement
 var _bar: VBoxContainer  # one HBoxContainer row per HudLogic.wrap_rows row
 var _cells: Array = []  # the bar items (a box per stream, then the status box), in order
 var _row_sig := ""
@@ -77,6 +82,8 @@ var _bar_plate: ColorRect
 var _obj_plate: ColorRect
 var _items: Array = []  # [{box, name, rate, stock, cap}] per stream, built on the first read
 var _odds: Label
+var _odds_name: Label  # the ODDS word, whose tip follows whether the game reports backups
+var _odds_tip := ""  # the tip id on _odds_name now, so a refresh re-applies only on a change
 var _sign: Label
 var _drain: Label
 var _tithe: Label
@@ -215,6 +222,9 @@ func _relayout() -> void:
 	_leave_plate.size = Vector2(_leave.position.x + lsz.x + pad, lsz.y + pad)
 	_leave_rect = Rect2(0.0, inset, _obj_plate.size.x, lsz.y + pad)
 	inset += _leave_rect.size.y
+	_plate_rects = [Rect2(_bar_plate.position, _bar_plate.size), Rect2(_obj_plate.position, _obj_plate.size), _leave_rect]
+	if goal_on:
+		_plate_rects.append(Rect2(_goal_plate.position, _goal_plate.size))
 	if inset != _last_inset:
 		_last_inset = inset
 		inset_changed.emit(inset)
@@ -341,6 +351,8 @@ func _build_bar(items: Array) -> void:
 	MapType.style_label(odds_name)
 	odds_name.text = str(cfg["cards"]["vei_odds_label"])
 	HudLogic.apply_tip(odds_name, "odds")
+	_odds_name = odds_name
+	_odds_tip = "odds"
 	_odds = _bar_label(status)
 	MapType.style_mass(_odds)
 	# the ▲/▼ is the backlog's sign, labelled as her strain: the odds are mostly time and can climb on a ▼
@@ -393,19 +405,33 @@ func _tip_leave(word: Label) -> void:
 func _hide_tip() -> void:
 	_tip_word = null
 	_tip_plate.visible = false
+	_placer.reset()
 
 
-## The HUD's text plates a bar tooltip keeps clear of, in screen px: the bar, the strip, the goal (shown),
-## the leave line's room, and the Relish chip, legend and valve while they show.
+## The HUD's text plates a bar tooltip keeps clear of, in screen px: the bar, the strip, the goal (shown) and
+## the leave line's room as _relayout last cached them (no layout pass per tick), and the Relish chip, legend
+## and valve while they show.
 func _tip_plates() -> Array:
-	_relayout()
-	var out: Array = [Rect2(_bar_plate.position, _bar_plate.size), Rect2(_obj_plate.position, _obj_plate.size), _leave_rect]
-	if _goal_plate.visible:
-		out.append(Rect2(_goal_plate.position, _goal_plate.size))
+	var out: Array = _plate_rects.duplicate()
 	for c in [chip, legend, valve]:
 		if c != null and is_instance_valid(c) and (c as Control).is_visible_in_tree():
 			out.append((c as Control).get_global_rect())
 	return out
+
+
+## The map's own text (Vei's ODDS readout and name, Covington's labels) in screen px, measured again only when
+## the camera, the viewport, the model or the open card changed (the readouts are cached between).
+func _tip_readouts(card_r: Rect2, vp: Vector2) -> Array:
+	if nodes == null or cam == null or not is_instance_valid(nodes) or not is_instance_valid(cam):
+		return []
+	# readout_rects() is built from the nodes' own ctx (refreshed in their _on_refresh, zoom past its redraw eps,
+	# panel synced in their _process: all a frame behind this tick), so the key carries the rev the ctx was last
+	# refreshed at (nodes.refresh_rev(), not the model's own rev, which moves first) and those too, or the cache could stay a step stale.
+	var key := [cam.position, cam.zoom.x, vp, nodes.refresh_rev(), card_r, nodes.ctx.zoom, NodeLogic.panel_key(nodes.ctx.panel)]
+	if key != _ro_key:
+		_ro_key = key
+		_ro_rects = nodes.readout_rects().map(func(r: Rect2): return HudLogic.world_to_screen(r, cam.position, cam.zoom.x, vp))
+	return _ro_rects
 
 
 ## Shows the resting word's glossary line on its own plate: sized by the same wrap call that draws it, placed
@@ -426,23 +452,22 @@ func _show_tip() -> void:
 	p.pad = pad
 	p.color = st["text"]
 	p.box = MapUi.plate_box(float(MapLogic.cfg()["clarity"]["tooltip"]["plate_alpha"]), pad)
-	_tip_key = []
+	_placer.reset()
+	_relayout()  # the plates' cache is fresh as it first shows; the ticks after only read it
 	_place_tip()
 
 
-## Puts the shown plate where HudLogic.tip_rect says, only when its inputs (HudLogic.tip_key) differ from the
-## last placement: the card opening or closing, the HUD re-laying out. Called every tick while it shows.
+## Puts the shown plate where the TipPlacer says, only when it must move: the card opening or closing, the HUD
+## re-laying out, the map's readouts moving. Called every tick while it shows.
 func _place_tip() -> void:
 	var open_card := card != null and is_instance_valid(card) and card.is_visible_in_tree()
 	var word := Rect2(_tip_word.global_position, _tip_word.size)
-	var plates := _tip_plates()
 	var card_r: Rect2 = card.get_global_rect() if open_card else Rect2()
 	var vp := get_viewport_rect().size
-	var key := HudLogic.tip_key(word, _tip_size, plates, card_r, vp)
-	if _tip_plate.visible and key == _tip_key:
+	var res := _placer.place(word, _tip_size, _tip_plates(), card_r, vp, _tip_readouts(card_r, vp))
+	if not res["moved"]:
 		return
-	_tip_key = key
-	var r := HudLogic.tip_rect(word, _tip_size, plates, vp, card_r)
+	var r: Rect2 = res["rect"]
 	var p := _tip_plate
 	p.text_w = r.size.x - p.pad * 2.0
 	p.position = r.position - global_position
@@ -473,8 +498,13 @@ func refresh(force := false) -> void:
 			if warn.text != line:
 				warn.text = line
 				warn.visible = line != ""
-	var st := HudLogic.status(model.readout())
+	var ro := model.readout()
+	var st := HudLogic.status(ro)
 	_odds.text = st["odds_text"]
+	var odds_tip := HudLogic.odds_tip_id(int(ro["backups"]))
+	if odds_tip != _odds_tip:
+		_odds_tip = odds_tip
+		HudLogic.apply_tip(_odds_name, odds_tip)
 	_sign.text = st["sign_text"]
 	_sign.add_theme_color_override("font_color", Palette.c(_sign_key(int(st["sign"]))))
 	_drain.text = st["drain_text"]

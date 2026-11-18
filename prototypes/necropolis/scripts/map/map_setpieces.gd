@@ -17,7 +17,10 @@ extends Node
 ##                 Covington, a green burst at the fort, the chip's counter-garrison draining to
 ##                 0 and flipping to the margin word, a callout.
 ##   victory       vei_result won (or won at map open): every lane runs green toward Vei for 2
-##                 beats, then every dash stops and the victory line shows.
+##                 beats, then every dash stops and the victory line shows. It plays once per
+##                 game (MapSeen VICTORY, per game_id); a later mount of a won game settles
+##                 straight to its end state at mount (dashes stopped, the victory line up),
+##                 without waiting for the camera ease.
 ##   build         building_done (or a lot whose level rose while the map was not up, found at mount):
 ##                 a plate above Covington, "Inn built · MINT +0.8/s", the sim's own projection for it
 ##                 (MapModel.proj_store) named by its biggest rate; several builds read as one plate.
@@ -42,6 +45,7 @@ var model: MapModel
 var nodes: MapNodes
 var routes: MapRoutes
 var hud: MapHud
+var seen: MapSeen  # the game's shown-once flags: victory plays once per game
 var valve: MapValve
 var callouts: MapCallouts  # the lane callouts' drawn plates: soft obstacles to the set-piece line
 var cam: MapCamera  # its position and the visible screen place the callouts in the frame
@@ -59,7 +63,11 @@ var _committed := {}  # the valve Covington's stems show at rest
 var _swing := {}  # {from, to, start_ms} while the valve swing runs
 var _valve_rev := -1  # the model.rev the idle valve target was last read at
 var _taken_ids: Array = []  # forts whose fort_flipped this map heard (the router replays the ones it held): note_return's "taken"
-var _won := false  # victory has played (or is playing): once per map
+var _won := false  # victory has played, is playing or was settled: once per map
+var _chips_sig: Array = []  # the inputs _chips_key_cache was measured for
+var _chips_key_cache: Array = []  # _chips_key's last result
+var _won_at_mount := false  # the game was already won when the map mounted: its victory is seen, an away_report replays nothing
+var _placed_used := {}  # the _placed keys drawn this frame: the rest are pruned at its end
 var _builds: Array = []  # the finished builds the callout at Covington names: [{lot_id, building_id, level}]
 var _build_runs: Array = []  # its line as runs (SetpieceLogic.build_spans)
 var _build_start_ms := -1.0  # when it started; -1 until the set pieces are live
@@ -116,7 +124,7 @@ func on_event(ev: Dictionary) -> void:
 ## forts that are still held, and a victory the swallowed vei_result would have played.
 func _after_away() -> void:
 	model.refresh(true)  # the event can land before the map's own refresh this frame
-	var r := SetpieceLogic.after_away(_taken_ids, model.forts, _won, bool(model.hud.get("won", false)))
+	var r := SetpieceLogic.after_away(_taken_ids, model.forts, SetpieceLogic.victory_seen(_won, _won_at_mount), bool(model.hud.get("won", false)))
 	_taken_ids = r["taken_ids"]
 	if bool(r["victory"]):
 		_add(SetpieceLogic.VICTORY, "")
@@ -125,7 +133,12 @@ func _after_away() -> void:
 ## The map mounted: the builds that finished while it was not up (model.mount_rises, found by its first
 ## refresh) get their callout, unless `away_opened` (the away panel opened for this return, and its report
 ## already lists them). They take the same path as the live event, so one that is both is named once.
+## A won game whose victory was already seen settles to its end state here, not at go_live (which waits
+## for the camera ease): the map never shows live lanes first. The first play still waits for go_live.
 func note_mount(away_opened: bool) -> void:
+	_won_at_mount = bool(model.hud.get("won", false))
+	if SetpieceLogic.victory_settle_at_mount(_won_at_mount, seen.has(MapSeen.VICTORY)):
+		_start({"kind": SetpieceLogic.VICTORY, "fort_id": "", "n": -1})
 	for b in SetpieceLogic.mount_builds(model.mount_rises, away_opened):
 		_note_build(b)
 
@@ -134,9 +147,10 @@ func note_mount(away_opened: bool) -> void:
 ## (its fort_flipped, replayed by the router before this call, or a fort held within its grace that
 ## was not already held when the map dove into it, SetpieceLogic.note_dive) says "<Fort> taken by you"
 ## through the flip set piece; one that left it Vei's says it stays hers and you kept what you found
-## (SetpieceLogic.return_kind); a held fort raided again says nothing. Returns the kind (TAKEN, RETREAT, "").
-func note_return(arrive_from: String) -> String:
-	var kind := SetpieceLogic.return_kind(arrive_from, model.fort(arrive_from), _taken_ids.has(arrive_from), model.relish)
+## (SetpieceLogic.return_kind); a held fort raided again says nothing. `stale` (the raid ended while away)
+## never says RETREAT. Returns the kind (TAKEN, RETREAT, "").
+func note_return(arrive_from: String, stale := false) -> String:
+	var kind := SetpieceLogic.return_kind(arrive_from, model.fort(arrive_from), _taken_ids.has(arrive_from), model.relish, SetpieceLogic._last_dive, stale)
 	if kind == SetpieceLogic.TAKEN and not _taken_ids.has(arrive_from):
 		_taken_ids.append(arrive_from)  # no event came: the flip set piece still plays, as for the event
 		_add(SetpieceLogic.FIRST_FLIP if SetpieceLogic.first_flip(arrive_from, model.forts) else SetpieceLogic.FLIP, arrive_from)
@@ -174,9 +188,13 @@ func _start(p: Dictionary) -> void:
 	var kind := str(p["kind"])
 	var id := str(p["fort_id"])
 	if kind == SetpieceLogic.VICTORY:
-		if _won:
+		var how := SetpieceLogic.victory_start(_won, seen.has(MapSeen.VICTORY))
+		if how == "":
 			return
 		_won = true
+		p["settle"] = how == SetpieceLogic.VICTORY_SETTLE
+		if how == SetpieceLogic.VICTORY_PLAY:
+			seen.mark(MapSeen.VICTORY)
 	elif not model.forts_by_id.has(id):
 		return
 	for q in _active.duplicate():  # the same set piece at the same fort restarts
@@ -209,12 +227,14 @@ func _process(_delta: float) -> void:
 			SetpieceLogic.GARRISON:
 				done = _garrison_tick(p, t, rm, items)
 			SetpieceLogic.VICTORY:
-				done = _victory_tick(t, rm)
+				done = _victory_tick(t, rm or bool(p.get("settle", false)))
 			SetpieceLogic.RETREAT:
 				done = _retreat_tick(p, t, rm, items)
 		if done:
 			_active.erase(p)
 	_build_tick(items)
+	_placed = SetpieceLogic.prune_placed(_placed, _placed_used)
+	_placed_used = {}
 	layer.set_items(items)
 
 
@@ -343,8 +363,9 @@ func _callout(id: String, text: String, alpha: float, key := "undead") -> Array:
 	# what the placement depends on (not the frame): the line, the zoom and camera, the viewport, her token on
 	# the callouts' grid, and the model's rev (the held set, the chips)
 	var sig := SetpieceLogic.callout_key(text, ctx.zoom, cp, get_viewport().get_visible_rect().size, ctx.tier, model.rev,
-		Vector2(roundi(tok.x / grid), roundi(tok.y / grid)), HudLogic.rects_key(callouts.drawn_rects()) if callouts != null else [], NodeLogic.panel_key(ctx.panel))
+		Vector2(roundi(tok.x / grid), roundi(tok.y / grid)), HudLogic.rects_key(callouts.drawn_rects()) if callouts != null else [], _chips_key(ctx.zoom, ctx.tier), NodeLogic.panel_key(ctx.panel))
 	var ck := "%s|%s" % [id, text]
+	_placed_used[ck] = true
 	var hit: Dictionary = _placed.get(ck, {})
 	if hit.is_empty() or hit["sig"] != sig:
 		var made := _place_callout(id, text, hit.get("choice", {}))  # the last choice stays while it is still free
@@ -355,6 +376,31 @@ func _callout(id: String, text: String, alpha: float, key := "undead") -> Array:
 	for l in hit["lines"]:
 		out.append({"kind": "label", "pos": l["pos"], "text": l["text"], "size": int(l["size"]), "key": key, "alpha": alpha})
 	return out
+
+
+## The held forts' chip rects as the placement reads them (zoomed frame), in whole px: part of the cache
+## key, since a chip's width ticks with its text between revs. The rects cost a measure per held fort,
+## so they are re-measured only when their inputs change (SetpieceLogic.chips_sig), not every frame.
+func _chips_key(z: float, tier: String) -> Array:
+	var ctx := nodes.ctx
+	var grid := float(MapLogic.cfg()["callouts"]["token_key_px"])
+	var tok := ctx.relish_pos * ctx.zoom
+	var travelling := str(ctx.relish.get("state", "")) == "travelling"
+	var shares: Dictionary = ctx.valve_shares if not ctx.valve_shares.is_empty() else model.hud.get("valve_target", model.hud.get("valve", {}))  # as MapFortIdle._layout
+	var extra := [model.forts.size(), travelling, ctx.relish_pos if not travelling else Vector2.ZERO, roundi(float(ctx.vei.get("backlog", 0.0)) * 1000.0),
+		roundi(ctx.vei_radius * 10.0), ctx.cov_pos, ctx.vei_pos]
+	var sig := SetpieceLogic.chips_sig(model.rev, z, tier, model.margin_sig, ctx.chip_fx, Vector2(roundi(tok.x / grid), roundi(tok.y / grid)), NodeLogic.panel_key(ctx.panel), shares, extra)
+	if sig == _chips_sig:
+		return _chips_key_cache
+	_chips_sig = sig
+	var rects: Array = []
+	if IdleLogic.chip_shown(tier, z):
+		for g in model.forts:
+			if bool(g.get("held", false)):
+				var r := nodes.chip_world_rect(g)
+				rects.append(Rect2(r.position * z, r.size * z))
+	_chips_key_cache = HudLogic.rects_key(rects)
+	return _chips_key_cache
 
 
 ## Where `text` goes for the fort `id`: {lines: [{pos (world), text}], choice: {form, place, slide}}.
@@ -478,7 +524,7 @@ func _build_plate(alpha: float) -> Dictionary:
 	var tok := ctx.relish_pos * z
 	var soft: Array = callouts.drawn_rects() if callouts != null else []
 	var sig := SetpieceLogic.callout_key(_build_line, z, cp, get_viewport().get_visible_rect().size, ctx.tier, model.rev,
-		Vector2(roundi(tok.x / grid), roundi(tok.y / grid)), HudLogic.rects_key(soft + _fort_rects), NodeLogic.panel_key(ctx.panel))
+		Vector2(roundi(tok.x / grid), roundi(tok.y / grid)), HudLogic.rects_key(soft + _fort_rects), _chips_key(z, ctx.tier), NodeLogic.panel_key(ctx.panel))
 	if _build_hit.is_empty() or _build_hit["sig"] != sig:
 		var made := _place_build(soft, _build_hit.get("choice", {}))
 		_build_hit = {"sig": sig, "pos": made["pos"], "choice": made["choice"]}

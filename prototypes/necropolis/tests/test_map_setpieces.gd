@@ -32,6 +32,7 @@ func run() -> int:
 	_reduced(t, c)
 	_debug(t, c)
 	_after_away(t)
+	_callout_cache(t)
 	_sources(t)
 	return t.failures
 
@@ -44,12 +45,39 @@ func _after_away(t: TestUtil) -> void:
 	t.ok(bool(SetpieceLogic.after_away([], forts, false, true)["victory"]), "a won realm that never played its victory plays it now")
 	t.ok(not bool(SetpieceLogic.after_away([], forts, true, true)["victory"]), "but only once")
 	t.ok(SetpieceLogic.after_away(["gone"], forts, false, false)["taken_ids"] == [], "an unknown fort is dropped")
+	# victory seen: primed at mount from the view, then set when it plays
+	var seen := SetpieceLogic.victory_seen(false, true)
+	t.ok(seen and not bool(SetpieceLogic.after_away([], forts, seen, true)["victory"]), "mounted on a won game: the next away_report plays no victory")
+	seen = SetpieceLogic.victory_seen(false, false)
+	t.ok(not seen and bool(SetpieceLogic.after_away([], forts, seen, true)["victory"]), "mounted not won, the away time holds the win: it plays once")
+	seen = SetpieceLogic.victory_seen(true, false)
+	t.ok(not bool(SetpieceLogic.after_away([], forts, seen, true)["victory"]), "a second away_report plays nothing")
+	var cs := FileAccess.get_file_as_string("%s/map_setpieces.gd" % MAP_DIR)
+	var nm := cs.substr(cs.find("func note_mount("), cs.find("\n\n\n", cs.find("func note_mount(")) - cs.find("func note_mount("))
+	t.ok(nm.contains("_won_at_mount") and nm.contains("hud.get(\"won\""), "the mount primes the seen state from the view")
+	t.ok(cs.contains("SetpieceLogic.victory_seen(_won, _won_at_mount)"), "the away resync reads it")
 	var src := FileAccess.get_file_as_string("%s/map_setpieces.gd" % MAP_DIR)
 	var ev := src.substr(src.find("func on_event("), src.find("func _after_away(") - src.find("func on_event("))
 	t.ok(ev.contains("\"away_report\":") and ev.contains("_after_away()"), "the away_report branch calls the resync")
 	var a0 := src.find("func _after_away(")
 	var aa := src.substr(a0, src.find("\n\n\n", a0) - a0)
 	t.ok(aa.contains("SetpieceLogic.after_away(") and aa.contains("model.refresh(true)") and not aa.contains("_add(SetpieceLogic.FLIP") and not aa.contains("for "), "the resync re-reads the views and replays no flip set pieces")
+
+
+## The callout cache key carries the chips; the cache keeps only what was drawn this frame.
+func _callout_cache(t: TestUtil) -> void:
+	var chips_a := HudLogic.rects_key([Rect2(10, 20, 40.2, 12)])
+	var chips_b := HudLogic.rects_key([Rect2(10, 20, 52, 12)])
+	var chips_a2 := HudLogic.rects_key([Rect2(10.2, 19.8, 40.4, 12.1)])
+	var k := func(chips: Array): return SetpieceLogic.callout_key("x", 1.0, Vector2.ZERO, Vector2(800, 600), "near", 3, Vector2.ZERO, [], chips, [])
+	t.ok(k.call(chips_a) != k.call(chips_b), "a different chip width is a different key")
+	t.ok(k.call(chips_a) == k.call(chips_a2), "chips equal to the whole px are one key")
+	t.ok(k.call(chips_a) == k.call(chips_a), "equal inputs, equal key")
+	var kept := SetpieceLogic.prune_placed({"a|x": 1, "b|y": 2, "c|z": 3}, {"b|y": true})
+	t.ok(kept == {"b|y": 2}, "the cache drops callouts not drawn this frame")
+	t.ok(SetpieceLogic.prune_placed({"a|x": 1}, {}) == {}, "nothing drawn, nothing kept")
+	var src := FileAccess.get_file_as_string("%s/map_setpieces.gd" % MAP_DIR)
+	t.ok(src.contains("_chips_key(") and src.contains("prune_placed("), "the placement and _process use them")
 
 
 func _clock(t: TestUtil) -> void:
@@ -135,6 +163,11 @@ func _return(t: TestUtil, c: Dictionary) -> void:
 	SetpieceLogic._last_dive = saved
 	t.ok(SetpieceLogic.return_kind("covington", {}, false, alive) == "" and SetpieceLogic.return_kind("", {}, false, alive) == "", "back from town: no line")
 	t.ok(SetpieceLogic.return_kind("vei", {}, true, alive) == "", "back from Vei: no line")
+	# a stale end (the raid ended while away) kept only the last checkpoint: never "you kept all you found"
+	t.ok(SetpieceLogic.return_kind("ashgate", vei_fort, false, alive, {}) == SetpieceLogic.RETREAT, "not stale: a Vei's fort with Relish alive is a retreat")
+	t.ok(SetpieceLogic.return_kind("ashgate", vei_fort, false, alive, {}, true) == "", "stale: the same return says nothing")
+	t.ok(SetpieceLogic.return_kind("ashgate", held_fort, false, alive, {}, true) == SetpieceLogic.TAKEN and SetpieceLogic.return_kind("ashgate", held_fort, false, alive, {}, false) == SetpieceLogic.TAKEN, "a fort held within grace is taken, stale or not")
+	t.ok(SetpieceLogic.return_kind("ashgate", vei_fort, true, alive, {}, true) == SetpieceLogic.TAKEN, "a real fort_flipped event is taken even when stale")
 	t.ok(SetpieceLogic.return_text(SetpieceLogic.TAKEN, "Ashgate") == "Ashgate taken by you", "taken line")
 	t.ok(SetpieceLogic.return_text(SetpieceLogic.RETREAT, "Ashgate") == "Ashgate stays Vei's: you kept all you found", "retreat line: both halves of the glossary's meaning (the fort stays Vei's, you keep what you found)")
 	t.ok(int(c["callout_font_two"]) >= 14 and int(c["callout_font_two"]) <= int(c["callout_font"]), "the two-line form is set no smaller than 14 px, and no bigger than the one line")
@@ -145,6 +178,7 @@ func _return(t: TestUtil, c: Dictionary) -> void:
 	t.ok(src.contains("SetpieceLogic.return_kind(") and src.contains("func note_return("), "MapSetpieces decides the return line through the pure function")
 	var wm := FileAccess.get_file_as_string("res://scripts/map/world_map.gd")
 	t.ok(wm.contains("setpieces.note_return("), "world_map hands the arrival's fort to the set pieces")
+	t.ok(src.contains("func note_return(arrive_from: String, stale := false)") and src.contains(", stale)\n") and wm.contains("setpieces.note_return(_arrive_from, _arrive_stale)") and wm.contains("args.get(\"stale\""), "a stale arrival (args.stale) reaches return_kind through note_return")
 	t.ok(wm.contains("SetpieceLogic.note_dive(node_id,") and wm.find("SetpieceLogic.note_dive(") < wm.find("finished.emit({\"v\": 2, \"teleport_to\""), "world_map records the dive (held or not) before it leaves")
 
 
@@ -675,6 +709,50 @@ func _victory(t: TestUtil, c: Dictionary) -> void:
 	t.ok(SetpieceLogic.victory_phase(d * 0.99, false) == SetpieceLogic.RUN, "for victory_run_beats (about 2)")
 	t.ok(SetpieceLogic.victory_phase(d, false) == SetpieceLogic.STOP and SetpieceLogic.victory_phase(d * 10.0, false) == SetpieceLogic.STOP, "then stops, and stays stopped")
 	t.ok(SetpieceLogic.victory_u(-1.0) == float(c["victory_u_floor"]) and SetpieceLogic.victory_u(0.9) == 0.9, "a dark lane lights at the floor; a bright one keeps its u")
+	# once per game: the decision, the settle path's end state, and the wiring (source text: the scene scripts name autoloads)
+	t.ok(SetpieceLogic.victory_start(true, false) == "" and SetpieceLogic.victory_start(true, true) == "", "victory: a map that already played or settled it ignores a second start")
+	t.ok(SetpieceLogic.victory_start(false, false) == SetpieceLogic.VICTORY_PLAY, "victory: the first time in a game it plays")
+	t.ok(SetpieceLogic.victory_start(false, true) == SetpieceLogic.VICTORY_SETTLE, "victory: seen in this game, a later mount settles")
+	t.ok(SetpieceLogic.victory_phase(0.0, true) == SetpieceLogic.STOP, "victory: the settle path's end state is STOP at once")
+	var sp := FileAccess.get_file_as_string("%s/map_setpieces.gd" % MAP_DIR)
+	var s0 := sp.find("func _start(")
+	var st := sp.substr(s0, sp.find("\n\n\n", s0) - s0)
+	t.ok(st.contains("SetpieceLogic.victory_start(_won, seen.has(MapSeen.VICTORY))") and st.contains("seen.mark(MapSeen.VICTORY)") and st.contains("p[\"settle\"]"), "_start decides from the seen flag, marks it when the victory plays, and records the settle")
+	var p0 := sp.find("func _process(")
+	var pr := sp.substr(p0, sp.find("\n\n\n", p0) - p0)
+	t.ok(pr.contains("_victory_tick(t, rm or bool(p.get(\"settle\", false)))"), "_process settles a settled victory like reduced motion")
+	t.ok(sp.contains("var seen: MapSeen"), "the set pieces hold the game's seen flags")
+	# a later mount of a won game settles at mount, not after the camera ease
+	t.ok(SetpieceLogic.victory_settle_at_mount(true, true), "settle at mount: won and seen")
+	t.ok(not SetpieceLogic.victory_settle_at_mount(true, false) and not SetpieceLogic.victory_settle_at_mount(false, true) and not SetpieceLogic.victory_settle_at_mount(false, false), "settle at mount: never for the first play, nor a game not won")
+	var n0 := sp.find("func note_mount(")
+	var nmt := sp.substr(n0, sp.find("\n\n\n", n0) - n0)
+	t.ok(nmt.contains("SetpieceLogic.victory_settle_at_mount(_won_at_mount, seen.has(MapSeen.VICTORY))") and nmt.contains("_start("), "note_mount settles a seen victory itself, without waiting for go_live")
+	# the chip rects are measured when their inputs change, not every frame
+	var shares := {"work": 0.4, "war": 0.45, "flood": 0.15}
+	var fx := {"a": {"text": "x", "key": "k"}}
+	var base := func(rev := 3, z := 1.0, tier := "near", ms = [["a", 1]], f := fx, cell := Vector2(2, 3), pk := [10, 0], sh := shares): return SetpieceLogic.chips_sig(rev, z, tier, ms, f, cell, pk, sh)
+	var b0: Array = base.call()
+	t.ok(b0 == base.call(), "chips_sig: equal inputs, equal sig")
+	t.ok(b0 != base.call(4), "chips_sig: the rev changes it")
+	t.ok(b0 != base.call(3, 1.25), "chips_sig: the zoom changes it")
+	t.ok(b0 != base.call(3, 1.0, "mid"), "chips_sig: the tier changes it")
+	t.ok(b0 != base.call(3, 1.0, "near", [["a", 2]]), "chips_sig: the margin sig changes it")
+	t.ok(b0 != base.call(3, 1.0, "near", [["a", 1]], {"a": {"text": "y", "key": "k"}}), "chips_sig: a chip_fx text changes it")
+	t.ok(b0 != base.call(3, 1.0, "near", [["a", 1]], fx, Vector2(3, 3)), "chips_sig: Relish's token cell changes it")
+	t.ok(b0 != base.call(3, 1.0, "near", [["a", 1]], fx, Vector2(2, 3), [12, 0]), "chips_sig: the open card changes it")
+	t.ok(b0 != base.call(3, 1.0, "near", [["a", 1]], fx, Vector2(2, 3), [10, 0], {"work": 0.3, "war": 0.55, "flood": 0.15}), "chips_sig: a valve share changes it")
+	t.ok(b0 == base.call(3, 1.0, "near", [["a", 1]], fx, Vector2(2, 3), [10, 0], {"work": 0.4001, "war": 0.45, "flood": 0.15}), "chips_sig: shares are rounded to 0.001")
+	var live := {"a": {"text": "x", "key": "k"}}
+	var kept: Array = SetpieceLogic.chips_sig(3, 1.0, "near", [], live, Vector2.ZERO, [], shares)
+	live["a"]["text"] = "z"
+	t.ok(kept != SetpieceLogic.chips_sig(3, 1.0, "near", [], live, Vector2.ZERO, [], shares), "chips_sig: a chip_fx edited in place later is a different sig")
+	var c0 := sp.find("func _chips_key(")
+	var ck := sp.substr(c0, sp.find("\n\n\n", c0) - c0)
+	t.ok(ck.contains("SetpieceLogic.chips_sig(") and ck.contains("sig == _chips_sig") and ck.find("sig == _chips_sig") < ck.find("nodes.chip_world_rect("), "_chips_key compares the input sig to _chips_sig before measuring any chip")
+	var wm := FileAccess.get_file_as_string("%s/world_map.gd" % MAP_DIR)
+	var w0 := wm.find("setpieces.seen = seen")
+	t.ok(w0 >= 0 and w0 < wm.find("add_child(setpieces)"), "the world map hands the seen flags over before the set pieces enter the tree")
 
 
 func _reduced(t: TestUtil, c: Dictionary) -> void:

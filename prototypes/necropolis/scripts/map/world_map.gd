@@ -35,6 +35,7 @@ var _hover_key: Array = []
 var _ui_acc := 0.0
 var _setup_called := false
 var _arrive_toast := ""  # a one-off line from the router (a refused teleport's reason), shown once on arrival
+var _arrive_stale := false  # the raid that just returned had already been ended by the state (a gap): no "you kept all you found"
 var _arrive_from := ""  # the node whose scene the player just left: the camera eases out from it
 var _ui_layer: CanvasLayer
 
@@ -43,6 +44,7 @@ func setup(args: Dictionary) -> void:
 	_setup_called = true
 	_arrive_from = str(args.get("arrive_from", ""))
 	_arrive_toast = str(args.get("toast", ""))
+	_arrive_stale = bool(args.get("stale", false))
 
 
 func demo_seed() -> Dictionary:
@@ -75,9 +77,8 @@ func _ready() -> void:
 	hud.start()
 	_hold_hud_for_return(return_layer)
 	opening.refresh()
-	tithe_explain.open_pending()
 	_fit()
-	var returned := setpieces.note_return(_arrive_from)  # "taken by you" or "stays Vei's", before the set pieces go live
+	var returned := setpieces.note_return(_arrive_from, _arrive_stale)  # "taken by you" or "stays Vei's", before the set pieces go live
 	var ease_s := _begin_arrival()
 	if ease_s > 0.0:  # the set pieces play once the camera has eased out to the map
 		get_tree().create_timer(ease_s).timeout.connect(setpieces.go_live)
@@ -89,6 +90,7 @@ func _ready() -> void:
 		hud.show_toast(_arrive_toast)
 	hud.inset_changed.connect(func(_inset: float) -> void: _refit())  # the bar's sizes settle a frame later
 	setpieces.note_mount(away.open_if_shown())  # builds finished while away from the map get their callout, unless the away report lists them
+	tithe_explain.open_pending()  # after the away panel: a warning pending at mount waits for it to close
 	_replay_clicks()
 	_hover_arg()
 	for arg in OS.get_cmdline_user_args():
@@ -181,6 +183,8 @@ func _build_ui() -> void:
 	hud.valve = valve  # the bar's tooltips keep off the valve, the legend and the open card
 	hud.legend = legend
 	hud.card = sidebar
+	hud.nodes = nodes_view  # and Vei's readout and the other map labels
+	hud.cam = cam
 	opening = MapOpening.new()
 	opening.model = model
 	opening.hud = hud
@@ -196,13 +200,15 @@ func _build_ui() -> void:
 	tithe_explain.card = sidebar  # the plate keeps off the open card
 	tithe_explain.toast.connect(hud.show_toast)
 	layer.add_child(tithe_explain)
-	Game.game_event.connect(tithe_explain.on_event)
 	away = MapAway.new()  # last: it opens over everything
 	away.model = model
 	away.demo = Game.state.debug_enabled and OS.get_cmdline_user_args().has("--away=demo")
 	away.acted.connect(_act_on)
 	layer.add_child(away)
 	Game.game_event.connect(away.on_event)
+	tithe_explain.away = away  # the explanation waits while the away panel is open, and opens when it closes
+	away.closed.connect(tithe_explain.on_away_closed)
+	Game.game_event.connect(tithe_explain.on_event)  # after the away panel's, so it sees the panel already open
 	var tip_theme := MapUi.tooltip_theme()  # every map tooltip on its own opaque plate
 	for c in layer.get_children():
 		if c is Control:
@@ -218,6 +224,7 @@ func _build_ui() -> void:
 	setpieces.callouts = callouts_view
 	setpieces.valve = valve
 	setpieces.layer = setpiece_layer
+	setpieces.seen = seen
 	add_child(setpieces)
 
 

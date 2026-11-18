@@ -49,6 +49,7 @@ var _rev := -2
 var _margin_sig := ""  # model.margin_sig at the last redraw: the idle layer redraws when it changes
 var _dirty := true
 var _panel_key: Array = []  # NodeLogic.panel_key of ctx.panel
+var _panel_moved := false  # the card opened, closed or moved this frame: check the static sigs (no forced redraw)
 var _rm := false
 var _cam: Camera2D
 var _cfg_ref = null
@@ -74,6 +75,18 @@ func chip_world_rect(f: Dictionary) -> Rect2:
 ## Covington's and Vei's discs and plates, in world px (IdleLogic.node_obstacles).
 func node_obstacles() -> Array:
 	return _idle.node_obstacles()
+
+
+## The map's own text a bar tooltip keeps clear of, in world px: Covington's glyph labels and Vei's name
+## (node_obstacles' plates) and Vei's ODDS readout block.
+func readout_rects() -> Array:
+	var out: Array = []
+	for n in node_obstacles():
+		out.append_array(n["rects"])
+	var r := _vei_s.readout_rect()
+	if r.size.x > 0.0:
+		out.append(r)
+	return out
 
 
 ## Where Relish's token is drawn, in world px.
@@ -208,7 +221,7 @@ func _process(delta: float) -> void:
 	if not rm:
 		_vei_s.spin(fposmod(ctx.now_s * NodeLogic.vei_spin(ctx.r_vei), TAU))
 	var piles_moved := _step_piles(delta, rm)
-	if refreshed or _dirty or margins_changed or piles_moved:
+	if refreshed or _dirty or margins_changed or piles_moved or _panel_moved:
 		_vei_s.sync_rings()
 		for l: MapNodeLayer in _statics:
 			var sig = l.static_sig()
@@ -226,6 +239,7 @@ func _process(delta: float) -> void:
 		_glyph_beat.modulate.a = NodeLogic.state_alpha(Pulse.wave(model.hops_of(_fort_ids[0])))
 		_siege.modulate.a = GlyphLogic.siege_alpha(Pulse.wave(model.hops_of(_fort_ids[0])))
 	_dirty = false
+	_panel_moved = false
 	_last_us = Time.get_ticks_usec() - t0  # lint-ok: bench timing
 
 
@@ -276,8 +290,9 @@ func _sync_camera() -> void:
 		_dirty = true
 
 
-## The open card (its left edge, the camera's offset) as the labels see it: every layer redraws when it
-## opens, closes or moves, so their labels (and the chips' layout) follow it.
+## The open card (its left edge, the camera's offset) as the labels see it. Nothing is forced to redraw
+## (a pan with the card open moves the key every frame): `_panel_moved` has the static layers' sigs
+## checked, and each carries its own labels' shifts, so a layer redraws only when its labels move or hide.
 func _sync_panel() -> void:
 	var pn := NodeLogic.panel_closed()
 	if card != null and card.is_visible_in_tree():
@@ -287,7 +302,12 @@ func _sync_panel() -> void:
 	if key != _panel_key:
 		_panel_key = key
 		ctx.panel = pn
-		_dirty = true
+		_panel_moved = true
+
+
+## The model rev this node's ctx was last refreshed at (it trails model.rev until this node's next _process).
+func refresh_rev() -> int:
+	return _rev
 
 
 ## Once per model refresh: pull the model's entries into the context, find the forts in Relish's

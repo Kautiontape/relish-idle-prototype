@@ -182,6 +182,12 @@ static func tip(id: String) -> String:
 	return str(MapLogic.cfg().get("clarity", {}).get("tips", {}).get(id, ""))
 
 
+## Which ODDS tip the bar shows: "odds_backups" once view_hud reports backups (economy P3; `backups` is
+## MapModel.readout()'s, -1 when unknown), else "odds", which doesn't claim the odds count them.
+static func odds_tip_id(backups: int) -> String:
+	return "odds_backups" if backups >= 0 else "odds"
+
+
 ## The hover line `id` on a Label or Button: its tooltip is tip(id) and it passes the mouse on (a Control
 ## that ignores the mouse shows no tooltip). A word with no line is left as it was.
 static func apply_tip(c: Control, id: String) -> void:
@@ -199,8 +205,10 @@ static func apply_tip(c: Control, id: String) -> void:
 ## (2) right of the plates under the bar (the widest end of those the word is not on), just under the plates
 ## the word is on: over the map. Fallback, when neither is clear: the one overlapping least (the first on a
 ## tie), then clamped on screen; a plate larger than the viewport less its margins is shrunk to fit, so the
-## result is always inside the viewport.
-static func tip_rect(word: Rect2, tip: Vector2, plates: Array, viewport: Vector2, card := Rect2()) -> Rect2:
+## result is always inside the viewport. `readouts`: the map's own text (Vei's readout and name, Covington's
+## labels) in screen px, avoided like the card; candidate (2), which sits over the map, is also pushed down
+## past each one it meets (they never set where the plates end).
+static func tip_rect(word: Rect2, tip: Vector2, plates: Array, viewport: Vector2, card := Rect2(), readouts := []) -> Rect2:
 	var tc: Dictionary = MapLogic.cfg()["clarity"]["tooltip"]
 	var gap := float(tc["gap_px"])
 	var margin := float(tc["margin_px"])
@@ -209,6 +217,7 @@ static func tip_rect(word: Rect2, tip: Vector2, plates: Array, viewport: Vector2
 	var avoid: Array = plates.duplicate()
 	if card.size.x > 0.0 and card.size.y > 0.0:
 		avoid.append(card)
+	avoid.append_array(readouts)
 	var host_end := word.end.y
 	var right := 0.0
 	for p in plates:
@@ -221,7 +230,12 @@ static func tip_rect(word: Rect2, tip: Vector2, plates: Array, viewport: Vector2
 		for p in avoid:
 			if down.intersects(p):
 				down.position.y = (p as Rect2).end.y + gap
-	var cands: Array = [down, Rect2(Vector2(right + gap, host_end + gap), size)]
+	var over_map := Rect2(Vector2(right + gap, host_end + gap), size)
+	for _i in readouts.size() + 1:
+		for p in readouts:
+			if over_map.intersects(p):
+				over_map.position.y = (p as Rect2).end.y + gap
+	var cands: Array = [down, over_map]
 	var best := Rect2()
 	var best_over := INF
 	for c in cands:
@@ -238,6 +252,11 @@ static func tip_rect(word: Rect2, tip: Vector2, plates: Array, viewport: Vector2
 			best = c
 	best.position = Vector2(clampf(best.position.x, inside.position.x, inside.end.x - size.x), clampf(best.position.y, inside.position.y, inside.end.y - size.y))
 	return best
+
+
+## A world-px rect (the map's labels) as a screen rect: (world - camera position) x zoom + viewport / 2.
+static func world_to_screen(r: Rect2, cam_pos: Vector2, zoom: float, viewport: Vector2) -> Rect2:
+	return Rect2((r.position - cam_pos) * zoom + viewport * 0.5, r.size * zoom)
 
 
 ## A screen rect (the open card) in a world-anchored layer's frame, world x zoom (MapCallouts'):

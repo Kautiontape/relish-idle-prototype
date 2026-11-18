@@ -209,35 +209,58 @@ static func drain_at(backlog: float, diff: float) -> float:
 	return backlog / -diff if diff < 0.0 else -1.0
 
 
+## The strain after `window_s` at a differential, before any cap: b / (b + K) with b = max(backlog + diff x window, 0).
+static func strain_at(backlog: float, diff: float, window_s: float, k: float) -> float:
+	var b := maxf(backlog + diff * window_s, 0.0)
+	return b / (b + k) if b + k > 0.0 else 0.0
+
+
 ## Odds after `window_s` at a differential: b / (b + K) with b = max(backlog + diff x window, 0). With `odds_cfg`
 ## (realm.json's `odds` block; E4 step 9, option B) they are the win odds view_vei shows, at the age `age_s` +
 ## window: GameState.win_odds_of on that strain. Without it, the strain alone (as before).
 static func odds_at(backlog: float, diff: float, window_s: float, k: float, odds_cfg := {}, age_s := 0.0) -> float:
-	var b := maxf(backlog + diff * window_s, 0.0)
-	var s := b / (b + k) if b + k > 0.0 else 0.0
+	var s := strain_at(backlog, diff, window_s, k)
 	if odds_cfg.is_empty():
 		return s
 	return GameState.win_odds_of(age_s + window_s, s, float(odds_cfg.get("time_weight", 0.0)),
 		float(odds_cfg.get("time_s", 0.0)), float(odds_cfg.get("backlog_cap", 1.0)))
 
 
+## The first-attempt odds on a readiness and the backups: readiness / (1 + exp(-(backups - mid) / scale)); scale <= 0
+## is a step (readiness at or past mid, else 0). Mirror of GameState.first_odds_of (economy cff0ecc); once P3 is merged,
+## call that instead.
+static func first_odds_of(readiness: float, backups: int, mid: float, scale: float) -> float:
+	if scale <= 0.0:
+		return readiness if float(backups) >= mid else 0.0
+	return readiness / (1.0 + exp(-(float(backups) - mid) / scale))
+
+
 ## Now against the dragged valve: {now: {diff, drain_s, odds}, then: {...}}. Both sides use the
 ## same formulas; `now` is the current differential (diff_ema), `then` diff_at's. `odds_cfg` and `age_s` as odds_at.
+## When `vei` carries `backups` and `odds_cfg` both backups_mid and backups_scale, each side's odds are first_odds_of
+## on its readiness (what the player reads); otherwise the readiness itself (before Phase I P3's odds split). Each side also
+## carries its `strain` (before the cap) and `first` (whether first odds were applied).
 static func payoff(vei: Dictionary, proj: Dictionary, k: float, odds_cfg := {}, age_s := 0.0) -> Dictionary:
 	var c := _c()
 	var backlog := float(vei.get("backlog", 0.0))
 	var window := float(c["drain_window_s"])
 	var out := {}
+	var split := vei.has("backups") and odds_cfg.has("backups_mid") and odds_cfg.has("backups_scale")
 	var diffs := {"now": float(vei.get("diff_ema", 0.0)), "then": diff_at(proj)}
 	for side in diffs:
 		var d: float = diffs[side]
-		out[side] = {"diff": d, "drain_s": drain_at(backlog, d), "odds": odds_at(backlog, d, window, k, odds_cfg, age_s)}
+		var o := odds_at(backlog, d, window, k, odds_cfg, age_s)
+		if split:
+			o = first_odds_of(o, int(vei["backups"]), float(odds_cfg["backups_mid"]), float(odds_cfg["backups_scale"]))
+		out[side] = {"diff": d, "drain_s": drain_at(backlog, d), "odds": o, "strain": strain_at(backlog, d, window, k), "first": split}
 	return out
 
 
 ## The payoff as one line: "Vei ▲ +2.1/s → ▲ +4.0/s" then "drain ∞ → 8m 40s" when either side
-## drains, else "odds in 10 min 61% → 64%". `sign_eps` is realm.json readout.sign_eps.
-static func payoff_line(p: Dictionary, sign_eps: float) -> String:
+## drains, else "odds in 10 min 61% → 64%". When neither drains and both strains are at or past `backlog_cap` (realm.json
+## odds; none without it) the two odds are equal by formula, so the odds part is "odds 61%: her queue is past full, so more
+## FLOOD won't raise them" (+ "; backups will" when first odds are applied). `sign_eps` is realm.json readout.sign_eps.
+static func payoff_line(p: Dictionary, sign_eps: float, odds_cfg := {}) -> String:
 	var c := _c()
 	var now: Dictionary = p["now"]
 	var then: Dictionary = p["then"]
@@ -246,6 +269,11 @@ static func payoff_line(p: Dictionary, sign_eps: float) -> String:
 	var second := ""
 	if float(now["drain_s"]) >= 0.0 or float(then["drain_s"]) >= 0.0:
 		second = str(c["payoff_drain_fmt"]) % [MapLogic.fmt_drain(float(now["drain_s"])), MapLogic.fmt_drain(float(then["drain_s"]))]
+	elif odds_cfg.has("backlog_cap") and float(now.get("strain", 0.0)) >= float(odds_cfg["backlog_cap"]) \
+			and float(then.get("strain", 0.0)) >= float(odds_cfg["backlog_cap"]):
+		second = str(c["payoff_capped_fmt"]) % roundi(float(now["odds"]) * 100.0)
+		if bool(now.get("first", false)):
+			second += str(c["payoff_capped_backups"])
 	else:
 		second = str(c["payoff_odds_fmt"]) % [str(c["payoff_window_text"]), roundi(float(now["odds"]) * 100.0), roundi(float(then["odds"]) * 100.0)]
 	return vei + str(c["payoff_sep"]) + second

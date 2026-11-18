@@ -9,6 +9,7 @@ extends Control
 ## needs no special case.
 
 signal acted(action: Dictionary)  # a line was clicked: AwayLogic.action's {kind, ...}
+signal closed  # hidden after being shown (dismissed, or a clicked line acted); not the initial hide
 
 static var _closed_rev := -1  # the report revision closed this session (the stand-in's dismiss)
 
@@ -231,6 +232,7 @@ func _dismiss() -> void:
 func _close() -> void:
 	_closed_rev = _rev
 	visible = false
+	closed.emit()
 
 
 func _draw_frame() -> void:

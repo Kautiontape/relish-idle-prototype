@@ -109,7 +109,8 @@ func refresh() -> void:
 	if not visible:
 		return
 	if selected_id == MapModel.VEI:
-		_card.show_card(CardBlocksLogic.vei_card(model.vei, _world_desc("vei"), model.party.get("party", []), model.unit_names, model.readout()))
+		_card.show_card(CardBlocksLogic.vei_card(model.vei, _world_desc("vei"), model.party.get("party", []), model.unit_names, model.readout(),
+			ConfigDb.data.get("vei", {}), model.big_undead))
 		var acts := RelishLogic.vei_actions(model.vei, model.relish)
 		var at := acts.find_custom(func(i): return str(i["act"]) == "begin")
 		acts.insert(maxi(at, 0), {"kind": "line", "text": CardLogic.pinned_odds(model.readout()), "act": "", "enabled": true})

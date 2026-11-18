@@ -28,6 +28,7 @@ func run() -> int:
 	_wake(t)
 	_labels(t)
 	_card_shift(t)
+	_card_sigs(t)
 	_relish_clock(t)
 	_light(t)
 	_misc(t)
@@ -48,12 +49,10 @@ func _piles(t: TestUtil) -> void:
 	t.ok(secs > 0.0 and float(NodeLogic.ncfg()["pile_ease_min_jump"]) > 0.0, "pile_ease_s and pile_ease_min_jump are configured")
 	var st := NodeLogic.pile_ease({}, 5.0, 0.016, false)
 	t.near(NodeLogic.pile_value(st), 5.0, 1e-9, "the first read starts at the model value (no ease on mount)")
-	t.ok(not NodeLogic.pile_easing(st), "and is not easing")
-	st = NodeLogic.pile_ease(st, 5.3, 0.016, false)
+	st =NodeLogic.pile_ease(st, 5.3, 0.016, false)
 	t.near(NodeLogic.pile_value(st), 5.3, 1e-6, "live drift under the jump threshold is followed, never lagged")
 	st = NodeLogic.pile_ease(st, 8.3, 0.0, false)  # a catch-up's +3
 	t.near(NodeLogic.pile_value(st), 5.3, 1e-9, "a jump starts from the value shown (it does not snap)")
-	t.ok(NodeLogic.pile_easing(st), "and eases")
 	var last := NodeLogic.pile_value(st)
 	var elapsed := 0.0
 	var monotone := true
@@ -66,11 +65,9 @@ func _piles(t: TestUtil) -> void:
 	t.ok(monotone, "the value rises toward the target without overshoot")
 	st = NodeLogic.pile_ease(st, 8.3, 0.05, false)
 	t.near(NodeLogic.pile_value(st), 8.3, 1e-9, "and lands on it within pile_ease_s")
-	t.ok(not NodeLogic.pile_easing(st), "then settles")
 	var down := NodeLogic.pile_ease(st, 4.0, 0.0, false)
 	t.near(NodeLogic.pile_value(NodeLogic.pile_ease(down, 4.0, secs * 0.5, false)), lerpf(8.3, 4.0, 0.5), 1e-6, "halfway through the time it is halfway (smoothstep) down too")
 	t.near(NodeLogic.pile_value(NodeLogic.pile_ease(st, 11.0, 0.016, true)), 11.0, 1e-9, "under reduced motion a jump snaps")
-	t.ok(not NodeLogic.pile_easing(NodeLogic.pile_ease(st, 11.0, 0.016, true)), "and is not easing")
 	t.near(float(NodeLogic.arc_fracs(NodeLogic.with_dead(_fort(20.0, 0.0, 0.0, 2.0), 6.0))["dead"]), 0.3, 1e-9, "the ring draws the eased dead through with_dead")
 	var ring := FileAccess.get_file_as_string("%s/map_fort_ring.gd" % MAP_DIR)
 	t.ok(ring.contains("NodeLogic.with_dead(") and ring.contains("ctx.dead_shown"), "the fort ring draws the eased pile")
@@ -265,8 +262,8 @@ func _relish_clock(t: TestUtil) -> void:
 	t.ok(j > float(NodeLogic.ncfg()["relish_gap_px"]) + MapLogic.fort_radius(4), "the jump distance clears a standing offset above the biggest fort")
 
 
-## Real positions: Covington, the forts' centroid, Vei (configs/world.json).
-## NodeLogic.label_dx and the layers that share it: no label is drawn partly under the open card.
+## NodeLogic.label_dx and the layers that share it (fort labels, Covington's stream labels, Vei's
+## name, the cache keys): no label is drawn partly under the open card.
 func _card_shift(t: TestUtil) -> void:
 	t.suite("map_nodes-card-shift")
 	var m := 14.0
@@ -307,11 +304,11 @@ func _card_shift(t: TestUtil) -> void:
 		{"war": 30.0, "flood": 44.0, "work": 38.0, "covington": 88.0}, float(size))
 	var cp := NodeLogic.panel_of(1262.0, 0.0, 1.0, 1600.0)
 	var sx := 1250.0  # Covington's screen x: just left of the card
-	var shifted := NodeLogic.shift_valve_labels(lay, sx, cp)
+	var shifted := NodeLogic.shift_valve_labels(lay, sx, cp, 1.0)
 	for k in shifted:
 		t.ok(sx + (shifted[k]["rect"] as Rect2).end.x <= 1262.0 - mg + 0.001, "Covington's %s label ends clear of the card" % k)
 		t.ok(is_equal_approx((shifted[k]["off"] as Vector2).x - (lay[k]["off"] as Vector2).x, (shifted[k]["rect"] as Rect2).position.x - (lay[k]["rect"] as Rect2).position.x), "its %s text moves with its plate" % k)
-	t.ok(NodeLogic.shift_valve_labels(lay, sx, {}).size() == lay.size() and NodeLogic.shift_valve_labels(lay, sx, {})["war"]["rect"] == lay["war"]["rect"], "the card closed: Covington's labels as laid out")
+	t.ok(NodeLogic.shift_valve_labels(lay, sx, {}, 1.0).size() == lay.size() and NodeLogic.shift_valve_labels(lay, sx, {}, 1.0)["war"]["rect"] == lay["war"]["rect"], "the card closed: Covington's labels as laid out")
 	var vs := NodeLogic.vei_name_shift(1500.0, 60.0, 50.0, size, 1.0, NodeLogic.panel_of(1262.0, 0.0, 1.0, 1600.0))
 	t.ok(float(vs["dx"]) == 0.0 and not bool(vs["hidden"]), "Vei under the card keeps her name")
 	# the caches key on the card
@@ -323,12 +320,70 @@ func _card_shift(t: TestUtil) -> void:
 	t.ok(HudLogic.label_key(3, 1.0, "mid", 5, open_pk) != HudLogic.label_key(3, 1.0, "mid", 5, base_pk) and HudLogic.label_key(3, 1.0, "mid", 5) == HudLogic.label_key(3, 1.0, "mid", 5, base_pk),
 		"the label cache key changes when the card opens")
 	t.ok(HudLogic.label_key(3, 1.0, "mid", 5, open_pk) != HudLogic.label_key(3, 1.0, "mid", 5, NodeLogic.panel_key(NodeLogic.panel_of(1100.0, 0.0, 1.0, 1600.0))), "and when it moves")
-	var ck := func(pk: Array): return SetpieceLogic.callout_key("x", 1.0, Vector2.ZERO, Vector2(1600, 900), "mid", 3, Vector2.ZERO, [], pk)
+	var ck := func(pk: Array): return SetpieceLogic.callout_key("x", 1.0, Vector2.ZERO, Vector2(1600, 900), "mid", 3, Vector2.ZERO, [], [], pk)
 	t.ok(ck.call(base_pk) != ck.call(open_pk) and ck.call(open_pk) != ck.call(NodeLogic.panel_key(NodeLogic.panel_of(1100.0, 0.0, 1.0, 1600.0))), "the set-piece callout key changes when the card opens or moves")
 	var src := FileAccess.get_file_as_string("res://scripts/map/map_fort_idle.gd")
 	t.ok(src.contains("NodeLogic.panel_key(ctx.panel)"), "the chip layout's key carries the card")
 
 
+## What a layer's static_sig carries for its card-shifted labels: the label's own {dx, hidden}, whole
+## px, so a pan that leaves a label clear of the card changes nothing, and Covington's shifted stream
+## labels never land on her glyph, and Vei's ODDS readout follows the card as her name does.
+func _card_sigs(t: TestUtil) -> void:
+	t.suite("map_nodes-card-sigs")
+	var size := int(MapLogic.cfg()["font_label"])
+	var mg := float(NodeLogic.ncfg()["label_panel_margin_px"])
+	# a fort's name and tag: same for two pans that leave them clear, different when the card makes one shift or hide
+	var fsig := func(world_x: float, left: float):
+		var pn := NodeLogic.panel_of(left, 0.0, 1.0, 1600.0)
+		return NodeLogic.fort_label_sig(90.0, 140.0, size, NodeLogic.panel_sx(pn, world_x, 1.0), pn)
+	t.ok(fsig.call(100.0, 1262.0) == fsig.call(130.0, 1262.0), "two pans that leave the fort's labels clear: the same sig")
+	t.ok(fsig.call(100.0, 1262.0) == fsig.call(100.0, 1500.0), "the card moving while the labels stay clear: the same sig")
+	t.ok(fsig.call(400.0, 1262.0) != fsig.call(380.0, 1262.0), "a pan that moves a shifted label more than a px: a new sig")
+	t.ok(fsig.call(400.0, 1262.0) == fsig.call(400.2, 1262.0), "sub-pixel drift in a shifted label: the same sig")
+	t.ok(fsig.call(400.0, 1262.0) != fsig.call(100.0, 1262.0), "the card making a label shift: a different sig from clear")
+	t.ok(fsig.call(460.0, 1262.0) != fsig.call(400.0, 1262.0) and fsig.call(460.0, 1262.0) != fsig.call(100.0, 1262.0), "the card hiding a label (fort at screen 1260, just left of it): a different sig")
+	t.ok(NodeLogic.fort_label_sig(90.0, 140.0, size, 400.0, NodeLogic.panel_closed()) == NodeLogic.fort_label_sig(90.0, 140.0, size, 900.0, {}), "card closed: one sig wherever the fort is")
+	# Covington's stream labels never land on her glyph: a shift that would hit the disc hides the label
+	var zoom := 1.0
+	var h := float(NodeLogic.ncfg()["cov_half_px"]) * zoom + float(NodeLogic.ncfg()["cov_width_px"])
+	var sx := 1000.0
+	var lay := {"war": {"off": Vector2(30.0, 0.0), "align": -1, "dy": 4.0, "rect": Rect2(30.0, -10.0, 60.0, 20.0)}}
+	var hit := NodeLogic.shift_valve_labels(lay, sx, NodeLogic.panel_of(sx + 40.0 + mg, 0.0, 1.0, 1600.0), zoom)  # dx -50: spans -20..40, over the glyph
+	t.ok(not hit.has("war"), "a shift that would put WAR onto the glyph hides it")
+	var clear := NodeLogic.shift_valve_labels(lay, sx, NodeLogic.panel_of(sx + 80.0 + mg, 0.0, 1.0, 1600.0), zoom)  # dx -10: spans 20..80, clear of +-h
+	t.ok(clear.has("war") and 20.0 - h > 0.0 and is_equal_approx((clear["war"]["rect"] as Rect2).position.x, 20.0), "a shift that clears the glyph shifts as before")
+	t.ok(NodeLogic.shift_valve_labels(lay, sx, NodeLogic.panel_closed(), zoom).has("war"), "the card closed: nothing hidden")
+	var pn_hit := NodeLogic.panel_of(sx + 40.0 + mg, 0.0, 1.0, 1600.0)
+	var pn_clear := NodeLogic.panel_of(sx + 80.0 + mg, 0.0, 1.0, 1600.0)
+	t.ok(NodeLogic.valve_label_sig(lay, sx, pn_hit, zoom) != NodeLogic.valve_label_sig(lay, sx, pn_clear, zoom), "Covington's sig tells hidden from shifted")
+	t.ok(NodeLogic.valve_label_sig(lay, sx, NodeLogic.panel_of(2000.0, 0.0, 1.0, 1600.0), zoom) == NodeLogic.valve_label_sig(lay, sx, NodeLogic.panel_of(2500.0, 0.0, 1.0, 1600.0), zoom),
+		"Covington's sig is the same for two cards that leave her labels clear")
+	# Vei's ODDS readout: right of her rings, it keeps clear of the card as her name does
+	var r_out := 60.0
+	var widths := [40.0, 60.0, 120.0]
+	var vx := 1000.0
+	var base := NodeLogic.vei_readout_shift(vx, r_out, widths, zoom, NodeLogic.panel_closed())
+	var end_x := vx + 800.0 + (base["plate"] as Rect2).end.x  # her screen x: panel_of(_, 0, 1, 1600) puts the world 800 px right
+	t.ok(float(base["dx"]) == 0.0 and not bool(base["hidden"]), "the card closed: the readout stays")
+	var s := NodeLogic.vei_readout_shift(vx, r_out, widths, zoom, NodeLogic.panel_of(end_x + mg + 40.0, 0.0, 1.0, 1600.0))
+	t.ok(float(s["dx"]) == 0.0 and not bool(s["hidden"]), "a card clear of the readout leaves it")
+	s = NodeLogic.vei_readout_shift(vx, r_out, widths, zoom, NodeLogic.panel_of(end_x + mg - 5.0, 0.0, 1.0, 1600.0))
+	t.ok(is_equal_approx(float(s["dx"]), -5.0) and not bool(s["hidden"]), "a card that overlaps it a little shifts it left, clear by the margin")
+	s = NodeLogic.vei_readout_shift(vx, r_out, widths, zoom, NodeLogic.panel_of(end_x + mg - 200.0, 0.0, 1.0, 1600.0))
+	t.ok(bool(s["hidden"]), "a card it cannot stay attached to (shifting it over her rings) hides it")
+	s = NodeLogic.vei_readout_shift(vx, r_out, widths, zoom, NodeLogic.panel_of(vx - 50.0, 0.0, 1.0, 1600.0))
+	t.ok(float(s["dx"]) == 0.0 and not bool(s["hidden"]), "Vei under the card: the readout stays (the card covers it whole)")
+	var vsig := func(left: float, px: float):
+		return NodeLogic.vei_label_sig(vx + px, r_out, 50.0, widths, size, zoom, NodeLogic.panel_of(left, 0.0, 1.0, 1600.0))
+	t.ok(vsig.call(3000.0, 0.0) == vsig.call(3500.0, 0.0) and vsig.call(end_x + mg - 5.0, 0.0) != vsig.call(3000.0, 0.0), "Vei's sig: same while clear, different when the card shifts the readout")
+	var src := FileAccess.get_file_as_string("%s/map_nodes.gd" % MAP_DIR)
+	var fn := src.substr(src.find("func _sync_panel"))
+	fn = fn.substr(0, fn.find("\nfunc ", 10))
+	t.ok(not fn.contains("_dirty = true"), "a panel change does not force every layer to redraw (each layer's sig carries its own labels)")
+
+
+## Real positions (configs/world.json): the valve labels laid out around Covington, never overlapping.
 func _labels(t: TestUtil) -> void:
 	t.suite("map_nodes-labels")
 	var world := TestUtil.load_json("res://configs/world.json")

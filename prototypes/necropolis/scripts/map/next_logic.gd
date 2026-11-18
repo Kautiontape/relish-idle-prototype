@@ -251,12 +251,20 @@ static func _vei_in_reach(inp: Dictionary, prev: Dictionary, c: Dictionary) -> b
 	if bool(inp.get("vei", {}).get("can_begin", false)):
 		return true
 	var bar := float(c["next_vei_odds_exit"] if str(prev.get("rule", "")) == VEI else c["next_vei_odds"])
-	return float(inp.get("readout", {}).get("odds", 0.0)) >= bar
+	var ro: Dictionary = inp.get("readout", {})
+	return float(ro.get("readiness", ro.get("odds", 0.0))) >= bar  # a decision: the readiness, not the shown odds
 
 
+## The Vei line. It adds vei_backups_text when the shown odds sit under vei_backups_below x the
+## readiness: odds over readiness is a logistic in the backups count alone (economy P3), so the
+## suffix moves only when backups do and needs no hysteresis. Before P3 there is no readiness: no suffix.
 static func _vei(inp: Dictionary, c: Dictionary, fort_ids: Array) -> Dictionary:
-	var odds := float(inp.get("readout", {}).get("odds", 0.0))
-	return _pick(VEI, "vei", str(c["vei_fmt"]) % roundi(clampf(odds, 0.0, 1.0) * 100.0), fort_ids)
+	var ro: Dictionary = inp.get("readout", {})
+	var odds := float(ro.get("odds", 0.0))
+	var text := str(c["vei_fmt"]) % roundi(clampf(odds, 0.0, 1.0) * 100.0)
+	if odds < float(c["vei_backups_below"]) * float(ro.get("readiness", odds)):
+		text += str(c["vei_backups_text"])
+	return _pick(VEI, "vei", text, fort_ids)
 
 
 static func _pick(rule: String, target: String, text: String, fort_ids: Array) -> Dictionary:

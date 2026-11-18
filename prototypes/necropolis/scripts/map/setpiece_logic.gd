@@ -18,6 +18,8 @@ const KINDS := [VALVE, FLIP, FIRST_FLIP, TITHE, GARRISON, VICTORY, RETREAT]
 const TAKEN := "taken"  # return_kind: the raid took the fort (its set piece is FLIP or FIRST_FLIP)
 const RUN := "run"    # victory: every lane green, running toward Vei
 const STOP := "stop"  # victory: every dash frozen, the victory line up
+const VICTORY_PLAY := "play"      # victory_start: first time in this game: mark it seen and run it
+const VICTORY_SETTLE := "settle"  # victory_start: seen in this game: straight to the end state (STOP)
 const NONE := Vector2(-1.0, -1.0)  # no band this frame
 
 
@@ -150,8 +152,9 @@ static func note_dive(fort_id: String, held: bool) -> void:
 ## held when Relish dove: that raid took nothing, so it says nothing. No record for this fort (a
 ## harness teleport that never dove from the map) allows the fallback. A fort still Vei's with Relish
 ## alive is a retreat (she keeps what she found); a death, a held fort past its grace and any other
-## scene say nothing.
-static func return_kind(arrive_from: String, fort: Dictionary, taken_event: bool, relish: Dictionary, dive := _last_dive) -> String:
+## scene say nothing. A stale end (`stale`: the raid ended while away) never says RETREAT: it kept only
+## the last checkpoint. TAKEN is unchanged.
+static func return_kind(arrive_from: String, fort: Dictionary, taken_event: bool, relish: Dictionary, dive := _last_dive, stale := false) -> String:
 	if arrive_from == "" or fort.is_empty() or str(fort.get("id", "")) != arrive_from:
 		return ""
 	if taken_event:
@@ -162,7 +165,7 @@ static func return_kind(arrive_from: String, fort: Dictionary, taken_event: bool
 		return TAKEN if float(fort.get("grace_s_left", 0.0)) > 0.0 and not was_held else ""
 	if float(relish.get("dead_s_left", 0.0)) > 0.0 or str(relish.get("state", "")) == "dead":
 		return ""
-	return RETREAT
+	return "" if stale else RETREAT
 
 
 ## The return line for `kind` (TAKEN or RETREAT) at a fort named `fort_name`; "" for any other kind.
@@ -192,8 +195,56 @@ static func split_text(text: String) -> Array:
 ## What a set-piece callout's placement (MapSetpieces._callout) depends on, as a cache key: the line, the zoom and
 ## camera, the viewport, the tier, the model's rev, her token on the callouts' grid (`token_cell`), the lane
 ## callouts as drawn (`drawn_key`), and the open card (`panel`: NodeLogic.panel_key: the labels shift clear of it).
-static func callout_key(text: String, zoom: float, cam_pos: Vector2, viewport: Vector2, tier: String, rev: int, token_cell: Vector2, drawn_key: Array, panel: Array) -> Array:
-	return [text, roundi(zoom * 1000.0), roundi(cam_pos.x), roundi(cam_pos.y), viewport, tier, rev, token_cell, drawn_key, panel]
+## `chips_key`: the held forts' chip rects as the placement reads them (HudLogic.rects_key: whole px), hard
+## obstacles whose widths tick between revs.
+static func callout_key(text: String, zoom: float, cam_pos: Vector2, viewport: Vector2, tier: String, rev: int, token_cell: Vector2, drawn_key: Array, chips_key: Array, panel: Array) -> Array:
+	return [text, roundi(zoom * 1000.0), roundi(cam_pos.x), roundi(cam_pos.y), viewport, tier, rev, token_cell, drawn_key, chips_key, panel]
+
+
+## The placement cache without the callouts not drawn this frame: `used` holds the keys that were.
+static func prune_placed(placed: Dictionary, used: Dictionary) -> Dictionary:
+	var out := {}
+	for k in placed:
+		if used.has(k):
+			out[k] = placed[k]
+	return out
+
+
+## Whether the victory is already seen: it played on this map, or the game was already won when the map mounted.
+static func victory_seen(played: bool, won_at_mount: bool) -> bool:
+	return played or won_at_mount
+
+
+## What a victory start does. "" when `already` (this map has played or settled it: ignore);
+## VICTORY_SETTLE when `seen` (MapSeen.VICTORY: it ran earlier in this game); else VICTORY_PLAY.
+static func victory_start(already: bool, seen: bool) -> String:
+	if already:
+		return ""
+	return VICTORY_SETTLE if seen else VICTORY_PLAY
+
+
+## Whether a map mounting now settles its victory at once, without waiting for the camera: the game
+## is `won` and its victory was already `seen` (MapSeen.VICTORY). The first play waits for go_live.
+static func victory_settle_at_mount(won: bool, seen: bool) -> bool:
+	return won and seen
+
+
+## The inputs of the held forts' chip rects (MapFortIdle.chip_world_rect), as a cheap signature so
+## MapSetpieces._chips_key measures the chips only when one changes: the model rev, the zoom (to
+## 0.001) and tier, `margin_sig` (the chips' margin, rate and fall text), `chip_fx` (the garrison set
+## piece rewrites a chip's text between revs), Relish's token `cell` on the callouts' grid, the open
+## card's `panel_key`, the valve `shares` Covington's labels are drawn with (rounded to 0.001: a valve
+## swing moves them with no rev), and `extra`: the rest of MapFortIdle._layout's key (fort count, token
+## state, backlog, Vei's radius, node positions). Containers are copied, so a later in-place change
+## to them shows as a different sig.
+static func chips_sig(rev: int, zoom: float, tier: String, margin_sig, chip_fx: Dictionary, cell, panel_key: Array, shares: Dictionary, extra := []) -> Array:
+	var sh: Array = []
+	var keys := shares.keys()
+	keys.sort()
+	for k in keys:
+		sh.append([str(k), roundi(float(shares[k]) * 1000.0)])
+	var ms = margin_sig.duplicate(true) if (margin_sig is Array or margin_sig is Dictionary) else margin_sig
+	return [rev, roundi(zoom * 1000.0), tier, ms, chip_fx.duplicate(true), cell, panel_key.duplicate(true), sh, extra.duplicate(true)]
 
 
 ## A fort's name and tag plates in the frame (`zoom` x world): NodeLogic.fort_label_rects at the label

@@ -224,16 +224,51 @@ static func assigned_text(assigned: Array, names: Dictionary) -> String:
 	return str(_c().get("front_assigned_fmt", "%s")) % ", ".join(who)
 
 
+## "also counts: Pale Ann (not assigned: its best front)": the uids VeiFronts counted on a front
+## (`counted`) that the player did not assign, or "" when there are none (or no `counted`, an old-shape row).
+static func also_counts_text(counted: Array, assigned: Array, names: Dictionary) -> String:
+	var who: Array = []
+	for u in counted:
+		if not assigned.has(u):
+			who.append(str(names.get(str(u), str(u))))
+	if who.is_empty():
+		return ""
+	return str(_c().get("front_also_fmt", "%s")) % ", ".join(who)
+
+
+## "+ her queue: 12" for a front whose `have` includes Vei's queue, else "". Which fronts count it is
+## read from vei.json's fronts block (`vei_cfg`, ConfigDb's): per_backlog or per_q above 0 (VeiFronts:
+## have = per_stat * sum(stat) + per_backlog * backlog + per_q * digest_q). The amount is `have` less
+## per_stat * the counted units' stat on that front (`bigs`: uid -> view_big_undead entry); when a
+## counted unit's stats are not in `bigs` it is only named ("+ her queue").
+static func queue_text(f: Dictionary, vei_cfg: Dictionary, bigs: Dictionary) -> String:
+	var fc: Dictionary = vei_cfg.get("fronts", {}).get(str(f.get("id", "")), {})
+	if float(fc.get("per_backlog", 0.0)) <= 0.0 and float(fc.get("per_q", 0.0)) <= 0.0:
+		return ""
+	var sum := 0.0
+	for u in f.get("counted", []):
+		var b: Dictionary = bigs.get(str(u), {})
+		if not b.has("stats"):
+			return str(_c().get("front_queue", ""))
+		sum += float(b["stats"].get(str(fc.get("stat", "")), 0.0))
+	var amount := float(f.get("have", 0.0)) - float(fc.get("per_stat", 1.0)) * sum
+	return str(_c().get("front_queue_fmt", "%s")) % MapLogic.fmt_mass(maxf(amount, 0.0))
+
+
 ## One row per front: {id, name, have, need (formatted masses), cleared, mark ("✓ met" / "✗ open"),
-## assigned (text)}.
-static func front_rows(fronts: Array, names: Dictionary) -> Array:
+## assigned (text), also (the "also counts" line or ""), queue (the "+ her queue" line or "")}.
+## `vei_cfg` (configs/vei.json) and `bigs` (uid -> view_big_undead entry) give the queue part; without
+## them a row has no queue line.
+static func front_rows(fronts: Array, names: Dictionary, vei_cfg: Dictionary = {}, bigs: Dictionary = {}) -> Array:
 	var out: Array = []
 	for f in fronts:
 		var cleared := bool(f.get("cleared", false))
 		out.append({"id": str(f.get("id", "")), "name": front_name(str(f.get("id", ""))),
 			"have": MapLogic.fmt_mass(float(f.get("have", 0.0))), "need": MapLogic.fmt_mass(float(f.get("need", 0.0))),
 			"cleared": cleared, "mark": str(_c().get("front_met" if cleared else "front_open", "")),
-			"assigned": assigned_text(f.get("assigned", []), names)})
+			"assigned": assigned_text(f.get("assigned", []), names),
+			"also": also_counts_text(f.get("counted", []), f.get("assigned", []), names),
+			"queue": queue_text(f, vei_cfg, bigs)})
 	return out
 
 

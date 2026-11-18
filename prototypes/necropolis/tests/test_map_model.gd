@@ -26,6 +26,20 @@ func run() -> int:
 	t.ok(s.rev != m.rev, "a tick changes rev")
 	t.ok(m.refresh(true), "refresh(true) after a tick re-reads")
 	t.ok(m.rev == s.rev, "the cached rev is current")
+	# Phase I P3's odds split: readout() carries readiness (falls back to odds) and backups (-1 when unknown)
+	var ro0 := m.readout()
+	var hud0 := m.hud.duplicate()
+	if not hud0.has("readiness"):
+		t.ok(ro0["readiness"] == ro0["odds"] and ro0["backups"] == -1, "no readiness/backups in view_hud: readiness is the odds, backups -1")
+	m.hud["readiness"] = 0.62
+	m.hud["odds"] = 0.05
+	m.hud["backups"] = 3
+	var ro1 := m.readout()
+	t.ok(ro1["readiness"] == 0.62 and ro1["odds"] == 0.05 and ro1["backups"] == 3, "present: readiness and backups are carried, odds stays the shown one")
+	m.hud.erase("readiness")
+	m.hud.erase("backups")
+	t.ok(m.readout()["readiness"] == 0.05 and m.readout()["backups"] == -1, "absent again: readiness falls back to odds")
+	m.hud = hud0
 
 	var realm := s.view_realm()
 	t.ok(m.node_pos("covington") == MapModel.to_vec(realm["covington"]["pos"]) and m.has_node("covington"), "covington position")

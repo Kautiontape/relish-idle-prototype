@@ -119,11 +119,6 @@ static func pile_value(st: Dictionary) -> float:
 	return lerpf(float(st["from"]), float(st["to"]), k * k * (3.0 - 2.0 * k))
 
 
-## An ease still moving (the ring needs redrawing as it goes).
-static func pile_easing(st: Dictionary) -> bool:
-	return not st.is_empty() and (float(st["t"]) < _n("pile_ease_s")) and not is_equal_approx(float(st["from"]), float(st["to"]))
-
-
 ## `f` with its dead mass replaced by `dead` (what the ring draws while a pile eases).
 static func with_dead(f: Dictionary, dead: float) -> Dictionary:
 	var g := f.duplicate()
@@ -430,15 +425,21 @@ static func label_shift(sx: float, local: Rect2, panel: Dictionary) -> Dictionar
 
 
 ## Covington's valve labels (valve_label_layout) as drawn with the card open: each shifted by label_shift
-## (`off` and `rect`), a hidden one removed. `sx`: Covington's screen x.
-static func shift_valve_labels(lay: Dictionary, sx: float, panel: Dictionary) -> Dictionary:
+## (`off` and `rect`), a hidden one removed. `sx`: Covington's screen x. A label that the shift
+## would put onto her glyph (the square valve_label_layout keeps clear of, at `zoom`) is hidden too,
+## not the group moved: the others stay attached to their streams.
+static func shift_valve_labels(lay: Dictionary, sx: float, panel: Dictionary, zoom: float) -> Dictionary:
 	var out := {}
+	var h := _n("cov_half_px") * zoom
+	var glyph := Rect2(-h, -h, h * 2.0, h * 2.0).grow(_n("cov_width_px"))
 	for k in lay:
 		var l: Dictionary = (lay[k] as Dictionary).duplicate()
 		var s := label_shift(sx, l["rect"], panel)
 		if bool(s["hidden"]):
 			continue
 		var dx := float(s["dx"])
+		if dx != 0.0 and Rect2((l["rect"] as Rect2).position + Vector2(dx, 0.0), (l["rect"] as Rect2).size).intersects(glyph):
+			continue
 		l["off"] = (l["off"] as Vector2) + Vector2(dx, 0.0)
 		l["rect"] = Rect2((l["rect"] as Rect2).position + Vector2(dx, 0.0), (l["rect"] as Rect2).size)
 		out[k] = l
@@ -452,6 +453,68 @@ static func vei_name_shift(vei_x: float, r_out: float, vw: float, size: int, zoo
 	plate.position.x -= (r_out + _n("odds_gap_px")) * zoom
 	var s := label_shift(panel_sx(panel, vei_x, zoom), plate, panel)
 	return {"dx": s["dx"], "hidden": s["hidden"], "plate": plate}
+
+
+## Vei's ODDS readout (the word, the percent, the strain line: one block, left-aligned, starting
+## `r_out + odds_gap_px` (world px) right of her; `widths` the three texts' widths in screen px): it shifts
+## left as one to clear the card, and hides when it cannot stay attached (as her name), or when the shift
+## would carry it over her rings (its left edge inside r_out). {dx, hidden, plate (screen px around her x, before the shift)}.
+static func vei_readout_shift(vei_x: float, r_out: float, widths: Array, zoom: float, panel: Dictionary) -> Dictionary:
+	var n := ncfg()
+	var size := int(MapLogic.cfg()["font_label"])
+	var line := float(n["odds_line_px"])
+	var x0 := (r_out + float(n["odds_gap_px"])) * zoom
+	var plate := label_plate(x0, float(widths[0]), size, -line)
+	plate = plate.merge(label_plate(x0, float(widths[1]), int(n["font_odds"]), size * float(n["odds_baseline_ratio"])))
+	plate = plate.merge(label_plate(x0, float(widths[2]), int(n["font_odds_sub"]), line * float(n["drain_line_mult"])))
+	var s := label_shift(panel_sx(panel, vei_x, zoom), plate, panel)
+	if not bool(s["hidden"]) and float(s["dx"]) != 0.0 and plate.position.x + float(s["dx"]) < r_out * zoom:
+		s = {"dx": 0.0, "hidden": true}
+	return {"dx": s["dx"], "hidden": s["hidden"], "plate": plate}
+
+
+## Vei's readout block (vei_readout_shift's plate, shifted as drawn) in world px; Rect2() while it is hidden.
+static func vei_readout_rect(vei: Vector2, r_out: float, widths: Array, zoom: float, panel: Dictionary) -> Rect2:
+	var s := vei_readout_shift(vei.x, r_out, widths, zoom, panel)
+	if bool(s["hidden"]):
+		return Rect2()
+	var p: Rect2 = s["plate"]
+	var z := maxf(zoom, 0.001)
+	return Rect2(vei + (p.position + Vector2(float(s["dx"]), 0.0)) / z, p.size / z)
+
+
+## A label's {dx, hidden} as a layer's static_sig carries it: whole px (a pan's sub-pixel drift does not
+## redraw), and a hidden label's dx dropped.
+static func shift_sig(s: Dictionary) -> Array:
+	if bool(s["hidden"]):
+		return [true, 0]
+	return [false, roundi(float(s["dx"]))]
+
+
+## A fort's name and tag shifts as its ring layer's sig carries them (fort_label_shifts, via shift_sig).
+static func fort_label_sig(name_w: float, tag_w: float, size: int, sx: float, panel: Dictionary) -> Array:
+	var out: Array = []
+	for s in fort_label_shifts(name_w, tag_w, size, sx, panel):
+		out.append(shift_sig(s))
+	return out
+
+
+## Covington's valve labels as her layer's sig carries them: per label of `lay` (valve_label_layout),
+## its key, then hidden or the whole px it shifted (shift_valve_labels).
+static func valve_label_sig(lay: Dictionary, sx: float, panel: Dictionary, zoom: float) -> Array:
+	var shifted := shift_valve_labels(lay, sx, panel, zoom)
+	var out: Array = []
+	for k in lay:
+		if shifted.has(k):
+			out.append([k, false, roundi(((shifted[k]["off"] as Vector2).x - (lay[k]["off"] as Vector2).x))])
+		else:
+			out.append([k, true, 0])
+	return out
+
+
+## Vei's name and readout shifts as her layer's sig carries them (vei_name_shift, vei_readout_shift).
+static func vei_label_sig(vei_x: float, r_out: float, name_w: float, readout_widths: Array, size: int, zoom: float, panel: Dictionary) -> Array:
+	return [shift_sig(vei_name_shift(vei_x, r_out, name_w, size, zoom, panel)), shift_sig(vei_readout_shift(vei_x, r_out, readout_widths, zoom, panel))]
 
 
 ## Fort name labels: shown at mid and near zoom; at far zoom only forts of label_far_min_tier+.
@@ -863,6 +926,8 @@ static func demo_overlay(forts: Array, vei: Dictionary, hud: Dictionary, relish:
 		hud["sign"] = int(vd["sign"])
 		hud["drain_s"] = float(vd["drain_s"])
 		hud["odds"] = float(vd["odds"])
+		if hud.has("readiness"):  # (after P3 the demo's reading stands for both, as before the split)
+			hud["readiness"] = float(vd["odds"])
 
 
 ## Overlays a siege and Relish's party (in place) so one near-zoom shot shows the big undead on

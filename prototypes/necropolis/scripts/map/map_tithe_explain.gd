@@ -17,6 +17,7 @@ var cam: MapCamera
 var hud: MapHud
 var seen: MapSeen
 var card: Control  # the sidebar: the panel keeps off its rect while it is visible
+var away: Control  # the away panel: while it is open the explanation waits (on_away_closed opens it)
 
 var _panel: PanelContainer
 var _text: Label
@@ -24,6 +25,7 @@ var _fort_id := ""
 var _fallback_id := ""  # the debug trigger's demo fort, used only when the view has no target
 var _fallback_eta := -1.0
 var _shown_text := ""
+var _deferred := false  # wanted while the away panel was open
 var _top := 0.0  # the HUD plates' bottom edge: the panel stays under it
 
 
@@ -77,11 +79,32 @@ func on_event(ev: Dictionary) -> void:
 		if OpeningLogic.explain_after_away(seen.has(MapSeen.TITHE), model.vei.get("tithe", {})):
 			open_pending()
 		return
-	if str(ev.get("type", "")) != "tithe_warning" or seen.has(MapSeen.TITHE):
+	if str(ev.get("type", "")) != "tithe_warning":
 		return
-	_shown_text = ""
-	_panel.visible = true
-	refresh()
+	_request(not seen.has(MapSeen.TITHE))
+
+
+## Opens now, or waits for the away panel (which opens over everything) to close.
+func _request(want: bool) -> void:
+	match OpeningLogic.explain_gate(want, away != null and away.visible):
+		"open":
+			_deferred = false
+			_shown_text = ""
+			_panel.visible = true
+			refresh()
+		"defer":
+			_deferred = true
+			_panel.visible = false  # one already open steps aside too; on_away_closed reopens it
+
+
+## The away panel closed: a deferred explanation opens now, if it is still wanted. The seen flag and
+## Vei's tithe are read again here, so a tithe that came and went while the panel was up opens nothing.
+func on_away_closed() -> void:
+	if not _deferred:
+		return
+	_deferred = false
+	var live := OpeningLogic.tithe_pending(model.vei.get("tithe", {})) or _fallback_id != ""
+	_request(not seen.has(MapSeen.TITHE) and live)
 
 
 ## A warning already pending when the map mounts (the event fired before it): after the model's
@@ -132,6 +155,10 @@ func refresh() -> void:
 
 func _process(_delta: float) -> void:
 	if not _panel.visible:
+		return
+	if OpeningLogic.explain_yields(_panel.visible, away != null and away.visible):
+		_panel.visible = false  # the away panel opened over it (a held warning that opened first): wait, unseen
+		_deferred = true
 		return
 	var anchor: Vector2 = get_viewport().get_canvas_transform() * model.node_pos(_fort_id)
 	var oc := OpeningLogic.cfg()
