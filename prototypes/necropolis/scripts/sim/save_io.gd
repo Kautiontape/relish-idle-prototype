@@ -427,6 +427,14 @@ static func _pending_retreat_problem(pr: Variant, rl: Dictionary, fort_ids: Dict
 	if pr.has("revived_in_place") and not (raid and fits(pr["revived_in_place"], _I) and int(pr["revived_in_place"]) >= 1
 			and int(pr["revived_in_place"]) <= charges):
 		return "pending_retreat revived"
+	# P3b (api-request #22): a boss run's recorded win, `won_result`: a v2 boss result the validator takes, won, of this
+	# run (its run_id and seed_rev); apply_pending applies it
+	if pr.has("won_result"):
+		var wr: Variant = pr["won_result"]
+		if raid or not (wr is Dictionary) or not Results.has_v2(wr) or not Results.validate("boss", wr).is_empty() \
+				or not (wr.get("won") is bool) or not bool(wr["won"]) or int(wr["run_id"]) != int(pr["run_id"]) \
+				or int(wr["seed_rev"]) != int(pr["seed_rev"]):
+			return "pending_retreat won"
 	return ""
 
 
@@ -850,7 +858,9 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 		var lot_id := str(e["lot_id"])
 		var entry := {"building_id": bid, "lot_id": lot_id, "upgrade": bool(e["upgrade"]), "waited_on": str(e.get("waited_on", ""))}
 		if e.has("never_since"):
-			entry["never_since"] = float(e["never_since"])  # P3, ruling 3's hold timeout (optional: a head reading dry)
+			# P3, ruling 3's hold timeout (optional: a head reading dry). P3b (the P3 review's should-fix 2): clamped to the
+			# save's t, so an edited time ahead of it can't hold a dry head (held_out) past the hold it would have had
+			entry["never_since"] = minf(float(e["never_since"]), gs.t)
 		if not BuildRules.buildings_cfg(gs).has(bid) or BuildRules.lot(gs, lot_id).is_empty():
 			push_warning("SaveIO: dropped a queued %s on %s: not in today's config" % [bid, lot_id])
 		elif entry["upgrade"] and int(BuildRules.queue_levels(gs, gs.build_queue + [entry]).back()) \

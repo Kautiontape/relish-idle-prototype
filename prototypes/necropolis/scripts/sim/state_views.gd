@@ -58,7 +58,7 @@ static func hud(gs: GameState) -> Dictionary:
 		"sign": ro["sign"], "drain_s": ro["drain_s"], "odds": ro["odds"], "won": gs.won,
 		# v14 (Phase I P3, the odds split): `odds` is the first-attempt estimate (GameState.first_odds), `readiness` the
 		# win odds it reads (GameState.win_odds, the bots' Vei-ready), `backups` the count it reads (vei_backups)
-		"readiness": ro["readiness"], "backups": ro["backups"],
+		"readiness": ro["readiness"], "backups": ro["backups"], "raid_credit": ro["raid_credit"],
 	}
 
 
@@ -265,11 +265,12 @@ static func fort(gs: GameState, id: String) -> Dictionary:
 ## wave), `pressure_mult` Vei's pressure there (RealmSim.hold_mult, the value GameState.hold_mult last synced, so
 ## the need and the margin beside it were derived at it even after an edit between steps moved the pits), and the
 ## chip's `fall_s` and `margin_cause`.
-## A fort not held reads zeros, ×1 and "".
+## A fort not held reads zeros, ×1 and "", and so does every fort once Vei is beaten (P3b, api-request #21: no wave
+## comes, so there is no need, margin or fall to forecast).
 static func fort_hold(gs: GameState, id: String, entry: Dictionary) -> Dictionary:
 	var out := {"war_in": 0.0, "need": 0.0, "margin": 0.0, "pressure_mult": 1.0, "fall_s": -1.0, "margin_cause": ""}
 	var f := gs.realm.fort_by_id(id)
-	if f.is_empty() or not RealmSim.is_held(f):
+	if f.is_empty() or not RealmSim.is_held(f) or gs.won:
 		return out
 	var e: Dictionary = gs._margin_view()["margins"].get(id, {})
 	out["war_in"] = float(e.get("war_in", 0.0))
@@ -361,7 +362,8 @@ static func town(gs: GameState) -> Dictionary:
 			"muster": float(w["muster"]), "steady": gs._workers_steady(),
 			"steady_kept": float(gs._workers_steady_kept()["kept"]), "muster_steady": float(gs._workers_steady_kept()["muster"]), "lifetime_s": ts.lifetime_s(gs.relish["state"] == "home"),
 			# v11 (E4 step 5, A1): where the muster goes now: "flood" (Vei's queue), or "war" while the Muster stance acts
-			"muster_to": "war" if ts.muster_all else "flood",
+			# or once Vei is beaten (P3b, api-request #21: FLOOD's share and the muster go to WAR then)
+			"muster_to": "war" if ts.muster_all or gs.won else "flood",
 		},
 		"living": ts.living, "living_cap": ts.living_cap(),
 		"migrants": float(r["living"]["in"]), "departures": float(r["living"]["out"]),
@@ -611,9 +613,10 @@ static func _stance_diff(gs: GameState, r: Dictionary, b: Dictionary) -> Diction
 	var mb := float(b["muster"]) * wm
 	var war_r := mr if bool(r["muster_war"]) else 0.0
 	var war_b := mb if bool(b["muster_war"]) else 0.0
-	var war0 := float(gs._split["mint"]) * float(v["war"]) + (float(gs._split["muster"]) if bool(gs._split["muster_war"]) else 0.0)
-	var d_war := dm * float(v["war"]) + war_r - war_b
-	var d_flood := dm * float(v["flood"]) + (mr - war_r) - (mb - war_b)
+	# (P3b, #21: won, FLOOD's share is WAR's: GameState.war_share, flood_share, as _split_of)
+	var war0 := float(gs._split["mint"]) * gs.war_share(v) + (float(gs._split["muster"]) if bool(gs._split["muster_war"]) else 0.0)
+	var d_war := dm * gs.war_share(v) + war_r - war_b
+	var d_flood := dm * gs.flood_share(v) + (mr - war_r) - (mb - war_b)
 	var fell := 0.0
 	if d_war != 0.0:
 		fell = float(gs.realm.war_at(war0 + d_war)[1]) - float(gs.realm.war_at(war0)[1])
@@ -731,7 +734,7 @@ static func vei(gs: GameState) -> Dictionary:
 		# v14 (Phase I P3, the odds split): `odds` is the first-attempt estimate a player reads (GameState.first_odds),
 		# `readiness` the win odds it reads (GameState.win_odds: the bots' Vei-ready, the boss seed's odds) and `backups`
 		# the count it reads (GameState.vei_backups)
-		"strain": ro["strain"], "readiness": ro["readiness"], "backups": ro["backups"],
+		"strain": ro["strain"], "readiness": ro["readiness"], "backups": ro["backups"], "raid_credit": ro["raid_credit"],
 		"fronts": fronts, "fronts_required": gs._fronts_required(), "fronts_met": VeiFronts.fronts_met(fronts),
 		"tithe": vei_tithe(gs),
 		"can_begin": why == "", "reason": why, "won": gs.won,
@@ -950,21 +953,25 @@ static func _proj_diff(gs: GameState, r: Dictionary, b: Dictionary) -> Dictionar
 	var r0: Dictionary = b["rates"]
 	var v: Dictionary = b["valve"]
 	var dm := float(r["mint"]) - float(r0["mint"])
-	var war0 := float(r0["mint"]) * float(v["war"]) + (float(r0["muster"]) if gs.town_sim.muster_all else 0.0)  # (A1: _split_of)
-	var fell := float(gs.realm.war_at(war0 + dm * float(v["war"]))[1]) - float(gs.realm.war_at(war0)[1])
+	# (A1: _split_of; P3b, #21: won, FLOOD's share and the muster are WAR's, as _split_of's)
+	var to_war := gs.town_sim.muster_all or gs.won
+	var war0 := float(r0["mint"]) * gs.war_share(v) + (float(r0["muster"]) if to_war else 0.0)
+	var fell := float(gs.realm.war_at(war0 + dm * gs.war_share(v))[1]) - float(gs.realm.war_at(war0)[1])
 	# the change in TownSim's muster joins the FLOOD with it (A1; war leaves it out while the Muster stance acts)
-	var dmus := 0.0 if gs.town_sim.muster_all else float(r["muster"]) - float(r0["muster"])
+	var dmus := 0.0 if to_war else float(r["muster"]) - float(r0["muster"])
 	var out := {}
 	for id in GameState.RATE_IDS:
 		match id:
 			"mint":
 				out[id] = dm
-			"work", "war":
+			"work":
 				out[id] = dm * float(v[id])
+			"war":
+				out[id] = dm * gs.war_share(v)
 			"flood":
-				out[id] = dm * float(v[id]) + dmus
+				out[id] = dm * gs.flood_share(v) + dmus
 			"backlog":
-				out[id] = dm * float(v["flood"]) + dmus + fell
+				out[id] = dm * gs.flood_share(v) + dmus + fell
 			"corpses":
 				out[id] = 0.0
 			_:

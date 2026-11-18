@@ -838,9 +838,14 @@ static func process_queue(gs: GameState) -> String:
 ## (buildings.json's upkeep is per building), so this reads "the town's gold net is above 0": Grow never spends the gold
 ## stock a town short on its bill lives on, which would bring its shed (pre_vei) sooner. A building that earns gold (stall
 ## jobs) is exempt, as in held_by_income: its level is the income.
+## P3b (the run's manager's ruling 12, changed): Grow waits, no pick at all, while any building is unpaid (shed): the
+## gold an unpaid building waits on is not Grow's to spend, so a player never sees buildings unpaid and Grow buying.
+## A Thrift-idled building is the player's choice and doesn't hold it.
 ## {} when there is none; else {lot_id, building_id, level, cost, in_s, oi}.
 static func grow_target(gs: GameState) -> Dictionary:
 	var ts := gs.town_sim
+	if any_unpaid(gs):
+		return {}
 	var order: Array = gs._grow_order
 	var queued := {}
 	for e in gs.build_queue:
@@ -899,6 +904,15 @@ static func grow_step(gs: GameState, held: String) -> void:
 			return
 		gs._emit({"type": "grow_started", "building_id": str(tg["building_id"]), "lot_id": str(tg["lot_id"]),
 			"level": int(r["level"])})
+
+
+## Whether any building in the town is unpaid (shed by the upkeep, its hold running or held off by the income): Grow
+## waits while one is (P3b, ruling 12).
+static func any_unpaid(gs: GameState) -> bool:
+	for lot_id in gs.town_sim.buildings:
+		if str(gs.town_sim.buildings[lot_id]["state"]) == "unpaid":
+			return true
+	return false
 
 
 ## The constructions under way (first builds and upgrades), anyone's: Grow's cap (stance.grow.max_active) counts them.

@@ -181,6 +181,7 @@ static func set_state(gs: GameState, patch: Dictionary) -> Dictionary:
 				gs.paused = v
 			"won":
 				gs.won = v
+				gs._sync_won()  # (P3b, #21)
 			"relish_at":
 				gs._place_relish(v)
 			"valve":

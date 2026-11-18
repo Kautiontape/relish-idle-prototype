@@ -486,6 +486,11 @@ func _exercise(s: GameState) -> void:
 	var lose := {"v": 2, "run_id": b2["run_id"], "seed_rev": b2["seed_rev"], "won": false, "fronts_cleared": [],
 		"relish_deaths": 1, "backups_spent": {"phylactery": 0, "clones": 0}, "party_lost": [], "backlog_spent": 100.0}
 	_cmd(s, "apply_result", ["boss", _with_key(lose, "relish_deaths", 3)], false)
+	# P3b (api-request #22): a lost fight can't be recorded as a win (not_won); a won one can, and the press's own result
+	# still applies (here the loss: the record only resolves a run no press ends)
+	_cmd(s, "cmd_boss_won", [b2["run_id"], lose], false)
+	_cmd(s, "cmd_boss_won", [b2["run_id"], _with_key(lose, "won", true)], false)  # a win with a final death: invalid, errors
+	_cmd(s, "cmd_boss_won", [b2["run_id"], _with_key(_with_key(lose, "won", true), "relish_deaths", 0)], true)
 	_cmd(s, "apply_result", ["boss", lose], true)
 	evs = _event_list(s).filter(no_stances)
 	t.ok(evs.map(func(e): return e["type"]) == ["vei_result", "relish_died"], "a lost boss with a final death: vei_result first, then relish_died")

@@ -24,6 +24,10 @@ var _cfgs := {}
 
 func _init() -> void:
 	_cfgs = GameState.load_configs("res://configs")
+	# P3b (the P3 review's should-fix 1): the fixtures are made with the Grow stance off, as TestUtil.configs() runs
+	# them and as the shipped fixtures were written, so regenerating them can't turn Grow on in their saves (stances.on)
+	# and move every re-pin that reads "the fixtures load with Grow off"
+	_cfgs["economy"]["stance"]["grow"]["default_on"] = false
 	_write("day1", _day1())
 	_write("midgame_2flips", _midgame())
 	_write("pre_vei", _pre_vei())

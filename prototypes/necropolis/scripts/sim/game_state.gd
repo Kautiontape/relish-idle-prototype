@@ -43,6 +43,8 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	"realm.hold.mint_ref", "realm.hold.mint_alpha",  # (E4 step 5, B1: hold_mult)
 	"realm.odds.time_weight", "realm.odds.time_s", "realm.odds.backlog_cap",  # (E4 step 9, option B: win_odds)
 	"realm.odds.backups_mid", "realm.odds.backups_scale",  # (Phase I P3: the odds split, first_odds)
+	"realm.odds.first_gain", "realm.odds.first_cap",  # (P3b, V-I2 (b): the honest shown odds' ceiling)
+	"realm.odds.raid_credit", "realm.odds.raid_credit_cap",  # (P3b, V-I2 (a): the active nudge, raid_credit())
 	# T3.4a: the economy and realm tunables that had inline numeric fallbacks (the realm `field` block aside)
 	"economy.sim.substep_s", "economy.sim.max_substeps_per_frame", "economy.sim.autosave_s", "economy.sim.prewarm_dt",
 	"economy.sim.prewarm_ticks", "economy.opening.valve.work", "economy.opening.valve.war", "economy.opening.valve.flood",
@@ -615,6 +617,7 @@ func cmd_new_game(seed: int) -> Dictionary:
 	town_sim.new_game()  # BALANCE §0: the start buildings on their lots, the stocks, the default ladder
 	green_towns = 0
 	won = false
+	_sync_won()
 	stats = {"raised_total": 0.0, "raids": 0, "deaths": 0, "sims_built": 0}
 	_acc = 0.0
 	_field_acc = 0.0
@@ -943,7 +946,7 @@ func _vei_readout() -> Dictionary:
 	var n := vei_backups()
 	return {
 		"diff": _diff, "diff_ema": ema,
-		"odds": first_odds(ready, n), "readiness": ready, "backups": n, "strain": strain,
+		"odds": first_odds(ready, n), "readiness": ready, "backups": n, "strain": strain, "raid_credit": raid_credit(),
 		"sign": 1 if ema > eps else (-1 if ema < -eps else 0),
 		"drain_s": drain,
 	}
@@ -956,20 +959,25 @@ func vei_backups() -> int:
 	return mini(_phylactery_charges, _phylactery_max()) + clones_ready
 
 
-## The first-attempt odds (Phase I P3, the manager's odds split): the readiness `readiness` (win_odds) times a logistic
-## in the backups `backups` (vei_backups), on realm.json odds.backups_mid and backups_scale. The odds a player reads;
-## the bots' Vei-ready, the boss seed and the fight read the readiness or the strain, never these. Read live.
+## The first-attempt odds (Phase I P3, the manager's odds split; P3b's honest ceiling, V-I2 (b)): a ceiling on the
+## readiness `readiness` (win_odds), min(odds.first_cap, odds.first_gain × readiness), times a logistic in the backups
+## `backups` (vei_backups), on realm.json odds.backups_mid and backups_scale. The odds a player reads; the bots'
+## Vei-ready, the boss seed, the fight, the tithe, reship and need read the readiness or the strain, never these. Read
+## live.
 func first_odds(readiness: float, backups: int) -> float:
-	return first_odds_of(readiness, backups, _req_f("realm.odds.backups_mid"), _req_f("realm.odds.backups_scale"))
+	return first_odds_of(readiness, backups, _req_f("realm.odds.backups_mid"), _req_f("realm.odds.backups_scale"),
+		_req_f("realm.odds.first_gain"), _req_f("realm.odds.first_cap"))
 
 
-## first_odds on explicit tunables (pure; the map's valve can project with it on win_odds_of's readiness):
-## readiness / (1 + exp(-(backups - mid) / scale)). scale <= 0 is a step (readiness at or past mid, else 0); mid -1e9
-## is the readiness bit for bit (the revert proof).
-static func first_odds_of(readiness: float, backups: int, mid: float, scale: float) -> float:
+## first_odds on explicit tunables (pure; the map's valve projects with it on win_odds_of's readiness):
+## min(cap, gain × readiness) / (1 + exp(-(backups - mid) / scale)). P3's form, where the readiness itself was the
+## ceiling (so a 1+10 party that wins 80% read 60%), is gain 1 and cap 1, the defaults, bit for bit (the readiness is at
+## most 1). scale <= 0 is a step (the ceiling at or past mid, else 0); mid -1e9 is the ceiling bit for bit.
+static func first_odds_of(readiness: float, backups: int, mid: float, scale: float, gain := 1.0, cap := 1.0) -> float:
+	var top := minf(cap, gain * readiness)
 	if scale <= 0.0:
-		return readiness if float(backups) >= mid else 0.0
-	return readiness / (1.0 + exp(-(float(backups) - mid) / scale))
+		return top if float(backups) >= mid else 0.0
+	return top / (1.0 + exp(-(float(backups) - mid) / scale))
 
 
 ## The win odds (MECHANICS §3.5; E4 step 9, the manager's 2026-11-17 13:44 ruling, option B) at the game's age `age_s`
@@ -978,19 +986,30 @@ static func first_odds_of(readiness: float, backups: int, mid: float, scale: flo
 ## the readiness: the boss seed's odds and the bots' Vei-ready are these, and the odds a player reads are first_odds on
 ## them; her tithe period, reship and one-wave need read the strain alone, so
 ## nothing in the fight reads them. Read live (a test may change the config after setup). time_weight 0 with
-## backlog_cap 1 is the strain bit for bit (the revert proof).
+## backlog_cap 1 is the strain bit for bit (the revert proof). P3b (V-I2 (a), the active nudge): the strain term takes
+## raid_credit() too, so raids move the readiness clock (and only it: the strain itself, which the tithe, reship and
+## need read, doesn't move).
 func win_odds(age_s: float, strain: float) -> float:
 	return win_odds_of(age_s, strain, _req_f("realm.odds.time_weight"), _req_f("realm.odds.time_s"),
-		_req_f("realm.odds.backlog_cap"))
+		_req_f("realm.odds.backlog_cap"), raid_credit())
+
+
+## P3b (V-I2 (a), the run's manager's re-set aim: continuous play Vei-ready 5-10% sooner than sessions): what active
+## play adds to the readiness's strain term, realm.json odds.raid_credit per raid finished (stats.raids, saved: every
+## raid result applied, a gap's or a load's end of one included), up to odds.raid_credit_cap, which bounds what active
+## play can gain. raid_credit 0 is the readiness without it bit for bit (the revert proof).
+func raid_credit() -> float:
+	return minf(_req_f("realm.odds.raid_credit_cap"), maxf(0.0, _req_f("realm.odds.raid_credit")) * float(stats.get("raids", 0)))
 
 
 ## win_odds on explicit tunables (pure; the map's valve payoff projects with it from realm.json): w · age / (age + T) +
-## (1 − w) · min(cap, strain), w clamped to 0..1; the age term is 0 at age 0 or with T ≤ 0 and no age.
-static func win_odds_of(age_s: float, strain: float, w: float, time_s: float, cap: float) -> float:
+## (1 − w) · min(cap, strain + credit), w clamped to 0..1; the age term is 0 at age 0 or with T ≤ 0 and no age. `credit`
+## (P3b): raid_credit(), 0 by default (the readiness before it).
+static func win_odds_of(age_s: float, strain: float, w: float, time_s: float, cap: float, credit := 0.0) -> float:
 	var ww := clampf(w, 0.0, 1.0)
 	var a := maxf(0.0, age_s)
 	var tau := a / (a + time_s) if a + time_s > 0.0 else 0.0
-	return ww * tau + (1.0 - ww) * minf(cap, strain)
+	return ww * tau + (1.0 - ww) * minf(cap, strain + maxf(0.0, credit))
 
 
 ## §3 step 8: `diff = inflow − digestion` (mass/s: what entered Vei's undead queue last substep, less
@@ -1163,6 +1182,8 @@ func cmd_begin_dungeon(fort_id: String) -> Dictionary:
 
 ## The reason cmd_begin_boss() would refuse with now, or "" (view_vei shares it).
 func _boss_reason() -> String:
+	if won:
+		return "won"  # (P3b, api-request #21) she is beaten: no second fight
 	if not run.is_empty():
 		return "busy"
 	if relish["state"] == "dead":
@@ -1190,6 +1211,13 @@ func cmd_abort_dungeon() -> Dictionary:
 ## invalid, bad_outcome: a dead run's refusals come first.
 func cmd_run_checkpoint(run_id: int, loot: Dictionary, outcome := "retreated", revived_in_place := 0) -> Dictionary:
 	return StateRuns.checkpoint(self, run_id, loot, outcome, revived_in_place)
+
+
+## §4.5 (P3b, api-request #22): Vei broke. The open boss run records `result`, the v2 boss result (won true) its win card
+## will send, so a gap, a load or an abort applies it as the win, never a forfeit (StateRuns.boss_won). Returns
+## {ok, reason, errors}. Reasons: no_run, wrong_run, wrong_kind, catching_up, not_won, then apply_result's.
+func cmd_boss_won(run_id: int, result: Dictionary) -> Dictionary:
+	return StateRuns.boss_won(self, run_id, result)
 
 
 func view_dungeon_seed(fort_id: String) -> Dictionary:
@@ -2313,13 +2341,13 @@ func _train_war() -> float:
 ## The muster counts only while the Muster stance acts; otherwise it goes to FLOOD (_split_of, E4 step 5 A1).
 func _train_war_at(v: Dictionary) -> float:
 	var mint := _mint(town_sim.pit_weight(), town_sim.trough_feed())
-	if not town_sim.muster_all:
+	if not (town_sim.muster_all or won):  # (P3b, #21) won, the muster joins WAR too (_split_of)
 		return mint * float(v["war"])
 	var wm := worker_mass()
 	var r := mint * float(v["work"]) / wm if wm > 0.0 else 0.0
 	var steady := TownSim.workforce_steady(r, town_sim.lifetime_s(relish["state"] == "home"), town_sim._idle_rot,
 		float(town_sim.staffing.get("slots", 0.0)), town_sim.idle_cap())
-	return mint * float(v["war"]) + float(steady["muster"]) * wm
+	return mint * war_share(v) + float(steady["muster"]) * wm
 
 
 ## The wave train at `war` mass/s of WAR (view_projection's valve with `settled`), cached (_train).
@@ -2725,9 +2753,22 @@ func _mint(pits: float, feed: float) -> float:
 ## Before A1 every muster joined WAR, so the WORK the slots and the idle cap couldn't keep reached the forts and the
 ## valve had two real settings, FLOOD and not-FLOOD. `muster_war` records the route (view_hud.split.muster_to). `to_war`
 ## the route (the core step's: town_sim.muster_all for the step; a reading of the last step's: its _split.muster_war).
+## P3b (api-request #21, the run's manager's call): once Vei is beaten (`won`) FLOOD's share and the muster go to WAR,
+## and FLOOD reads 0 (war_share, flood_share).
 func _split_of(mint: float, v: Dictionary, muster: float, to_war: bool) -> Dictionary:
-	return {"mint": mint, "work": mint * float(v["work"]), "war": mint * float(v["war"]) + (muster if to_war else 0.0),
-		"flood": mint * float(v["flood"]) + (0.0 if to_war else muster), "muster": muster, "muster_war": to_war}
+	var tw := to_war or won
+	return {"mint": mint, "work": mint * float(v["work"]), "war": mint * war_share(v) + (muster if tw else 0.0),
+		"flood": mint * flood_share(v) + (0.0 if tw else muster), "muster": muster, "muster_war": tw}
+
+
+## The valve `v`'s WAR share of the mint: its war, plus its flood once Vei is beaten (P3b, #21; _split_of).
+func war_share(v: Dictionary) -> float:
+	return float(v["war"]) + (float(v["flood"]) if won else 0.0)
+
+
+## The valve `v`'s FLOOD share of the mint: its flood, 0 once Vei is beaten (P3b, #21; _split_of).
+func flood_share(v: Dictionary) -> float:
+	return 0.0 if won else float(v["flood"])
 
 
 ## Vei's pressure at held forts (E4 step 5, ruling B1; MECHANICS §3.4): max(1, (settled mint ÷ hold.mint_ref)^
@@ -2748,6 +2789,14 @@ func hold_mult() -> float:
 ## step read the same value open and closed.
 func _sync_hold_mult() -> void:
 	realm.hold_mult = hold_mult()
+
+
+## P3b (api-request #21, dungeon-i P7): RealmSim's `won` as the state stands. Called at a core step's start, on a load
+## (_restore_dispatch, after SaveIO has restored `won`), at the win (StateRuns.writeback_boss), on debug's won and on a
+## new game. A change to true idles the tithe (RealmSim.set_won), so a save written mid-warning loads won and quiet.
+func _sync_won() -> void:
+	if realm != null and realm.won != won:
+		realm.set_won(won)
 
 
 ## The highest tier the player has ever flipped (E4 step 9, the manager's 2026-11-17 14:24 ruling on step 9 (3)): the
@@ -2915,6 +2964,7 @@ func _core_step(dt: float) -> Array:
 	var mint := _mint(town_sim.pit_weight(), float(town_sim.rates.get("feed", 0.0)))
 	var work := mint * float(valve["work"])
 	_sync_hold_mult()  # (B1) the held-fort pressure this step: TownSim's convoy reads RealmSim.dead_rates with it
+	_sync_won()  # (P3b, #21) a win (the boss's writeback, debug, a load) reaches RealmSim before its step
 	# §3 step 3: TownSim on this step's WORK, rate × dt. A save written before the lag (E2a) can hold
 	# WORK in flight: it arrives with this step's, once
 	var town := town_sim.step(dt, _town_inputs(work * dt + work_pending, true))
@@ -3195,6 +3245,7 @@ func from_dict(d: Dictionary) -> Dictionary:
 ## Nothing saved changes (to_dict is the same) and no step runs; the first substep replaces all of it.
 ## view_rates' corpses and backlog and view_vei's raw diff still read 0 until then (STATE-API §9.1).
 func _restore_dispatch() -> void:
+	_sync_won()  # (P3b, #21) a won save loads won: the tithe idles and the split below sends FLOOD to WAR
 	var wm := worker_mass()
 	var rw: Dictionary = town_sim.rates.get("workers", {})
 	var muster := float(rw.get("muster", 0.0)) * wm

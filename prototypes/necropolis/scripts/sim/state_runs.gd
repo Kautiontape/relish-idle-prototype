@@ -147,6 +147,9 @@ static func abort_dungeon(gs: GameState) -> Dictionary:
 	if gs._catchup.active:
 		return GameState._refuse_catching_up({"run_id": -1})
 	var run_id: int = gs.run["run_id"]
+	if gs.run.has("won_result"):  # (P3b, api-request #22) a recorded win is never forfeited: it is applied
+		end_open(gs)
+		return {"ok": true, "reason": "", "run_id": run_id}
 	gs.relish["state"] = "at_fort" if gs.run["kind"] == "raid" else "at_vei"
 	gs.run = {}
 	gs.rev += 1
@@ -220,9 +223,43 @@ static func checkpoint(gs: GameState, run_id: int, loot: Dictionary, outcome: St
 	return {"ok": true, "reason": ""}
 
 
+## P3b (api-request #22, the run's manager's ruling of 2026-11-18): cmd_boss_won. Vei broke: the open boss run records
+## the result its win card will send (a v2 boss result with won true), so a gap (sleep, quit, crash), a load of a save
+## holding the run or an abort resolves it as that win (end_open: apply_result, the same writeback as the card's press:
+## `won`, the ending, the result's events, once), never as a forfeit. The card's press still applies its own result as
+## before; after a gap or load has applied the recorded one, the press reads duplicate_run (the run's id is applied).
+## Refusals, in order: no_run, wrong_run (no open run of this id, or the result names another), wrong_kind (a raid),
+## catching_up (unreachable: no run is open during a catch-up), not_won (the result's won is false), then
+## apply_result's own (unknown_v, invalid, stale_seed, bad_party, bad_backups), checked without applying. A second call
+## replaces the recorded result.
+static func boss_won(gs: GameState, run_id: int, result: Dictionary) -> Dictionary:
+	var fail := {"ok": false, "reason": "", "errors": []}
+	if gs.run.is_empty():
+		fail["reason"] = "no_run"
+	elif int(gs.run["run_id"]) != run_id:
+		fail["reason"] = "wrong_run"
+	elif gs.run["kind"] != "boss":
+		fail["reason"] = "wrong_kind"
+	elif gs._catchup.active:
+		fail["reason"] = "catching_up"
+	elif not (result.get("won", false) is bool) or not bool(result.get("won", false)):
+		fail["reason"] = "not_won"
+	if fail["reason"] != "":
+		return fail
+	var chk := result_check(gs, "boss", result)
+	if not chk.is_empty():
+		fail["reason"] = str(chk["reason"])
+		fail["errors"] = chk["errors"]
+		return fail
+	gs.run["won_result"] = result.duplicate(true)
+	gs.rev += 1
+	return {"ok": true, "reason": "", "errors": []}
+
+
 ## The open run as the save writes it (§9.1 `pending_retreat`): {run_id, kind, fort_id, seed_rev, loot,
 ## outcome}, its last checkpoint's loot and outcome, or empty loot and "retreated" when it has none (a boss
-## run never has one).
+## run never has one). P3b (api-request #22): a boss run whose win is recorded (cmd_boss_won) also writes it as
+## `won_result`, which the load applies (apply_pending).
 static func pending_of(gs: GameState) -> Dictionary:
 	var cp: Dictionary = gs.run.get("checkpoint", {})
 	var out := {
@@ -235,6 +272,8 @@ static func pending_of(gs: GameState) -> Dictionary:
 	# one is as before
 	if int(cp.get("revived_in_place", 0)) > 0:
 		out["revived_in_place"] = int(cp["revived_in_place"])
+	if gs.run.has("won_result"):
+		out["won_result"] = (gs.run["won_result"] as Dictionary).duplicate(true)
 	return out
 
 
@@ -253,6 +292,12 @@ static func revive_cap(sd: Dictionary) -> int:
 ## Returns the outcome applied.
 static func end_open(gs: GameState) -> String:
 	var pr := pending_of(gs)
+	if pr["kind"] != "raid" and pr.has("won_result"):
+		# (P3b, api-request #22) the recorded win, applied as the card's press would apply it
+		var w := apply_result(gs, "boss", pr["won_result"])
+		if w["ok"]:
+			return "won"
+		push_error("StateRuns: a recorded boss win was refused (%s %s); forfeiting the run" % [w["reason"], str(w["errors"])])
 	if pr["kind"] != "raid":
 		gs.relish["state"] = "at_vei"
 		gs.run = {}
@@ -272,8 +317,9 @@ static func end_open(gs: GameState) -> String:
 ## (end_open) and its writeback's events, all queued live, before the gap's catch-up starts.
 static func end_for_gap(gs: GameState) -> void:
 	var pr := pending_of(gs)
+	var boss_out := "won" if pr.has("won_result") else "retreated"  # (P3b, #22) a recorded win ends as the win
 	gs._emit({"type": "run_ended", "run_id": pr["run_id"], "kind": pr["kind"],
-		"outcome": pr["outcome"] if pr["kind"] == "raid" else "retreated", "cause": "gap"})
+		"outcome": pr["outcome"] if pr["kind"] == "raid" else boss_out, "cause": "gap"})
 	end_open(gs)
 
 
@@ -283,16 +329,30 @@ static func end_for_gap(gs: GameState) -> void:
 ## party (the save's party: no command changes it while a run is open), its phylactery fields (the stock, which
 ## nothing changes while a run is open) and garrison_in_mass (which the end result's garrison_mass equals, so
 ## the fort's undead don't move whatever it is). Its events are queued as live: they happened before the time
-## away. A boss run needs nothing: the save already holds it forfeited (Relish at_vei, no run).
+## away. A boss run needs nothing: the save already holds it forfeited (Relish at_vei, no run), unless its win was
+## recorded (P3b, api-request #22: `won_result`, cmd_boss_won): then the run is opened again (its seed rebuilt at the
+## load, boss_seed_v2: the party and the phylactery stock can't change while it is open, and a clone grown since only
+## widens apply_result's bound) and ended by end_open, which applies the win; its events are queued as live.
 static func apply_pending(gs: GameState, pr: Dictionary) -> void:
 	if str(pr["kind"]) != "raid":
+		if pr.has("won_result"):
+			var bid := int(pr["run_id"])
+			var brev := int(pr["seed_rev"])
+			gs.run = {"run_id": bid, "kind": "boss", "fort_id": "vei", "seed_rev": brev, "seed": boss_seed_v2(gs, bid, brev),
+				"held": false, "won_result": (pr["won_result"] as Dictionary).duplicate(true)}
+			gs.relish["state"] = "in_boss"
+			end_open(gs)
 		return
 	var run_id := int(pr["run_id"])
 	var fort_id := str(pr["fort_id"])
 	var seed_rev := int(pr["seed_rev"])
+	# P3b (the P3 review's should-fix 2): a revived_in_place over the seed's phylactery_max_per_dungeon (an edited save;
+	# SaveIO bounds it by the charges only) is clamped to it, so end_open's apply_result takes the retreat, not forfeits
+	var seed := dungeon_seed(gs, fort_id, run_id, seed_rev)
+	var revived := mini(int(pr.get("revived_in_place", 0)), int(seed.get("phylactery_max_per_dungeon", 0)))
 	gs.run = {"run_id": run_id, "kind": "raid", "fort_id": fort_id, "seed_rev": seed_rev,
-		"seed": dungeon_seed(gs, fort_id, run_id, seed_rev), "held": false,
-		"checkpoint": {"loot": loot_of(pr["loot"]), "outcome": str(pr["outcome"]), "revived_in_place": int(pr.get("revived_in_place", 0))}}
+		"seed": seed, "held": false,
+		"checkpoint": {"loot": loot_of(pr["loot"]), "outcome": str(pr["outcome"]), "revived_in_place": revived}}
 	gs.relish["state"] = "in_dungeon"
 	end_open(gs)
 
@@ -347,6 +407,25 @@ static func ar_fail(gs: GameState, reason: String, errors: Array = []) -> Dictio
 ## §4.5. Refusals are checked in the documented order and change nothing (no rev, no events,
 ## no uids, no rng). Ints may arrive as integral floats, so every int is read with int().
 static func apply_result(gs: GameState, kind: String, result: Dictionary) -> Dictionary:
+	var chk := result_check(gs, kind, result)
+	if not chk.is_empty():
+		return chk
+	var run_id := int(result["run_id"])
+	var minted: Array = []
+	if kind == "raid":
+		minted = writeback_raid(gs, result)
+	else:
+		writeback_boss(gs, result)
+	gs.applied_runs.append(run_id)
+	while gs.applied_runs.size() > 32:
+		gs.applied_runs.remove_at(0)
+	gs.rev += 1
+	return {"ok": true, "reason": "", "errors": [], "minted": minted}
+
+
+## apply_result's refusals in their order, {} when it would apply (P3b: split out for cmd_boss_won, which checks a
+## result it doesn't apply yet). Changes nothing.
+static func result_check(gs: GameState, kind: String, result: Dictionary) -> Dictionary:
 	if kind != "raid" and kind != "boss":
 		return ar_fail(gs, "unknown_kind")
 	if not Results.has_v2(result):
@@ -377,16 +456,7 @@ static func apply_result(gs: GameState, kind: String, result: Dictionary) -> Dic
 		var bs: Dictionary = result["backups_spent"]
 		if int(bs["phylactery"]) > int(sd["phylactery_charges"]) or int(bs["clones"]) > int(sd["clones_ready"]):
 			return ar_fail(gs, "bad_backups")
-	var minted: Array = []
-	if kind == "raid":
-		minted = writeback_raid(gs, result)
-	else:
-		writeback_boss(gs, result)
-	gs.applied_runs.append(run_id)
-	while gs.applied_runs.size() > 32:
-		gs.applied_runs.remove_at(0)
-	gs.rev += 1
-	return {"ok": true, "reason": "", "errors": [], "minted": minted}
+	return {}
 
 
 static func seed_party_uids(gs: GameState, sd: Dictionary) -> Array:
@@ -535,6 +605,7 @@ static func writeback_boss(gs: GameState, r: Dictionary) -> void:
 	var final_death := deaths == int(bs["phylactery"]) + clones + 1
 	if did_win:
 		gs.won = true
+		gs._sync_won()  # (P3b, api-request #21) the tithe idles now: no warning or wave outlives the win
 	else:
 		var keep := gs._req_f("vei.loss_backlog_keep")
 		var before: float = gs.realm.vei["undead_queue"]

@@ -752,7 +752,8 @@ func _gap_events() -> void:
 ## pre_vei Grow-on case (catchup_accuracy._grow_on) adds bone_net, where Grow levels the Bone Mill and its
 ## convoy-fed bone net saws. Every other start keeps WINDOWED, so its bone_net is still judged at the endpoint.
 ## `window.saw` holds each windowed rate's saw ({cycle_s, cycle_s_cu, swing}; _window_means), for the window's premise.
-static func accuracy(c: Dictionary, js: String, seconds: float, tol: float, window_s := 0.0, windowed: Array = WINDOWED) -> Dictionary:
+## `floors` (P3b, the P3 review's should-fix 3): compare()'s absolute floors on Covington's stocks, {stock: amount}.
+static func accuracy(c: Dictionary, js: String, seconds: float, tol: float, window_s := 0.0, windowed: Array = WINDOWED, floors := {}) -> Dictionary:
 	var dir := "user://test_catchup_acc_%d" % OS.get_process_id()
 	DirAccess.make_dir_recursive_absolute(dir)
 	var src := GameState.new(c)
@@ -775,7 +776,7 @@ static func accuracy(c: Dictionary, js: String, seconds: float, tol: float, wind
 	live.tick(seconds)
 	var cu_evs := cu.catchup_events()
 	var live_evs := live.drain_events()
-	var out := compare(cu, cu_evs, live, live_evs, tol, windowed if window_s > 0.0 else [])
+	var out := compare(cu, cu_evs, live, live_evs, tol, windowed if window_s > 0.0 else [], floors)
 	out["grow_started"] = [grow_starts(cu_evs), grow_starts(live_evs)]  # (Phase I P3) caught up, live
 	out["t0"] = src.t
 	out["grow_bound_s"] = grow_bound_s(cu)
@@ -953,8 +954,10 @@ static func _saw(vals: Array, mu: float, window_s: float) -> Array:
 ## the outcomes in order (convergence.gd's outcome lists), each flip and retake within the outcomes' time
 ## bound (convergence.gd's TIME_BOUND_STEPS) × `a`'s catch-up step at that moment: its `dt` for the first
 ## idle.catchup_dt_long_after_s, `dt_long` past it. `a` is the caught-up run. The rates in `printed_only` are
-## reported but left out of `worst` and `ok` (accuracy()'s window judges them instead).
-static func compare(a: GameState, a_evs: Array, b: GameState, b_evs: Array, tol: float, printed_only: Array = []) -> Dictionary:
+## reported but left out of `worst` and `ok` (accuracy()'s window judges them instead). `floors` (P3b, the P3 review's
+## should-fix 3), {stock: amount}: an absolute floor on a stock, so a stock within `amount` of live passes whatever its
+## size (its error is read against max(|live|, its floor above, amount / tol)); {} by default, as before.
+static func compare(a: GameState, a_evs: Array, b: GameState, b_evs: Array, tol: float, printed_only: Array = [], floors := {}) -> Dictionary:
 	var conv = load("res://tests/slow/convergence.gd")
 	var sa: Dictionary = conv.sample(a)
 	var sb: Dictionary = conv.sample(b)
@@ -964,6 +967,8 @@ static func compare(a: GameState, a_evs: Array, b: GameState, b_evs: Array, tol:
 		var fl := maxf(1.0, 0.01 * absf(float(sb[m])))
 		if m == "vei_pool":
 			fl = float(b._pool_cap())
+		if floors.has(m) and tol > 0.0:
+			fl = maxf(fl, float(floors[m]) / tol)
 		var e := absf(float(sa[m]) - float(sb[m])) / maxf(absf(float(sb[m])), fl)
 		stocks[m] = e
 		worst = maxf(worst, e)
@@ -1060,16 +1065,21 @@ func _accuracy_2h() -> void:
 	# 8.5 s cycle), so its mint and split are judged on their 600 s means, as there: unwindowed, its 2 h endpoint passed on its
 	# phase and read the mint 44.9% apart with the Grow clip reverted, while every Grow start stayed within 1.3 s. The clip's
 	# revert proof is the I1 case below (and test_grow's). At market.price ×2 (grow_price: pre_vei's own net is negative,
-	# so Grow's upkeep test would hold every pick), over 7 000 s, not 2 h: with the doubled price Grow's last levels wait
-	# on bone, and at 7 200 s the window ends 28 s after the second pit's L2 spent the bone store (305), where the stock,
-	# 4 bone, reads that start's 1.3 s drift × 0.40 bone/s as 8% (0.32 bone). At 7 000 s the store is about 236 bone.
-	var rg := accuracy(grow_price(c), grow_on_json(conv.start_json("pre_vei")), 7000.0, tol, 600.0)
+	# so Grow's upkeep test would hold every pick). The full 2 h with an absolute floor on Covington's gold and bone (P3b,
+	# the P3 review's should-fix 3; was 7 000 s): with the doubled price Grow's last levels wait on bone, and at 7 200 s
+	# the window ends 28 s after the second pit's L2 spent the bone store (305), where the stock, 4 bone, read that start's
+	# 1.3 s drift × 0.40 bone/s as 8% (0.32 bone) against the relative tolerance alone. The floors are the gate's own
+	# idle.catchup_gate_tally_floor (6 gold, 1 bone: convergence.gd's fixed lag a step leaves), so a store within a bone
+	# of live passes. Revert proof: no floors at 7 200 s, the case fails on bone (the 8%).
+	var fls: Dictionary = c["economy"]["idle"]["catchup_gate_tally_floor"]
+	var rg := accuracy(grow_price(c), grow_on_json(conv.start_json("pre_vei")), 7200.0, tol, 600.0, WINDOWED,
+		{"gold": float(fls["gold"]), "bone": float(fls["bone"])})
 	var gs2: Array = rg["grow_started"]
 	var gd := grow_same(gs2[0], gs2[1], tol, float(rg["t0"]), float(rg["grow_bound_s"]))
-	print("  [catchup] pre_vei with Grow on, 7 000 s caught up vs live: %s; Grow started %d caught up, %d live, the worst %.3f s apart" % [rg["lines"],
+	print("  [catchup] pre_vei with Grow on, 2 h caught up vs live: %s; Grow started %d caught up, %d live, the worst %.3f s apart" % [rg["lines"],
 		(gs2[0] as Array).size(), (gs2[1] as Array).size(), grow_worst_dt(gs2[0], gs2[1])])
 	t.ok(rg["ok"] and (gs2[1] as Array).size() >= 10 and gd == "",
-		"pre_vei with Grow on: 7 000 s caught up against live within %s, the same outcomes, and the same %d Grow starts in order, each within the outcomes' bound or %s of its wait (%s): %s" % [
+		"pre_vei with Grow on: 2 h caught up against live within %s (gold and bone floored at the gate's tally floors), the same outcomes, and the same %d Grow starts in order, each within the outcomes' bound or %s of its wait (%s): %s" % [
 		conv._pct(tol), (gs2[1] as Array).size(), conv._pct(tol), gd if gd != "" else "the worst %.3f s" % grow_worst_dt(gs2[0], gs2[1]), rg["lines"]])
 
 

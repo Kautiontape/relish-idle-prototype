@@ -218,12 +218,13 @@ static func strain_at(backlog: float, diff: float, window_s: float, k: float) ->
 ## Odds after `window_s` at a differential: b / (b + K) with b = max(backlog + diff x window, 0). With `odds_cfg`
 ## (realm.json's `odds` block; E4 step 9, option B) they are the win odds view_vei shows, at the age `age_s` +
 ## window: GameState.win_odds_of on that strain. Without it, the strain alone (as before).
-static func odds_at(backlog: float, diff: float, window_s: float, k: float, odds_cfg := {}, age_s := 0.0) -> float:
+static func odds_at(backlog: float, diff: float, window_s: float, k: float, odds_cfg := {}, age_s := 0.0, credit := 0.0) -> float:
 	var s := strain_at(backlog, diff, window_s, k)
 	if odds_cfg.is_empty():
 		return s
+	# (P3b) `credit`: the readiness's raid credit (view_vei.raid_credit, GameState.raid_credit), 0 by default
 	return GameState.win_odds_of(age_s + window_s, s, float(odds_cfg.get("time_weight", 0.0)),
-		float(odds_cfg.get("time_s", 0.0)), float(odds_cfg.get("backlog_cap", 1.0)))
+		float(odds_cfg.get("time_s", 0.0)), float(odds_cfg.get("backlog_cap", 1.0)), credit)
 
 
 ## Now against the dragged valve: {now: {diff, drain_s, odds}, then: {...}}. Both sides use the
@@ -240,9 +241,10 @@ static func payoff(vei: Dictionary, proj: Dictionary, k: float, odds_cfg := {}, 
 	var diffs := {"now": float(vei.get("diff_ema", 0.0)), "then": diff_at(proj)}
 	for side in diffs:
 		var d: float = diffs[side]
-		var o := odds_at(backlog, d, window, k, odds_cfg, age_s)
+		var o := odds_at(backlog, d, window, k, odds_cfg, age_s, float(vei.get("raid_credit", 0.0)))
 		if split:
-			o = GameState.first_odds_of(o, int(vei["backups"]), float(odds_cfg["backups_mid"]), float(odds_cfg["backups_scale"]))
+			o = GameState.first_odds_of(o, int(vei["backups"]), float(odds_cfg["backups_mid"]), float(odds_cfg["backups_scale"]),
+				float(odds_cfg.get("first_gain", 1.0)), float(odds_cfg.get("first_cap", 1.0)))  # (P3b: the honest ceiling)
 		out[side] = {"diff": d, "drain_s": drain_at(backlog, d), "odds": o, "strain": strain_at(backlog, d, window, k), "first": split}
 	return out
 
