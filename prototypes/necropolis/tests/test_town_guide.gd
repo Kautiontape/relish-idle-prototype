@@ -20,9 +20,40 @@ func run() -> int:
 	_goal_new_game()
 	_goal_fixtures()
 	_words()
+	_jargon()
 	_inspect()
 	_upgrade_relics()
 	return t.failures
+
+
+## The clarity round (clarity-review-1): mint, husk and phylactery get the glossary's one line wherever they show,
+## and the Pit, Market and Forge say why you'd want them.
+func _jargon() -> void:
+	var j: Dictionary = gcfg.get("jargon", {})
+	t.ok(String(j.get("mint", "")).contains("Raising Pits") and String(j.get("mint", "")).contains("FLOOD"),
+		"mint: the undead the pits make, split by the valve: '%s'" % j.get("mint", ""))
+	t.ok(String(j.get("husk", "")).contains("big undead") and String(j.get("husk", "")).contains("slab"),
+		"husk: the frame a big undead is raised in, on the slab: '%s'" % j.get("husk", ""))
+	t.ok(String(j.get("phylactery", "")).contains("revives Relish") and String(j.get("phylactery", "")).contains("once per dungeon"),
+		"phylactery: revives Relish in place, once per dungeon: '%s'" % j.get("phylactery", ""))
+	t.ok(TownUI.jargon_tip("+9.60/s mint now", vcfg) == String(j["mint"]), "a Pit rate's tooltip is the mint line")
+	t.ok(TownUI.jargon_tip("Phylactery charge", vcfg) == String(j["phylactery"]), "the word is found in any case")
+	t.ok(TownUI.jargon_tip("Lay a husk, slot remnants", vcfg) == String(j["husk"]), "the husk line where a husk shows")
+	t.ok(TownUI.jargon_tip("+0.30/s gold now", vcfg) == "", "a line with no jargon has no tooltip")
+	t.ok(TownUI.jargon_tip("Crafts phylactery charges and husks", vcfg).split("\n").size() == 2, "two words, two lines")
+	var why: Dictionary = gcfg["why"]
+	t.ok(String(why["raising_pit"]).contains("mint") and String(why["raising_pit"]).contains("WAR") and String(why["raising_pit"]).contains("FLOOD"),
+		"the Pit's why says its undead are the mint, and where they go: '%s'" % why["raising_pit"])
+	t.ok(String(why["market"]).contains("gold for every build"), "the Market's why: gold for every build: '%s'" % why["market"])
+	t.ok(String(why["forge"]).contains("relics") and String(why["forge"]).contains("fewer die"),
+		"the Forge's why: what a step gives, and that it needs relics: '%s'" % why["forge"])
+	var short := BuildSort.fmt(String(gcfg.get("essence_short", "")), {"n": 14})
+	t.ok(short.contains("14") and short.contains("backups") and short.length() <= 28,
+		"the HUD's essence count says what essence is for, short enough for its cell: '%s'" % short)
+	var head := String(vcfg["crypt"]["husk_craft"]["head"])
+	t.ok(head.begins_with("A husk is the frame a big undead is raised in."), "the craft opens with what a husk is: '%s'" % head)
+	t.ok(String(vcfg["backups"]["charges_usable"]).contains("revives Relish in place"),
+		"the Backups tab says what a charge does where the word first shows")
 
 
 ## The views the shell fetches for the goal: view_town, and view_realm's forts as covington._forts digests them.

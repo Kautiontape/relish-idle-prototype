@@ -570,9 +570,10 @@ func _check_replay(views: Dictionary) -> void:
 	if _demo != "":
 		return
 	var rep: Dictionary = Game.state.view_away()
-	if not TownReplay.due(rep, _replayed):
+	var gid := String(views.get("hud", {}).get("game_id", ""))
+	if not TownReplay.due(rep, _replayed, gid):
 		return
-	_replayed = TownReplay.key(rep)
+	_replayed = TownReplay.key(rep, gid)
 	var rcfg: Dictionary = ConfigDb.v("town", "view", {}).get("replay", {})
 	_strip.show_report(TownReplay.title(rep, rcfg), TownReplay.lines(rep, rcfg))
 	_replay_lots = TownReplay.finished_lots(rep, views.get("town", {}), ConfigDb.data.get("buildings_view", {}),

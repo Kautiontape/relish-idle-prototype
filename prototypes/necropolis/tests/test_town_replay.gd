@@ -23,7 +23,26 @@ func run() -> int:
 	_due()
 	_real()
 	_placement()
+	_review_m2()
 	return t.failures
+
+
+## The M2 review's should-fixes 3 and 5, and api-request #19's reader: the duration's words from town.json, a new game
+## (a new view_hud().game_id) starts the session's replay memory afresh, and a report's own `lots` win over the names.
+func _review_m2() -> void:
+	t.ok(TownReplay.duration(29520.0, {"hm": "{h}h{m}", "m": "{m}min"}) == "8h12" and TownReplay.duration(720.0, {"m": "{m}min"}) == "12min",
+		"the duration's words are town.json's (replay.hm, replay.m)")
+	var rep := {"away_s": 900.0, "gains": [_build_line([_nm("inn")])], "ready": [], "losses": []}
+	t.ok(TownReplay.key(rep, "g1") != TownReplay.key(rep, "g2") and TownReplay.due(rep, TownReplay.key(rep, "g1"), "g2")
+		and not TownReplay.due(rep, TownReplay.key(rep, "g1"), "g1"), "another game's report is due its replay; the same game's isn't twice")
+	var shell := FileAccess.get_file_as_string("res://scripts/town/covington.gd")
+	t.ok(shell.contains("TownReplay.due(rep, _replayed, gid)") and shell.contains("get(\"game_id\""), "the shell keys the replay by the game")
+	var with_lots := {"gains": [_build_line([_nm("house"), _nm("house")])]}
+	with_lots["gains"][0]["lots"] = ["lot-06", "lot-05"]
+	var town := {"buildings": [{"lot_id": "lot-05", "building_id": "house", "level": 1}, {"lot_id": "lot-06", "building_id": "house", "level": 1}]}
+	t.ok(TownReplay.finished_lots(with_lots, town, bv, report) == ["lot-06", "lot-05"], "the line's own lots win, in their order (#19)")
+	with_lots["gains"][0].erase("lots")
+	t.ok(TownReplay.finished_lots(with_lots, town, bv, report) == ["lot-05", "lot-06"], "without them, the name match (the fallback)")
 
 
 ## The strip sits in the dock over the tabs, never in the town view: in the view it covered the top-left lots, the

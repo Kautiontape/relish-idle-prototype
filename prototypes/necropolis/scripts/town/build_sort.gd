@@ -1148,24 +1148,19 @@ static func entry_reason(e: Dictionary, catalog: Dictionary, st: Dictionary, bvi
 	return reason_text(reason, row, st, bview, vcfg)
 
 
-## Whether the real queue's list is full, so no Queue button can add to it: P2's `queue_list_max` (the whole list's
-## cap) when the view has it. Whether one more slot-holding entry fits (`queue_slots` against `queue_max`) depends on
-## the entry, since a gated one holds no slot: the command's queue_full refusal says that, never a count of ours.
-## TODO(P2 merge): drop the fallback, today's rule that every entry counts toward queue_max, once api_version 13 lands.
+## Whether the real queue's list is full, so no Queue button can add to it: the list against `queue_list_max` (the
+## whole list's cap). Whether one more slot-holding entry fits (`queue_slots` against `queue_max`) depends on the
+## entry, since a gated one holds no slot: the command's queue_full refusal says that, never a count of ours. A view
+## without `queue_list_max` is never full by our count.
 static func queue_list_full(town: Dictionary) -> bool:
-	var n := (town.get("queue", []) as Array).size()
-	if town.has("queue_list_max"):
-		return n >= int(town["queue_list_max"])
-	return town.has("queue_max") and n >= int(town["queue_max"])
+	return town.has("queue_list_max") and (town.get("queue", []) as Array).size() >= int(town["queue_list_max"])
 
 
-## "Queue: 3 of 8 slots": the slot-holding entries (P2's `queue_slots`) against `queue_max`; "" when the view has
-## neither. TODO(P2 merge): the fallback counts every entry, today's rule.
+## "Queue: 3 of 8 slots": the slot-holding entries (`queue_slots`) against `queue_max`; "" when the view lacks either.
 static func queue_slots_text(town: Dictionary, vcfg: Dictionary) -> String:
-	if not town.has("queue_max"):
+	if not town.has("queue_max") or not town.has("queue_slots"):
 		return ""
-	var used := int(town.get("queue_slots", (town.get("queue", []) as Array).size()))
-	return fmt(String((vcfg.get("queue_text", {}) as Dictionary).get("slots", "")), {"used": used, "max": int(town["queue_max"])})
+	return fmt(String((vcfg.get("queue_text", {}) as Dictionary).get("slots", "")), {"used": int(town["queue_slots"]), "max": int(town["queue_max"])})
 
 
 ## cmd_reorder_queue's order for moving entry `index` by `delta` (±1) in a queue of `n`: `order[k]` is the old index
@@ -1177,6 +1172,30 @@ static func swap_order(n: int, index: int, delta: int) -> Array:
 		order[index] = j
 		order[j] = index
 	return order
+
+
+## The index in `live` (view_town().queue now) of the entry shown at `index` in `shown` (the queue the rows were
+## drawn from at the last bind), matched by building, lot and upgrade, and the same occurrence among equal entries
+## (two upgrades of one lot). -1 when it is no longer there (it started, or an earlier click took it): the click is
+## then dropped, never sent to whatever entry moved into its index (the M2 review's should-fix 1).
+static func live_index(shown: Array, index: int, live: Array) -> int:
+	if index < 0 or index >= shown.size():
+		return -1
+	var k := _queue_key(shown[index])
+	var nth := 0
+	for i in index:
+		if _queue_key(shown[i]) == k:
+			nth += 1
+	for i in live.size():
+		if _queue_key(live[i]) == k:
+			if nth == 0:
+				return i
+			nth -= 1
+	return -1
+
+
+static func _queue_key(e: Dictionary) -> String:
+	return "%s|%s|%s" % [String(e.get("building_id", "")), String(e.get("lot_id", "")), str(bool(e.get("upgrade", false)))]
 
 
 ## Whether queue entry `e` is held by a gate it waits out in its place (IDLE §5: a tier, a blueprint, a building,

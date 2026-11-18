@@ -40,6 +40,12 @@ func _queue() -> void:
 	town["queue"] = [{"building_id": "inn", "status": "skipped_gate", "reason": "needs_tier"}]
 	t.ok(TownForecast.queue_part({"town": town}, vcfg, bv).begins_with("the queue waits on gates (Inn"), "every entry gated: the queue waits on gates")
 	t.ok(TownForecast.queue_part({"town": {}}, vcfg, bv) == "", "no queue in the view: no queue part")
+	# the M2 review's should-fix 6: a row without affordable_in_s is unknown, not never
+	town["queue"] = [{"building_id": "house", "status": "waiting_funds"}]
+	t.ok(TownForecast.queue_part({"town": town}, vcfg, bv) == "House starts when it can be paid for",
+		"no affordable_in_s: unknown, not never ('%s')" % TownForecast.queue_part({"town": town}, vcfg, bv))
+	town["queue"] = [{"building_id": "house", "status": "next"}]
+	t.ok(TownForecast.queue_part({"town": town}, vcfg, bv) == "House starts at once", "a next head with no affordable_in_s still starts at once")
 
 
 func _stores() -> void:
@@ -59,8 +65,8 @@ func _idle_and_forts() -> void:
 		"forts": [{"name": "Vespers", "held": true, "margin": "will_fall"}, {"name": "Ashgate", "held": true, "margin": "safe"},
 			{"name": "Greywall", "held": false, "margin": "will_fall"}]}
 	var parts := TownForecast.parts_of(v, vcfg, bv)
-	t.ok(parts == ["10 idle hands muster to WAR", "Vespers will fall"], "idle hands and a held fort that will fall (%s)" % str(parts))
-	t.ok(TownForecast.line(v, vcfg, bv) == "If you leave now: 10 idle hands muster to WAR · Vespers will fall", "the line: '%s'" % TownForecast.line(v, vcfg, bv))
+	t.ok(parts == ["10 idle hands muster to WAR (your forts)", "Vespers will fall"], "idle hands (the Muster stance's WAR) and a held fort that will fall (%s)" % str(parts))
+	t.ok(TownForecast.line(v, vcfg, bv) == "If you leave now: 10 idle hands muster to WAR (your forts) · Vespers will fall", "the line: '%s'" % TownForecast.line(v, vcfg, bv))
 	t.ok(TownForecast.line({}, vcfg, bv) == "", "nothing to say: no line")
 
 

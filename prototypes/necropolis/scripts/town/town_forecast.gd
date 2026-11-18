@@ -30,8 +30,7 @@ static func parts_of(views: Dictionary, vcfg: Dictionary, bview: Dictionary) -> 
 	var town: Dictionary = views.get("town", {})
 	var idle := int(floor(float((town.get("workers", {}) as Dictionary).get("idle", 0.0))))
 	if idle >= int(fc.get("idle_min", 1)):
-		var to := String(((views.get("hud", {}) as Dictionary).get("split", {}) as Dictionary).get("muster_to", "war")).to_upper()
-		out.append(BuildSort.fmt(String(fc.get("idle", "")), {"n": idle, "to": to}))
+		out.append(BuildSort.fmt(String(fc.get("idle", "")), {"n": idle, "to": HudModel.muster_name(views, vcfg)}))
 	for f in views.get("forts", []):
 		if bool(f.get("held", false)) and String(f.get("margin", "")) == "will_fall":
 			out.append(BuildSort.fmt(String(fc.get("falls", "")), {"fort": String(f.get("name", ""))}))
@@ -53,9 +52,11 @@ static func queue_part(views: Dictionary, vcfg: Dictionary, bview: Dictionary) -
 		if status == "skipped_gate":
 			continue
 		var label := BuildSort.label_of(String(e.get("building_id", "")), bview)
-		var a := float(e.get("affordable_in_s", 0.0 if status == "next" else -1.0))
-		if status == "next" or a == 0.0:
+		var a := float(e.get("affordable_in_s", 0.0))
+		if status == "next" or (e.has("affordable_in_s") and a == 0.0):
 			return BuildSort.fmt(String(fc.get("starts_now", "")), {"label": label})
+		if not e.has("affordable_in_s"):  # missing is unknown, not never (the M2 review's should-fix 6)
+			return BuildSort.fmt(String(fc.get("unknown", "")), {"label": label})
 		if a > 0.0:
 			return BuildSort.fmt(String(fc.get("starts_in", "")), {"label": label, "t": BuildSort.fmt_eta(a, vcfg)})
 		return BuildSort.fmt(String(fc.get("never", "")), {"label": label})

@@ -213,7 +213,11 @@
       "cell_w_px": 140.0, "morale_w_px": 220.0, "morale_stretch": 1.0, "cell_stretch": {"workers": 4.0}, "tier_w_px": 100.0, "return_w_px": 170.0,
       "morale_bar": {"w_px": 120.0, "h_px": 8.0},
       "text": {
-        "in": "in", "out": "out", "rot": "rot", "muster": "muster", "steady": "→ steady {n}", "war": "→ WAR",
+        "in": "in", "out": "out", "rot": "rot", "muster": "muster", "steady": "→ steady {n}",
+        "_muster_doc": "The idle muster (view_hud.split.muster_to): FLOOD, Vei's queue, unless the Muster stance sends it to WAR. muster_word follows its rate in the workers cell; muster_tip is that row's tooltip.",
+        "muster_word": {"flood": "idle → FLOOD", "war": "idle → WAR"},
+        "muster_tip": {"flood": "Idle hands beyond the idle cap muster to FLOOD: they join Vei's queue. The Muster stance sends them to WAR, your forts, instead.",
+          "war": "The Muster stance is on: idle hands muster to WAR and stream to your forts."},
         "full_in": "full in {t}", "full": "full: overflowing", "no_cap": "no cap",
         "dur_s": "{n} s", "dur_min": "{n} min", "dur_h": "{n} h", "dur_d": "{n} d",
         "dur_min_from_s": 90.0, "dur_h_from_s": 5400.0, "dur_d_from_s": 172800.0,
@@ -238,7 +242,8 @@
         "idle_build_short": "{n} idle: build a {label} ({gain})",
         "idle_upgrade_short": "{n} idle: upgrade the {label} to L{level} ({gain})",
         "idle_jobs": "+{n} jobs",
-        "idle_none": "{n} idle: no job building affordable; mustering to WAR",
+        "idle_none": "{n} idle: no job building affordable; mustering to {to}",
+        "idle_none_short": "{n} idle: no job building affordable",
         "idle_none_wait": "{n} idle: no job building affordable; waiting at the crypt",
         "kept_reason": "kept: {slots} slots + {cap} idle cap",
         "source": {"gold": "trade", "bone": "milling"},
@@ -379,6 +384,7 @@
     "reasons": {
       "_unknown": "can't do that right now",
       "catching_up": "catching up on your time away: try again in a moment",
+      "wait_slot": "waiting for a slot: the entries above it go first",
       "unknown_building": "no such building",
       "unknown_lot": "no such lot",
       "lot_locked": "that lot isn't open at this tier",
@@ -438,18 +444,18 @@
       }
     },
     "guide": {
-      "_doc": "Phase I clarity (town-i M1, Shawn's checklist items 10-11; TownGuide). why: per building, one line: what it does for you → the part of the loop it feeds. how: act names the buildings the player uses by hand, and where; every other building works on its own, `staffed` when buildings.json gives it jobs, else `passive`. paid_line heads the Build tab's catalog; essence_line sits by every essence count in town. goal: the first goal in town, the first step whose `until` isn't met yet (built: a building of that id placed, under construction included; fort_taken: any fort held now or with flipped_count > 0); none once all are met, and none past the early `tiers` (a first goal is for a new game). {fort} is the first dungeon's name (view_realm forts' first_dungeon), else fort_any.",
+      "_doc": "Phase I clarity (town-i M1, Shawn's checklist items 10-11; TownGuide). why: per building, one line: what it does for you → the part of the loop it feeds. how: act names the buildings the player uses by hand, and where; every other building works on its own, `staffed` when buildings.json gives it jobs, else `passive`. paid_line heads the Build tab's catalog; essence_line sits by every essence count in town, and essence_short is the HUD's essence count (essence_line its tooltip). jargon: the glossary's one-line meaning of a word, the tooltip at each place the word shows (mint on the Raising Pit's rates, husk in the Crypt tab, phylactery in the Backups tab). goal: the first goal in town, the first step whose `until` isn't met yet (built: a building of that id placed, under construction included; fort_taken: any fort held now or with flipped_count > 0); none once all are met, and none past the early `tiers` (a first goal is for a new game). {fort} is the first dungeon's name (view_realm forts' first_dungeon), else fort_any.",
       "why": {
         "crypt": "The slab raises big undead for your raids and sieges. Levels raise the cap.",
-        "raising_pit": "Turns bodies into undead → workers for your jobs, WAR for your forts.",
+        "raising_pit": "Turns hauled bodies into undead, your mint → workers, WAR to your forts, FLOOD to Vei.",
         "charnel_house": "Hauls bodies home from your forts and stores them → bodies for the pits and the mill.",
-        "market": "Sells to your living → gold for buildings.",
+        "market": "Your living buy at its stalls → gold for every build and upgrade.",
         "house": "Room for more living → more buyers at the Market → more gold.",
         "well": "Morale and room for living → the living stay and buy.",
         "bakery": "Morale and room for living → the living stay and buy.",
         "inn": "Draws new living to town, with morale and room → more buyers, more gold.",
         "bone_mill": "Grinds bodies into bone → bone for buildings.",
-        "forge": "Toughens all your undead → they last longer holding your forts and against Vei.",
+        "forge": "Smiths toughen all your undead; each step needs relics → fewer die holding your forts.",
         "graveyard": "Stores more bodies, and your workers last longer → more hands.",
         "embalmer": "Your workers last longer before they rot → more hands for jobs and WAR.",
         "stables": "Faster hauls → bodies come home sooner.",
@@ -474,6 +480,12 @@
       },
       "paid_line": "Buildings cost gold and bone, which your town makes. Some, and higher levels, also need relics: raid a fort.",
       "essence_line": "Essence comes home from your raids. It pays for backups here at the Ossuary Tower, never for buildings.",
+      "essence_short": "essence {n}: for backups",
+      "jargon": {
+        "mint": "Mint: the undead your Raising Pits make each second. The map's valve splits it into WORK (your town's jobs), WAR (your forts) and FLOOD (Vei's queue).",
+        "husk": "Husk: the frame a big undead is raised in. Lay it on the crypt slab and slot remnants to shape it. Raids bring husks home, or you can craft one from bone and remnants.",
+        "phylactery": "Phylactery charge: revives Relish in place, at most once per dungeon. The Ossuary Tower crafts it from essence."
+      },
       "goal": {
         "lead": "Goal: ",
         "steps": [
@@ -487,10 +499,14 @@
         "px": 14, "x_px": 240.0, "y_px": 8.0
       }
     },
+    "muster_names": {"_doc": "Where the idle muster goes, named as the valve names it (view_hud.split.muster_to): the HUD's idle line and the forecast.",
+      "flood": "FLOOD (Vei's queue)", "war": "WAR (your forts)"},
     "replay": {
       "_doc": "The welcome-back replay (TownReplay, Q-f): once per away report in a session, each build that finished while you were away flashes in order, first_beats then flash_beats apart (Pulse beats), under a strip in the dock (over the tabs, clear of every lot) of the report's build and ready lines (at most max_lines). The strip hides hold_s after the last flash (0: until closed). acts: the button on a line with somewhere to go.",
       "title": "While you were away ({time})",
       "under_minute": "under a minute",
+      "hm": "{h} h {m} m",
+      "m": "{m} m",
       "close": "Close",
       "acts": {"crypt": "Crypt", "build": "Build", "realm": "To the realm"},
       "max_lines": 5,
@@ -508,6 +524,7 @@
       "starts_now": "{label} starts at once",
       "starts_in": "{label} starts in ~{t}",
       "never": "{label} can't be afforded at today's income",
+      "unknown": "{label} starts when it can be paid for",
       "gated": "the queue waits on gates ({label} first)",
       "full_in": "{id} full in ~{t}",
       "full_now": "{id} is full: more isn't kept",
@@ -523,14 +540,17 @@
       "join": " · ", "button": "To the realm"
     },
     "queue_text": {
-      "_doc": "The Build tab's queue (view_town().queue and its commands). A gated entry waits in its place (IDLE §5): gate_wait words its gate, `skipped` any other skip (lot_taken and the like). affordable_in_s (R2) sets the start: 0 now, > 0 a wait, -1 never at today's income (with the row's starved/lever, starved_why). queued_ok reports a queued entry's own affordable_in_s.",
+      "_doc": "The Build tab's queue (view_town().queue and its commands). A gated entry waits in its place (IDLE §5): gate_wait words its gate (wait_slot: a buildable entry past the first queue_max slot-holders, waiting for one), `skipped` any other skip (lot_taken and the like). affordable_in_s (R2) sets the start: 0 now, > 0 a wait, -1 never at today's income (with the row's starved/lever, starved_why). queued_ok reports a queued entry's own affordable_in_s.",
       "title": "Queue: builds start on their own, in order, while you're away too",
+      "not_queued": "Not queued: {why}.",
+      "queue_moved": "The queue moved on (that entry started or changed place): nothing was sent. Look again.",
       "gate_wait": {
         "needs_tier": "queued: waits for {tier}",
         "lot_locked": "queued: waits for its lot to open at a higher tier",
         "needs_blueprint": "queued: waits for the {label} blueprint (dungeon loot)",
         "needs_building": "queued: waits for a {building}",
-        "no_relics": "queued: waits for {n} {unit}: raid a fort"
+        "no_relics": "queued: waits for {n} {unit}: raid a fort",
+        "wait_slot": "queued: waits for a slot"
       },
       "skipped": "skipped: {why}",
       "afford_in": "affordable in ~{t}",
@@ -605,13 +625,13 @@
       "no_vats": "No vats yet: build a Chapel of Vats (Town tier)",
       "no_vats_btn": "Show the Chapel of Vats", "chapel": "chapel_of_vats",
       "ossuary_header": "Phylactery and simulacra (the Ossuary)",
-      "charges": "Phylactery charges", "charges_none": "none", "charges_usable": "usable {n} per dungeon",
+      "charges": "Phylactery charges", "charges_none": "none", "charges_usable": "a charge revives Relish in place, at most {n} per dungeon",
       "pip": "◆", "pip_cap": 8, "pip_more": " +{n}",
       "simulacra": "Simulacra ready: {n}", "simulacra_where": "deploy from the map",
       "stock": "Essence {essence}   Relics {relics}",
       "craft_labels": {"simulacrum": "Simulacrum", "phylactery_charge": "Phylactery charge"},
       "cost_part": "{n} {what}", "relic": "relic", "relics": "relics", "essence": "essence", "cost_none": "free",
-      "craft_btn": "Craft",
+      "craft_btn": "Craft", "craft_btn_w_px": 72.0, "craft_columns": 2,
       "craft_reasons": {"needs_building": "needs the Ossuary Tower", "no_essence": "not enough essence", "no_relics": "not enough relics",
         "unknown_item": "no such item", "catching_up": "catching up on your time away: try again in a moment"},
       "craft_ok": "Crafted {label}.", "craft_refused": "Refused: {reason}.",
@@ -644,7 +664,7 @@
       "husk_craft": {
         "_doc": "The husk craft under the slab (town-i M2 Q-f, the bone lever). It works while Relish is away. {bone} and {remnants} are the price; {have} the remnants held; {count}/{cap} the crypt's places (big undead plus husks waiting) and its cap; {bone_cap} the bone store's cap.",
         "title": "Craft a husk",
-        "head": "{bone} bone and your {remnants} weakest remnants make one husk. The bone comes out of what your town builds with.",
+        "head": "A husk is the frame a big undead is raised in. {bone} bone and your {remnants} weakest remnants make one husk. The bone comes out of what your town builds with.",
         "away": "Crafting works while Relish is away.",
         "btn": "Craft {label}",
         "done_home": "A {noun} husk is made: pick it from the husks above.",
@@ -690,6 +710,7 @@
       "to_party": "Party",
       "to_foreman": "Foreman at…",
       "to_siege": "Siege…",
+      "siege_line": "Siege: blocks {pct}% of a tithe wave here, no kills; a second adds nothing",
       "held": "held",
       "lot_option": "{label} · {lot}",
       "taken": "{label} · foreman {name}",

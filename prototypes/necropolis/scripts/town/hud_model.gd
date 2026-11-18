@@ -100,7 +100,7 @@ static func kept_reason(town: Dictionary, hud: Dictionary, steady: float, kept_n
 ## instead; one the relics held can't pay for (BuildSort.relic_blocked) is never named while a relic-free job
 ## item is buildable. A new build's gain is the catalog row's `projected` rates (api-request #9, oblique, "now") or
 ## else its job count; an upgrade's, the building's jobs per level. "10 idle: no job building affordable;
-## mustering to WAR" (or "waiting at the crypt" while nobody musters) only when no job build or upgrade can
+## mustering to FLOOD (Vei's queue)" (muster_to's name; or "waiting at the crypt" while nobody musters) only when no job build or upgrade can
 ## be paid for. [] when the idle hands are no need. `short` (the HUD cell, whose width clips the full line; the
 ## tooltip keeps it whole): the job count as the gain and hud.text's `_short` templates, with no "or let them muster".
 static func idle_parts(views: Dictionary, vcfg: Dictionary, bview: Dictionary, bcfg: Dictionary, tab: Dictionary = {},
@@ -155,7 +155,36 @@ static func idle_parts(views: Dictionary, vcfg: Dictionary, bview: Dictionary, b
 		return fill_parts(_t(hcfg, key),
 			{"n": str(n), "label": BuildSort.label_of(bid, bview), "level": int(row.get("level", 0)), "gain": gain})
 	var mustering := float(views.get("town", {}).get("workers", {}).get("muster", 0.0)) > 0.0
-	return [[BuildSort.fmt(_t(hcfg, "idle_none" if mustering else "idle_none_wait"), {"n": n}), false]]
+	var key := "idle_none" if mustering else "idle_none_wait"
+	if short and mustering and (hcfg.get("text", {}) as Dictionary).has("idle_none_short"):
+		key = "idle_none_short"  # the cell: muster_word ("idle → FLOOD") already stands before it
+	return [[BuildSort.fmt(_t(hcfg, key), {"n": n, "to": muster_name(views, vcfg)}), false]]
+
+
+## Where the idle muster goes now: view_hud.split.muster_to, else view_town.workers.muster_to ("flood", Vei's
+## queue, or "war" while the Muster stance acts). "flood" when neither view says: it is the rule without the stance.
+static func muster_to(views: Dictionary) -> String:
+	var to := String(((views.get("hud", {}) as Dictionary).get("split", {}) as Dictionary).get("muster_to", ""))
+	if to == "":
+		to = String(((views.get("town", {}) as Dictionary).get("workers", {}) as Dictionary).get("muster_to", "flood"))
+	return to
+
+
+## The muster's destination as the valve names it, with where that is: "FLOOD (Vei's queue)" / "WAR (your forts)"
+## (town.json view.muster_names).
+static func muster_name(views: Dictionary, vcfg: Dictionary) -> String:
+	var to := muster_to(views)
+	return String((vcfg.get("muster_names", {}) as Dictionary).get(to, to.to_upper()))
+
+
+## The workers cell's word after the muster rate, "idle → FLOOD", and its tooltip (hud.text muster_word / muster_tip).
+static func muster_word(views: Dictionary, hcfg: Dictionary) -> String:
+	var to := muster_to(views)
+	return String(((hcfg.get("text", {}) as Dictionary).get("muster_word", {}) as Dictionary).get(to, "→ " + to.to_upper()))
+
+
+static func muster_tip(views: Dictionary, hcfg: Dictionary) -> String:
+	return String(((hcfg.get("text", {}) as Dictionary).get("muster_tip", {}) as Dictionary).get(muster_to(views), ""))
 
 
 ## `tpl` with each `{key}` replaced by vars[key]: a String (upright) or parts [[text, oblique]].
@@ -201,7 +230,7 @@ static func parts_text(parts: Array) -> String:
 	return s
 
 
-## "+0.07/s" (the oblique part); the upright "→ WAR" is `text.war`.
+## "+0.07/s" (the oblique part); the upright word after it is muster_word(), which names where it goes.
 static func war_text(rate: float, hcfg: Dictionary) -> String:
 	return net_text(rate, hcfg)
 

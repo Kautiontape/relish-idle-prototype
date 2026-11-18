@@ -23,12 +23,15 @@ func run() -> int:
 	_catchup()
 	_spread_refresh()
 	_hud_idle_short()
+	_muster_words()
+	_review_m2()
 	_vat_costed()
 	_p2_counts()
 	return t.failures
 
 
-## P2's queue fields when present (queue_slots, queue_list_max), today's count as the fallback (TODO(P2 merge)).
+## P2's queue fields (queue_slots, queue_list_max), read directly: a gated entry holds no slot, and the list caps at
+## queue_list_max.
 func _p2_counts() -> void:
 	var rows := [{"status": "skipped_gate"}, {"status": "next"}, {"status": "queued"}]
 	var p2 := {"queue": rows, "queue_max": 2, "queue_slots": 2, "queue_list_max": 4}
@@ -36,14 +39,19 @@ func _p2_counts() -> void:
 	p2["queue"] = rows + [{"status": "skipped_gate"}]
 	t.ok(BuildSort.queue_list_full(p2), "P2: the list at queue_list_max is full")
 	t.ok(BuildSort.queue_slots_text(p2, vcfg) == "2 of 2 slots", "P2: the title counts slot-holding rows (%s)" % BuildSort.queue_slots_text(p2, vcfg))
-	var old := {"queue": rows, "queue_max": 3}
-	t.ok(BuildSort.queue_list_full(old) and BuildSort.queue_slots_text(old, vcfg) == "3 of 3 slots",
-		"today (no P2 fields): every row counts toward queue_max")
-	t.ok(not BuildSort.queue_list_full({"queue": rows}) and BuildSort.queue_slots_text({"queue": rows}, vcfg) == "",
-		"no queue_max in the view: never full by our count, no slots text")
+	var no_p2 := {"queue": rows, "queue_max": 3}
+	t.ok(not BuildSort.queue_list_full(no_p2) and BuildSort.queue_slots_text(no_p2, vcfg) == "",
+		"a view without P2's fields: no count of ours (the old every-row rule is gone)")
+	var ws := {"status": "skipped_gate", "reason": "wait_slot", "building_id": "house", "lot_id": "lot-05"}
+	t.ok(BuildSort.is_gate_wait(ws, vcfg) and BuildSort.skip_text(ws, {}, {}, cfg["buildings_view"], vcfg) == "queued: waits for a slot",
+		"P3's wait_slot reads as a wait in its place: '%s'" % BuildSort.skip_text(ws, {}, {}, cfg["buildings_view"], vcfg))
+	t.ok(String(BuildSort.ghosts([ws], {}, {}, cfg["buildings_view"], vcfg)[0]["shape"]) == "plain", "a slot wait's ghost is plain, not struck")
+	var wr := BuildSort.reason_text("wait_slot", {}, {}, cfg["buildings_view"], vcfg)
+	t.ok(wr == String(vcfg["reasons"]["wait_slot"]) and wr.contains("slot"), "wait_slot as a plain reason has its own words, not _unknown: '%s'" % wr)
 	var s := _state("day1")
 	var town := s.view_town()
-	t.ok(town.has("queue_max") and BuildSort.queue_slots_text(town, vcfg) == "0 of %d slots" % int(town["queue_max"]),
+	t.ok(town.has("queue_slots") and town.has("queue_list_max"), "the live view has P2's fields")
+	t.ok(BuildSort.queue_slots_text(town, vcfg) == "0 of %d slots" % int(town["queue_max"]) and not BuildSort.queue_list_full(town),
 		"the live view: '%s'" % BuildSort.queue_slots_text(town, vcfg))
 
 
@@ -131,9 +139,66 @@ func _hud_idle_short() -> void:
 	t.ok(whole.contains("bodies now") and whole.ends_with("or let them muster"), "the tooltip's line keeps the rates: '%s'" % whole)
 	t.ok(short == "10 idle: build a %s (+%d jobs)" % [label, BuildSort.job_slots("charnel_house", bc)],
 		"the cell's line is short: '%s' (%d characters)" % [short, short.length()])
-	t.ok(short.length() <= 48, "short enough for the workers cell beside '+0.03/s → WAR' (%d ≤ 48)" % short.length())
+	t.ok(short.length() <= 48, "short enough for the workers cell beside '+0.03/s idle → FLOOD' (%d ≤ 48)" % short.length())
 	var hud_src := FileAccess.get_file_as_string("res://scripts/town/town_hud.gd")
-	t.ok(hud_src.contains("_tab, true)") and hud_src.contains("tooltip_text = whole"), "the HUD binds the short line and tooltips the whole one")
+	t.ok(hud_src.contains("_tab, true)") and hud_src.contains(", whole].filter(") and hud_src.contains("tooltip_text = tip"),
+		"the HUD binds the short line and tooltips the whole one (after the muster's tip)")
+
+
+## The manager's ruling 5 on M2: one flow, one name. The HUD's "+0.06/s → WAR" was the idle muster, the same flow the
+## forecast's "idle hands muster to FLOOD" names, so the two read as a contradiction. Every town line now names the
+## muster's real destination (view_hud.split.muster_to: FLOOD, Vei's queue, unless the Muster stance sends it to WAR).
+func _muster_words() -> void:
+	var hcfg: Dictionary = vcfg["hud"]
+	var flood := {"hud": {"split": {"muster_to": "flood"}}}
+	var war := {"hud": {"split": {"muster_to": "war"}}}
+	t.ok(HudModel.muster_word(flood, hcfg) == "idle → FLOOD" and HudModel.muster_word(war, hcfg) == "idle → WAR",
+		"the HUD's word after the muster rate names its destination")
+	t.ok(HudModel.muster_tip(flood, hcfg).contains("Vei's queue") and HudModel.muster_tip(war, hcfg).contains("Muster stance"),
+		"its tooltip says where that is ('%s')" % HudModel.muster_tip(flood, hcfg))
+	t.ok(HudModel.muster_to({"town": {"workers": {"muster_to": "war"}}}) == "war" and HudModel.muster_to({}) == "flood",
+		"view_town's muster_to stands in when view_hud's split is missing; FLOOD when neither says (the rule without the stance)")
+	t.ok(HudModel.muster_name(flood, vcfg) == "FLOOD (Vei's queue)" and HudModel.muster_name(war, vcfg) == "WAR (your forts)",
+		"the forecast and the idle line name it with where it goes")
+	var fv := {"town": {"workers": {"idle": 10.0}, "queue": []}, "hud": {"split": {"muster_to": "flood"}}}
+	t.ok(TownForecast.parts_of(fv, vcfg, cfg["buildings_view"]).has("10 idle hands muster to FLOOD (Vei's queue)"),
+		"the forecast: FLOOD by the view (%s)" % str(TownForecast.parts_of(fv, vcfg, cfg["buildings_view"])))
+	var hud_src := FileAccess.get_file_as_string("res://scripts/town/town_hud.gd")
+	t.ok(hud_src.contains("HudModel.muster_word(views, _hcfg)") and not String(vcfg["hud"]["text"].get("war", "")).contains("WAR"),
+		"the HUD row reads its word from the view; no fixed '→ WAR' is left")
+	# the real views agree with each other: the forecast's destination is the HUD's
+	var s := GameState.new(cfg)
+	s.debug_enabled = true
+	s.cmd_debug_load_fixture("day1")
+	s.tick(s.substep_s())
+	var rv := {"hud": s.view_hud(), "town": s.view_town()}
+	t.ok(HudModel.muster_to(rv) == String(rv["town"]["workers"]["muster_to"]),
+		"day1: view_hud's split and view_town's workers name the same destination ('%s')" % HudModel.muster_to(rv))
+
+
+## The M2 review's should-fixes 1-3 (reports/review-town-i-m2.md): a queue row's click finds its entry in today's queue
+## before sending (the head may have started), one queue command per bind, and the refusal words in town.json.
+func _review_m2() -> void:
+	var a := {"building_id": "inn", "lot_id": "lot-13", "upgrade": false}
+	var b := {"building_id": "house", "lot_id": "lot-05", "upgrade": false}
+	var c := {"building_id": "market", "lot_id": "lot-07", "upgrade": true}
+	var shown := [a, b, c]
+	t.ok(BuildSort.live_index(shown, 2, [a, b, c]) == 2, "nothing moved: the same index")
+	t.ok(BuildSort.live_index(shown, 2, [b, c]) == 1 and BuildSort.live_index(shown, 1, [b, c]) == 0,
+		"the head started: each clicked entry is found one place up, not its old index's neighbour")
+	t.ok(BuildSort.live_index(shown, 0, [b, c]) == -1, "the entry clicked has left the queue: -1, nothing is sent")
+	var up2 := {"building_id": "market", "lot_id": "lot-07", "upgrade": true}
+	t.ok(BuildSort.live_index([c, up2], 1, [c, up2]) == 1 and BuildSort.live_index([c, up2], 1, [up2]) == -1,
+		"two upgrades of one lot: the same occurrence, or -1 once one has gone")
+	t.ok(BuildSort.live_index(shown, 5, [a]) == -1 and BuildSort.live_index(shown, -1, [a]) == -1, "an index out of range: -1")
+	var pb := FileAccess.get_file_as_string("res://scripts/town/panel_build.gd")
+	var mq := _body(pb, "_move_queue")
+	t.ok(mq.contains("BuildSort.live_index(") and mq.contains("cmd_unqueue(at)") and mq.contains("swap_order(live.size(), at, delta)"),
+		"unqueue and reorder send the live index")
+	t.ok(_body(pb, "_queue_real").contains("if _q_sent:") and _body(pb, "bind").contains("_q_sent = false"),
+		"a second queue click before the next bind is dropped")
+	t.ok(not pb.contains("Not queued: %s") and String(vcfg["queue_text"]["not_queued"]).contains("{why}"),
+		"'Not queued' comes from town.json queue_text.not_queued")
 
 
 ## Q-g, the vat toggle's preview against the real staffing, in the costed case: with no idle hands to cover it,
