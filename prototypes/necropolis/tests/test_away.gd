@@ -53,8 +53,48 @@ func run() -> int:
 	_report()
 	_never_head_line()
 	_starved_hold()
+	_grow_report()
 	_cleanup()
 	return t.failures
+
+
+## Phase I P3 (the run's manager's ruling 1 on handoff 4: Grow acts during catch-up, so the away checks run a Grow-on
+## case): pre_vei with Grow turned on (its save loads with it off), loaded 2 h on. Grow starts over a dozen upgrades in
+## the catch-up; the report's build-finished line is every building_done of it in order, Grow's among them, with
+## `lots` (api-request #19) the lots in the names' order, and every Grow start that finished inside the window is on it at
+## its level.
+func _grow_report() -> void:
+	var c := cfgs()
+	var s := _mk(c)
+	s.cmd_debug_load_fixture("pre_vei")
+	t.ok(s.cmd_set_stance("grow", true)["ok"], "(setup) Grow on in pre_vei")
+	s.drain_events()
+	var n := _away(c, s, "grow", 7200)
+	var evs := n.catchup_events()
+	var done_lots: Array = []
+	var done_at := {}  # "lot/level" -> true for each building_done
+	for e in evs:
+		if e["type"] == "building_done":
+			done_lots.append(str(e["lot_id"]))
+			done_at["%s/%d" % [e["lot_id"], int(e["level"])]] = true
+	var grows := 0
+	var grow_done := 0
+	for e in evs:
+		if e["type"] == "grow_started":
+			grows += 1
+			if done_at.has("%s/%d" % [e["lot_id"], int(e["level"])]):
+				grow_done += 1
+	var rep := n.view_away()
+	var line: Dictionary = {}
+	for l in rep["gains"]:
+		if l["kind"] == "build" and l.has("lots"):
+			line = l
+	var count := int(str(line.get("text", "0")).get_slice(" ", 0)) if not line.is_empty() else 0
+	print("  [away] pre_vei with Grow on, 2 h away: %d Grow starts, %d of them finished; builds line: %s; ready: %s" % [grows, grow_done,
+		str(line.get("text", "")), str(rep["ready"].map(func(l): return l["text"]))])
+	t.ok(grows >= 10 and grow_done >= 10 and not line.is_empty() and line["lots"] == done_lots and count == done_lots.size(),
+		"with Grow on: the report's build-finished line holds every finish of the catch-up in order (%d), Grow's %d among them, its lots in the names' order" % [
+		done_lots.size(), grow_done])
 
 
 ## Phase I P3, ruling 3's hold timeout (the run's manager's option (iv) of 2026-11-18; STATE-API §10 A14): a staffed

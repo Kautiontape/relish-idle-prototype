@@ -103,6 +103,7 @@ func run() -> int:
 	_td2(day1, mid)
 	_queue_eta(day1)
 	_stance_trade(mid)
+	_stance_trade_grow(mid)
 	_full_staffing_label()
 	_build_sort(day1)
 	_build_reasons(day1)
@@ -3655,6 +3656,38 @@ func _stance_trade(mid: Dictionary) -> void:
 		var line := HudModel.parts_text(TownBehaviour.stance_trade(String(id), mid, before, proj.call(mid, TownBehaviour.stance_job(String(id), town, vcfg)), vcfg))
 		t.ok(line.begins_with("Now: ") and not line.contains("{") and vcfg["stance_trade"].has(id), "stance trade: %s has a line: %s" % [id, line])
 	t.ok(String(vcfg["behaviour"]["no_projection"]) == "projected rates: coming", "stance trade: rates still wait, and say so in player words")
+
+
+## Phase I P3 (the run's manager's ruling 3 on handoff 4): Grow's trade line, from view_stances' `grow` (its pick, what
+## holds it) and its row's `active` (the first finished build). midgame_2flips' own view first (a fixture load reads no
+## beat yet, so `active` is false), then the same view as Grow armed, with its pick on a wait, held by the queue, held
+## by the build under way, and with no pick. Names are buildings_view labels.
+func _stance_trade_grow(mid: Dictionary) -> void:
+	var bv: Dictionary = cfg["buildings_view"]
+	var g: Dictionary = mid["stances"]["grow"]
+	var name := BuildSort.label_of(String(g["building_id"]), bv)
+	var line := HudModel.parts_text(TownBehaviour.stance_trade("grow", mid, [], [], vcfg, bv))
+	t.ok(String(g["building_id"]) != "" and float(g["in_s"]) == 0.0 and String(g["held"]) == "" and not bool(g["busy"])
+		and line == "Now: no build finished yet → it wouldn't fire; if it did: upgrades %s to level %d now" % [name, int(g["level"])],
+		"stance trade: Grow in midgame_2flips' view names its pick (%s): '%s'" % [str(g), line])
+	var v: Dictionary = mid.duplicate(true)
+	for s in v["stances"]["stances"]:
+		if String(s["id"]) == "grow":
+			s["active"] = true
+	v["stances"]["grow"] = {"building_id": "bone_mill", "lot_id": "lot-07", "level": 3, "in_s": 720.0, "held": "", "busy": false}
+	var trade := func() -> String: return HudModel.parts_text(TownBehaviour.stance_trade("grow", v, [], [], vcfg, bv))
+	t.ok(trade.call() == "Now: your first build is done → it would fire; upgrades Bone Mill to level 3 in 12 min",
+		"stance trade: Grow armed, its pick on a wait: '%s'" % trade.call())
+	v["stances"]["grow"]["held"] = "no_bone"
+	t.ok(trade.call() == "Now: your first build is done → it would fire; Bone Mill level 3 waits: your queue is saving for its next build",
+		"stance trade: Grow held by a queue head waiting on funds: '%s'" % trade.call())
+	v["stances"]["grow"]["held"] = ""
+	v["stances"]["grow"]["busy"] = true
+	t.ok(trade.call() == "Now: your first build is done → it would fire; Bone Mill level 3 waits for the build under way",
+		"stance trade: Grow held by the build under way (max_active): '%s'" % trade.call())
+	v["stances"]["grow"] = {"building_id": "", "lot_id": "", "level": 0, "in_s": -1.0, "held": "", "busy": false}
+	t.ok(trade.call() == "Now: your first build is done → it would fire; nothing it can upgrade now",
+		"stance trade: Grow with no pick: '%s'" % trade.call())
 
 
 ## A stand-in rate of a building with job slots says "at full staffing"; projected rates say "now".

@@ -290,6 +290,7 @@ const VIEWS := {
 		"slots": I, "used": I, "beat_id": I,
 		"stances": [{"id": S, "on": B, "suspended": B, "active": B, "fired_beat_id": I,
 			"hold_s_left": F, "projected": {"*": F}}],
+		"grow": {"building_id": S, "lot_id": S, "level": I, "in_s": F, "held": S, "busy": B},  # v14 (Phase I P3)
 	},
 	"view_inventory": {
 		"husks": [{"uid": S, "kind": S}],

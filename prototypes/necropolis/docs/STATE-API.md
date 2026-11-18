@@ -453,7 +453,8 @@ from `BALANCE.md` §0.
     released yet): a sixth stance id, `grow`, on `view_stances.stances` and `cmd_set_stance`; it takes no slot
     (`economy.json` `stance.slot_free`), so `used` leaves it out and it is never `suspended` (§5.11); a new game starts
     with it on (`stance.grow.default_on`), and the save's `stances.on` keeps it (§9.1). A new event, `grow_started
-    {building_id, lot_id, level}` (§6), when it starts an upgrade.
+    {building_id, lot_id, level}` (§6), when it starts an upgrade. A new key, `view_stances.grow` (§5.11; the run's
+    manager's ruling 3 on handoff 4): Grow's pick, on or off, with what holds it, for the stances panel's trade line.
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -2076,6 +2077,7 @@ substep interval, the influence field's `advance()` pattern (§3 step 9):
 | `slots`, `used` | int | `stance.base_slots` + Guildhall + 1 while Relish is home. v14: `used` counts only the stances that take a slot (all but `stance.slot_free`'s: Grow) |
 | `beat_id` | int | the current sim beat, `floor(t / beat_s)` |
 | `stances` | Array[Dictionary] | one per `STANCE_IDS` (below). v14 adds `grow` (§10 A17), the last |
+| `grow` | Dictionary | v14 (Phase I P3): the Grow stance's pick as it reads now, whether Grow is on or off (`StateViews.grow_pick`, `BuildRules.grow_target`): `building_id`, `lot_id`, `level` (the level it would start) and `in_s` (the seconds until the stocks cover it at `queue_net`; 0.0 now), or `""`, `""`, 0 and −1.0 when nothing qualifies (§10 A17's rule); `held` (String), the waiting reason (`no_gold`, `no_bone`) of the queue head the last core step left waiting on funds, `""` when none: Grow starts nothing while it is set; `busy` (bool), the constructions under way at `stance.grow.max_active`: Grow starts nothing until one finishes. Pure, cached on [rev, t, structure_rev] |
 
 Each `stances` entry (MECHANICS §4.5 has each stance's condition and effect):
 

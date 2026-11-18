@@ -562,7 +562,8 @@ pit's L2 are its first buys), every gold price (gold isn't the binder: it sits a
 living's buildings (House, Well, Bakery, Inn: bought with gold, and the House's handover rule above keeps its steps
 at 2.5× or less and its L4 and L5 under a new game's 200 bone cap). Gold scaling was ruled out too: the Chapel's L8
 at 3.5 × 9 450 gold is over the Market's L8 cap (32 500). Sized with `wip/tools-p3/qb_probe.gd` (`QB_COSTMULT`, the
-whole level costs from L3 of every relic-free level, the cap from L2; cff0ecc's tree plus Grow): the last build of
+whole level costs from L3 of every relic-free level, the cap from L2; 65a4990's tree plus
+`wip/tools-p3/grow-step1.patch`, the step-1 rule, and the `max_active` cap, which moved nothing): the last build of
 pure_idle's 168 h close and of town_only's 8 days, both ending with every relic-free level built:
 
 | multiplier | pure_idle | town_only |
@@ -584,7 +585,19 @@ with 123 builds in 8 days (27 Grow's, the last at 69.1 h), still building at the
 (median 700 s, max 1 300 s), S1 median 16 min, S2 median 1.9 h. These are probe readings on one seed; P3's batch
 measures every profile. The step from L2
 to L3 is now steep on the dead's buildings (the pit's 305 to 1 575 bone, ×5.2, against ×1.5 before), a side effect
-of leaving L2 alone; a ramp (×3.5 reached at L5) is the alternative if the balance pass wants a smoother curve.
+of leaving L2 alone.
+
+**The ramp, probed and not taken (for the V-I2 vision check).** The run's manager's ruling on handoff 4 (4): replace
+the step with a ramp over L3 to L5 if one re-probe keeps pure_idle and town_only in 48–72 h with the S0 gaps
+unchanged, else keep the step. The one candidate, fixed before the run so as not to lose depth: 65a4990's bone on the
+same buildings ×2.0 at L3, ×3.0 at L4 and ×4.4 from L5 (relic levels too; about the step's total over L3–L5 for
+pure_idle's buildings), the mill's cap a level ahead (L2 ×2.0, L3 ×3.0, L4 up ×4.4: 500, 1 450, 3 760, 6 180, 9 700,
+15 640, 37 640), so the pit's ladder reads 305, 900, 2 160, 5 060 (×3.0, ×2.4, ×2.3 a step). qb_probe on 7cb0899 with
+that `buildings.json` (`wip/tools-p3/ramp.py`; digests `qb-{pi,to,se}-ramp-7cb0899.txt`): pure_idle's last build 49.2 h
+(the step 52.8 h), **town_only's 47.4 h (the step 54.2 h): 0.6 h under the band**, so the step stays. S0 was unchanged
+(first30: 3 starts, median 96.5 s, max 1 449.5 s; sessions 700 / 1 300 s, both as the step), and the ramp evened the
+middle: town_only's S1 longest gap 2.1 h against the step's 3.6 h. A top a little steeper (about ×4.6) would likely pass;
+per the ruling it wasn't iterated. sessions reached the City with 122 builds either way.
 
 ## 8. Balance stand-ins (E3-6a; `configs/balance_standins.json` v0)
 The autoplayer (E3-6b) can't run the dungeon headless. `tests/autoplay/standin_resolver.gd`

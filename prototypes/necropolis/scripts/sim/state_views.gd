@@ -523,7 +523,27 @@ static func stances(gs: GameState) -> Dictionary:
 		list.append({"id": id, "on": gs.stances_on.has(id), "suspended": idx >= slots, "active": gs._stance_active.has(id),
 			"fired_beat_id": int(gs._stance_fired.get(id, -1)), "hold_s_left": maxf(0.0, float(gs._stance_hold.get(id, 0.0))),
 			"projected": (proj[id] as Dictionary).duplicate()})
-	return {"rev": gs.rev, "slots": slots, "used": mini(slotted.size(), slots), "beat_id": beat_id(gs), "stances": list}
+	return {"rev": gs.rev, "slots": slots, "used": mini(slotted.size(), slots), "beat_id": beat_id(gs), "stances": list,
+		"grow": grow_pick(gs).duplicate()}
+
+
+## view_stances' `grow` (STATE-API §5.11, v14; Phase I P3, the run's manager's ruling 3 on handoff 4): the Grow stance's
+## pick as BuildRules.grow_target reads it now, on or off (so the panel can say what it would do): {building_id, lot_id,
+## level, in_s}, building_id "" and in_s −1.0 when there is none; `held`, the reason of the queue head waiting on funds
+## at the last processing (gs._queue_held: Grow starts nothing while it is set), "" when none; `busy`, the constructions
+## under way at economy.json stance.grow.max_active (Grow starts nothing until one finishes). Pure; cached on
+## [rev, t, structure_rev] (gs._grow_view), as the projections are.
+static func grow_pick(gs: GameState) -> Dictionary:
+	var key := [gs.rev, gs.t, gs.town_sim.structure_rev]
+	var cached: Array = gs._grow_view
+	if not cached.is_empty() and cached[0] == key:
+		return cached[1]
+	var tg := BuildRules.grow_target(gs)
+	var out := {"building_id": str(tg.get("building_id", "")), "lot_id": str(tg.get("lot_id", "")), "level": int(tg.get("level", 0)),
+		"in_s": float(tg.get("in_s", -1.0)), "held": gs._queue_held,
+		"busy": BuildRules.constructions(gs) >= int(gs._req_f("economy.stance.grow.max_active"))}
+	gs._grow_view = [key, out]
+	return out
 
 
 ## view_stances' `projected` (STATE-API §5.11, E3-1): for each stance, the change in each net rate per second if it

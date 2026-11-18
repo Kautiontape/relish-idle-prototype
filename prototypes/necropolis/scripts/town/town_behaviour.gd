@@ -193,7 +193,7 @@ static func stances_live(views: Dictionary) -> bool:
 ## STANDIN(E3): until the stances are live (`stances_live`) the verdict is computed from the thresholds
 ## the needs already use (view.needs.bodies_frac, view.needs.morale_below); once live it is the stance's
 ## own `active` (STATE-API §5.11), so the row can never contradict the chip.
-static func stance_trade(id: String, views: Dictionary, before: Array, after: Array, vcfg: Dictionary) -> Array:
+static func stance_trade(id: String, views: Dictionary, before: Array, after: Array, vcfg: Dictionary, bview: Dictionary = {}) -> Array:
 	var tx: Dictionary = vcfg.get("behaviour", {})
 	var spec: Dictionary = (vcfg.get("stance_trade", {}) as Dictionary).get(id, {})
 	var needs: Dictionary = vcfg.get("needs", {})
@@ -223,6 +223,11 @@ static func stance_trade(id: String, views: Dictionary, before: Array, after: Ar
 		"idle":
 			fires = roundi(float(w.get("idle", 0.0))) >= 1
 			now = BuildSort.fmt(String(tx.get("now_idle", "")), {"n": roundi(float(w.get("idle", 0.0)))})
+		"first_build":  # (Phase I P3) Grow: its condition is a finished build; the trade is its pick (view_stances.grow)
+			for s in views.get("stances", {}).get("stances", []):
+				if String(s.get("id", "")) == id:
+					fires = bool(s.get("active", false))
+			now = String(tx.get("now_grow" if fires else "now_grow_wait", ""))
 	if live:
 		fires = false
 		for s in views.get("stances", {}).get("stances", []):
@@ -238,4 +243,26 @@ static func stance_trade(id: String, views: Dictionary, before: Array, after: Ar
 		move = BuildSort.fmt(String(tx.get("trade_muster", "")), {"n": roundi(float(w.get("idle", 0.0)))})
 	elif String(spec.get("when", "")) == "gold_under_upkeep":
 		move = String(tx.get("trade_thrift", ""))
+	elif String(spec.get("when", "")) == "first_build":
+		move = grow_trade(views.get("stances", {}).get("grow", {}), vcfg, bview)
 	return HudModel.fill_parts(String(tx.get("trade_fires" if fires else "trade_holds", "")), {"now": now, "move": move})
+
+
+## (Phase I P3) Grow's trade: what it would start, from view_stances' `grow` (its pick, the held queue, the build under
+## way). No pick: trade_grow_none. A pick while a queue head saves (`held`) or the build cap is full (`busy`) says it waits
+## and for what; else when it starts: now, or in BuildSort.fmt_eta of `in_s`. Names are buildings_view labels.
+static func grow_trade(g: Dictionary, vcfg: Dictionary, bview: Dictionary) -> String:
+	var tx: Dictionary = vcfg.get("behaviour", {})
+	var bid := String(g.get("building_id", ""))
+	if bid == "":
+		return String(tx.get("trade_grow_none", ""))
+	var vars := {"name": BuildSort.label_of(bid, bview), "level": int(g.get("level", 0))}
+	if String(g.get("held", "")) != "":
+		return BuildSort.fmt(String(tx.get("trade_grow_held", "")), vars)
+	if bool(g.get("busy", false)):
+		return BuildSort.fmt(String(tx.get("trade_grow_busy", "")), vars)
+	var in_s := float(g.get("in_s", 0.0))
+	if in_s <= 0.0:
+		return BuildSort.fmt(String(tx.get("trade_grow_now", "")), vars)
+	vars["eta"] = BuildSort.fmt_eta(in_s, vcfg)
+	return BuildSort.fmt(String(tx.get("trade_grow", "")), vars)

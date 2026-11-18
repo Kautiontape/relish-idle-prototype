@@ -290,6 +290,8 @@ var _grow_order: Array = []  # economy.json stance.grow.order: the buildings Gro
 ## The reason of the queue head the last core step's processing left waiting on funds, "" when none (BuildRules.
 ## process_queue's return): Grow acts only when it is "", and catch-up's clip at Grow's pick reads it. Session only.
 var _queue_held := ""
+## view_stances' `grow` (Grow's pick), cached: [[rev, t, TownSim.structure_rev], {...}] (StateViews.grow_pick). Session only.
+var _grow_view: Array = []
 var _bone_war_share := 0.0  # economy.json opening.bone_edge.war_share (view_hud.bone_war_share)
 var _starved_lever := {}  # economy.json town.starved_lever: TownSim.mill_starved reason -> its lever id
 ## [TownSim.structure_rev, town_tier] when the core step last checked the tiers and none rose: the check
@@ -654,6 +656,7 @@ func cmd_new_game(seed: int) -> Dictionary:
 	_stance_beat = -1
 	_stance_acting = {}
 	_stance_proj = []
+	_grow_view = []
 	blueprints = []
 	haul_target = "auto"
 	build_queue = []
@@ -3161,6 +3164,7 @@ func from_dict(d: Dictionary) -> Dictionary:
 	_stance_beat = beat_at(t)
 	_stance_acting = {}
 	_stance_proj = []
+	_grow_view = []
 	_apply_stances(t, true)
 	if not _stance_acting.has("thrift"):
 		town_sim.thrift_resume()

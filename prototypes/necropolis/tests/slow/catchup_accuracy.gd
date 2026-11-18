@@ -56,8 +56,37 @@ func run() -> int:
 	var i1: Dictionary = cu.i1(c, "new", script, HOURS * 3600.0, 0.25, tol)
 	print("  [catchup_accuracy] I1, a new game's session left %.0f h, closed vs open: %s" % [HOURS, i1["lines"]])
 	t.ok(i1["ok"], "I1 over %.0f h: closed equals open within %s, the same outcomes: %s" % [HOURS, conv._pct(tol), i1["lines"]])
+	_grow_on(c, conv, cu, tol)
 	_trickle_30h(c)
 	return t.failures
+
+
+## Phase I P3 (the run's manager's ruling 1 on handoff 4: Grow acts during catch-up, so this check runs a Grow-on case;
+## the starts above load with Grow off, as every pre-v14 save does): pre_vei with Grow turned on, 12 h caught up against
+## live with the window means, and a new game with Grow on by default (test_catchup.grow_script: the default I1's valve and
+## House, the bone store full), 12 h closed against open. Each: the same Grow starts in order, each within the outcomes'
+## bound or catchup_tol of its wait (test_catchup.grow_same), the worst gap printed. Probed counts (not asserted): the new game's Grow starts
+## run out once its bone is spent, as no mill is built; pre_vei's run on through the 12 h.
+func _grow_on(c: Dictionary, conv: Variant, cu: Variant, tol: float) -> void:
+	var r: Dictionary = cu.accuracy(c, cu.grow_on_json(conv.start_json("pre_vei")), HOURS * 3600.0, tol, WINDOW_S)
+	var g: Array = r["grow_started"]
+	var gd: String = cu.grow_same(g[0], g[1], tol, float(r["t0"]), float(r["grow_bound_s"]))
+	print("  [catchup_accuracy] pre_vei with Grow on, %.0f h caught up vs live: %s; Grow started %d caught up, %d live (%s; the worst %.3f s apart)" % [
+		HOURS, "pass" if r["ok"] else "FAIL", (g[0] as Array).size(), (g[1] as Array).size(), gd if gd != "" else "same",
+		cu.grow_worst_dt(g[0], g[1])])
+	t.ok(r["ok"] and (g[1] as Array).size() >= 10 and gd == "",
+		"pre_vei with Grow on: %.0f h caught up against live within %s and the same %d Grow starts (%s): %s" % [HOURS, conv._pct(tol),
+		(g[1] as Array).size(), gd if gd != "" else "same", r["lines"]])
+	var cg: Dictionary = cu.cfgs({"economy.stance.grow.default_on": true})
+	var i1: Dictionary = cu.i1(cg, "new", func(s: GameState) -> void: cu.grow_script(s), HOURS * 3600.0, 0.25, tol)
+	var gi: Array = i1["grow_started"]
+	var gid: String = cu.grow_same(gi[0], gi[1], tol, float(i1["t0"]), float(i1["grow_bound_s"]))
+	print("  [catchup_accuracy] I1 with Grow on, %.0f h closed vs open: %s; Grow started %d closed, %d open (%s; the worst %.3f s apart)" % [
+		HOURS, i1["lines"], (gi[0] as Array).size(), (gi[1] as Array).size(), gid if gid != "" else "same",
+		cu.grow_worst_dt(gi[0], gi[1])])
+	t.ok(i1["ok"] and (gi[1] as Array).size() >= 10 and gid == "",
+		"I1 with Grow on over %.0f h: closed equals open within %s and the same %d Grow starts (%s): %s" % [HOURS, conv._pct(tol),
+		(gi[1] as Array).size(), gid if gid != "" else "same", i1["lines"]])
 
 
 ## The step 9 review's item 1, the steady case: the relic trickle over 30 h, open against closed (the real runner's steps),

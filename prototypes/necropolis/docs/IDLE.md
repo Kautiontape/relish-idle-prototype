@@ -692,7 +692,7 @@ same profile with the game closed.
   the queue's processing, whenever no queue head waits on funds; never a relic level, never an empty lot. Catch-up
   starts each upgrade when live play would (its clip, §4). Why: the list's spare room holds only gated entries, so a
   pure_idle queue of at most 8 buildable entries finished 3.69 h into a 168 h close (cff0ecc), against 48–72 h of
-  growth; with Grow and BALANCE §7's depth (P3), pure_idle's last build is 56.8 h in (BALANCE §5).
+  growth; with Grow and BALANCE §7's depth (P3), pure_idle's last build is 52.8 h in (7cb0899's configs, BALANCE §7).
 - **Processing**, every core step, right after the tier check:
   - The queue is processed in order.
   - An entry blocked by an **unmet gate** (blueprint, tier, a building, a locked lot, relics) is flagged

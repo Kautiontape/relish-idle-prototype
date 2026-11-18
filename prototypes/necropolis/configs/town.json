@@ -371,6 +371,13 @@
       "now_morale_live": "morale {v}",
       "now_gold": "gold in {in} vs upkeep {out}",
       "now_idle": "{n} idle at the crypt",
+      "now_grow_wait": "no build finished yet",
+      "now_grow": "your first build is done",
+      "trade_grow": "upgrades {name} to level {level} in {eta}",
+      "trade_grow_now": "upgrades {name} to level {level} now",
+      "trade_grow_held": "{name} level {level} waits: your queue is saving for its next build",
+      "trade_grow_busy": "{name} level {level} waits for the build under way",
+      "trade_grow_none": "nothing it can upgrade now",
       "refusals": {
         "unknown_job": "no such job", "duplicate_job": "a job is listed twice", "missing_job": "a job is missing from the order",
         "unknown_lot": "no such lot", "empty_lot": "nothing is built there", "no_jobs": "that building has no job slots",
