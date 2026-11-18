@@ -141,6 +141,7 @@ func run() -> int:
 	t.suite("raid_config")
 	_parse_tests(t)
 	_word_tests(t)
+	_whole_beat_tests(t)
 	_proof_tests(t)
 	return t.failures
 
@@ -246,6 +247,66 @@ func _word_tests(t: TestUtil) -> void:
 	var raid: Variant = JSON.parse_string(FileAccess.get_file_as_string(CONFIG_DIR.path_join("raid.json")))
 	var problems := _word_problems(raid if raid is Dictionary else {})
 	t.ok(problems.is_empty(), "raid.json's words are all there and none is blank: %s" % [problems])
+
+
+## Every `tell_beats` and `pack_rest_beats` under wardens.archetypes that is not a whole number, as "path = value".
+## Why they must be whole: WardenLogic.after_rest(beat, tell, rest) = ceil(ceil(beat) + tell + rest) is the same as the
+## assist-off formula only while tell and rest are whole beats; a fractional one (0.5) would change the OFF path
+## (the warned-attack assist, LONGER WARNINGS), which must stay byte-identical to before the assist.
+func _whole_beat_problems(raid: Variant) -> Array:
+	var out: Array = []
+	var arches: Variant = _dig(raid, "wardens.archetypes")
+	if not (arches is Dictionary):
+		return ["wardens.archetypes is missing"]
+	_collect_fractional_beats(arches, "wardens.archetypes", out)
+	return out
+
+
+func _collect_fractional_beats(node: Variant, path: String, out: Array) -> void:
+	if node is Dictionary:
+		for k in node:
+			var v: Variant = node[k]
+			if (str(k) == "tell_beats" or str(k) == "pack_rest_beats") and (v is float or v is int):
+				if not is_equal_approx(float(v), roundf(float(v))):
+					out.append("%s.%s = %s" % [path, k, str(v)])
+			else:
+				_collect_fractional_beats(v, "%s.%s" % [path, k], out)
+	elif node is Array:
+		for i in (node as Array).size():
+			_collect_fractional_beats(node[i], "%s[%d]" % [path, i], out)
+
+
+func _whole_beat_tests(t: TestUtil) -> void:
+	var raid: Variant = JSON.parse_string(FileAccess.get_file_as_string(CONFIG_DIR.path_join("raid.json")))
+	if not (raid is Dictionary):
+		t.ok(false, "raid.json parses, so the whole-beat check can run")
+		return
+	var seen := _count_beat_keys(_dig(raid, "wardens.archetypes"))
+	t.ok(seen >= 8, "the whole-beat check sees every warden's tell_beats and pack_rest_beats (%d found)" % seen)
+	var problems := _whole_beat_problems(raid)
+	t.ok(problems.is_empty(), "every wardens.archetypes tell_beats and pack_rest_beats is a whole number: WardenLogic.after_rest equals the assist-off formula only for whole beats, so a fraction would change the off path: %s" % [problems])
+	# the proof: an in-memory 0.5 is reported, for each key
+	var half_tell: Dictionary = (raid as Dictionary).duplicate(true)
+	half_tell["wardens"]["archetypes"]["huntsman"]["attack"]["tell_beats"] = 0.5
+	t.ok(_whole_beat_problems(half_tell) == ["wardens.archetypes.huntsman.attack.tell_beats = 0.5"], "a tell_beats of 0.5 is reported: %s" % [_whole_beat_problems(half_tell)])
+	var half_rest: Dictionary = (raid as Dictionary).duplicate(true)
+	half_rest["wardens"]["archetypes"]["bellringer"]["attack"]["pack_rest_beats"] = 0.5
+	t.ok(_whole_beat_problems(half_rest) == ["wardens.archetypes.bellringer.attack.pack_rest_beats = 0.5"], "a pack_rest_beats of 0.5 is reported: %s" % [_whole_beat_problems(half_rest)])
+	t.ok(_whole_beat_problems({}) == ["wardens.archetypes is missing"], "no archetypes at all is reported")
+
+
+func _count_beat_keys(node: Variant) -> int:
+	var n := 0
+	if node is Dictionary:
+		for k in node:
+			if str(k) == "tell_beats" or str(k) == "pack_rest_beats":
+				n += 1
+			else:
+				n += _count_beat_keys(node[k])
+	elif node is Array:
+		for e in node:
+			n += _count_beat_keys(e)
+	return n
 
 
 ## The checks catch what they are for: each break below must be reported.

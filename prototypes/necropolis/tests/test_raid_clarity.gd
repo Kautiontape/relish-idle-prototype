@@ -108,11 +108,14 @@ func _round2_tests(t: TestUtil) -> void:
 	t.ok(panel_heads.title == "LEAVE THE RAID?" and panel_heads.btn_retreat == "RETREAT" and panel_heads.btn_stay == "STAY"
 		and panel_heads.foot == "click to choose · Space or Esc: stay and fight", "the panel's title, buttons and footer are the ones hud.retreat gives it")
 	panel_heads.free()
+	_lost_agreement_tests(t)
+	# Stays a source pin: raid_hud.gd and raid_endings.gd name autoloads, so the headless suite cannot load them to
+	# check the one fact the pure-function test above cannot reach: both the retreat panel (HUD) and the death
+	# card (endings) are fed from the same `death_inputs()`. The --raid-autodie=60 boot covers the card end to end.
 	var rl := _func_src(hsrc, "func _retreat_lines(")
-	t.ok(rl.contains("di[\"shut\"]"), "the retreat panel passes the death card's shut-in big")
-	t.ok(rl.contains("RaidLogic.retreat_fall_lines(") and rl.contains("death_inputs()") and rl.contains("RaidLogic.retreat_keep_lines("), "the HUD builds both columns from the endings' own death inputs")
+	t.ok(rl.contains("raid.endings.death_inputs()"), "the HUD builds the retreat panel's IF RELISH FALLS column from the endings' death_inputs()")
 	var esrc := FileAccess.get_file_as_string("res://scripts/raid/raid_endings.gd")
-	t.ok(_func_src(esrc, "func death_rows(").contains("death_inputs()") and _func_src(esrc, "func death_inputs(").contains("RaidLogic.unbanked("), "the death card reads the same death_inputs")
+	t.ok(_func_src(esrc, "func death_rows(").contains("death_inputs()"), "the death card reads the same death_inputs()")
 	# the words moved out of code live in raid.json: the in-world pip label (at least 13 px), the keep prefix, the AFTER words
 	var rj: Dictionary = TestUtil.load_json("res://configs/raid.json")
 	var rw: Dictionary = rj["wardens"]
@@ -196,7 +199,13 @@ func _round2_tests(t: TestUtil) -> void:
 		t.ok(ThemeDB.fallback_font.get_string_size(ln, HORIZONTAL_ALIGNMENT_LEFT, -1, vpx).x <= 320.0, "a BANKED line fits the value column at %d px: %s" % [vpx, ln])
 		t.ok(not ln.substr(0, 1).is_valid_int(), "a kind keeps its count on its line: %s" % ln)
 	t.ok(RaidLogic.wrap_loot_line("essence 8", ThemeDB.fallback_font, vpx, 320.0) == PackedStringArray(["essence 8"]) and RaidLogic.wrap_loot_line("", ThemeDB.fallback_font, vpx, 320.0).is_empty(), "a short line stays one line; nothing is no lines (the HUD's dim \"none\")")
-	t.ok(hsrc.contains("st.set_loot(RaidLogic.loot_line(bk), RaidLogic.loot_line(ub))") and hsrc.contains("RaidLogic.wrap_loot_line(banked, ThemeDB.fallback_font, _val, value_w())"), "the HUD wraps BANKED and UNBANKED at value_w() through set_loot")
+	# Source pins: raid_hud.gd names autoloads, so the headless suite cannot build the HUD. The wrap itself is
+	# RaidLogic.wrap_loot_line, tested above; these pin where it is called, with its arguments, each inside its own
+	# function (refresh feeds set_loot, set_loot wraps both lines at value_w()). The windowed shots cover it end to end.
+	t.ok(_func_src(hsrc, "func refresh(").contains("st.set_loot(RaidLogic.loot_line(bk), RaidLogic.loot_line(ub))"), "the HUD's refresh feeds BANKED and UNBANKED through set_loot")
+	var sl := _inner_src(hsrc, "\tfunc set_loot(")
+	t.ok(sl.contains("banked_lines = RaidLogic.wrap_loot_line(banked, ThemeDB.fallback_font, _val, value_w())")
+		and sl.contains("unbanked_lines = RaidLogic.wrap_loot_line(unbanked, ThemeDB.fallback_font, _val, value_w())"), "set_loot wraps BANKED and UNBANKED at value_w()")
 	t.ok(RaidLogic.loot_uses_line(_lu(), RaidLogic.loot_counts({})) == "", "no loot: no uses line")
 	t.ok(RaidLogic.loot_uses_line(_lu(), RaidLogic.loot_counts({"blueprints": [{}]})) == "", "blueprints alone: no use line")
 	var all := RaidLogic.loot_uses_line(_lu(), RaidLogic.loot_counts({"relics": 1, "husks": [{}], "remnants": [{}], "essence": 2}))
@@ -461,6 +470,59 @@ func _hint_cue_tests(t: TestUtil) -> void:
 	var cue_src := _func_src(hud_src, "func show_cue(")
 	t.ok(RegEx.create_from_string("if _banner_t < 0\\.0:\\s*show_banner\\(").search(cue_src) != null and cue_src.count("show_banner(") == 1
 		and cue_src.find("_cue_queue.append") > cue_src.find("show_banner("), "show_cue calls show_banner only when no banner is showing; otherwise it queues")
+
+
+## Source pins, not a behavioural test: the panel names no autoload, but it only re-places itself while it sits in a
+## SceneTree (`is_inside_tree()`), and the runner calls every suite from SceneTree._init, where
+## Engine.get_main_loop() is still null (probed), so the test cannot add_child it to drive a position or a resize.
+## So each piece is pinned inside its own function: the setter, the open-time connection and the guards.
+func _replace_tests(t: TestUtil) -> void:
+	t.suite("raid_retreat_replace")
+	var psrc := FileAccess.get_file_as_string("res://scripts/raid/raid_retreat_panel.gd")
+	t.ok(psrc.contains("avoid_right_x = v\n\t\t_replace_if_moved()"), "a changed avoid_right_x re-places the panel (the setter calls _replace_if_moved)")
+	t.ok(_func_src(psrc, "func open(").contains("get_viewport().size_changed.connect(_replace_if_moved)"), "open() connects the viewport's size_changed to _replace_if_moved")
+	var rm := _func_src(psrc, "func _replace_if_moved(")
+	t.ok(rm.contains("if not visible or not is_inside_tree():\n\t\treturn") and rm.contains("get_viewport_rect().size == _placed_vp and is_equal_approx(avoid_right_x, _placed_avoid)") and rm.contains("_fit()"),
+		"_replace_if_moved does nothing while shut, or when neither the viewport nor avoid_right_x moved; else it refits and places")
+	var ft := _func_src(psrc, "func _fit(")
+	t.ok(ft.contains("_placed_vp = vp") and ft.contains("_placed_avoid = avoid_right_x"), "_fit records the viewport and edge it placed for")
+
+## r2 #3: the retreat panel's IF RELISH FALLS lines and the death card's rows, built from the same death state with
+## the real raid.json words, say the same thing. Both sides are pure RaidLogic functions: the panel's column from
+## retreat_fall_lines, the card's rows as RaidEndings.death_rows builds them (death_card_rows, then
+## death_rows_with_shut, with death_next_row for AFTER). A row's panel text is "LABEL · text".
+func _lost_agreement_tests(t: TestUtil) -> void:
+	t.suite("raid_lost_agreement")
+	var dw := _dw()
+	var rw := _hr()
+	var next_row := _nx({"death_ends": {"outcome": "unmade", "respawn_s": 600.0}})
+	var cases := [
+		{"name": "nothing at risk", "ub": {}, "party_n": 0, "shut": ""},
+		{"name": "unbanked loot and party bigs", "ub": {"relics": 1, "essence": 4}, "party_n": 2, "shut": ""},
+		{"name": "a shut-in big at the held door", "ub": {"essence": 3}, "party_n": 1, "shut": "Old Gristle"},
+		{"name": "a shut-in big and nothing else", "ub": {}, "party_n": 0, "shut": "Old Gristle"},
+	]
+	for c in cases:
+		var panel := RaidLogic.retreat_fall_lines(rw, dw, 0, c["ub"], c["party_n"], next_row, c["shut"])
+		var card := RaidLogic.death_rows_with_shut(dw, RaidLogic.death_card_rows(dw, "x", {}, c["ub"], c["party_n"], "", next_row), c["shut"])
+		var labels := [str(dw["label_lost"]), str(dw["label_shut"]), str(dw["label_after"])] if c["shut"] != "" else [str(dw["label_lost"]), str(dw["label_after"])]
+		t.ok(panel.size() == labels.size(), "%s: the panel has %d lines (%s)" % [c["name"], labels.size(), str(panel)])
+		for i in mini(panel.size(), labels.size()):
+			var row := {}
+			for r in card:
+				if str(r["label"]) == labels[i]:
+					row = r
+			t.ok(not row.is_empty(), "%s: the card has a %s row" % [c["name"], labels[i]])
+			if row.is_empty():
+				continue
+			t.ok(str(panel[i]["text"]) == "%s · %s" % [row["label"], row["text"]] and panel[i]["key"] == row["key"],
+				"%s: the panel's %s line equals the card's row (panel '%s' vs card '%s · %s')" % [c["name"], labels[i], panel[i]["text"], row["label"], row["text"]])
+	# a phylactery charge left: a death revives her in place and the card never opens, so the panel says so and
+	# names no LOST, SHUT IN or AFTER (the card's rows would not apply)
+	var rev := RaidLogic.retreat_fall_lines(rw, dw, 1, {"relics": 1, "essence": 4}, 2, next_row, "Old Gristle")
+	var rt := str(rev[0]["text"]) if rev.size() == 1 else ""
+	t.ok(rev.size() == 1 and rt == str(rw["fall_revive"]) and not rt.contains(str(dw["label_lost"])) and not rt.contains(str(dw["label_after"])),
+		"a charge left: the panel is the one revive line, with no LOST or AFTER (%s)" % str(rev))
 
 
 ## A function's source text: from its `func` line to the next top-level func (or the file's end).
@@ -906,7 +968,7 @@ func _t5_tests(t: TestUtil) -> void:
 	t.ok(RaidLogic.wrap_balanced("alpha beta gamma delta epsilon, zeta eta", fnt, dpx, 150.0) != PackedStringArray(["alpha beta gamma delta epsilon,", "zeta eta"]), "a clause break whose piece is wider than the line is not taken")
 	# the retreat panel's columns at the 700 px clamp
 	var rcfg := _hr()
-	var r700 := RaidLogic.retreat_panel_rect(Vector2(700, 900), rcfg, 438.0, 300.0)
+	var r700 := RaidLogic.retreat_panel_rect(Vector2(700, 900), rcfg, 18.0 + float(_hs()["plate_w"]), 300.0)
 	var cw := RaidLogic.retreat_col_w(r700.size.x, float(rcfg["pad"]), float(rcfg["col_gap"]))
 	t.ok(cw > 0.0 and is_equal_approx(cw * 2.0 + 2.0 * float(rcfg["pad"]) + float(rcfg["col_gap"]), r700.size.x), "700 px: both columns are %.0f px wide and fill the %.0f px plate" % [cw, r700.size.x])
 	var lpx := int(rcfg["line_px"])
@@ -915,9 +977,7 @@ func _t5_tests(t: TestUtil) -> void:
 		t.ok(sz.x <= cw, "700 px: the retreat line %s wraps within the %.0f px column (%.0f px)" % [k, cw, sz.x])
 	t.ok(RaidLogic.retreat_col_w(100.0, 18.0, 32.0) == 16.0 and RaidLogic.retreat_col_w(20.0, 18.0, 32.0) == 0.0, "retreat_col_w halves what padding and gap leave, never below 0")
 	# the panel re-places itself when the viewport or the stat block's edge changes while it is open
-	var psrc2 := FileAccess.get_file_as_string("res://scripts/raid/raid_retreat_panel.gd")
-	t.ok(psrc2.contains("size_changed.connect(_replace_if_moved)") and psrc2.contains("_replace_if_moved()") and psrc2.contains("_placed_vp") and psrc2.contains("is_equal_approx(avoid_right_x, _placed_avoid)"),
-		"the open panel re-places on a viewport resize and on a changed avoid_right_x, and skips when neither moved")
+	_replace_tests(t)
 	var hudsrc := FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd")
 	t.ok(hudsrc.contains("_plate_w = float(words.get(\"plate_w\"") and not hudsrc.contains("420.0 - _col"), "the stat block reads its plate and label widths from raid.json")
 	# a word-wrapped line balances: the wrap that left "dungeon." alone now splits evenly
@@ -1267,6 +1327,13 @@ func _goal_compact_tests(t: TestUtil) -> void:
 	# the HUD measures the full rows and tests against them
 	var hcode := _code(FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd"))
 	var ug := _func_src(hcode, "func _update_goal(")
-	t.ok(ug.contains("height_for(full_rows)") and ug.contains("RaidLogic.goal_compact(full,") and ug.contains("_sleeping_ring_rect("), "_update_goal tests the ring against the FULL rows' rect")
+	# Stays a source pin: raid_hud.gd names autoloads, so the headless suite cannot run _update_goal. The decision is
+	# RaidLogic.goal_compact, tested above (including the no-flicker case, fed the FULL block's rect); the one fact
+	# left is that _update_goal feeds it the FULL rows' rect (height_for(full_rows), the rows built before
+	# compact is set) and the sleeping ring's rect, and not the compact rect, which would flicker.
+	var gi := ug.find("var full_rows := RaidLogic.goal_rows(g, s)")
+	t.ok(gi >= 0 and gi < ug.find("var full := Rect2(") and ug.contains("_goal_block.height_for(full_rows)") and gi < ug.find("s[\"compact\"] =")
+		and ug.contains("s[\"compact\"] = alive and not held and RaidLogic.goal_compact(full, _sleeping_ring_rect(w))"),
+		"_update_goal passes the FULL rows' rect (height_for(full_rows)) and the sleeping ring's rect to RaidLogic.goal_compact")
 	var sr := _func_src(hcode, "func _sleeping_ring_rect(")
 	t.ok(sr.contains("get_global_transform_with_canvas()") and sr.contains("RaidLogic.warden_ring_rect(") and sr.contains("w.awake"), "the ring's rect goes through the canvas transform and only while the warden sleeps")
