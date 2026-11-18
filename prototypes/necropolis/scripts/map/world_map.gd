@@ -154,7 +154,10 @@ func _build_ui() -> void:
 	valve.model = model
 	valve.toast.connect(hud.show_toast)
 	layer.add_child(valve)
+	seen = MapSeen.new(MapSeen.PATH, Game.autosave_enabled)  # outside the save; a harness session reads it empty and never writes it
+	seen.reconcile(str(model.hud.get("game_id", "")))  # the flags belong to one game
 	var legend := MapLegend.new()  # the fort rings' key, just above the valve
+	legend.seen = seen  # it keeps the player's close there
 	legend.model = model
 	legend.valve = valve
 	layer.add_child(legend)
@@ -174,8 +177,6 @@ func _build_ui() -> void:
 	layer.add_child(sidebar)
 	callouts_view.card = sidebar  # the callouts keep off the open card
 	hud.next_chosen.connect(_act_on)
-	seen = MapSeen.new(MapSeen.PATH, Game.autosave_enabled)  # outside the save; a harness session reads it empty and never writes it
-	seen.reconcile(str(model.hud.get("game_id", "")))  # the flags belong to one game
 	opening = MapOpening.new()
 	opening.model = model
 	opening.hud = hud
@@ -198,6 +199,10 @@ func _build_ui() -> void:
 	away.acted.connect(_act_on)
 	layer.add_child(away)
 	Game.game_event.connect(away.on_event)
+	var tip_theme := MapUi.tooltip_theme()  # every map tooltip on its own opaque plate
+	for c in layer.get_children():
+		if c is Control:
+			(c as Control).theme = tip_theme
 	Game.game_event.connect(_on_game_event)
 	setpieces = MapSetpieces.new()
 	setpieces.name = "Setpieces"

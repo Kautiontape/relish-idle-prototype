@@ -313,10 +313,12 @@ static func comes_plain_text(ci: Dictionary) -> String:
 	var s: String
 	if u + b == 0:
 		s = str(_c().get("comes_plain_none", ""))
-	elif b > 0:
+	elif b > 0 and u > 0:  # both kinds: at least two come
 		s = str(_c().get("comes_plain_bigs_fmt", "%d %d")) % [u, b]
+	elif b > 0:  # only big undead: "comes" for exactly one
+		s = str(_c().get("comes_plain_bigs_only_one_fmt" if b == 1 else "comes_plain_bigs_only_fmt", "%d")) % b
 	else:
-		s = str(_c().get("comes_plain_fmt", "%d")) % u
+		s = str(_c().get("comes_plain_one_fmt" if u == 1 else "comes_plain_fmt", "%d")) % u
 	if b == 0:
 		s += " " + str(_c().get("comes_plain_warden", ""))
 	return s

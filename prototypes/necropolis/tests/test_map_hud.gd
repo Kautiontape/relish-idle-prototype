@@ -115,7 +115,7 @@ func _clarity(t: TestUtil) -> void:
 	var roomy := HudLogic.legend_place(chip, valve, 12.0, 490.0, 240.0, 200.0, 40.0, true, false, 10.0)
 	t.ok(roomy["mode"] == "full" and is_equal_approx((roomy["rect"] as Rect2).end.y, 502.0) and (roomy["rect"] as Rect2).position.y >= chip.end.y + 10.0, "plenty of room: full, just above the valve, under the chip")
 	var tight := HudLogic.legend_place(chip, valve, 12.0, 490.0, 330.0, 250.0, 40.0, true, false, 10.0)
-	t.ok(tight["mode"] == "closed" and not (tight["rect"] as Rect2).intersects(chip) and not (tight["rect"] as Rect2).intersects(valve), "no room for full: collapsed, clear of both")
+	t.ok(tight["mode"] == "compact" and not (tight["rect"] as Rect2).intersects(chip) and not (tight["rect"] as Rect2).intersects(valve), "no room for full: compact, clear of both")
 	var clicked := HudLogic.legend_place(chip, valve, 12.0, 490.0, 330.0, 250.0, 40.0, true, true, 10.0)
 	t.ok(clicked["mode"] == "compact" and (clicked["rect"] as Rect2).position.y >= chip.end.y + 10.0 and (clicked["rect"] as Rect2).end.y <= valve.position.y - 10.0, "a click expands it compactly, clear of both")
 	var nohope := HudLogic.legend_place(chip, valve, 12.0, 490.0, 330.0, 280.0, 40.0, true, true, 10.0)
@@ -130,11 +130,45 @@ func _clarity(t: TestUtil) -> void:
 	t.ok(HudLogic.sidebar_top(1600.0, 338.0, 1000.0, 12.0, 150.0, 12.0) == 12.0, "1600 wide, plates end at 1000: the card starts at the top")
 	t.ok(HudLogic.sidebar_top(1280.0, 338.0, 1000.0, 12.0, 150.0, 12.0) == 150.0, "1280 wide: the plates reach the card's column, so it starts under them")
 	t.ok(HudLogic.sidebar_top(1600.0, 338.0, 1255.0, 12.0, 150.0, 12.0) == 150.0, "the gap is kept clear of the plates")
-	# the fort legend: open until a fort is taken, then a button; the player's click stands
-	t.ok(HudLogic.legend_open({"highest_tier_flipped": 0}, -1), "legend open on a new game")
-	t.ok(not HudLogic.legend_open({"highest_tier_flipped": 2}, -1), "legend collapsed once a fort is taken")
-	t.ok(HudLogic.legend_open({"highest_tier_flipped": 2}, 1), "a click opens it afterwards")
-	t.ok(not HudLogic.legend_open({"highest_tier_flipped": 0}, 0), "a click closes it on day 1")
+	# the fort legend: open by default until the player closes it; then as they left it
+	t.ok(HudLogic.legend_open(-1), "legend open by default")
+	t.ok(HudLogic.legend_open(HudLogic.legend_user(false)), "no earlier close: open")
+	t.ok(not HudLogic.legend_open(0), "a close sticks")
+	t.ok(not HudLogic.legend_open(HudLogic.legend_user(true)), "a close remembered from an earlier game: closed")
+	t.ok(HudLogic.legend_open(1), "a reopen sticks")
+	var lroom := HudLogic.legend_place(chip, valve, 12.0, 490.0, 330.0, 250.0, 40.0, HudLogic.legend_open(-1), false, 10.0)
+	t.ok(lroom["mode"] == "compact", "default open, no room for full: compact")
+	t.ok(HudLogic.legend_place(chip, valve, 12.0, 490.0, 330.0, 280.0, 40.0, HudLogic.legend_open(-1), false, 10.0)["mode"] == "closed", "default open, no room even for compact: collapses")
+	t.ok(HudLogic.legend_place(chip, valve, 12.0, 490.0, 240.0, 200.0, 40.0, HudLogic.legend_open(0), true, 10.0)["mode"] == "closed", "closed by the player: the button even with room")
+	# the held row's tag line names each word the chip can show
+	var tag := HudLogic.held_tag_line()
+	for m in [IdleLogic.SAFE, IdleLogic.THIN, IdleLogic.WILL_FALL]:
+		t.ok(IdleLogic.word(m) != "" and tag.contains(IdleLogic.word(m)), "the legend's tag line names %s" % IdleLogic.word(m))
+	t.ok(tag.length() <= 110 and tag.contains("Relish"), "the tag line is short (%d chars) and says Relish helps" % tag.length())
+	# the player's close is MapSeen's global key: across a new game, in memory when it cannot write
+	MapSeen.forget_memory()
+	var spath := "user://test_map_hud_legend_seen.cfg"
+	var sw := MapSeen.new(spath, true)
+	sw.reconcile("g1")
+	t.ok(not sw.get_global(MapSeen.LEGEND_CLOSED), "no close yet")
+	sw.set_global(MapSeen.LEGEND_CLOSED, true)
+	sw.mark(MapSeen.VALVE)
+	MapSeen.forget_memory()
+	var sr := MapSeen.new(spath, true)
+	t.ok(sr.get_global(MapSeen.LEGEND_CLOSED), "the close is read back from the file")
+	sr.reconcile("g2")  # a new game forgets the per-game flags, not the player's choice
+	MapSeen.forget_memory()
+	var sn := MapSeen.new(spath, true)
+	t.ok(sn.get_global(MapSeen.LEGEND_CLOSED) and not sn.has(MapSeen.VALVE), "a new game keeps the close and forgets the game's flags")
+	sn.set_global(MapSeen.LEGEND_CLOSED, false)
+	t.ok(not MapSeen.new(spath, true).get_global(MapSeen.LEGEND_CLOSED), "a reopen is kept")
+	var sm := MapSeen.new(spath, false)  # a session that cannot write: memory only
+	sm.set_global(MapSeen.LEGEND_CLOSED, true)
+	t.ok(sm.get_global(MapSeen.LEGEND_CLOSED), "a read-only session keeps the close in memory")
+	MapSeen.forget_memory()
+	t.ok(not MapSeen.new(spath, true).get_global(MapSeen.LEGEND_CLOSED), "and never wrote it to the file")
+	MapSeen.forget_memory()
+	DirAccess.remove_absolute(spath)
 	t.ok(HudLogic.legend_glyph_state("held") == IdleLogic.SAFE and HudLogic.legend_glyph_state("overrun") == NodeLogic.OVERRUN and HudLogic.legend_glyph_state("hers") == NodeLogic.HERS and HudLogic.legend_glyph_state("retaken") == NodeLogic.HERS, "each legend row draws the map's own state glyph")
 	var lc: Dictionary = MapLogic.cfg()["clarity"]["legend"]
 	t.ok((lc["rows"] as Array).size() == 4, "four states in the legend")
@@ -161,7 +195,22 @@ func _clarity(t: TestUtil) -> void:
 	var hs := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
 	t.ok(hs.contains("_goal = _label(int(cfg[\"clarity\"][\"goal_size_px\"]), \"text\")") and hs.contains("MapType.style_label(_goal, \"text\", int(cfg[\"clarity\"][\"goal_size_px\"]))"), "the goal is drawn in the text colour at clarity.goal_size_px")
 	t.ok(int(MapLogic.cfg()["clarity"]["goal_size_px"]) >= int(MapLogic.cfg()["objective_size_px"]) + 2 and int(MapLogic.cfg()["clarity"]["goal_size_px"]) >= 15, "the goal is at least 2 px over its old 13 px")
-	print("goal contrast %.2f" % MapLogic.contrast_ratio(Palette.c("text"), through))
+	# the bar's hover cue sits on the same plate
+	var cue_key := str(MapLogic.cfg()["clarity"]["hover_cue_key"])
+	var cue_ratio := MapLogic.contrast_ratio(Palette.c(cue_key), through)
+	t.ok(cue_ratio >= 4.5, "the hover cue (%s) reads %.1f:1 on the bar's plate (>= 4.5)" % [cue_key, cue_ratio])
+	t.ok(HudLogic.hover_cue() == "hover a word for what it means", "the cue's words")
+	# the tooltip's own plate: opaque, and its text reads on it
+	var ts := HudLogic.tooltip_style()
+	var plate: Color = ts["plate"]
+	t.ok(plate.a >= 0.95, "the tooltip plate is at least 0.95 opaque (%.2f)" % plate.a)
+	var tt_ratio := MapLogic.contrast_ratio(Palette.c("text"), Palette.c(lbright).lerp(plate, plate.a))
+	t.ok(tt_ratio >= 4.5 and ts["text"] == Palette.c("text"), "tooltip text reads %.1f:1 on its plate over the brightest key (>= 4.5)" % tt_ratio)
+	t.ok(int(ts["size"]) >= 12 and int(ts["pad"]) >= 3, "tooltip text is at least 12 px with padding")
+	var th := MapUi.tooltip_theme()
+	var pbox := th.get_stylebox("panel", "TooltipPanel") as StyleBoxFlat
+	t.ok(pbox != null and pbox.bg_color.a >= 0.95 and pbox.border_width_left == 1 and pbox.bg_color.is_equal_approx(plate), "the theme's TooltipPanel is the opaque plate with a 1 px border")
+	t.ok(th.get_color("font_color", "TooltipLabel") == Palette.c("text") and th.get_font_size("font_size", "TooltipLabel") == int(ts["size"]), "the theme's TooltipLabel is the text colour at the HUD size")
 
 
 ## Every string value of the config that says "the run" / "A run" for the game (code keys are not values).

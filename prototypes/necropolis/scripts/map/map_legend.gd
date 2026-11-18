@@ -3,15 +3,16 @@ extends PanelContainer
 ## The fort legend (bottom-left, just above the valve): each of the four states a fort ring can read
 ## as, drawn with the map's own glyph and ring (MapFortGlyph.draw_state) at a small size, beside its
 ## word and one short line (the glossary's meanings; words in configs/map_view.json
-## "clarity.legend"). Shown expanded while no fort has been taken (HudLogic.goal_shown), collapsed to
-## a small "Legend" button after; a click toggles it, and the player's choice then stands for the
-## session (kept here, not in a save). Static: nothing moves, so reduced motion changes nothing.
+## "clarity.legend"). Shown expanded until the player closes it, then as they left it: a click toggles
+## it, and a close is remembered in MapSeen's global "legend_closed" key (outside the save, across
+## games). Static: nothing moves, so reduced motion changes nothing.
 
 var model: MapModel
 var valve: Control  # the legend sits just above it
 var chip: Control  # the Relish chip: the legend stays below its bottom edge (HudLogic.legend_place)
+var seen: MapSeen  # where the player's close is kept; null: this session only
 
-var _open_user := -1  # -1: follow the game (open until a fort is taken), 0 closed, 1 open by the player's click
+var _open_user := -1  # -1: not chosen (open), 0 closed by the player, 1 opened by the player
 var _head: Button
 var _rows: VBoxContainer
 var _shown_open := true
@@ -44,6 +45,8 @@ class Glyph extends Control:
 func _ready() -> void:
 	var cfg := MapLogic.cfg()
 	var lc: Dictionary = cfg["clarity"]["legend"]
+	if seen != null:
+		_open_user = HudLogic.legend_user(seen.get_global(MapSeen.LEGEND_CLOSED))
 	set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
 	grow_vertical = Control.GROW_DIRECTION_BEGIN  # a taller legend rises off the valve, never into it
 	var m: Array = cfg["controls"]["valve_margin_px"]
@@ -64,6 +67,8 @@ func _ready() -> void:
 	vb.add_child(_rows)
 	for row in lc["rows"]:
 		_rows.add_child(_row(row, lc))
+		if str(row["state"]) == "held":  # what the held fort's tag reads, right under HELD
+			_rows.add_child(_tag_line())
 	refresh()
 
 
@@ -93,16 +98,26 @@ func _row(row: Dictionary, lc: Dictionary) -> Control:
 	return h
 
 
+## The line under HELD naming what its tag can read (HudLogic.held_tag_line), the width of the legend.
+func _tag_line() -> Label:
+	var l := Label.new()
+	l.text = HudLogic.held_tag_line()
+	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	l.custom_minimum_size.x = 1.0
+	MapType.style_label(l, "text_dim", int(MapLogic.cfg()["font_label"]))
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return l
+
+
 ## The map's state a legend row draws: Vei's and retaken are both a fort of hers (a living square;
 ## the map tells a retaken one by its danger tag), held draws safe, overrun is its own hollow square.
 func _glyph_state(id: String) -> String:
 	return HudLogic.legend_glyph_state(id)
 
 
-## Whether the legend shows expanded now: the player's click if there was one, else open until a
-## fort is taken.
+## Whether the legend shows expanded now: open until the player closes it, then as they left it.
 func is_open() -> bool:
-	return HudLogic.legend_open(model.hud, _open_user)
+	return HudLogic.legend_open(_open_user)
 
 
 ## Lays out only when an input changed (HudLogic.legend_key): its parent's size, open or closed,
@@ -172,4 +187,6 @@ func refresh() -> void:
 
 func _toggle() -> void:
 	_open_user = 0 if _shown_open else 1
+	if seen != null:
+		seen.set_global(MapSeen.LEGEND_CLOSED, _open_user == 0)
 	refresh()

@@ -87,34 +87,64 @@ static func objective_text(hud: Dictionary) -> String:
 	return str(cfg.get("objective_won_text", "")) if hud.get("won", false) else str(cfg.get("objective_text", ""))
 
 
-## Whether the run's goal and the valve's one-line explanation show: while no fort has been taken
+## Whether your goal and the valve's one-line explanation show: while no fort has been taken
 ## (view_hud.highest_tier_flipped is 0: existing state, no save flag). After that the goal line is
 ## gone and the valve's explanation stays as its hover tooltip.
 static func goal_shown(hud: Dictionary) -> bool:
 	return int(hud.get("highest_tier_flipped", 0)) == 0 and not bool(hud.get("won", false))
 
 
-## The run's goal under the objective strip: the config's lines, one per row.
+## Your goal under the objective strip: the config's lines, one per row.
 static func goal_text() -> String:
 	return "\n".join(PackedStringArray(MapLogic.cfg().get("clarity", {}).get("goal_lines", [])))
 
 
-## Whether the fort legend shows expanded: the player's click when there was one (`user`: 1 open,
-## 0 closed), else while no fort has been taken (goal_shown), collapsed to a button afterwards.
-static func legend_open(hud: Dictionary, user: int) -> bool:
-	return goal_shown(hud) if user < 0 else user == 1
+## Whether the fort legend shows expanded: open until the player closes it (`user`: -1 not chosen yet,
+## 1 open, 0 closed), then as they left it.
+static func legend_open(user: int) -> bool:
+	return user != 0
+
+
+## The legend's `user` value at start: 0 (closed) when the player closed it earlier (MapSeen's global
+## flag, kept across saves and new games), else -1 (not chosen: open).
+static func legend_user(closed_by_player: bool) -> int:
+	return 0 if closed_by_player else -1
+
+
+## The legend's line under HELD: what the held fort's tag can read, in the chip's own words
+## (IdleLogic.word of each margin).
+static func held_tag_line() -> String:
+	var fmt := str(MapLogic.cfg()["clarity"]["legend"]["held_tag_fmt"])
+	return fmt % [IdleLogic.word(IdleLogic.SAFE), IdleLogic.word(IdleLogic.THIN), IdleLogic.word(IdleLogic.WILL_FALL)]
+
+
+## The cue on the bar that its jargon words explain themselves on hover.
+static func hover_cue() -> String:
+	return str(MapLogic.cfg()["clarity"]["hover_cue"])
+
+
+## The look of every map tooltip: {plate, border, text, size, pad}. The plate is the panels' own
+## (MapUi.plate_box: ground lightened) at tooltip.plate_alpha, so a tooltip over a banner never shows it through.
+static func tooltip_style() -> Dictionary:
+	var cfg := MapLogic.cfg()
+	var tc: Dictionary = cfg["clarity"]["tooltip"]
+	var plate := Palette.c("ground").lightened(float(cfg["panel_bg_lighten"]))
+	plate.a = float(tc["plate_alpha"])
+	return {"plate": plate, "border": Palette.c("contour", float(cfg["panel_border_alpha"])), "text": Palette.c(str(tc["text_key"])),
+		"size": int(tc["size_px"]), "pad": int(tc["pad_px"])}
 
 
 ## Where the fort legend sits and how it shows, from the real rects. `chip` and `valve` are their
 ## panels' rects; the legend is `w` wide at left edge `x`, bottom-aligned `gap` above the valve.
 ## `h_full`, `h_compact` (rows closer together) and `h_closed` (the button) are its heights.
-## `want_open`: it would show expanded (the game's default or the player's click); `user_open`: the
-## player clicked it open. The Relish chip (when it overlaps the legend's columns) bounds the top:
-## the legend's top is at least the chip's bottom plus `gap`. A default-open legend that does not fit
-## at full height shows collapsed; one the player opened shows compact if that fits, else collapsed.
+## `want_open`: it would show expanded (open by default, or as the player left it); `user_open`: the
+## player clicked it open (kept for callers; the room rule no longer differs). The Relish chip (when it
+## overlaps the legend's columns) bounds the top: the legend's top is at least the chip's bottom plus
+## `gap`. An open legend that does not fit at full height shows compact if that fits, else collapsed
+## (the legend is open by default, so compact must serve the default on a short screen too).
 ## Returns {mode: "full"|"compact"|"closed", rect: Rect2}.
 static func legend_place(chip: Rect2, valve: Rect2, x: float, w: float, h_full: float, h_compact: float, h_closed: float,
-		want_open: bool, user_open: bool, gap: float) -> Dictionary:
+		want_open: bool, _user_open: bool, gap: float) -> Dictionary:
 	var bottom := valve.position.y - gap
 	var floor_y := -INF
 	if chip.size.y > 0.0 and chip.position.x < x + w and chip.end.x > x:
@@ -124,7 +154,7 @@ static func legend_place(chip: Rect2, valve: Rect2, x: float, w: float, h_full: 
 	if want_open:
 		if h_full <= avail:
 			mode = "full"
-		elif user_open and h_compact <= avail:
+		elif h_compact <= avail:
 			mode = "compact"
 	var h := h_full if mode == "full" else (h_compact if mode == "compact" else h_closed)
 	return {"mode": mode, "rect": Rect2(x, bottom - h, w, h)}

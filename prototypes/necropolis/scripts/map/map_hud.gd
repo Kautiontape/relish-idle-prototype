@@ -17,6 +17,23 @@ signal next_chosen(action: Dictionary)  # the strip was clicked: AwayLogic.actio
 
 var model: MapModel
 
+
+## A bar word that explains itself on hover: a Label that draws a thin dotted underline under its text
+## once it carries a tooltip (HudLogic.apply_tip), in a dim key, so the hover is discoverable and calm.
+class TipWord extends Label:
+	func _draw() -> void:
+		if tooltip_text == "":
+			return
+		var cc: Dictionary = MapLogic.cfg()["clarity"]
+		var col := Palette.c("text_dim", float(cc["tip_underline_alpha"]))
+		var dot := float(cc["tip_underline_dot_px"])
+		var step := dot + float(cc["tip_underline_gap_px"])
+		var y := size.y - 1.0
+		var x := 0.0
+		while x < size.x:
+			draw_rect(Rect2(x, y, minf(dot, size.x - x), 1.0), col)
+			x += step
+
 var _bar: VBoxContainer  # one HBoxContainer row per HudLogic.wrap_rows row
 var _cells: Array = []  # the bar items (a box per stream, then the status box), in order
 var _row_sig := ""
@@ -263,7 +280,7 @@ func _build_bar(items: Array) -> void:
 		box.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		box.add_theme_constant_override("separation", int(cfg["topbar_item_gap_px"]))
 		_cells.append(box)
-		var parts := {"box": box, "name": _bar_label(box), "rate": _bar_label(box), "stock": _bar_label(box), "cap": _bar_label(box)}
+		var parts := {"box": box, "name": _bar_label(box, true), "rate": _bar_label(box), "stock": _bar_label(box), "cap": _bar_label(box)}
 		MapType.style_label(parts["name"])
 		HudLogic.apply_tip(parts["name"], str(it["id"]))
 		MapType.style_rate(parts["rate"])
@@ -282,20 +299,20 @@ func _build_bar(items: Array) -> void:
 	spacer.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	status.add_child(spacer)
 	_cells.append(status)
-	var odds_name := _bar_label(status)
+	var odds_name := _bar_label(status, true)
 	MapType.style_label(odds_name)
 	odds_name.text = str(cfg["cards"]["vei_odds_label"])
 	HudLogic.apply_tip(odds_name, "odds")
 	_odds = _bar_label(status)
 	MapType.style_mass(_odds)
 	# the ▲/▼ is the backlog's sign, labelled as her strain: the odds are mostly time and can climb on a ▼
-	var strain_name := _bar_label(status)
+	var strain_name := _bar_label(status, true)
 	MapType.style_label(strain_name)
 	strain_name.text = str(cfg["strain_label"])
 	HudLogic.apply_tip(strain_name, "strain")
 	_sign = _bar_label(status)
 	MapType.style_mass(_sign)
-	var drain_name := _bar_label(status)
+	var drain_name := _bar_label(status, true)
 	MapType.style_label(drain_name)
 	drain_name.text = str(cfg["drain_label"])
 	HudLogic.apply_tip(drain_name, "drain")
@@ -306,10 +323,17 @@ func _build_bar(items: Array) -> void:
 	_tithe.visible = false
 	_speed_tag = _bar_label(status)
 	MapType.style_label(_speed_tag, "select")
+	# the cue that the words above explain themselves: the bar's last cell, so it follows the status
+	# on the second row (wrap_rows puts it on its own row only when it does not fit there)
+	var cue := Label.new()
+	cue.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	MapType.style_label(cue, str(cfg["clarity"]["hover_cue_key"]))
+	cue.text = HudLogic.hover_cue()
+	_cells.append(cue)
 
 
-func _bar_label(parent: Node) -> Label:
-	var l := Label.new()
+func _bar_label(parent: Node, word := false) -> Label:
+	var l: Label = TipWord.new() if word else Label.new()
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(l)
 	return l

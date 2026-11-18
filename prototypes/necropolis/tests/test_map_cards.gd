@@ -483,6 +483,10 @@ func _comes(t: TestUtil) -> void:
 	t.ok(CardLogic.comes_plain_text({"garrison": 2, "starter": 8, "bigs": 0, "total": 10}) == "10 undead come with you. " + warden_s, "garrison and starter add up")
 	t.ok(CardLogic.comes_plain_text({"garrison": 0, "starter": 8, "bigs": 1, "total": 9}) == "8 undead and 1 big undead come with you.", "with a big undead: both counts, no warden sentence")
 	t.ok(not CardLogic.comes_plain_text({"garrison": 3, "starter": 0, "bigs": 2, "total": 5}).contains("warden"), "bigs in the party: no warden sentence")
+	t.ok(CardLogic.comes_plain_text({"garrison": 0, "starter": 0, "bigs": 1, "total": 1}) == "1 big undead comes with you.", "only one big undead: 'comes', no '0 undead'")
+	t.ok(CardLogic.comes_plain_text({"garrison": 0, "starter": 0, "bigs": 2, "total": 2}) == "2 big undead come with you.", "only two big undead: 'come'")
+	t.ok(CardLogic.comes_plain_text({"garrison": 0, "starter": 1, "bigs": 0, "total": 1}) == "1 undead comes with you. " + warden_s, "one undead: 'comes'")
+	t.ok(CardLogic.comes_plain_text({"garrison": 1, "starter": 0, "bigs": 1, "total": 2}) == "1 undead and 1 big undead come with you.", "one of each: 'come'")
 	t.ok(CardLogic.bring_more_text(2.5).contains("2.5×") and CardLogic.bring_more_text(3.0).contains("3×") and not CardLogic.bring_more_text(3.0).contains("3.0"), "no trailing .0")
 	# the pinned line and the descend dialog text
 	t.ok(CardLogic.comes_count_text({"garrison": 2, "starter": 8, "bigs": 1, "total": 11}) == "10 undead and 1 big undead come in", "the pinned count")
