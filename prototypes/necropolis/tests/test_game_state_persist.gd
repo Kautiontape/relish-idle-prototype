@@ -208,6 +208,7 @@ func run() -> int:
 	_gaps()
 	_fixtures()
 	_migrate()
+	_level_cut()
 	t.ok(_cleanup(), "the test save directory is gone")
 	return t.failures
 
@@ -822,6 +823,52 @@ func _migrate() -> void:
 	var nov := d.duplicate(true)
 	nov.erase("v")
 	t.ok(GameState.migrate(nov) == {}, "migrate fails with {} without v")
+
+
+## The level cut rule (STATE-API §9.1, the E4 final review's must-fix): a save holding a building above today's
+## max_level loads with it at the top. E4 step 10 (4f8b493) cut the Ossuary Tower to one level, and its levels 2
+## and 3 had been buyable. A save with the Ossuary at L3, and one mid-upgrade to L2 (its building_started pending
+## and an L3 upgrade queued behind it), each load with the Ossuary at L1 and working, and with every block as the
+## L1 save's load gives it: the upgrade cancelled with no refund, its event and the queued upgrade dropped, the
+## rest (a well under construction with its own pending event, a queued house upgrade) kept. The lower bounds
+## are still corrupt. Revert proof: at 2a9e596 SaveIO._town_problem refused both saves ("building", so corrupt).
+func _level_cut() -> void:
+	var s := _rich()
+	t.ok(s.town_sim.place_building("lot-13", "ossuary_tower", 1) and s.cmd_queue_build("", "lot-05")["ok"],
+		"level cut: an L1 Ossuary on lot-13 and a house upgrade queued")
+	var d: Dictionary = JSON.parse_string(JSON.stringify(s.to_dict()))
+	var ref := GameState.new(_cfgs())
+	t.ok(ref.from_dict(d.duplicate(true))["ok"], "level cut: the L1 save loads")
+	var want := ref.to_dict()
+	var oss := func(v: Dictionary) -> Dictionary:
+		for b in v["town"]["buildings"]:
+			if b["lot_id"] == "lot-13":
+				return b
+		return {}
+	t.ok(SaveIO.clamp_levels(d["town"], TestUtil.configs()["buildings"]) == d["town"], "level cut: a save within every max_level is unchanged")
+	var l3 := d.duplicate(true)
+	var b3: Dictionary = oss.call(l3)
+	b3.merge({"level": 3, "build_level": 3}, true)
+	var up := d.duplicate(true)
+	var b2: Dictionary = oss.call(up)
+	b2.merge({"state": "constructing", "build_level": 2, "progress": 0.4}, true)
+	up["town"]["pending"].append({"type": "building_started", "lot_id": "lot-13", "building_id": "ossuary_tower", "level": 2})
+	up["queue"].append({"building_id": "ossuary_tower", "lot_id": "lot-13", "upgrade": true, "waited_on": ""})
+	t.ok(up["town"]["pending"].size() == 2 and up["queue"].size() == 2, "level cut: the upgrade save holds both events and both entries")
+	for c in [["at L3", l3], ["mid-upgrade to L2", up]]:
+		var n := GameState.new(_cfgs())
+		var r := n.from_dict(c[1])
+		var ob: Dictionary = n.town_sim.buildings.get("lot-13", {})
+		t.ok(r["ok"] and ob.get("level") == 1 and ob.get("build_level") == 1 and ob.get("state") == "active" and ob.get("progress") == 1.0,
+			"level cut: a save with the Ossuary %s loads (%s), the Ossuary at L1 and working (%s)" % [c[0], str(r), str(ob)])
+		var diffs := []
+		_diff(want, n.to_dict(), 0.0, "", diffs)
+		t.ok(diffs.is_empty(), "level cut: and every other block as the L1 save's load %s" % str(diffs))
+	for bad in [["level", -1], ["build_level", 0]]:
+		var x := d.duplicate(true)
+		var bx: Dictionary = oss.call(x)
+		bx[bad[0]] = bad[1]
+		t.ok(GameState.new(_cfgs()).from_dict(x) == {"ok": false, "reason": "corrupt"}, "level cut: a %s of %d is still corrupt" % bad)
 
 
 ## The hold's save keys (STATE-API §9.1, api_version 6): held, grace_s and zero_s round-trip; an older

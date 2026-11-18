@@ -306,9 +306,10 @@ static func problem(m: Dictionary, cfgs: Dictionary) -> String:
 
 
 ## "" if the town block `tn` (it already fits SAVE_SPEC) is sound: a known tier; buildings on known,
-## distinct lots, of known ids, in a known state, at a level the building has; the ladder a
+## distinct lots, of known ids, in a known state, at a level from 0 (`build_level` from 1); the ladder a
 ## permutation of JOB_IDS; the haul target, its current fort and at most one convoy naming known
-## forts; TownSim's optional keys of the right type.
+## forts; TownSim's optional keys of the right type. A level above the building's max_level is not a
+## defect: apply clamps it (clamp_levels, the level cut rule).
 static func _town_problem(tn: Dictionary, cfgs: Dictionary, fort_ids: Dictionary) -> String:
 	if not GameState.TIERS.has(tn["tier"]):
 		return "tier"
@@ -324,9 +325,7 @@ static func _town_problem(tn: Dictionary, cfgs: Dictionary, fort_ids: Dictionary
 		if not lot_ids.has(b["lot_id"]) or seen.has(b["lot_id"]) or not bcfg.has(b["building_id"]):
 			return "lot"
 		seen[b["lot_id"]] = true
-		var top := int(bcfg[b["building_id"]].get("max_level", 1))
-		if not _BUILDING_STATES.has(b["state"]) or int(b["level"]) < 0 or int(b["level"]) > top \
-				or int(b["build_level"]) < 1 or int(b["build_level"]) > top:
+		if not _BUILDING_STATES.has(b["state"]) or int(b["level"]) < 0 or int(b["build_level"]) < 1:
 			return "building"
 	var jobs := {}
 	for j in tn["ladder"]:
@@ -352,6 +351,31 @@ static func _town_problem(tn: Dictionary, cfgs: Dictionary, fort_ids: Dictionary
 	if tn.has("rates"):
 		return _rates_problem(tn["rates"])
 	return ""
+
+
+## The level cut rule (STATE-API 9.1; the E4 final review's must-fix): a config that lowers a building's
+## max_level (E4 step 10 cut the Ossuary Tower's from 3 to 1) must not make the saves above it unloadable. A copy
+## of the town block `tn` (sound by _town_problem) with every building's `level` and `build_level` clamped to its
+## max_level in `bcfg` (buildings.json; at least 1). An upgrade under way past the top is cancelled, as
+## TownSim.cancel_construction leaves one: working at its (clamped) level, progress 1, its queued building_started
+## dropped. No refund: the cut levels buy nothing. A save within every max_level comes back unchanged.
+static func clamp_levels(tn: Dictionary, bcfg: Dictionary) -> Dictionary:
+	var out := tn.duplicate(true)
+	var cancelled := {}
+	for b in out["buildings"]:
+		var top := maxi(1, int((bcfg.get(b["building_id"], {}) as Dictionary).get("max_level", 1)))
+		if int(b["level"]) <= top and int(b["build_level"]) <= top:
+			continue
+		b["level"] = mini(int(b["level"]), top)
+		b["build_level"] = mini(int(b["build_level"]), top)
+		if b["state"] == "constructing" and int(b["level"]) >= 1 and int(b["build_level"]) <= int(b["level"]):
+			b["state"] = "active"
+			b["progress"] = 1.0
+			cancelled[b["lot_id"]] = true
+	if not cancelled.is_empty() and out.get("pending") is Array:
+		out["pending"] = (out["pending"] as Array).filter(func(e): return not (e is Dictionary
+			and e.get("type", "") == "building_started" and cancelled.has(e.get("lot_id", ""))))
+	return out
 
 
 ## "" if the optional `pending_retreat` (E2b-2 T3.3c; the run open at the save) is sound: its keys typed, a
@@ -704,7 +728,8 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 	gs.town_tier = tm["tier"]
 	gs.haul_target = tm["haul"]["target"]
 	gs.work_pending = float(tm["work_pending"])
-	gs.town_sim.from_dict(tm)  # a load restores the saved staffing states as they were (no restaff)
+	# a load restores the saved staffing states as they were (no restaff), each level within today's max_level
+	gs.town_sim.from_dict(clamp_levels(tm, BuildRules.buildings_cfg(gs)))
 	gs.stances_on = []
 	for st in m["stances"]["on"]:
 		gs.stances_on.append(str(st))
@@ -779,18 +804,22 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 		gs.cleared_forts[str(id)] = true
 	gs.first_dungeon_id = str(m["first_dungeon"])
 	# the build queue (E2b-2 T3.2): optional; an entry naming a building or lot today's config lacks is
-	# dropped with a warning, and so is any past queue.max_len
+	# dropped with a warning, and so is an upgrade to a level past its max_level (the level cut rule: it would
+	# hold its slot as a max_level gate for good) and any past queue.max_len
 	gs.build_queue = []
 	for e in m.get("queue", []):
 		var bid := str(e["building_id"])
 		var lot_id := str(e["lot_id"])
+		var entry := {"building_id": bid, "lot_id": lot_id, "upgrade": bool(e["upgrade"]), "waited_on": str(e.get("waited_on", ""))}
 		if not BuildRules.buildings_cfg(gs).has(bid) or BuildRules.lot(gs, lot_id).is_empty():
 			push_warning("SaveIO: dropped a queued %s on %s: not in today's config" % [bid, lot_id])
+		elif entry["upgrade"] and int(BuildRules.queue_levels(gs, gs.build_queue + [entry]).back()) \
+				> int(BuildRules.buildings_cfg(gs)[bid].get("max_level", 1)):
+			push_warning("SaveIO: dropped a queued %s upgrade on %s: past its max_level" % [bid, lot_id])
 		elif gs.build_queue.size() >= BuildRules.queue_max(gs):
 			push_warning("SaveIO: dropped a queued %s on %s: past queue.max_len" % [bid, lot_id])
 		else:
-			gs.build_queue.append({"building_id": bid, "lot_id": lot_id, "upgrade": bool(e["upgrade"]),
-				"waited_on": str(e.get("waited_on", ""))})
+			gs.build_queue.append(entry)
 	# session state: nothing of the old session survives a load
 	gs.run = {}
 	gs._field_acc = 0.0

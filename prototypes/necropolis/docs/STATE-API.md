@@ -2776,7 +2776,7 @@ take the router's legacy path (§2.3).
 | `cleared_forts` | Array[String] | forts whose first clear is spent by a win (sorted) |
 | `first_dungeon` | String | the first dungeon's id until a won raid result (`warden_beaten`) clears it, then `""` |
 | `pending_retreat` | Dictionary | optional, additive at v6 (E2b-2 T3.3c; IDLE I5, api-request #4), written only while a run is open: `{run_id: int, kind: String, fort_id: String, seed_rev: int, loot: {relics, blueprints, husks, remnants, essence} (§8.1), outcome: String}`, the run's last checkpoint (`cmd_run_checkpoint`, §4.5), or empty loot and `"retreated"` when it has none (a boss run never has one; its `fort_id` is `"vei"`). `from_dict` ends the run with it (below). Present, it must match: a known `kind` and `outcome`, a raid's fort a known fort with `relish` saved `at_fort` there, a boss's `"vei"` with her `at_vei`, and loot `Results.validate` takes; else the save is `corrupt` |
-| `queue` | Array[Dictionary] | optional, additive at v6 (E2b-2 T3.2; `SAVE_VERSION` stays 2, as `game_id` did): the build queue, `[{building_id: String, lot_id: String, upgrade: bool, waited_on: String}]` in order. A save without it loads an empty queue; `waited_on` is optional (`""`). An entry of another shape makes the save `corrupt`; one naming a building or lot today's config lacks, or past `queue.max_len`, is dropped with a warning |
+| `queue` | Array[Dictionary] | optional, additive at v6 (E2b-2 T3.2; `SAVE_VERSION` stays 2, as `game_id` did): the build queue, `[{building_id: String, lot_id: String, upgrade: bool, waited_on: String}]` in order. A save without it loads an empty queue; `waited_on` is optional (`""`). An entry of another shape makes the save `corrupt`; one naming a building or lot today's config lacks, an upgrade to a level past its building's `max_level` (the level cut rule, `town` below), or one past `queue.max_len`, is dropped with a warning |
 
 **What each block holds** (v2; additive keys and E3 placeholders):
 - `realm`: `forts` (array in world order: `id`, `living`, `undead`, `dead`, the hold, `flipped_count`,
@@ -2810,9 +2810,16 @@ take the router's legacy path (§2.3).
   WORK in that step; an older save's value is delivered with the next step's). `morale`,
   `shock`, `rates` and `pending` are optional on load (TownSim's defaults: morale at its base, no
   shock, zero rates, nothing pending). A building on an unknown or repeated lot, of an unknown id, in
-  another state or at a level the building lacks, a ladder that is not a permutation of `JOB_IDS`, or a
-  haul target or convoy naming an unknown fort makes the save `corrupt`. A load restores the saved
+  another state, at a `level` below 0 or a `build_level` below 1, a ladder that is not a permutation of
+  `JOB_IDS`, or a haul target or convoy naming an unknown fort makes the save `corrupt`. A load restores the saved
   building states and recomputes the staffing; the first substep restaffs.
+  **The level cut rule** (E4 close-out, `SaveIO.clamp_levels`): a level above the building's `max_level` in
+  today's `buildings.json` is not `corrupt`, since a config may lower a top that saves already reached (E4 step
+  10 cut the Ossuary Tower from 3 levels to 1). The load clamps `level` and `build_level` to `max_level`. An
+  upgrade under way past the top is **cancelled**, as `cancel_construction` leaves one: the building works at the
+  top level with progress 1, and its pending `building_started` is dropped. A queued upgrade past the top is
+  dropped with a warning (`queue`, above). Nothing is refunded, because the cut levels buy nothing. A save
+  within every `max_level` loads unchanged. `SAVE_VERSION` stays 2.
 - `stances`: `on` (oldest first) and `hold` (E3 timers: from E3-1, stance id → the seconds left of its hold,
   for each stance held; a key that isn't a stance, or a hold at 0, is dropped on load). From v8 (E3-1) the
   optional `state`: `{stance_id: {active: bool, fired_beat_id: int}}` for each stance whose condition has
