@@ -34,7 +34,7 @@ var _charges: Label
 var _usable: Label
 var _simulacra: Label
 var _stock: Label
-var _craft_box: VBoxContainer
+var _craft_box: GridContainer  # the craft cards side by side, so both show without scrolling
 var _crafts: Dictionary = {}  # item id -> {node, name, cost, btn, why}
 var _craft_sig := ""
 var _sigs := {}  # section -> BackupsModel signature of the inputs it was last filled from
@@ -72,6 +72,11 @@ func _t(key: String) -> String:
 	return String(_tx.get(key, key))
 
 
+## The glossary's one line for a word (view.guide.jargon): its tooltip.
+func _jargon(word: String) -> String:
+	return String(_vcfg.get("guide", {}).get("jargon", {}).get(word, ""))
+
+
 func _say(text: String) -> void:
 	_status.text = text
 
@@ -95,6 +100,8 @@ func _build_death() -> void:
 		var l := _wrap("", 14)
 		l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		box.add_child(l)
+		if id == "phylactery":
+			box.tooltip_text = _jargon("phylactery")
 		row.add_child(box)
 		_steps.append({"id": id, "box": box, "label": l})
 
@@ -222,8 +229,10 @@ func _on_toggle(slot: int) -> void:
 func _build_ossuary() -> void:
 	_body.add_child(_wrap(_t("ossuary_header"), 16, "text_dim"))
 	_charges = _wrap("", 18)
+	_charges.mouse_filter = Control.MOUSE_FILTER_STOP
+	_charges.tooltip_text = _jargon("phylactery")
 	_body.add_child(_charges)
-	_usable = _wrap("", 14, "text_dim")
+	_usable = _wrap("", 14, "text_dim")  # the glossary's meaning of a charge, inline where the word first shows
 	_body.add_child(_usable)
 	_simulacra = _wrap("", 18)
 	_body.add_child(_simulacra)
@@ -231,14 +240,19 @@ func _build_ossuary() -> void:
 	_body.add_child(_stock)
 	# where essence comes from and what it pays for (view.guide; Shawn's checklist item 11): beside the count
 	_body.add_child(_wrap(String(ConfigDb.v("town", "view", {}).get("guide", {}).get("essence_line", "")), 14, "text_dim"))
-	_craft_box = VBoxContainer.new()
-	_craft_box.add_theme_constant_override("separation", 6)
+	_craft_box = GridContainer.new()
+	_craft_box.columns = int(_tx.get("craft_columns", 2))
+	_craft_box.add_theme_constant_override("h_separation", 6)
+	_craft_box.add_theme_constant_override("v_separation", 6)
 	_body.add_child(_craft_box)
 
 
 func _make_craft(item_id: String) -> Dictionary:
 	var card := PanelContainer.new()
 	card.add_theme_stylebox_override("panel", TownUI.panel_box())
+	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if item_id == String(_tx.get("phylactery_item", "phylactery_charge")):
+		card.tooltip_text = _jargon("phylactery")
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 8)
 	card.add_child(h)

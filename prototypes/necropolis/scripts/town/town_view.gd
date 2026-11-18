@@ -297,6 +297,8 @@ func open_card(lot_id: String) -> void:
 	_card_status()
 	card.open()
 	_place_card()
+	if _build != null:
+		_build.set_card_lot(lot_id)
 
 
 ## The card's inspector form opens with the building's status line (the model's, as on hover).
@@ -309,6 +311,8 @@ func _card_status() -> void:
 func close_card() -> void:
 	_card_lot = ""
 	card.close()
+	if _build != null:
+		_build.set_card_lot("")
 
 
 ## Beside the lot (right of it, else left), top-aligned and kept inside this view.

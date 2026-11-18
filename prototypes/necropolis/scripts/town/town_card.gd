@@ -161,6 +161,7 @@ func set_status(parts: Array) -> void:
 		else:
 			_status.add_text(String(p[0]))
 	_status.visible = not parts.is_empty()
+	TownUI.set_jargon_tip(_status, " ".join(parts.map(func(p): return String(p[0]))), vcfg)  # "+6.00 mint/s": what mint is
 
 
 ## The inspector form: the panel's inspector widgets are in `insp_host`.
@@ -258,6 +259,7 @@ func _update_row(w: Dictionary, it: Dictionary, lot_id: String, st: Dictionary, 
 	for k in 3:
 		w["rates"][k].visible = k < ben["rates"].size()
 		w["rates"][k].text = String(ben["rates"][k]) if k < ben["rates"].size() else ""
+		TownUI.set_jargon_tip(w["rates"][k], w["rates"][k].text, vcfg)  # "+9.60/s mint now": what mint is
 	w["plain"].text = "  ".join(ben["plain"])
 	w["plain"].visible = not ben["plain"].is_empty()
 	var why := ""

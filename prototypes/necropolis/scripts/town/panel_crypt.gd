@@ -126,6 +126,11 @@ func _tx(key: String) -> String:
 	return String(_t.get(key, key))
 
 
+## The glossary's one line for "husk" (view.guide.jargon), the tooltip wherever the word first shows in this tab.
+func _husk_gloss() -> String:
+	return String(_vcfg_view.get("guide", {}).get("jargon", {}).get("husk", ""))
+
+
 func _wrap(text: String, size: int, key := "text") -> Label:
 	var l := TownUI.label(text, size, key)
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -141,9 +146,13 @@ func _build_slab(col: VBoxContainer) -> void:
 	_husk_row.add_theme_constant_override("h_separation", 6)
 	_husk_row.add_theme_constant_override("v_separation", 4)
 	_slab_box.add_child(_husk_row)
-	_husk_row.add_child(TownUI.label(_tx("husks"), _px("text_px"), "text_dim"))
+	var husk_word := TownUI.label(_tx("husks"), _px("text_px"), "text_dim")
+	_husk_row.add_child(husk_word)
 	_husk_none = TownUI.label(_tx("no_husks"), _px("text_px"), "text_dim")
 	_husk_row.add_child(_husk_none)
+	for l in [husk_word, _husk_none]:  # the glossary's line for the word, where it first shows
+		l.mouse_filter = Control.MOUSE_FILTER_STOP
+		l.tooltip_text = _husk_gloss()
 
 	_preview = PreviewScript.new()
 	_preview.setup(_t, _slab)
@@ -238,6 +247,9 @@ func _build_craft(col: VBoxContainer) -> void:
 	_craft_box.add_child(title)
 	_craft_head = _wrap("", _px("text_px"), "text_dim")
 	_craft_box.add_child(_craft_head)
+	for l in [title, _craft_head]:  # the head opens with what a husk is; the tooltip carries the glossary's whole line
+		l.mouse_filter = Control.MOUSE_FILTER_STOP
+		l.tooltip_text = _husk_gloss()
 	_craft_row = HFlowContainer.new()
 	_craft_row.add_theme_constant_override("h_separation", 6)
 	_craft_row.add_theme_constant_override("v_separation", 4)
