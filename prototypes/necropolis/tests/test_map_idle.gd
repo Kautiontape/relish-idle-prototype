@@ -264,6 +264,15 @@ func _sources(t: TestUtil) -> void:
 			if src.contains(needle):
 				bad.append("%s: %s" % [n, needle])
 	t.ok(bad.is_empty(), "no #7/#12/#13 stand-in TODO and no held_s_left in scripts/map (%s)" % str(bad))
+	var open: Array = []
+	var paths: Array = names.map(func(n): return "res://scripts/map/%s" % n)
+	paths.append("res://scripts/main.gd")
+	for p in paths:
+		var src2 := FileAccess.get_file_as_string(str(p))
+		if src2.contains("TODO(api-request"):
+			open.append(str(p))
+	t.ok(FileAccess.get_file_as_string("res://scripts/main.gd") != "", "scripts/main.gd is read")
+	t.ok(open.is_empty(), "no TODO(api-request left in scripts/map or scripts/main.gd (%s)" % str(open))
 	var cfg := IdleLogic.cfg()
 	t.ok(not cfg.has("hold_word") and not cfg.has("hold_fmt") and not cfg["colors"].has("hold"), "the hold-timer chip's config keys are gone")
 

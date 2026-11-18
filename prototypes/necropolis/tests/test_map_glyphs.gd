@@ -157,7 +157,8 @@ func _fade(t: TestUtil) -> void:
 
 func _strokes(t: TestUtil) -> void:
 	t.suite("map_glyphs-strokes")
-	t.ok(GlyphLogic.FILLED_SLOTS_STANDIN == 1 and GlyphLogic.stroke_count({}) == 1, "no filled_slots yet: the stand-in, one outline")
+	t.ok(GlyphLogic.stroke_count({"filled_slots": 1}) == 1, "one filled slot: one outline")
+	t.ok(not FileAccess.get_file_as_string("res://scripts/map/glyph_logic.gd").contains("FILLED_SLOTS_STANDIN"), "the filled_slots stand-in is gone")
 	t.ok(GlyphLogic.stroke_count({"filled_slots": 2}) == 2, "two filled slots: two nested outlines")
 	t.ok(GlyphLogic.stroke_count({"filled_slots": 0}) == 1 and GlyphLogic.stroke_count({"filled_slots": 7}) == 3, "clamped to 1..3")
 	var h := GlyphLogic.nest_halves(10.0, 3)

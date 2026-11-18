@@ -123,7 +123,7 @@ static func ready_line(f: Dictionary, why: String, c := {}) -> Dictionary:
 ##   forts     view_realm().forts (the model's, demo overlay included)
 ##   clocks    {fort id: {rate, fall_s}} (the committed clocks)
 ##   raids     MapModel.raids (raid_set's ranked set): the strip reads it, it does not recompute it
-##   queue     view_town().queue, or null when the view has none
+##   queue     view_town().queue (an Array, [] when empty)
 ##   vei       view_vei()
 ##   readout   MapModel.readout()
 ##   won       view_hud().won
@@ -154,8 +154,7 @@ static func choose(inp: Dictionary, prev := {}, c := {}) -> Dictionary:
 	var firsts := raids.filter(func(r): return str(r["why"]) == FIRST_CLEAR)
 	if not firsts.is_empty():
 		return _raid(firsts, prev, c, fort_ids)
-	var queue = inp.get("queue", null)
-	if queue is Array and (queue as Array).is_empty():
+	if (inp["queue"] as Array).is_empty():
 		return _pick(QUEUE, "queue", str(c["queue_text"]), fort_ids)
 	return _pick(DEFAULT, "", HudLogic.objective_text({}), fort_ids)
 

@@ -556,7 +556,7 @@ func _raid_model(t: TestUtil) -> void:
 ## The strip's input; `raids` is the set the model would hand it (NextLogic.raid_set of the forts,
 ## no memory, no positions) unless the test gives one.
 func _inp(extra := {}) -> Dictionary:
-	var d := {"forts": [], "clocks": {}, "queue": null, "vei": {}, "readout": {"odds": 0.1}, "won": false, "opening": {}}
+	var d := {"forts": [], "clocks": {}, "queue": [{"building_id": "pit"}], "vei": {}, "readout": {"odds": 0.1}, "won": false, "opening": {}}  # a queued build: not the plan's rule
 	d.merge(extra, true)
 	if not extra.has("raids"):
 		d["raids"] = NextLogic.raid_set(d["forts"], [], Vector2.ZERO, {})
@@ -610,7 +610,6 @@ func _next(t: TestUtil) -> void:
 	# 4. the plan: the empty queue, else the standing objective
 	t.ok(NextLogic.choose(_inp({"queue": []}))["rule"] == "queue", "an empty queue")
 	t.ok(NextLogic.choose(_inp({"queue": [{"building_id": "pit"}]}))["rule"] != "queue", "a queued build: not this rule")
-	t.ok(NextLogic.choose(_inp({"queue": null}))["rule"] != "queue", "no queue in the view: skipped")
 	t.ok(NextLogic.choose(_inp({"queue": []}))["text"] == str(c["queue_text"]), "queue line")
 	# the opening's override
 	var op := NextLogic.choose(_inp({"forts": [vespers], "clocks": {"vespers": {"fall_s": 60.0}}, "opening": {"text": "Drag the triangle", "target": "vespers"}}))
@@ -664,7 +663,7 @@ func _order(t: TestUtil) -> void:
 	all["forts"] = []
 	all["raids"] = []
 	t.ok(NextLogic.choose(all)["rule"] == "queue", "then the plan: the empty queue")
-	all["queue"] = null
+	all["queue"] = [{"building_id": "pit"}]
 	t.ok(NextLogic.choose(all)["rule"] == "default", "then the standing objective")
 	# Vei's hysteresis: enter at next_vei_odds, stay to next_vei_odds_exit
 	var enter := float(c["next_vei_odds"])

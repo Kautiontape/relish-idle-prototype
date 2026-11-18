@@ -15,9 +15,6 @@ const NONE := "none"
 const UNDEAD := "undead"
 const LIVING := "living"
 const CART := "cart"
-## Big undead carry no filled remnant slots in the views yet (api-request #6, E3): one each.
-# TODO(api-request #6): view_big_undead entries' filled_slots
-const FILLED_SLOTS_STANDIN := 1
 const STROKES_MAX := 3
 
 
@@ -100,10 +97,9 @@ static func centres(lo: float, hi: float, offset: float, period: float, dash: fl
 # --- big undead ---------------------------------------------------------------------
 
 ## Nested outlines a big undead draws: its filled remnant slots, 1..3. `entry` is a
-## view_big_undead entry; until it carries filled_slots, the stand-in (one outline).
-# TODO(api-request #6): filled_slots lands in E3
+## view_big_undead entry, which always has filled_slots: a big undead draws at least one outline.
 static func stroke_count(entry: Dictionary) -> int:
-	return clampi(int(entry.get("filled_slots", FILLED_SLOTS_STANDIN)), 1, STROKES_MAX)
+	return clampi(int(entry["filled_slots"]), 1, STROKES_MAX)
 
 
 ## The nested outlines' half sizes (centre to tip), outermost first, each big_nest_step smaller.

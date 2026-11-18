@@ -180,6 +180,11 @@ func _eta_and_chip(t: TestUtil) -> void:
 	t.ok(RelishLogic.fmt_eta(6.6) == "0:07" and RelishLogic.fmt_eta(-3.0) == "0:00", "rounds up, and never negative")
 	t.near(RelishLogic.eta_s(440.0, 220.0), 2.0, 1e-9, "distance / travel_speed")
 	t.near(RelishLogic.eta_s(440.0, 0.0), 0.0, 1e-9, "no speed: 0, no divide by zero")
+	var gw := {"greywall": "Greywall", "covington": "Covington"}
+	var ret := {"type": "relish_returned", "fort_id": "greywall", "cause": "retaken", "t": 90.0}
+	t.ok(RelishLogic.returned_toast(ret, gw) == "Vei retook Greywall. Relish is walking home.", "relish_returned toasts the retake in the glossary's words")
+	t.ok(RelishLogic.returned_toast({"type": "fort_retaken", "fort_id": "greywall"}, gw) == "", "another event type: no toast")
+	t.ok(RelishLogic.returned_toast({"type": "relish_returned", "fort_id": "nowhere", "cause": "retaken"}, gw) == "", "an unknown fort: no toast")
 	var names := {"covington": "Covington", "old-sluice": "Old Sluice", "ashgate": "Ashgate"}
 	t.ok(RelishLogic.chip_text({"state": "home", "at": "covington"}, names) == "Relish · home (Covington)", "chip: home")
 	t.ok(RelishLogic.chip_text({"state": "at_fort", "at": "old-sluice"}, names) == "Relish · at Old Sluice", "chip: at a fort")

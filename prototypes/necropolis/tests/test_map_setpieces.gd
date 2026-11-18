@@ -1,8 +1,8 @@
 extends RefCounted
 ## Tests for setpiece_logic.gd (the map's set pieces on the tempo): the valve swing's widths over
 ## its beat, the re-ink's segment order and completion, the tithe tide's band from Vei to the
-## fort, victory's run-then-stop, the garrison timeline and its two sources (the real event with
-## N, the stand-in without), first-flip detection, reduced motion going straight to each end
+## fort, victory's run-then-stop, the garrison timeline and its source (the real event, with
+## N), first-flip detection, reduced motion going straight to each end
 ## state, the clock and the debug flags; plus a source check on the set-piece scripts. No autoloads.
 
 const MAP_DIR := "res://scripts/map"
@@ -163,33 +163,21 @@ func _garrison(t: TestUtil, c: Dictionary) -> void:
 	t.ok(SetpieceLogic.garrison(pb + 0.1, 12, false)["callout"] == 1.0 and SetpieceLogic.garrison(0.5 * pb, 12, false)["callout"] == 0.0, "the callout shows from the landing")
 	var end := maxf(pb + float(c["garrison_burst_beats"]), maxf(pb + db + fb, pb + float(c["garrison_callout_beats"])))
 	t.ok(not SetpieceLogic.garrison(end - 0.01, 12, false)["done"] and SetpieceLogic.garrison(end, 12, false)["done"], "it ends when the callout, burst and flip are all over")
-	var si := SetpieceLogic.garrison(pb + db * 0.5, -1, false)
-	t.ok(str(si["chip"]["text"]) == str(c["garrison_cleared_word"]) and str(si["chip"]["key"]) == str(c["garrison_cleared_key"]), "the stand-in has no number: the cleared word, then the flip")
 	t.ok(SetpieceLogic.drain_count(12, 0.0) == 12 and SetpieceLogic.drain_count(12, 1.0) == 0 and SetpieceLogic.drain_count(12, 0.99) == 1, "the drain hits 0 only at its end")
 
 
 func _sources_of_garrison(t: TestUtil, c: Dictionary) -> void:
 	var real := SetpieceLogic.garrison_from_event({"type": "counter_garrison_cleared", "fort_id": "ashgate", "killed_mass": 23.6})
 	t.ok(real == {"fort_id": "ashgate", "n": 24}, "the real event gives its fort and N")
-	t.ok(SetpieceLogic.garrison_text(int(real["n"])) == "Vei's living routed: −24", "the real event's callout shows N")
+	t.ok(SetpieceLogic.garrison_text(int(real["n"])) == str(c["garrison_fmt"]) % MapLogic.fmt_mass(24), "the real event's callout shows N")
 	t.ok(SetpieceLogic.garrison_from_event({"type": "loot_banked", "fort_id": "ashgate"}).is_empty(), "another event is not the source")
-	var forts := {"ashgate": {"id": "ashgate", "held": true, "living": 0.0}, "vespers": {"id": "vespers", "held": false}}
-	var seen := {"ashgate": {"loot_banked": true}}
-	var si := SetpieceLogic.garrison_stand_in("ashgate", forts, seen)
-	t.ok(si == {"fort_id": "ashgate", "n": -1}, "the stand-in: back from a held fort's raid that banked loot, no N")
-	t.ok(SetpieceLogic.garrison_text(-1) == str(c["garrison_standin_text"]) and not SetpieceLogic.garrison_text(-1).contains("−"), "the stand-in's callout has no number")
-	t.ok(SetpieceLogic.garrison_stand_in("ashgate", forts, {"ashgate": {"loot_banked": true, "fort_flipped": true}}).is_empty(), "a flip is the flip's set piece, not this")
-	t.ok(SetpieceLogic.garrison_stand_in("ashgate", forts, {"ashgate": {"loot_banked": true, "counter_garrison_cleared": true}}).is_empty(), "the real event replaces the stand-in")
-	t.ok(SetpieceLogic.garrison_stand_in("ashgate", forts, {}).is_empty(), "no raid banked: nothing")
-	t.ok(SetpieceLogic.garrison_stand_in("vespers", forts, {"vespers": {"loot_banked": true}}).is_empty(), "a fort that is not held: nothing")
-	var eps := float(c["garrison_clear_eps"])
-	var alive := {"ashgate": {"id": "ashgate", "held": true, "living": 40.0}}
-	t.ok(SetpieceLogic.garrison_stand_in("ashgate", alive, seen).is_empty(), "a retreat with garrison left alive: nothing")
-	t.ok(SetpieceLogic.garrison_stand_in("ashgate", {"ashgate": {"held": true, "living": eps * 0.5}}, seen) == {"fort_id": "ashgate", "n": -1}, "living within the eps counts as cleared")
-	t.ok(SetpieceLogic.garrison_stand_in("ashgate", {"ashgate": {"held": true, "living": eps * 2.0}}, seen).is_empty(), "living over the eps is not cleared")
-	t.ok(SetpieceLogic.garrison_stand_in("ashgate", forts, {"ashgate": {"loot_banked": true}, SetpieceLogic.ANY_FORT: {"relish_died": true}}).is_empty(), "a death return: nothing, even with the garrison gone")
-	t.ok(SetpieceLogic.garrison_stand_in("ashgate", {"ashgate": {"held": true}}, seen).is_empty(), "no living figure in the model: nothing")
-	t.ok(SetpieceLogic.garrison_stand_in("", forts, seen).is_empty() and SetpieceLogic.garrison_stand_in("covington", forts, seen).is_empty(), "back from the town or nowhere: nothing")
+	# the real event drives the set piece: the event's N is the chip's starting count
+	var pb := float(c["garrison_pulse_beats"])
+	var first := SetpieceLogic.garrison(pb + 0.01, int(real["n"]), false)
+	t.ok(str(first["chip"]["text"]) == str(c["garrison_counter_fmt"]) % MapLogic.fmt_mass(24), "the chip counts down from the event's N")
+	var src := FileAccess.get_file_as_string("%s/map_setpieces.gd" % MAP_DIR)
+	t.ok(src.contains("\"counter_garrison_cleared\":") and src.contains("SetpieceLogic.garrison_from_event(ev)") and src.contains("_add(SetpieceLogic.GARRISON"), "MapSetpieces starts the garrison piece from the real event")
+	t.ok(not src.contains("stand_in") and not src.contains("_standin"), "and no stand-in path is left")
 
 
 func _victory(t: TestUtil, c: Dictionary) -> void:

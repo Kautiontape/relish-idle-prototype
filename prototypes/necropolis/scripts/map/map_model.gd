@@ -19,7 +19,7 @@ var vei := {}
 var hud := {}
 var haul := {}  # view_town().haul: {target, current, convoys}
 var job_slots := 0  # view_town().jobs' slots summed
-var town_queue = null  # view_town().queue when the view has one (api-request #3), else null
+var town_queue: Array = []  # view_town().queue ([] when empty)
 var backups := {}  # view_backups(): death is what a death costs now
 var party := {}  # view_party()
 var unit_names := {}  # big-undead uid -> name (view_big_undead)
@@ -66,7 +66,7 @@ func refresh(force := false) -> bool:
 	job_slots = 0
 	for j in town.get("jobs", []):
 		job_slots += int(j.get("slots", 0))
-	town_queue = town["queue"] if town.has("queue") else null  # TODO(api-request #3): view_town().queue
+	town_queue = town["queue"]
 	backups = state.view_backups()
 	party = state.view_party()
 	unit_names.clear()

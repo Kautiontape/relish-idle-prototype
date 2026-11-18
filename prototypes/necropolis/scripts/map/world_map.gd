@@ -75,9 +75,9 @@ func _ready() -> void:
 	_fit()
 	var ease_s := _begin_arrival()
 	if ease_s > 0.0:  # the set pieces play once the camera has eased out to the map
-		get_tree().create_timer(ease_s).timeout.connect(setpieces.go_live.bind(_arrive_from))
+		get_tree().create_timer(ease_s).timeout.connect(setpieces.go_live)
 	else:
-		setpieces.go_live(_arrive_from)
+		setpieces.go_live()
 	hud.inset_changed.connect(func(_inset: float) -> void: _refit())  # the bar's sizes settle a frame later
 	away.open_if_shown()
 	_replay_clicks()
@@ -159,8 +159,7 @@ func _build_ui() -> void:
 	callouts_view.card = sidebar  # the callouts keep off the open card
 	hud.next_chosen.connect(_act_on)
 	seen = MapSeen.new(MapSeen.PATH, Game.autosave_enabled)  # outside the save; a harness session reads it empty and never writes it
-	# TODO(api-request #18): no view carries a game id, so an earlier game time than a flag's mark means a new game
-	seen.reconcile(float(model.hud.get("t", 0.0)), float(OpeningLogic.cfg()["seen_new_game_s"]))
+	seen.reconcile(str(model.hud.get("game_id", "")))  # the flags belong to one game
 	opening = MapOpening.new()
 	opening.model = model
 	opening.hud = hud
@@ -182,6 +181,7 @@ func _build_ui() -> void:
 	away.acted.connect(_act_on)
 	layer.add_child(away)
 	Game.game_event.connect(away.on_event)
+	Game.game_event.connect(_on_game_event)
 	setpieces = MapSetpieces.new()
 	setpieces.name = "Setpieces"
 	setpieces.model = model
@@ -191,6 +191,13 @@ func _build_ui() -> void:
 	setpieces.valve = valve
 	setpieces.layer = setpiece_layer
 	add_child(setpieces)
+
+
+## relish_returned: Vei retook the fort Relish stood at and she walks home (one toast line).
+func _on_game_event(ev: Dictionary) -> void:
+	var msg := RelishLogic.returned_toast(ev, model.names)
+	if msg != "":
+		hud.show_toast(msg)
 
 
 ## Pan, wheel zoom and click-select, in screen (viewport) coordinates. The HUD and the sidebar

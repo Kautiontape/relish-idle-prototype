@@ -9,9 +9,9 @@ extends Node
 ##                 game's first flip adds a green ripple on the fort's beat and a callout.
 ##   tithe         tithe_warning: Synth "horn"; tithe_wave: an orange band sweeps from Vei along the
 ##                 living lane to the target fort over 2 beats.
-##   garrison      counter_garrison_cleared (or its stand-in, api-request #10): a green pulse along
-##                 the fort's WAR lane from Covington, a green burst at the fort, the chip's
-##                 counter-garrison draining to 0 and flipping to the margin word, a callout.
+##   garrison      counter_garrison_cleared: a green pulse along the fort's WAR lane from
+##                 Covington, a green burst at the fort, the chip's counter-garrison draining to
+##                 0 and flipping to the margin word, a callout.
 ##   victory       vei_result won (or won at map open): every lane runs green toward Vei for 2
 ##                 beats, then every dash stops and the victory line shows.
 ## Garrison and victory play no sound of their own (VISUAL-LANGUAGE 2f names none).
@@ -39,9 +39,6 @@ var _synth: Synth
 var _live := false
 var _queue: Array = []  # set pieces that arrived before go_live: {kind, fort_id, n}
 var _active: Array = []  # running: {kind, fort_id, n, start_ms, track?}
-var _seen := {}  # fort id -> {event type: true} since the map opened (the garrison stand-in)
-var _arrive_from := ""
-var _standin_in := -1  # frames until the garrison stand-in is checked (-1: never)
 var _beat := -1
 var _slow := 1.0
 var _debug_kind := ""
@@ -73,12 +70,6 @@ func _exit_tree() -> void:
 func on_event(ev: Dictionary) -> void:
 	var type := str(ev.get("type", ""))
 	var id := str(ev.get("fort_id", ""))
-	if type == "relish_died":
-		id = SetpieceLogic.ANY_FORT  # a death names no fort: any held fort's stand-in refuses it
-	if id != "":
-		if not _seen.has(id):
-			_seen[id] = {}
-		_seen[id][type] = true
 	match type:
 		"fort_flipped":
 			_add(SetpieceLogic.FIRST_FLIP if SetpieceLogic.first_flip(id, model.forts) else SetpieceLogic.FLIP, id)
@@ -94,20 +85,17 @@ func on_event(ev: Dictionary) -> void:
 				_add(SetpieceLogic.VICTORY, "")
 
 
-## The camera has settled on the map: queued set pieces start, a won realm plays victory, the
-## garrison stand-in is checked a few frames on (so the return's events have all arrived), and
-## the debug trigger is armed. `arrive_from`: the node whose scene was just left.
-func go_live(arrive_from: String) -> void:
+## The camera has settled on the map: queued set pieces start, a won realm plays victory, and the
+## debug trigger is armed.
+func go_live() -> void:
 	if _live or not is_inside_tree():
 		return
 	_live = true
-	_arrive_from = arrive_from
 	if bool(model.hud.get("won", false)):
 		_add(SetpieceLogic.VICTORY, "")
 	for p in _queue:
 		_start(p)
 	_queue.clear()
-	_standin_in = int(SetpieceLogic.cfg()["standin_frames"]) if model.forts_by_id.has(arrive_from) else -1
 	if _debug_kind != "":
 		get_tree().create_timer(float(SetpieceLogic.cfg()["debug_delay_s"])).timeout.connect(_fire_debug)
 
@@ -143,10 +131,6 @@ func _start(p: Dictionary) -> void:
 
 func _process(_delta: float) -> void:
 	_tempo()
-	if _standin_in >= 0:
-		_standin_in -= 1
-		if _standin_in < 0:
-			_check_standin()
 	_valve_tick()
 	var items: Array = []
 	var now := Pulse.now_ms()
@@ -308,15 +292,6 @@ func _tithe_tick(p: Dictionary, t: float, rm: bool, items: Array) -> bool:
 
 
 # --- the garrison cleared ---------------------------------------------------------------------
-
-## The stand-in for counter_garrison_cleared: back from a held fort's raid that banked loot and
-## flipped nothing, the burst plays without a number.
-# TODO(api-request #10): remove with SetpieceLogic.garrison_stand_in once the event is emitted.
-func _check_standin() -> void:
-	var g := SetpieceLogic.garrison_stand_in(_arrive_from, model.forts_by_id, _seen)
-	if not g.is_empty():
-		_add(SetpieceLogic.GARRISON, str(g["fort_id"]), -1)
-
 
 func _garrison_tick(p: Dictionary, t: float, rm: bool, items: Array) -> bool:
 	var id := str(p["fort_id"])

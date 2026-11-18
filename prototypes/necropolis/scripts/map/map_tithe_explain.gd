@@ -120,7 +120,7 @@ func _draw_frame() -> void:
 
 
 func _got_it() -> void:
-	seen.mark(MapSeen.TITHE, float(model.hud.get("t", 0.0)))  # TODO(api-request #18)
+	seen.mark(MapSeen.TITHE)
 	_panel.visible = false
 
 
