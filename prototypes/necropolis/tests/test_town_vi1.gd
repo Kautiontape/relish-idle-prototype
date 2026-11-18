@@ -199,7 +199,10 @@ func _lot_click() -> void:
 		"a locked lot or no lot: nothing")
 	var panel := FileAccess.get_file_as_string("res://scripts/town/panel_build.gd")
 	var click := panel.substr(panel.find("func on_lot_clicked("), panel.find("func _make_inspector") - panel.find("func on_lot_clicked("))
-	t.ok(click.contains("BuildSort.lot_click(") and click.contains("is_visible_in_tree()") and click.contains("ensure_control_visible.call_deferred(_insp[\"node\"])"),
+	t.ok(click.contains("BuildSort.lot_click(") and click.contains("is_visible_in_tree()") and click.contains("_scroll_to_inspector()"),
 		"on_lot_clicked follows lot_click with the tab's visibility, and scrolls the dock to the inspector")
+	var scroll := panel.substr(panel.find("func _scroll_to_inspector("), 400)
+	t.ok(scroll.contains("await get_tree().process_frame") and scroll.find("await") < scroll.find("ensure_control_visible(_insp[\"node\"])"),
+		"the scroll waits a frame for the inspector's layout (a deferred call read its stale rect and showed mid-catalog)")
 	t.ok(panel.contains("func _on_visibility()") and panel.contains("elif _card_mode == \"inspect\":"),
 		"coming back to the Build tab closes an inspect card (the dock shows that lot)")

@@ -133,6 +133,16 @@ func _ready() -> void:
 	visibility_changed.connect(_on_visibility)
 
 
+## Scrolls this tab to the inspector a lot click just filled, once the tab has laid it out. It was hidden until the
+## click, so its rect is stale until the next sort: a deferred ensure_control_visible read the stale rect, and the
+## inspector then pushed the catalog down by its own height, so the dock showed mid-catalog (V-I1 re-shoot of
+## t-card-crypt).
+func _scroll_to_inspector() -> void:
+	await get_tree().process_frame
+	if (_insp["node"] as Control).visible:
+		ensure_control_visible(_insp["node"])
+
+
 ## Leaving this tab ends placement. Coming back to it with a lot's inspector open in the card closes the card: the
 ## inspector here shows that lot (BuildSort.lot_click's rule: the card never repeats this tab).
 func _on_visibility() -> void:
@@ -502,7 +512,7 @@ func on_lot_clicked(lot_id: String) -> void:
 		"dock":  # a built or constructing lot, this tab showing: the inspector here, no card repeating it over the town
 			_close_card()
 			_select_lot(lot_id)
-			ensure_control_visible.call_deferred(_insp["node"])
+			_scroll_to_inspector()
 		"inspect":  # another tab is showing: the card is the only place the lot's inspector shows
 			_open_card(lot_id, "inspect")
 			_select_lot(lot_id)
