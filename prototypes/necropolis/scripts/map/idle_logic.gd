@@ -114,12 +114,14 @@ static func chip_parts(f: Dictionary, m: String, clock: Dictionary, c := {}) -> 
 # --- the chip's place: one plate under the fort's name -------------------------------------
 
 ## Screen px from a fort's name anchor (MapFortRing's label, r + label_off_px under the centre)
-## down to the bottom of its name plate, and of the first-dungeon line under it when shown.
+## down to the bottom of its name plate, or, when the tag line is shown, of the tag's plate under it
+## (drawn at NodeLogic.tag_size(), its baseline label_line_px under the name's: the plates
+## NodeLogic.fort_label_rects gives).
 static func name_bottom_px(second_line: bool) -> float:
-	var n := NodeLogic.ncfg()
-	var size := float(MapLogic.cfg()["font_label"])
-	var bottom := size * (1.0 - float(n["plate_ascent"]) + float(n["plate_height"]))
-	return bottom + (float(n["label_line_px"]) if second_line else 0.0)
+	var size := int(MapLogic.cfg()["font_label"])
+	if second_line:
+		return NodeLogic.label_plate(0.0, 0.0, NodeLogic.tag_size(), float(size) + float(NodeLogic.ncfg()["label_line_px"])).end.y
+	return NodeLogic.label_plate(0.0, 0.0, size, float(size)).end.y
 
 
 ## Screen px from the name anchor to the chip plate's top: just under the name (and the
@@ -185,12 +187,11 @@ static func chip_place(p: Vector2, r: float, zoom: float, second_line: bool, wid
 ## plate width in screen px, held forts), name_w and tag_w (label text widths in screen px; -1 where
 ## that label is not drawn)}. `has_token` says whether Relish's token (`token`, `token_r`) is out.
 ## Chips are placed in fort-id order, so a later one avoids the earlier ones and the result is
-## stable from frame to frame. A chip first tries its default (`chip_place`: under the name,
-## clear of the token), then above its ring (chip_ring_gap_px off it: clear of the tithe ring), right
-## of it, left of it (chip_side_gap_px off it: clear of the tithe countdown and the raid word), then
-## under the name slid sideways by each of chip_slide_fracs of its width (right, left), then the
-## same slides on the row above the ring. A place that does not read as its own fort's is dropped
-## (`chip_attached`), as is one over Relish's token; of the rest it takes the first that overlaps no
+## stable from frame to frame. A chip first tries its default (`chip_place` when the token is out,
+## else `chip_rect`: under the name, clear of the token), then that same row slid sideways by each of
+## chip_slide_fracs of its width (right, then left). It never goes above the ring or beside it: those
+## places read as the tithe ring's or the raid word's, not the chip's. A place that does not read as
+## its own fort's is dropped (`chip_attached`), as is one over Relish's token; of the rest it takes the first that overlaps no
 ## other fort's ring, name or tag plate (the plates NodeLogic.fort_label_rects gives, as
 ## MapCallouts._label_rects uses them) and no chip placed before it (hard), nor `nodes` (soft). `nodes` are the non-fort
 ## obstacles (`node_obstacles`: Covington and Vei), each {pos, r (disc radius), rects (world-px
@@ -199,8 +200,6 @@ static func chip_place(p: Vector2, r: float, zoom: float, second_line: bool, wid
 static func chip_layout(forts: Array, zoom: float, has_token: bool, token: Vector2, token_r: float, nodes := []) -> Dictionary:
 	var z := maxf(zoom, 0.001)
 	var c := cfg()
-	var gap := float(c["chip_ring_gap_px"]) / z
-	var side := float(c["chip_side_gap_px"]) / z
 	var tr := token_r + float(c["chip_token_pad_px"]) / z
 	var tok := Rect2(token - Vector2(tr, tr), Vector2(tr, tr) * 2.0) if has_token else Rect2()
 	var size := int(MapLogic.cfg()["font_label"])
@@ -227,16 +226,9 @@ static func chip_layout(forts: Array, zoom: float, has_token: bool, token: Vecto
 				others.append(g["pos"])
 		var base := chip_rect(p, r, z, bool(f["second"]), w)
 		var cands: Array = [chip_place(p, r, z, bool(f["second"]), w, token, token_r, others) if has_token else base]
-		cands.append(Rect2(base.position.x, p.y - r - gap - base.size.y, base.size.x, base.size.y))
-		cands.append(Rect2(p.x + r + side, p.y - base.size.y * 0.5, base.size.x, base.size.y))
-		cands.append(Rect2(p.x - r - side - base.size.x, p.y - base.size.y * 0.5, base.size.x, base.size.y))
-		for frac in c["chip_slide_fracs"]:  # last: under the name, slid right then left by a share of its width
+		for frac in c["chip_slide_fracs"]:  # then under the name, slid right then left by a share of its width
 			cands.append(Rect2(base.position + Vector2(base.size.x * float(frac), 0.0), base.size))
 			cands.append(Rect2(base.position - Vector2(base.size.x * float(frac), 0.0), base.size))
-		for frac in c["chip_slide_fracs"]:  # and last of all, the same slides on the row above the ring
-			var up: Rect2 = cands[1]
-			cands.append(Rect2(up.position + Vector2(up.size.x * float(frac), 0.0), up.size))
-			cands.append(Rect2(up.position - Vector2(up.size.x * float(frac), 0.0), up.size))
 		# attachment is a hard filter: a place that fails it is dropped, never costed
 		var own_plates: Array = []
 		for pl in plates:

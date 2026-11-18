@@ -189,6 +189,51 @@ func _chips(t: TestUtil) -> void:
 	# chips are placed in id order: a later chip avoids an earlier one
 	var both := IdleLogic.chip_layout(_chip_items(["ashgate", "old-sluice", "greywall"], w), z, false, Vector2.ZERO, 0.0)
 	t.ok(not (both["greywall"] as Rect2).intersects(both["ashgate"]) and not (both["old-sluice"] as Rect2).intersects(both["ashgate"]), "no two chips overlap")
+	_chip_winners(t, w)
+
+
+## Which place wins, not just that nothing is hit: the default when it is clear, the under-the-name slide
+## (by its exact share of the chip's width, right before left) when a neighbour crowds it, and never a
+## place above the ring or beside it.
+func _chip_winners(t: TestUtil, w: float) -> void:
+	t.suite("map_idle-chip-winner")
+	var items := _chip_items(["ashgate", "old-sluice"], w)
+	var ash: Dictionary = items[0]
+	var slu: Dictionary = items[1]
+	var near := func(a: Rect2, b: Rect2) -> bool:
+		return a.position.is_equal_approx(b.position) and a.size.is_equal_approx(b.size)
+	# (i) clear space: exactly the default place, with and without Relish's token out of the way
+	var alone: Dictionary = _chip_items(["sable-hold"], w)[11]
+	var base_a := IdleLogic.chip_rect(alone["pos"], float(alone["r"]), 1.0, false, w)
+	var lay_a := IdleLogic.chip_layout(_chip_items(["sable-hold"], w), 1.0, false, Vector2.ZERO, 0.0)
+	t.ok(near.call(lay_a["sable-hold"], base_a), "a clear held fort gets exactly its default place")
+	var far_tok: Vector2 = (alone["pos"] as Vector2) + Vector2(5000.0, 5000.0)
+	var lay_t := IdleLogic.chip_layout(_chip_items(["sable-hold"], w), 1.0, true, far_tok, 10.0)
+	t.ok(near.call(lay_t["sable-hold"], base_a), "and the same with Relish's token far away")
+	# (ii) Ashgate crowded by Old Sluice: the 0.25 slide to the right at zoom 0.57, the 0.1 slide at 0.7
+	var fr: Array = IdleLogic.cfg()["chip_slide_fracs"]
+	for case in [[0.57, 0.25], [0.7, 0.1]]:
+		var z: float = case[0]
+		var lay := IdleLogic.chip_layout(items, z, false, Vector2.ZERO, 0.0)
+		var base := IdleLogic.chip_rect(ash["pos"], float(ash["r"]), z, false, w)
+		var want := Rect2(base.position + Vector2(base.size.x * float(case[1]), 0.0), base.size)
+		t.ok(fr.has(case[1]) and near.call(lay["ashgate"], want), "zoom %.2f: Ashgate's chip is its default slid right by %.2f of its width, got dx/w %.4f dy %.4f" % [z, case[1], (lay["ashgate"].position.x - base.position.x) / base.size.x, lay["ashgate"].position.y - base.position.y])
+		var base_s := IdleLogic.chip_rect(slu["pos"], float(slu["r"]), z, true, w)
+		t.ok(near.call(lay["old-sluice"], base_s), "zoom %.2f: Old Sluice (nothing crowds it, but its tag line) keeps its default" % z)
+	# (iii) never above the ring or beside it: every chip's top is under its own name (and tag) plate
+	for zoom in [0.55, 0.57, 0.7, 1.0, 1.6]:
+		var lay := IdleLogic.chip_layout(items, zoom, false, Vector2.ZERO, 0.0)
+		for f in [ash, slu]:
+			var plate_bottom := 0.0
+			for pr in NodeLogic.fort_label_rects(float(f["name_w"]), float(f["tag_w"]), int(MapLogic.cfg()["font_label"])):
+				plate_bottom = maxf(plate_bottom, (pr as Rect2).end.y)
+			var under: float = f["pos"].y + float(f["r"]) + float(NodeLogic.ncfg()["label_off_px"]) + plate_bottom / zoom
+			t.ok((lay[f["id"]] as Rect2).position.y >= under - 0.001, "zoom %.2f: %s's chip sits under its name plate, not above or beside the ring" % [zoom, f["id"]])
+	# the second line's height is the tag plate's, drawn at tag_size(): the chip top sits chip_gap_px under it
+	var gap := float(IdleLogic.cfg()["chip_gap_px"])
+	var plates := NodeLogic.fort_label_rects(50.0, 40.0, int(MapLogic.cfg()["font_label"]))
+	t.ok(is_equal_approx(IdleLogic.chip_top_px(true), (plates[1] as Rect2).end.y + gap), "a tagged fort's chip top is chip_gap_px under the tag plate: %.3f vs %.3f" % [IdleLogic.chip_top_px(true), (plates[1] as Rect2).end.y + gap])
+	t.ok(is_equal_approx(IdleLogic.chip_top_px(false), (plates[0] as Rect2).end.y + gap), "and an untagged one's, under the name plate")
 
 
 func _fort(id: String, margin: String, held := true) -> Dictionary:
