@@ -188,6 +188,13 @@ func _away(t: TestUtil) -> void:
 	t.ok(ready["lines"][2]["action"] == {"kind": "dive", "to": "covington"}, "the queue dives into Covington")
 	t.ok(AwayLogic.action("nowhere", ids)["kind"] == "none" and AwayLogic.action("", ids)["kind"] == "none", "an unknown or empty target does nothing")
 	t.ok(b["sections"][0]["lines"][0]["action"]["kind"] == "none", "gains lines are not actions")
+	t.ok(b["tithe"]["text"] == "" and b["tithe"]["action"]["kind"] == "none", "no vei view: no tithe line")
+	var live := AwayLogic.build(rep, ids, {"target": "", "next_target": "ashgate", "next_s": 750.0}, {"ashgate": "Ashgate"})
+	t.ok(live["tithe"]["text"] == "Next tithe: Ashgate in 12:30" and live["tithe"]["action"] == {"kind": "fort", "id": "ashgate"}, "the tithe line is read from the vei view; clicking selects the fort")
+	t.ok(live["sections"].size() == b["sections"].size(), "and it is its own line, not a section")
+	var live2 := AwayLogic.build(rep, ids, {"target": "ashgate", "eta_s": 100.0, "warning": true, "next_target": "ashgate", "next_s": 100.0}, {"ashgate": "Ashgate"})
+	t.ok(live2["tithe"]["text"] == "Tithe wave at Ashgate in 1:40", "it ticks with the view")
+	t.ok(AwayLogic.build(rep, ids, {"next_target": "nowhere", "next_s": 5.0})["tithe"]["action"]["kind"] == "none", "a target that is no fort does nothing")
 	var capped := AwayLogic.build({"away_s": 604800.0, "capped": true, "gains": [], "ready": [], "losses": []}, ids)
 	t.ok(capped["capped"] == "capped at 7 days", "capped text")
 	var empty_keys := []

@@ -112,7 +112,8 @@ func _tithe_focus(t: TestUtil) -> void:
 	t.ok(f["fort_id"] == "greywall" and is_equal_approx(float(f["eta_s"]), 88.0), "a warning: the warned fort and its ETA, not next_target")
 	var wave := {"target": "greywall", "eta_s": 0.0, "warning": false, "wave_active": true, "wave_s_left": 40.0, "next_target": "ashgate", "next_s": 300.0}
 	f = OpeningLogic.tithe_focus(wave)
-	t.ok(f["fort_id"] == "greywall" and OpeningLogic.tithe_text("Greywall", float(f["eta_s"])).contains("in now:"), "a running wave: its fort, ETA 0 reads as now")
+	t.ok(f["fort_id"] == "greywall" and OpeningLogic.tithe_text("Greywall", float(f["eta_s"])).contains("at Greywall now:"), "a running wave: its fort, ETA 0 reads as now")
+	t.ok(not OpeningLogic.tithe_text("Greywall", 0.0).contains("in now"), "never 'in now'")
 	var idle := {"target": "", "eta_s": -1.0, "warning": false, "wave_active": false, "wave_s_left": -1.0, "next_target": "ashgate", "next_s": 212.0}
 	f = OpeningLogic.tithe_focus(idle)
 	t.ok(f["fort_id"] == "ashgate" and is_equal_approx(float(f["eta_s"]), 212.0), "no target: the fort the rule would pick, with next_s")
@@ -219,6 +220,7 @@ func _tithe(t: TestUtil) -> void:
 	t.ok(OpeningLogic.eta_text(232.2) == "3:53", "a live ETA rounds up to the second")
 	t.ok(OpeningLogic.eta_text(9.0) == "0:09", "seconds are padded")
 	t.ok(OpeningLogic.eta_text(0.0) == "now" and OpeningLogic.eta_text(-1.0) == "now", "a running wave (0.0) or an unknown ETA (-1) reads as now, never a number")
+	t.ok(OpeningLogic.eta_text(3600.0) == "1h 00m" and OpeningLogic.eta_text(5430.0) == "1h 30m" and OpeningLogic.eta_text(3599.0) == "59:59", "an hour or more reads Nh Mm")
 	var txt := OpeningLogic.tithe_text("Ashgate", 240.0)
 	t.ok(txt == "Vei is sending a tithe wave at Ashgate in 4:00: a surge of the living to retake it. Stand Relish here, or place a big undead there as siege, to blunt it.", "the explanation names the fort and its ETA")
 	t.ok(OpeningLogic.tithe_text("Ashgate", 100.0).contains("in 1:40:"), "and follows the live ETA")

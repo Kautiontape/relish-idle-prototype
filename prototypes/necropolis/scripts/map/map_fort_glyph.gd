@@ -34,6 +34,8 @@ func _draw_static() -> void:
 				LineGlow.matte_ring(self, p, h - sw * 0.5, Palette.c("dead"), sw)
 			if NodeLogic.tithe_badge(f):
 				_badge(p + Vector2(h, -h), n)
+			elif NodeLogic.tithe_next(f):
+				_badge_next(p + Vector2(h, -h), n)
 
 
 ## What this layer draws: each fort's state (and badge, for the still layer). With the zoom (a
@@ -43,7 +45,7 @@ func static_sig():
 	for f in ctx.forts:
 		out.append(_state_of(f))
 		if not beating:
-			out.append(NodeLogic.tithe_badge(f))
+			out.append(NodeLogic.tithe_mode(f))
 	return out
 
 
@@ -83,6 +85,14 @@ func _shape(st: String, p: Vector2, h: float, n: Dictionary) -> void:
 			if st == IdleLogic.WILL_FALL:
 				var e := Vector2(h, h) * float(n["state_slash_ext"])
 				glow_poly(PackedVector2Array([p - e, p + e]), Palette.c("danger"), ctx.px(float(n["state_slash_px"])), glow, cap)
+
+
+## Vei's next tithe pick: the same triangle drawn hollow (an outline, no fill, no backing), at low
+## alpha, still. It sits on the still layer, so reduced motion needs no case.
+func _badge_next(c: Vector2, n: Dictionary) -> void:
+	var hs := ctx.px(float(n["state_badge_px"])) * 0.5
+	var pts := PackedVector2Array([c + Vector2(0.0, -hs), c + Vector2(hs, hs), c + Vector2(-hs, hs), c + Vector2(0.0, -hs)])
+	draw_polyline(pts, Palette.c("living", float(n["tithe_next_alpha"])), ctx.px(float(n["tithe_next_stroke_px"])))
 
 
 ## The tithe badge: a living triangle (state_badge_px wide and tall) on a ground backing that

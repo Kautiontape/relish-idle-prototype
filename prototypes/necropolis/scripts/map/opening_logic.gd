@@ -140,12 +140,16 @@ static func eta_text(eta_s: float) -> String:
 	if eta_s <= 0.0:
 		return str(cfg()["tithe_now_text"])
 	var s := ceili(eta_s)
+	if s >= 3600:
+		return str(cfg()["eta_hours_fmt"]) % [s / 3600, (s % 3600) / 60]
 	return "%d:%02d" % [floori(s / 60.0), s % 60]
 
 
 ## The explanation for the fort `fort_name` whose wave is `eta_s` away (live: the caller passes the
-## fort's tithe.eta_s each refresh).
+## fort's tithe.eta_s each refresh). A running wave (ETA 0) reads "at X now", not "in now".
 static func tithe_text(fort_name: String, eta_s: float) -> String:
+	if eta_s <= 0.0:
+		return str(cfg()["tithe_now_fmt"]) % fort_name
 	return str(cfg()["tithe_text_fmt"]) % [fort_name, eta_text(eta_s)]
 
 

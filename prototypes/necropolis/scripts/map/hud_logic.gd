@@ -99,6 +99,24 @@ static func node_name(id: String, names: Dictionary) -> String:
 	return str(names.get(id, id.capitalize()))
 
 
+## Vei's tithe telegraph from view_vei().tithe, as {text, fort_id}: the wave running, a warning
+## with its ETA, else the next pick with next_s; {"", ""} when there is nothing to say.
+static func tithe_line(vei_tithe: Dictionary, names: Dictionary) -> Dictionary:
+	var c: Dictionary = MapLogic.cfg()["tithe_line"]
+	var target := str(vei_tithe.get("target", ""))
+	if target != "":
+		if bool(vei_tithe.get("wave_active", false)):
+			return {"text": str(c["wave_fmt"]) % node_name(target, names), "fort_id": target}
+		var eta := float(vei_tithe.get("eta_s", -1.0))
+		if eta >= 0.0:
+			return {"text": str(c["warning_fmt"]) % [node_name(target, names), OpeningLogic.eta_text(eta)], "fort_id": target}
+	var nxt := str(vei_tithe.get("next_target", ""))
+	var next_s := float(vei_tithe.get("next_s", -1.0))
+	if nxt != "" and next_s >= 0.0:
+		return {"text": str(c["next_fmt"]) % [node_name(nxt, names), OpeningLogic.eta_text(next_s)], "fort_id": nxt}
+	return {"text": "", "fort_id": ""}
+
+
 ## {head, rate, tail} for a lane row, or {} when its why is empty:
 ## "WAR → Ashgate " + "+1.2/s" (the rate font) + " · Relish left". The rate is the lane's own
 ## (view_lanes carries no delta), signed.

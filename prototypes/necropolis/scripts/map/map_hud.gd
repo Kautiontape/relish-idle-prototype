@@ -26,6 +26,7 @@ var _items: Array = []  # [{box, name, rate, stock, cap}] per stream, built on t
 var _odds: Label
 var _sign: Label
 var _drain: Label
+var _tithe: Label
 var _speed_tag: Label
 var _objective: Button
 var _leave: Label  # the quiet state's "Safe to leave" line under the strip (not clickable)
@@ -257,6 +258,9 @@ func _build_bar(items: Array) -> void:
 	drain_name.text = "DRAIN"
 	_drain = _bar_label(status)
 	MapType.style_mass(_drain)
+	_tithe = _bar_label(status)  # Vei's tithe telegraph; hidden while it has nothing to say
+	MapType.style_label(_tithe)
+	_tithe.visible = false
 	_speed_tag = _bar_label(status)
 	MapType.style_label(_speed_tag, "select")
 
@@ -289,11 +293,22 @@ func refresh(force := false) -> void:
 	_sign.text = st["sign_text"]
 	_sign.add_theme_color_override("font_color", Palette.c(_sign_key(int(st["sign"]))))
 	_drain.text = st["drain_text"]
+	var tl := HudLogic.tithe_line(model.vei.get("tithe", {}), _fort_names())
+	if _tithe.text != tl["text"]:  # the ETA ticks with the model's rev; set only on a change
+		_tithe.text = tl["text"]
+		_tithe.visible = tl["text"] != ""
 	_speed_tag.text = HudLogic.speed_text(hud)
 	_refresh_next()
 	_wrap_cells()
 	_relayout()
 	_relayout.call_deferred()
+
+
+func _fort_names() -> Dictionary:
+	var names := {}
+	for id in model.forts_by_id:
+		names[id] = str(model.forts_by_id[id].get("name", id))
+	return names
 
 
 ## Lays the bar's cells into rows by HudLogic.wrap_rows (the one wrapping rule), rebuilding the

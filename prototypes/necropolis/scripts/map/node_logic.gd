@@ -208,7 +208,8 @@ static func fort_static_sig(f: Dictionary, flip: Dictionary, state := "", raid :
 
 ## A tithe is on its way to this fort (targeted, or the wave is on): the glyph's triangle badge.
 static func tithe_badge(f: Dictionary) -> bool:
-	return tithe_mode(f) != ""
+	var m := tithe_mode(f)
+	return m == "warning" or m == "wave"
 
 
 ## Half the state glyph's extent in world px at `zoom`: state_glyph_px on screen at every zoom.
@@ -233,14 +234,22 @@ static func held_fraction(f: Dictionary, flip: Dictionary) -> float:
 	return clampf(float(f.get("grace_s_left", 0.0)) / g, 0.0, 1.0)
 
 
-## "wave" while the tithe wave is on this fort, "warning" while it is targeted, else "".
+## "wave" while the tithe wave is on this fort, "warning" while it is targeted, "next" while it is
+## only Vei's next pick, else "".
 static func tithe_mode(f: Dictionary) -> String:
 	var t: Dictionary = f.get("tithe", {})
 	if bool(t.get("wave_active", false)):
 		return "wave"
 	if bool(t.get("targeted", false)):
 		return "warning"
+	if bool(t.get("next", false)):
+		return "next"
 	return ""
+
+
+## The fort is Vei's next tithe pick (not yet warned): the quiet hollow triangle, no ring.
+static func tithe_next(f: Dictionary) -> bool:
+	return tithe_mode(f) == "next"
 
 
 ## The tithe countdown's sweep, 0..1: eta_s / tithe_warning_s (0 for eta_s < 0, the API's "none").

@@ -12,6 +12,7 @@ func run() -> int:
 	_contrast(t)
 	_bar(t)
 	_status(t)
+	_tithe_line(t)
 	_callout_text(t)
 	_callout_rows(t)
 	_placement(t)
@@ -111,6 +112,23 @@ func _bar(t: TestUtil) -> void:
 	t.ok(full[1]["capped"], "over cap counts as at cap")
 	t.ok(not full[2]["capped"] and full[2]["stock_text"] == "99,999", "uncapped never marks")
 	t.ok(HudLogic.rate_items({}).is_empty(), "no rates, no items")
+
+
+func _tithe_line(t: TestUtil) -> void:
+	t.suite("map_hud-tithe-line")
+	var names := {"ashgate": "Ashgate"}
+	var wave := HudLogic.tithe_line({"target": "ashgate", "eta_s": 0.0, "warning": false, "wave_active": true, "next_target": "greywall", "next_s": 900.0}, names)
+	t.ok(wave["text"] == "Tithe wave at Ashgate now" and wave["fort_id"] == "ashgate", "wave running")
+	var warn := HudLogic.tithe_line({"target": "ashgate", "eta_s": 105.0, "warning": true, "wave_active": false, "next_target": "ashgate", "next_s": 105.0}, names)
+	t.ok(warn["text"] == "Tithe wave at Ashgate in 1:45" and warn["fort_id"] == "ashgate", "warning with its ETA")
+	var nxt := HudLogic.tithe_line({"target": "", "eta_s": -1.0, "warning": false, "wave_active": false, "next_target": "ashgate", "next_s": 750.0}, names)
+	t.ok(nxt["text"] == "Next tithe: Ashgate in 12:30" and nxt["fort_id"] == "ashgate", "next pick with next_s")
+	var far := HudLogic.tithe_line({"next_target": "ashgate", "next_s": 5430.0}, names)
+	t.ok(far["text"] == "Next tithe: Ashgate in 1h 30m", "an hour out reads Nh Mm")
+	t.ok(HudLogic.tithe_line({"next_target": "greywall", "next_s": 60.0}, names)["text"] == "Next tithe: Greywall in 1:00", "an unnamed fort falls back to its id")
+	var none := {"text": "", "fort_id": ""}
+	t.ok(HudLogic.tithe_line({"target": "", "eta_s": -1.0, "next_target": "", "next_s": -1.0}, names) == none, "before Vei's clock: nothing")
+	t.ok(HudLogic.tithe_line({"next_target": "ashgate", "next_s": -1.0}, names) == none and HudLogic.tithe_line({}, names) == none, "no next_s or an empty view: nothing")
 
 
 func _status(t: TestUtil) -> void:

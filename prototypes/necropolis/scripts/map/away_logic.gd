@@ -90,13 +90,16 @@ static func losses_count(losses: Array) -> String:
 ## [{key, title, lines: [{text, spans, action}]}]}. Sections run gains, ready, losses; gains and
 ## ready are left out when empty, losses always show ("Nothing lost." when there are none) and lead
 ## with their count ("2 forts lost"). Ready and loss lines carry their target's action (a lost
-## fort is clickable like a ready one); gains lines and the count do nothing.
-static func build(rep: Dictionary, fort_ids: Array) -> Dictionary:
+## fort is clickable like a ready one); gains lines and the count do nothing. `tithe` is the live
+## telegraph line after the sections: {text, fort_id, action} from HudLogic.tithe_line(vei_tithe,
+## names) (the panel re-reads it each frame; "" text means no line), its action the same resolver.
+static func build(rep: Dictionary, fort_ids: Array, vei_tithe := {}, names := {}) -> Dictionary:
 	var c := cfg()
 	var out := {
 		"away": str(c.get("away_fmt", "%s")) % duration_text(float(rep.get("away_s", 0.0))),
 		"capped": str(c.get("capped_text", "")) if bool(rep.get("capped", false)) else "",
 		"sections": [],
+		"tithe": tithe_line(vei_tithe, names, fort_ids),
 	}
 	for key in ["gains", "ready", "losses"]:
 		var lines: Array = []
@@ -112,6 +115,13 @@ static func build(rep: Dictionary, fort_ids: Array) -> Dictionary:
 		if not lines.is_empty():
 			out["sections"].append({"key": key, "title": str(c.get(key + "_title", "")), "lines": lines})
 	return out
+
+
+## The tithe telegraph as an away line: HudLogic.tithe_line plus the click's action.
+static func tithe_line(vei_tithe: Dictionary, names: Dictionary, fort_ids: Array) -> Dictionary:
+	var l := HudLogic.tithe_line(vei_tithe, names)
+	l["action"] = action(str(l["fort_id"]), fort_ids)
+	return l
 
 
 ## A line split into runs by font: "rate" (a signed number with /s: oblique, light), "mass" (a

@@ -112,6 +112,10 @@ func _countdowns(t: TestUtil) -> void:
 	t.ok(NodeLogic.fmt_eta(-3.0) == "0:00", "a negative ETA reads 0:00")
 	t.ok(NodeLogic.tithe_mode({}) == "" and NodeLogic.tithe_mode({"tithe": {"targeted": true, "wave_active": false}}) == "warning" \
 		and NodeLogic.tithe_mode({"tithe": {"targeted": true, "wave_active": true}}) == "wave", "tithe mode: none, warning, wave")
+	var nx := {"tithe": {"targeted": false, "wave_active": false, "next": true, "next_s": 600.0}}
+	t.ok(NodeLogic.tithe_mode(nx) == "next" and NodeLogic.tithe_next(nx) and not NodeLogic.tithe_badge(nx), "the next pick is mode next: the quiet telegraph, not the warning badge")
+	t.ok(NodeLogic.tithe_mode({"tithe": {"targeted": true, "wave_active": false, "next": true}}) == "warning", "a warning wins over next")
+	t.ok(not NodeLogic.tithe_next({"tithe": {"next": false}}) and not NodeLogic.tithe_next({}), "not next: no telegraph")
 	t.ok(NodeLogic.first_dungeon_pulse({"first_dungeon": true, "first_clear": true}) and not NodeLogic.first_dungeon_pulse({"first_dungeon": true, "first_clear": false}) \
 		and not NodeLogic.first_dungeon_pulse({"first_clear": true}), "the first-dungeon pulse needs both flags")
 	# the one tag line under a name

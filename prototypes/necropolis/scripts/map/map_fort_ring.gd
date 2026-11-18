@@ -177,7 +177,7 @@ func _draw_pulse() -> void:
 		var p := MapModel.to_vec(f["pos"])
 		var r := MapLogic.fort_radius(int(f["tier"]))
 		var mode := NodeLogic.tithe_mode(f)
-		if mode != "":
+		if mode == "wave" or mode == "warning":
 			_tithe(f, p, r + float(n["tithe_off_px"]), mode, w, hw, n)
 		if NodeLogic.first_dungeon_pulse(f):
 			var rr := r + float(n["first_reach_px"]) * ph

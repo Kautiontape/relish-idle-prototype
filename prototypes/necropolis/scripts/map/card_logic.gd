@@ -131,6 +131,8 @@ static func status_chips(fort: Dictionary, names: Dictionary) -> Array:
 		out.append({"text": str(ch.get("tithe_now", "")), "key": keys.get("tithe", "text")})
 	elif bool(tithe.get("targeted", false)) and float(tithe.get("eta_s", -1.0)) >= 0.0:
 		out.append({"text": str(ch.get("tithe_in_fmt", "%s")) % fmt_clock(float(tithe["eta_s"])), "key": keys.get("tithe", "text")})
+	elif bool(tithe.get("next", false)) and float(tithe.get("next_s", -1.0)) >= 0.0:
+		out.append({"text": str(ch.get("tithe_next_fmt", "%s")) % fmt_clock(float(tithe["next_s"])), "key": keys.get("tithe_next", "text_dim")})
 	if bool(fort.get("relish_here", false)):
 		var parts: Array = [str(ch.get("relish_here", ""))]
 		if bool(fort.get("tide", false)):
