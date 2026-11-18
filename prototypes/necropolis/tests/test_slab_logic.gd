@@ -166,7 +166,7 @@ func _silhouettes(t: TestUtil, cfg: Dictionary) -> void:
 func _crypt_keys(t: TestUtil, texts: Dictionary) -> void:
 	var keys := ["gate", "vei_name", "sep", "husks", "no_husks", "remnants", "no_remnants", "empty_slab", "dominant_mark",
 		"arrow", "refuse", "block", "hold", "holding", "prompt", "keep", "suggest", "bad_name", "risen",
-		"risen_stub", "refused", "roster", "no_big", "rename", "save", "to_crypt", "to_party", "to_foreman", "to_siege",
+		"risen_stub", "refused", "roster", "no_big", "rename", "save", "to_crypt", "to_party", "to_foreman", "to_siege", "places_line", "tips",
 		"held", "lot_option", "taken", "no_lots", "no_forts", "reasons", "place", "name_px", "role_px", "stat_px", "text_px",
 		"small_px", "roster_name_px", "preview"]
 	var nested := {

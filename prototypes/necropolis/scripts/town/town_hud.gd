@@ -150,7 +150,7 @@ func _make_cell(id: String) -> Control:
 	else:  # the store's note ("full in 11.8 h") rides the bar's row, so a four-digit stock line keeps its tail
 		var bar_row := HBoxContainer.new()
 		bar_row.add_theme_constant_override("separation", 6)
-		bar.custom_minimum_size.x = float(bc.get("min_w_px", 24.0))
+		bar.custom_minimum_size.x = float(bc.get("min_w_px", 0.0))
 		bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		bar_row.add_child(bar)
@@ -272,7 +272,10 @@ func _bind_cell(id: String, c: Dictionary, town: Dictionary, hud: Dictionary, fl
 		(c["idle"] as Control).tooltip_text = tip
 	elif id == "living":
 		split = HudModel.split_text([["in", float(town.get("migrants", inn))], ["out", -float(town.get("departures", out))]], _hcfg)
-		c["stock"].text = "%d / %d" % [roundi(float(town.get("living", 0.0))), roundi(float(town.get("living_cap", 0.0)))]
+		var lv := float(town.get("living", 0.0))
+		var lcap := float(town.get("living_cap", 0.0))
+		c["stock"].text = "%d / %d" % [roundi(lv), roundi(lcap)]
+		c["stock"].tooltip_text = HudModel.stock_tip(id, lv, lcap, "", _hcfg)  # what the two numbers are
 	else:
 		split = HudModel.split_text([["in", inn], ["out", -out]], _hcfg)
 		var stock := float(town.get(id, hr.get("stock", 0.0)))
@@ -282,7 +285,7 @@ func _bind_cell(id: String, c: Dictionary, town: Dictionary, hud: Dictionary, fl
 		var note := HudModel.store_text(stock, cap, net, _hcfg)
 		c["stock"].text = "%d%s" % [roundi(stock), "" if cap < 0.0 else " / %d" % roundi(cap)]
 		c["note"].text = note
-		c["stock"].tooltip_text = "%s  %s" % [c["stock"].text, note] if note != "" else c["stock"].text
+		c["stock"].tooltip_text = HudModel.stock_tip(id, stock, cap, note, _hcfg)  # what the two numbers are; over cap, why
 		c["note"].tooltip_text = c["stock"].tooltip_text
 		_set_bar(c["bar"], BuildSort.fill(stock, cap), -1.0)
 	c["split"].text = split

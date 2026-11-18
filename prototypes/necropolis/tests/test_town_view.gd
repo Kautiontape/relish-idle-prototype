@@ -1443,7 +1443,7 @@ func _view_keys() -> void:
 			"cart_pip_px", "cart_pip_gap_px", "cart_cols", "cart_w_px", "tow_px", "arc_w_px", "arc_glow", "arc_bulge",
 			"arc_grow", "arc_fade", "arc_chevron_px", "relish_r_px", "relish_core_px", "relish_bob_px", "relish_w_px",
 			"relish_glow", "arc_mote_px"],
-		"legend": ["undead", "living", "px", "pad_px"],
+		"legend": ["undead", "living", "px", "ink", "pad_px"],
 		"benefit": ["rate_effects", "plain_effects", "job_text", "now", "upgrade_now"],
 		"card": ["w_px", "max_h_px", "gap_px", "edge_px", "row_gap_px"], "hover": ["w_px", "alpha", "grow_px"],
 		"suggest": ["w_px", "dash_px", "alpha", "tag_prefix", "x_px", "tag_pad_px"],
@@ -2193,7 +2193,10 @@ func _legend(pre: Dictionary) -> void:
 	var a: TownAgents = _agents(pre)[1]
 	t.ok(a.living_scale > 1 and a.legend() == ["1 orange stroke = %d living" % a.living_scale],
 		"legend: pre_vei reads %s" % str(a.legend()))
-	t.ok(int(vcfg["legend"]["px"]) >= 12, "legend: text at least 12 px")
+	t.ok(int(vcfg["legend"]["px"]) >= 14, "legend: text at least 14 px (clarity round 3: the key was too small to read)")
+	var ink := String(vcfg["legend"].get("ink", ""))
+	t.ok(Palette.has(ink) and TownModel.contrast(Palette.c(ink), Palette.c("ground")) >= 7.0,
+		"legend: its ink '%s' reads at 7:1 or better on its ground plate (%.1f:1)" % [ink, TownModel.contrast(Palette.c(ink), Palette.c("ground")) if Palette.has(ink) else 0.0])
 
 
 func _looks(day1: Dictionary, mid: Dictionary, demo: Dictionary) -> void:
@@ -2983,8 +2986,18 @@ func _hud(day1: Dictionary, mid: Dictionary, pre: Dictionary, demo: Dictionary) 
 	t.ok(HudModel.fmt_dur(45.0, h) == "45 s" and HudModel.fmt_dur(300.0, h) == "5 min" and HudModel.fmt_dur(21600.0, h) == "6 h"
 		and HudModel.fmt_dur(259200.0, h) == "3 d", "hud: durations pick s, min, h or d")
 	t.ok(HudModel.store_text(50.0, 200.0, 150.0 / 21600.0, h) == "full in 6 h", "hud: full in (cap - stock) / net")
-	t.ok(HudModel.store_text(200.0, 200.0, 1.0, h) == h["text"]["full"] and HudModel.store_text(500.0, 200.0, -1.0, h) == h["text"]["full"],
-		"hud: at or over the cap reads overflowing")
+	t.ok(HudModel.store_text(200.0, 200.0, 1.0, h) == h["text"]["full"] and HudModel.store_text(200.4, 200.0, 1.0, h) == h["text"]["full"],
+		"hud: at the cap (as shown, rounded) reads overflowing")
+	# clarity round 3: "20635 / 9750" said nothing. Over the cap TownSim keeps the excess and takes in nothing (store_overflow)
+	t.ok(HudModel.store_text(20635.0, 9750.0, -0.14, h) == h["text"]["over"] and HudModel.store_text(5198.0, 300.0, 0.0, h) == "over cap: no income",
+		"hud: over the cap reads 'over cap: no income', whatever the rate")
+	t.ok(HudModel.stock_tip("gold", 656.0, 9750.0, "full in 11.8 h", h) == "656 gold in store; the store holds 9750. full in 11.8 h",
+		"hud: the stock's tooltip says what its two numbers are: '%s'" % HudModel.stock_tip("gold", 656.0, 9750.0, "full in 11.8 h", h))
+	var over_tip := HudModel.stock_tip("bone", 5198.0, 300.0, h["text"]["over"], h)
+	t.ok(over_tip.begins_with("5198 bone in store; the store holds 300.") and over_tip.contains("nothing more comes in") and over_tip.contains("under 300"),
+		"hud: over the cap, the tooltip says why nothing comes in: '%s'" % over_tip)
+	t.ok(HudModel.stock_tip("living", 26.0, 26.0, "", h) == "26 living; your town has room for 26." and HudModel.stock_tip("bodies", 3.0, -1.0, "", h) == "3 bodies in store; no cap.",
+		"hud: living reads as room; a store with no cap says so")
 	t.ok(HudModel.store_text(50.0, -1.0, 1.0, h) == h["text"]["no_cap"], "hud: cap -1 reads no cap")
 	t.ok(HudModel.store_text(50.0, 200.0, 0.0, h) == "" and HudModel.store_text(50.0, 200.0, -0.3, h) == "",
 		"hud: a store that is not filling says nothing")
@@ -5304,8 +5317,17 @@ func _td1_placeholders(day1: Dictionary, mid: Dictionary, pre: Dictionary) -> vo
 	# foreman: a 'coming' note by the button and on the placed line
 	t.ok(not String(ct["foreman_coming"]).contains("coming") and String(ct["foreman_coming"]).contains("speed") and String(ct["foreman_coming"]).contains("morale"),
 		"foreman: the note says what a foreman does (E3-3: speed on job output, presence on morale), not 'coming' (%s)" % ct["foreman_coming"])
-	t.ok(CryptLogic.place_note("town:lot-04", ct) == ct["foreman_coming"] and CryptLogic.place_note("crypt", ct) == "" and CryptLogic.place_note("fort:x", ct) == "",
-		"foreman: only a foreman place carries the note")
+	# clarity round 3: every place button says what it does (a tooltip each), and the roster's head says it once on screen
+	var tips := CryptLogic.place_tips(ct, 0.6)
+	t.ok(tips.size() == 4 and tips.values().all(func(s): return String(s) != "" and not String(s).contains("{")),
+		"places: Crypt, Party, Foreman and Siege each carry a filled tooltip (%s)" % str(tips))
+	t.ok(String(tips["party"]).contains("next raid") and String(tips["party"]).contains("lost"),
+		"places: Party says it goes into your next raid, and is lost if Relish dies there ('%s')" % tips["party"])
+	t.ok(String(tips["siege"]).contains("60%") and String(tips["foreman"]).contains("speed") and String(tips["foreman"]).contains("morale"),
+		"places: Siege's share comes from the block given; Foreman says speed and morale")
+	var pl := String(ct["places_line"])
+	t.ok(pl.contains("Crypt") and pl.contains("Party") and pl.contains("next raid") and pl.contains("Foreman") and pl.contains("Siege")
+		and not pl.to_lower().contains("the run"), "places: the line under the roster's head names all four ('%s')" % pl)
 	# no dev tags in any text a player reads
 	var bad := PackedStringArray()
 	var re := RegEx.new()

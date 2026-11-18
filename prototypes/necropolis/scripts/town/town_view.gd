@@ -489,7 +489,7 @@ func _draw_labels() -> void:
 
 
 ## The stroke scales, bottom-left: "1 green stroke = k undead", "1 orange stroke = k living", each
-## only while that kind is sampled (TownAgents.legend), small `text_dim` on a ground plate.
+## only while that kind is sampled (TownAgents.legend), in legend.ink (`text`) at legend.px on a ground plate.
 func _legend() -> void:
 	var lines := agents.legend()
 	if lines.is_empty():
@@ -504,7 +504,7 @@ func _legend() -> void:
 		var sz := font.get_string_size(String(ln), HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
 		_overlay.draw_rect(Rect2(pad - 3.0, y, sz.x + 6.0, h), Palette.c("ground"))
 		_overlay.draw_string(font, Vector2(pad, y + font.get_ascent(fs)), String(ln), HORIZONTAL_ALIGNMENT_LEFT, -1, fs,
-			Palette.c("text_dim"))
+			Palette.c(String(lc.get("ink", "text"))))
 		y += h
 
 

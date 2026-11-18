@@ -751,6 +751,22 @@ static func lot_sizes(views: Dictionary) -> Dictionary:
 	return out
 
 
+## The Build tab's status after one more queue click since the last bind: the lines said so far, then this one, so a
+## refused second click never wipes the line saying the first was queued.
+static func join_said(said: String, line: String) -> String:
+	return line if said == "" else "%s %s" % [said, line]
+
+
+## The lots a Queue click must not take ({lot id: true}): every queue entry's lot, and the lots `sent` by an ok
+## queue command since the views were fetched. The views don't show those yet, so without them a second click
+## before the next bind picks the same lot and is refused as taken (review-town-i-r2 item 4).
+static func taken_lots(entries: Array, sent: Dictionary) -> Dictionary:
+	var taken := sent.duplicate()
+	for e in entries:
+		taken[String(e.get("lot_id", ""))] = true
+	return taken
+
+
 ## The lot a catalog row's Queue button takes: of the row's lots not already `taken` (a set {lot id: true}),
 ## the smallest and then the nearest the crypt (`nearest_lot`, as the suggestion does). The lots kept for
 ## the next tier's gate buildings (`reserved`) are left alone unless the row is that gate building or no

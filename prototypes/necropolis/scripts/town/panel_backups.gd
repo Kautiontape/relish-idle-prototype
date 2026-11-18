@@ -251,7 +251,7 @@ func _make_craft(item_id: String) -> Dictionary:
 	var card := PanelContainer.new()
 	card.add_theme_stylebox_override("panel", TownUI.panel_box())
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	if item_id == String(_tx.get("phylactery_item", "phylactery_charge")):
+	if item_id == String(_tx.get("phylactery_item", "")):
 		card.tooltip_text = _jargon("phylactery")
 	var h := HBoxContainer.new()
 	h.add_theme_constant_override("separation", 8)

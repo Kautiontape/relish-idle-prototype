@@ -35,6 +35,8 @@
   "view": {
     "hud_h": 96,
     "dock_w": 560,
+    "scroll_cue": {"_doc": "The dock's 'more below' cue (ScrollCue): over the shown tab's scroll edge while it has more below, a fade (the top fade_frac of h_px) into ground under one line.",
+      "h_px": 40.0, "fade_frac": 0.45, "text": "▼ more below: scroll", "px": 13, "ink": "text", "pad_px": 4.0, "eps_px": 2.0},
     "refresh_s": 0.25,
     "grow_chunk_s": 60,
     "suggest_wait_s": 180,
@@ -162,7 +164,7 @@
     "max_agents": 160,
     "min_living_agents": 8,
     "living_ratio_max": 0.6,
-    "legend": {"undead": "1 green stroke = {k} undead", "living": "1 orange stroke = {k} living", "px": 12, "pad_px": 8.0},
+    "legend": {"undead": "1 green stroke = {k} undead", "living": "1 orange stroke = {k} living", "px": 14, "ink": "text", "pad_px": 8.0},
     "agent_hit_px": 22.0,
     "spawn_per_s": 2.0,
     "steps_per_beat": 4,
@@ -200,7 +202,7 @@
     "demolish_confirm_s": 3.0,
     "placement_dim": 0.3,
     "hit_min_px": 44.0,
-    "cap_bar": {"w_px": 120.0, "h_px": 6.0},
+    "cap_bar": {"w_px": 120.0, "h_px": 6.0, "min_w_px": 24.0},
     "hud": {
       "rate_eps": 0.005,
       "net_px": 24, "split_px": 12, "stock_px": 13, "name_px": 13,
@@ -218,7 +220,10 @@
         "muster_word": {"flood": "idle → FLOOD", "war": "idle → WAR"},
         "muster_tip": {"flood": "Idle hands beyond the idle cap muster to FLOOD: they join Vei's queue. The Muster stance sends them to WAR, your forts, instead.",
           "war": "The Muster stance is on: idle hands muster to WAR and stream to your forts."},
-        "full_in": "full in {t}", "full": "full: overflowing", "no_cap": "no cap",
+        "full_in": "full in {t}", "full": "full: overflowing", "no_cap": "no cap", "over": "over cap: no income",
+        "stock_tip": "{n} {id} in store; the store holds {cap}.", "stock_tip_nocap": "{n} {id} in store; no cap.",
+        "living_tip": "{n} living; your town has room for {cap}.",
+        "over_tip": "That is over the cap, so nothing more comes in until spending brings it under {cap}.",
         "dur_s": "{n} s", "dur_min": "{n} min", "dur_h": "{n} h", "dur_d": "{n} d",
         "dur_min_from_s": 90.0, "dur_h_from_s": 5400.0, "dur_d_from_s": 172800.0,
         "next_tier": "next: {tier} — {have}/{need} buildings{missing}",
@@ -487,16 +492,18 @@
         "phylactery": "Phylactery charge: revives Relish in place, at most once per dungeon. The Ossuary Tower crafts it from essence."
       },
       "goal": {
-        "lead": "Goal: ",
+        "_doc": "The first-goal plate: the game's goal (head, head_px) over the first step not yet met (its own lead, else lead; px).",
+        "head": "Your goal: take Vei's forts, then beat Vei. Beating Vei wins the game.",
+        "lead": "Next step: ",
         "steps": [
-          {"id": "mill", "until": "built", "building": "bone_mill",
+          {"id": "mill", "until": "built", "building": "bone_mill", "lead": "First step: ",
             "text": "build a Bone Mill. Bone and gold pay for buildings, and your town makes both."},
           {"id": "fort", "until": "fort_taken",
             "text": "take your first fort. Return to the realm, raid {fort} and break its warden."}
         ],
         "fort_any": "a fort Vei holds",
         "tiers": ["hamlet", "village"],
-        "px": 14, "x_px": 240.0, "y_px": 8.0
+        "head_px": 18, "px": 16, "x_px": 240.0, "y_px": 8.0
       }
     },
     "muster_names": {"_doc": "Where the idle muster goes, named as the valve names it (view_hud.split.muster_to): the HUD's idle line and the forecast.",
@@ -630,6 +637,7 @@
       "simulacra": "Simulacra ready: {n}", "simulacra_where": "deploy from the map",
       "stock": "Essence {essence}   Relics {relics}",
       "craft_labels": {"simulacrum": "Simulacrum", "phylactery_charge": "Phylactery charge"},
+      "phylactery_item": "phylactery_charge",
       "cost_part": "{n} {what}", "relic": "relic", "relics": "relics", "essence": "essence", "cost_none": "free",
       "craft_btn": "Craft", "craft_btn_w_px": 72.0, "craft_columns": 2,
       "craft_reasons": {"needs_building": "needs the Ossuary Tower", "no_essence": "not enough essence", "no_relics": "not enough relics",
@@ -711,6 +719,14 @@
       "to_foreman": "Foreman at…",
       "to_siege": "Siege…",
       "siege_line": "Siege: blocks {pct}% of a tithe wave here, no kills; a second adds nothing",
+      "places_line": "Crypt: rests · Party: joins your next raid, lost if Relish dies there · Foreman: speeds a building's jobs, lifts morale · Siege: blunts Vei's tithe waves at a fort",
+      "tips": {
+        "_doc": "The four place buttons' tooltips on a big undead's card (CryptLogic.place_tips); siege's {pct} is realm.json tithe.siege_block.",
+        "crypt": "Crypt: it rests in the crypt and does no work until you place it.",
+        "party": "Party: it goes into your next raid with Relish and fights there. If she dies in that raid, it's lost.",
+        "foreman": "Foreman at…: pick a building. Its speed speeds that building's jobs; its presence lifts the town's morale.",
+        "siege": "Siege…: pick a fort. It blocks {pct}% of each tithe wave there (Vei's surge of the living to retake it), with no kills; a second there adds nothing."
+      },
       "held": "held",
       "lot_option": "{label} · {lot}",
       "taken": "{label} · foreman {name}",
@@ -720,7 +736,7 @@
         "unknown_husk": "that husk is gone", "unknown_remnant": "a remnant is gone",
         "duplicate_remnant": "a remnant is slotted twice", "invalid_recipe": "the slab rejects that recipe",
         "at_cap": "the crypt is at its big-undead cap", "bad_name": "a name is 1 to 24 characters",
-        "unknown_uid": "no such big undead", "busy": "it's in an open run's party", "bad_place": "no such place",
+        "unknown_uid": "no such big undead", "busy": "it's in the party of a raid under way", "bad_place": "no such place",
         "unknown_lot": "no such lot", "empty_lot": "nothing is built there", "foreman_taken": "that building already has a foreman",
         "unknown_fort": "no such fort", "duplicate_uid": "it's already in the party"},
       "place": {"crypt": "in the crypt", "party": "in the party", "town": "foreman at the {label}",

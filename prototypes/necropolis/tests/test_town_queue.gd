@@ -27,7 +27,53 @@ func run() -> int:
 	_review_m2()
 	_vat_costed()
 	_p2_counts()
+	_second_click()
 	return t.failures
+
+
+## review-town-i-r2 item 4: a second Queue click before the next bind was dropped with no word. Now every click is
+## sent. The lots an ok command took since the bind count as taken (BuildSort.taken_lots, the Build tab's _free_lot),
+## so a second click on the same row, against the same stale views, picks the next free lot and queues for real;
+## with no lot left it is refused as no_lot, in words, and the line saying the first was queued stays
+## (BuildSort.join_said).
+func _second_click() -> void:
+	var s := _state("day1")
+	s.cmd_debug_grant({"gold": 5000.0, "bone": 2000.0})
+	s.tick(s.substep_s())
+	var town := s.view_town()  # the views as last bound: no click below re-reads them
+	var row: Dictionary = _catalog(s)["house"]
+	var lots: Array = row.get("lots", [])
+	t.ok(lots.size() >= 2, "(setup) day1 has two or more free lots for a House (%s)" % str(lots))
+	var sizes := BuildSort.lot_sizes({"town": town})
+	var q0: Array = town.get("queue", [])
+	var sent := {}
+	var first := BuildSort.queue_lot(row, BuildSort.taken_lots(q0, sent), {}, {}, sizes)
+	var r1 := s.cmd_queue_build("house", first)
+	t.ok(bool(r1.get("ok", false)), "the first click queues a House on %s (%s)" % [first, r1.get("reason", "")])
+	sent[first] = true
+	t.ok(BuildSort.queue_lot(row, BuildSort.taken_lots(q0, {}), {}, {}, sizes) == first,
+		"without the sent lots, the stale views would hand the second click %s again (the case the old guard dropped)" % first)
+	var second := BuildSort.queue_lot(row, BuildSort.taken_lots(q0, sent), {}, {}, sizes)
+	var r2 := s.cmd_queue_build("house", second)
+	t.ok(second != "" and second != first and bool(r2.get("ok", false)),
+		"the second click, before any bind, queues on the next lot: %s then %s (%s)" % [first, second, r2.get("reason", "")])
+	var on := {}
+	for e in s.view_town().get("queue", []):
+		on[String(e.get("lot_id", ""))] = true
+	for b in s.view_town().get("buildings", []):
+		on[String(b.get("lot_id", ""))] = true
+	t.ok(on.has(first) and on.has(second), "both Houses are in the town, queued or started, on their own lots (%s)" % str(on.keys()))
+	for l in lots:
+		sent[String(l)] = true
+	t.ok(BuildSort.queue_lot(row, BuildSort.taken_lots(q0, sent), {}, {}, sizes) == "",
+		"every lot sent: the next click has no lot, so the Build tab sends nothing and says no_lot")
+	var why := BuildSort.reason_text("no_lot", row, {}, cfg["buildings_view"], vcfg)
+	var no := BuildSort.fmt(String(vcfg["queue_text"]["not_queued"]), {"why": why})
+	t.ok(why.contains("no free lot") and not why.contains("{"), "no_lot reads '%s'" % why)
+	var line := BuildSort.join_said(BuildSort.join_said("", "Queued House on lot 5: starts now."), no)
+	t.ok(line.begins_with("Queued House on lot 5: starts now. ") and line.ends_with(no),
+		"a refused click after a queued one keeps the queued line and adds why: '%s'" % line)
+	t.ok(BuildSort.taken_lots([{"lot_id": "lot-07"}], {"lot-05": true}).keys().size() == 2, "taken: the queue's lots and the sent ones")
 
 
 ## P2's queue fields (queue_slots, queue_list_max), read directly: a gated entry holds no slot, and the list caps at
@@ -195,8 +241,6 @@ func _review_m2() -> void:
 	var mq := _body(pb, "_move_queue")
 	t.ok(mq.contains("BuildSort.live_index(") and mq.contains("cmd_unqueue(at)") and mq.contains("swap_order(live.size(), at, delta)"),
 		"unqueue and reorder send the live index")
-	t.ok(_body(pb, "_queue_real").contains("if _q_sent:") and _body(pb, "bind").contains("_q_sent = false"),
-		"a second queue click before the next bind is dropped")
 	t.ok(not pb.contains("Not queued: %s") and String(vcfg["queue_text"]["not_queued"]).contains("{why}"),
 		"'Not queued' comes from town.json queue_text.not_queued")
 

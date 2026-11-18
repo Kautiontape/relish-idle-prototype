@@ -196,10 +196,15 @@ static func line_left(left: float, dt: float) -> float:
 	return maxf(left - dt, 0.0)
 
 
-## The note a placed big undead's line carries: "coming: a foreman boosts its building in a later build" for a
-## foreman place (town:<lot>), "" for any other place.
-static func place_note(place: String, texts: Dictionary) -> String:
-	return String(texts.get("foreman_coming", "")) if place.begins_with("town:") else ""
+## The four place buttons' tooltips, {crypt, party, foreman, siege} (crypt texts `tips`), with the siege's share
+## `block` (realm.json tithe.siege_block) as a percent. What each place does is also said on screen, once, by
+## `places_line` under the roster's head.
+static func place_tips(texts: Dictionary, block: float) -> Dictionary:
+	var out := {}
+	var tips: Dictionary = texts.get("tips", {})
+	for k in ["crypt", "party", "foreman", "siege"]:
+		out[k] = String(tips.get(k, "")).format({"pct": roundi(block * 100.0)})
+	return out
 
 
 static func check_name(name: String) -> Dictionary:
