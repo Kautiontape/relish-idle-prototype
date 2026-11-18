@@ -52,7 +52,8 @@ static func stocks(views: Dictionary, slab: Dictionary = {}) -> Dictionary:
 		"relics": float(held_relics(views)), "relic_blocked": blocked, "count": count, "placeable": placeable,
 		"max_level": max_level, "foreman_names": names,
 		"rates": {"gold": float(hud_rate(hud, "gold").get("rate", 0.0)), "bone": float(hud_rate(hud, "bone").get("rate", 0.0))},
-		"next_tier": town.get("next_tier", {})}
+		"next_tier": town.get("next_tier", {}),
+		"won": bool(hud.get("won", false))}  # P7: Vei is beaten (TownGuide.why's won lines)
 
 
 ## The relics held: view_inventory().relics (view_hud's copy only when the inventory isn't there).
@@ -1113,7 +1114,7 @@ static func inspect(entry: Dictionary, st: Dictionary, bcfg: Dictionary, bview: 
 	return {
 		"building_id": bid, "label": label_of(bid, bview), "flavour": String(bview.get(bid, {}).get("flavour", "")),
 		# what it does for you → the loop, and how it's used (TownGuide; view.guide)
-		"purpose": TownGuide.why(bid, vcfg.get("guide", {})), "use": TownGuide.how(bid, bcfg, vcfg.get("guide", {})),
+		"purpose": TownGuide.why(bid, vcfg.get("guide", {}), bool(st.get("won", false))), "use": TownGuide.how(bid, bcfg, vcfg.get("guide", {})),
 		"use_key": TownGuide.how_key(bid, vcfg.get("guide", {})),
 		"level": level, "max_level": max_level, "state": state,
 		"level_text": fmt(String(vcfg.get("level_text", "")), {"level": level, "max": max_level}),

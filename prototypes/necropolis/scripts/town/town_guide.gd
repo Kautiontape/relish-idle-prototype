@@ -7,8 +7,13 @@ extends RefCounted
 ## The goal keys off existing state only (what's placed, whether any fort was ever taken): no "seen" flag.
 
 
-## One line: what building `bid` does for you → the part of the loop it feeds ("" for an unknown id).
-static func why(bid: String, gcfg: Dictionary) -> String:
+## One line: what building `bid` does for you → the part of the loop it feeds ("" for an unknown id). Once the
+## game is `won` (view_hud.won), `why_won`'s line where it has one: the Raising Pit's mint no longer goes to Vei.
+## TODO(api-request #21): won-keyed while the sim still sends FLOOD to Vei after a win; the won wording stays after #21.
+static func why(bid: String, gcfg: Dictionary, won := false) -> String:
+	var w: Dictionary = gcfg.get("why_won", {})
+	if won and w.has(bid):
+		return String(w[bid])
 	return String((gcfg.get("why", {}) as Dictionary).get(bid, ""))
 
 
@@ -35,8 +40,8 @@ static func how_key(bid: String, gcfg: Dictionary) -> String:
 
 ## Adds `bid`'s why-line (`text`) and how-line (how_key) to `box` as two wrapping 14 px labels, skipping an
 ## empty one. Their text is fixed per building, so a catalog row sets them once, when it is made.
-static func add_lines(box: Container, bid: String, bcfg: Dictionary, gcfg: Dictionary) -> void:
-	for pair in [[why(bid, gcfg), "text"], [how(bid, bcfg, gcfg), how_key(bid, gcfg)]]:
+static func add_lines(box: Container, bid: String, bcfg: Dictionary, gcfg: Dictionary, won := false) -> void:
+	for pair in [[why(bid, gcfg, won), "text"], [how(bid, bcfg, gcfg), how_key(bid, gcfg)]]:
 		if String(pair[0]) == "":
 			continue
 		var l := TownUI.label(String(pair[0]), 14, String(pair[1]))

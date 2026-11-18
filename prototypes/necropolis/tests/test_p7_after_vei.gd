@@ -23,8 +23,40 @@ func run() -> int:
 	bview = cfg["buildings_view"]
 	DirAccess.make_dir_recursive_absolute(_dir)
 	_save_after_win()
+	_won_town_words()
 	_clean()
 	return t.failures
+
+
+## P7 review 4: the town's FLOOD words after the win. The muster lines (the Build tab's "N idle hands muster to …",
+## the workers cell's "idle → …" and its tip) read view_hud.split.muster_to, which economy's #21 sets to "war" once
+## won: on that won view they name WAR. The Raising Pit's why line is config wording: its won variant
+## (guide.why_won) names no FLOOD or Vei, and the inspector and both catalog builders pass `won`.
+func _won_town_words() -> void:
+	var vcfg: Dictionary = cfg["town"]["view"]
+	var wv := {"hud": {"won": true, "split": {"muster_to": "war"}}, "town": {"workers": {"muster_to": "war"}}}  # api-request #21's won shape
+	t.ok(HudModel.muster_name(wv, vcfg) == "WAR (your forts)" and HudModel.muster_word(wv, hcfg) == "idle → WAR"
+		and HudModel.muster_tip(wv, hcfg).begins_with("Vei is beaten") and not HudModel.muster_tip(wv, hcfg).contains("Muster stance"),
+		"won (#21's muster_to war): the idle hands muster to '%s', '%s'; tip '%s'" % [HudModel.muster_name(wv, vcfg), HudModel.muster_word(wv, hcfg), HudModel.muster_tip(wv, hcfg)])
+	var stance := {"hud": {"won": false, "split": {"muster_to": "war"}}}
+	var pre := {"hud": {"won": true, "split": {"muster_to": "flood"}}}  # a won view before #21: the sim still musters to FLOOD
+	t.ok(HudModel.muster_tip(stance, hcfg).contains("Muster stance") and HudModel.muster_tip(pre, hcfg).contains("FLOOD"), "the stance's WAR tip and a pre-#21 won view's FLOOD tip are as before")
+	t.ok(FileAccess.get_file_as_string("res://scripts/town/town_forecast.gd").contains("\"to\": HudModel.muster_name(views, vcfg)"), "the Build tab's idle line names the view's muster_to (HudModel.muster_name)")
+	var won_pit := TownGuide.why("raising_pit", gcfg, true)
+	t.ok(won_pit != "" and not won_pit.contains("FLOOD") and not won_pit.contains("Vei") and TownGuide.why("raising_pit", gcfg).contains("FLOOD to Vei"),
+		"the Raising Pit's line once won: '%s' (before: '%s')" % [won_pit, TownGuide.why("raising_pit", gcfg)])
+	for bid in (gcfg["why"] as Dictionary):
+		var w := TownGuide.why(String(bid), gcfg, true)
+		if w.contains("FLOOD"):
+			t.ok(false, "a won why line names FLOOD: %s '%s'" % [bid, w])
+	t.ok(TownGuide.why("market", gcfg, true) == TownGuide.why("market", gcfg), "a line with no won variant stays as it is")
+	var s := _won_state()
+	var st := BuildSort.stocks(_views(s))
+	var pit: Array = (s.view_town()["buildings"] as Array).filter(func(b): return String(b["building_id"]) == "raising_pit")
+	t.ok(bool(st.get("won", false)) and not pit.is_empty() and BuildSort.inspect(pit[0], st, cfg["buildings"], bview, vcfg)["purpose"] == won_pit,
+		"a won town's inspector reads the won line (stocks carry won)")
+	t.ok(FileAccess.get_file_as_string("res://scripts/town/panel_build.gd").contains("TownGuide.add_lines(v, bid, _bcfg, _vcfg.get(\"guide\", {}), bool(_st.get(\"won\", false)))")
+		and FileAccess.get_file_as_string("res://scripts/town/town_card.gd").contains("_make_row(bid, bool(st.get(\"won\", false)))"), "both catalog builders pass won to the why line")
 
 
 func _views(s: GameState) -> Dictionary:

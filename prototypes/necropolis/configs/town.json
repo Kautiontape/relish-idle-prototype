@@ -219,10 +219,11 @@
       "text": {
         "in": "in", "out": "out", "rot": "rot", "muster": "muster", "steady": "→ steady {n}",
         "burst": "{n} over the idle cap mustered at once",
-        "_muster_doc": "The idle muster (view_hud.split.muster_to): FLOOD, Vei's queue, unless the Muster stance sends it to WAR. muster_word follows its rate in the workers cell; muster_tip is that row's tooltip.",
+        "_muster_doc": "The idle muster (view_hud.split.muster_to): FLOOD, Vei's queue, unless the Muster stance sends it to WAR. muster_word follows its rate in the workers cell; muster_tip is that row's tooltip (war_won in place of war once the game is won: the win sends the muster to WAR, api-request #21, not the stance).",
         "muster_word": {"flood": "idle → FLOOD", "war": "idle → WAR"},
         "muster_tip": {"flood": "Idle hands beyond the idle cap muster to FLOOD: they join Vei's queue. The Muster stance sends them to WAR, your forts, instead.",
-          "war": "The Muster stance is on: idle hands muster to WAR and stream to your forts."},
+          "war": "The Muster stance is on: idle hands muster to WAR and stream to your forts.",
+          "war_won": "Vei is beaten: idle hands beyond the idle cap muster to WAR and stream to your forts."},
         "full_in": "full in {t}", "full": "full: overflowing", "no_cap": "no cap", "over": "over cap: no income",
         "stock_tip": "{n} {id} in store; the store holds {cap}.", "stock_tip_nocap": "{n} {id} in store; no cap.",
         "living_tip": "{n} living; your town has room for {cap}.",
@@ -484,6 +485,10 @@
         "plaza": "Morale → the living stay and buy.",
         "statue": "Morale, and Relish's deaths shake the town less.",
         "reliquary": "Bigger relic and essence stores → more saved for buildings and backups."
+      },
+      "why_won": {
+        "_doc": "P7: a why line in place of `why`'s once the game is won (view_hud.won; TownGuide.why), for the lines that name FLOOD or Vei: Vei is beaten, so the mint goes to your workers and WAR (api-request #21 sends FLOOD's share to WAR).",
+        "raising_pit": "Turns hauled bodies into undead, your mint → workers and WAR to your forts."
       },
       "how": {
         "act": {

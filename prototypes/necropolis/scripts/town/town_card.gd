@@ -133,7 +133,7 @@ func show_catalog(lot_id: String, lot_size: int, items: Array, st: Dictionary, s
 		var it: Dictionary = items[i]
 		var bid := String(it["row"].get("building_id", ""))
 		if not _rows.has(bid):
-			_rows[bid] = _make_row(bid)
+			_rows[bid] = _make_row(bid, bool(st.get("won", false)))
 			_rows_box.add_child(_rows[bid]["node"])
 		var w: Dictionary = _rows[bid]
 		shown[bid] = true
@@ -171,7 +171,7 @@ func show_inspector(title: String) -> void:
 	insp_host.visible = true
 
 
-func _make_row(bid: String) -> Dictionary:
+func _make_row(bid: String, won := false) -> Dictionary:
 	var pc := PanelContainer.new()
 	pc.add_theme_stylebox_override("panel", TownUI.panel_box())
 	pc.mouse_filter = Control.MOUSE_FILTER_PASS
@@ -191,7 +191,7 @@ func _make_row(bid: String) -> Dictionary:
 	queue.custom_minimum_size = Vector2(76, TownUI.MIN_TARGET)
 	queue.pressed.connect(func(): queue_pressed.emit(bid, String(queue.get_meta("lot", ""))))
 	top.add_child(queue)
-	TownGuide.add_lines(v, bid, bcfg, vcfg.get("guide", {}))  # why build it, and how it's used: fixed per building
+	TownGuide.add_lines(v, bid, bcfg, vcfg.get("guide", {}), won)  # why build it, and how it's used: fixed per building (and per game: won)
 	var tags := HBoxContainer.new()
 	tags.add_theme_constant_override("separation", 10)
 	v.add_child(tags)

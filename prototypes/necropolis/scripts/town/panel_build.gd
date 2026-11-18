@@ -339,7 +339,7 @@ func _make_row(bid: String) -> Dictionary:
 	var place := _btn("Place")
 	place.pressed.connect(_toggle_place.bind(bid))
 	top.add_child(place)
-	TownGuide.add_lines(v, bid, _bcfg, _vcfg.get("guide", {}))  # why build it, and how it's used: fixed per building
+	TownGuide.add_lines(v, bid, _bcfg, _vcfg.get("guide", {}), bool(_st.get("won", false)))  # why build it, and how it's used: fixed per building (and per game: won)
 	var ben := HFlowContainer.new()  # the live benefit, as the card draws it: rates oblique, words upright; parts wrap whole
 	ben.add_theme_constant_override("h_separation", 10)
 	v.add_child(ben)
