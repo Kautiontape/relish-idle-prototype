@@ -87,7 +87,7 @@ func _grow_on(c: Dictionary, conv: Variant, cu: Variant, tol: float) -> void:
 	print("  [catchup_accuracy] I1 with Grow on, %.0f h closed vs open: %s; Grow started %d closed, %d open (%s; the worst %.3f s apart)" % [
 		HOURS, i1["lines"], (gi[0] as Array).size(), (gi[1] as Array).size(), gid if gid != "" else "same",
 		cu.grow_worst_dt(gi[0], gi[1])])
-	t.ok(i1["ok"] and (gi[1] as Array).size() >= 10 and gid == "",
+	t.ok(i1["ok"] and (gi[1] as Array).size() >= 3 and gid == "",  # (its 3: the bone store's worth, no mill)
 		"I1 with Grow on over %.0f h: closed equals open within %s and the same %d Grow starts (%s): %s" % [HOURS, conv._pct(tol),
 		(gi[1] as Array).size(), gid if gid != "" else "same", i1["lines"]])
 
