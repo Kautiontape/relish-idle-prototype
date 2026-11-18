@@ -646,33 +646,64 @@ func _hud_readouts(t: TestUtil, cfg: Dictionary) -> void:
 	var ec0 := BossLogic.end_card(sd, {}, [], 0.0, 0.0, 10.0)
 	t.ok(ec0["spent"] == 0 and ec0["party_lost"] == 0 and float(ec0["backlog_spent"]) == 0.0, "end_card: an empty fight is all zeros (never negative)")
 	# the loss card: the win card's frame, the share of the backlog that stays, the AFTER row after a final death
+	var dw: Dictionary = TestUtil.load_json("res://configs/raid.json")["death"]   # the AFTER words are raid.json's, passed in
 	var keep := float(cfg.get("loss_backlog_keep", -1.0))
 	t.ok(keep > 0.0 and keep < 1.0, "vei.json loss_backlog_keep is a share (%s)" % str(keep))
 	for reason in ["fronts_held", "horde_ferried", "relish_unmade"]:
-		var lcd := BossLogic.loss_card(sd, {}, [], 40.0, reason, keep)
+		var lcd := BossLogic.loss_card(sd, {}, [], 40.0, reason, keep, dw)
 		t.ok(bool(lcd["lost"]) and lcd["reason"] == reason and lcd["ended"] == BossLogic.LOSS_WORDS[reason] and str(lcd["ended"]) != "" \
 			and lcd["time_text"] == "0:40" and not lcd.has("backlog_spent"), "loss_card %s: its own words, the fight time, no backlog-spent figure" % reason)
 		t.ok(lcd["keep_pct"] == roundi(keep * 100.0) and lcd["keep_text"] == "%d%% stays" % roundi(keep * 100.0),
 			"loss_card %s: the backlog reads as the share that stays, from loss_backlog_keep" % reason)
 		t.ok((reason == "relish_unmade") == not (lcd["after"] as Dictionary).is_empty(), "loss_card %s: the AFTER row only after a final death" % reason)
-	t.ok(str(BossLogic.loss_card(sd, {}, [], 1.0, "weird", keep)["ended"]) == "the fight is lost", "loss_card: an unknown reason reads 'the fight is lost'")
+	t.ok(str(BossLogic.loss_card(sd, {}, [], 1.0, "weird", keep, dw)["ended"]) == "the fight is lost", "loss_card: an unknown reason reads 'the fight is lost'")
 	for sp in [[0, 0], [1, 0], [1, 1]]:
-		var lcs := BossLogic.loss_card(sd, {"phylactery": sp[0], "clones": sp[1]}, ["a", "ghost", "b"], 65.4, "relish_unmade", keep)
+		var lcs := BossLogic.loss_card(sd, {"phylactery": sp[0], "clones": sp[1]}, ["a", "ghost", "b"], 65.4, "relish_unmade", keep, dw)
 		t.ok(lcs["spent"] == sp[0] + sp[1] and lcs["spent_phyl"] == sp[0] and lcs["spent_clones"] == sp[1] and lcs["backups_total"] == 3 \
 			and lcs["party_lost"] == lcs["party"] and lcs["party"] == (sd["party"] as Array).size() and lcs["time_text"] == "1:05",
 			"loss_card: backups spent %d + %d of 3; the whole party is lost, whoever had fallen in the scene" % [sp[0], sp[1]])
 	var sd_de := sd.duplicate(true)
-	var a_none: Dictionary = BossLogic.loss_card(sd_de, {}, [], 1.0, "relish_unmade", keep)["after"]
+	var a_none: Dictionary = BossLogic.loss_card(sd_de, {}, [], 1.0, "relish_unmade", keep, dw)["after"]
 	t.ok(a_none["label"] == "AFTER" and a_none["text"].begins_with("unmade · reforms at Covington") and a_none["key"] == "danger",
 		"loss_card: no death_ends reads 'unmade', even when the seed began with a clone (a final death spent every backup)")
 	sd_de["death_ends"] = {"outcome": "unmade", "respawn_s": 0.0}
-	t.ok(BossLogic.loss_card(sd_de, {}, [], 1.0, "relish_unmade", keep)["after"]["text"] == "unmade · reforms at Covington · the town takes a morale shock", "loss_card: death_ends unmade at 0.0 shows no number")
+	t.ok(BossLogic.loss_card(sd_de, {}, [], 1.0, "relish_unmade", keep, dw)["after"]["text"] == "unmade · reforms at Covington · the town takes a morale shock", "loss_card: death_ends unmade at 0.0 shows no number")
 	sd_de["death_ends"] = {"outcome": "unmade", "respawn_s": 60.0}
-	t.ok(BossLogic.loss_card(sd_de, {}, [], 1.0, "relish_unmade", keep)["after"]["text"] == "unmade · reforms at Covington in 1 min · the town takes a morale shock", "loss_card: death_ends unmade at 60 s reads 'reforms at Covington in 1 min'")
-	t.ok(BossLogic.loss_card(sd_de, {}, [], 1.0, "relish_unmade", keep)["after"] == RaidLogic.death_next_row({"death_ends": sd_de["death_ends"], "clones_ready": 0}),
+	t.ok(BossLogic.loss_card(sd_de, {}, [], 1.0, "relish_unmade", keep, dw)["after"]["text"] == "unmade · reforms at Covington in 1 min · the town takes a morale shock", "loss_card: death_ends unmade at 60 s reads 'reforms at Covington in 1 min'")
+	t.ok(BossLogic.loss_card(sd_de, {}, [], 1.0, "relish_unmade", keep, dw)["after"] == RaidLogic.death_next_row({"death_ends": sd_de["death_ends"], "clones_ready": 0}, dw),
 		"loss_card: the AFTER row is the raid card's rule (RaidLogic.death_next_row)")
-	t.ok((BossLogic.loss_card(sd_de, {}, [], 1.0, "fronts_held", keep)["after"] as Dictionary).is_empty(),
+	t.ok((BossLogic.loss_card(sd_de, {}, [], 1.0, "fronts_held", keep, dw)["after"] as Dictionary).is_empty(),
 		"loss_card: she is alive after a fronts-held loss, so no AFTER row")
+	# the loss card's rows are laid out from {label, text, key} rows: a value too long for its label's line wraps in
+	# the plate's value width under the label, and the plate grows to hold it (never past a plate edge)
+	var ccfg: Dictionary = cfg.get("card", {})
+	var vwd := VeiCard.value_w(ccfg)
+	var fnt := ThemeDB.fallback_font
+	var unm := RaidLogic.death_next_row({"death_ends": {"outcome": "unmade", "respawn_s": 3599}}, dw)
+	var unm_lines := VeiCard.wrap_words(str(unm["text"]), fnt, VeiCard.VALUE_PX, vwd)
+	var unm_ok := unm_lines.size() >= 1 and unm_lines.size() <= 2 and " ".join(unm_lines) == str(unm["text"])
+	for ln in unm_lines:
+		unm_ok = unm_ok and fnt.get_string_size(ln, HORIZONTAL_ALIGNMENT_LEFT, -1, VeiCard.VALUE_PX).x <= vwd
+	t.ok(unm_ok, "Vei's loss card: the longest AFTER value (unmade, 59 min 59 s) wraps into the %d px value width in at most 2 lines: %s" % [int(vwd), str(unm_lines)])
+	sd_de["death_ends"] = {"outcome": "unmade", "respawn_s": 3599}
+	var lc_info := BossLogic.loss_card(sd_de, {}, [], 1.0, "relish_unmade", keep, dw)
+	var laid := VeiCard.layout_rows(VeiCard.rows_for(lc_info), vwd, fnt)
+	var lays_ok := laid.size() == 5 and str(laid[4]["id"]) == "after" and bool(laid[4]["stacked"])
+	for lr in laid:
+		for ln in (lr["lines"] as PackedStringArray):
+			lays_ok = lays_ok and fnt.get_string_size(ln, HORIZONTAL_ALIGNMENT_LEFT, -1, VeiCard.VALUE_PX).x <= vwd
+		if not bool(lr["stacked"]):
+			var side := vwd - fnt.get_string_size(str(lr["label"]), HORIZONTAL_ALIGNMENT_LEFT, -1, VeiCard.LABEL_PX).x - VeiCard.LABEL_GAP
+			lays_ok = lays_ok and fnt.get_string_size(str((lr["lines"] as PackedStringArray)[0]), HORIZONTAL_ALIGNMENT_LEFT, -1, VeiCard.VALUE_PX).x <= side and float(lr["h"]) == VeiCard.ROW_STEP
+	t.ok(lays_ok, "Vei's loss card: every row's lines fit (beside the label, or wrapped in the value width), the four short rows stay one line of 36 px")
+	var loss_min := float(ccfg.get("loss_h_px", 520.0))
+	var tall := VeiCard.plate_h_for(laid, loss_min)
+	var last_row_bottom := VeiCard.ROWS_TOP + float(laid[0]["h"]) * 4.0 + VeiCard.STACK_DROP + fnt.get_height(VeiCard.VALUE_PX) * float(laid[4]["lines"].size() - 1)
+	t.ok(tall > loss_min and tall >= last_row_bottom + VeiCard.TAIL - VeiCard.ROW_STEP, "Vei's loss card: the plate grows past loss_h_px (%d) for the wrapped AFTER row, to %d" % [int(loss_min), int(tall)])
+	var laid_short := VeiCard.layout_rows(VeiCard.rows_for(BossLogic.loss_card(sd, {}, [], 1.0, "fronts_held", keep, dw)), vwd, fnt)
+	t.ok(VeiCard.plate_h_for(laid_short, loss_min) == loss_min, "Vei's loss card: with no AFTER row the plate keeps loss_h_px (the minimum)")
+	var vk := VeiCard.rows_for(BossLogic.end_card(sd, {}, [], 1.0, 100.0, 40.0))
+	t.ok(vk.size() == 4 and str(vk[3]["label"]) == "BACKLOG SPENT", "the win card's rows are the same list (BACKLOG SPENT last)")
 	# the card draws only what loss_card hands it; the scene builds it from the fight's own fields (no sim read)
 	var lsrc := FileAccess.get_file_as_string("res://scripts/raid/vei_boss.gd")
 	var li := lsrc.find("func _lose_card(")

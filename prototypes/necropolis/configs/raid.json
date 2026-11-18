@@ -10,7 +10,7 @@
     "light_radius_px": 220.0
   },
   "assist": {
-    "_doc": "The warned-attack assist (an accessibility toggle, session memory only, no save field, no loot penalty): off by default. When on, every warned attack's tell window (warning shown to the hit landing) is multiplied by tell_mult: the Bellringer's slam rings and toll, the Huntsman's lunge, the Shieldwall's bash and rush lanes, the Pyre-priest's fire, Vei's weaves. Nothing else changes (damage, the attack beats, RNG). `enabled` is the switch's value at a session's first raid; the CONTROLS legend's LONGER WARNINGS row flips it (--raid-assist turns it on); a change applies from the next tell a warden lays, never inside a tell already showing (each warden keeps the length its running tell began with). tell_mult is at least 1 (a lower value is raised to 1). On, the first hit after a pack rest, a stun or a phase pull is placed a rest after the longer tell and rounded up to a whole beat, so it can land up to a beat later than off, always on a beat (every later hit keeps the Pulse; off, nothing changes), and in the short periods a warden has less time between tells (the Shieldwall turns only outside its tell).",
+    "_doc": "The warned-attack assist (an accessibility toggle, session memory only, no save field, no loot penalty): off by default. When on, every warned attack's tell window (warning shown to the hit landing) is multiplied by tell_mult: the Bellringer's slam rings and toll, the Huntsman's lunge, the Shieldwall's bash and rush lanes, the Pyre-priest's fire, Vei's weaves. Nothing else changes (damage, the attack beats, RNG). `enabled` is the switch's value at a session's first raid; the CONTROLS legend's LONGER WARNINGS row flips it (--raid-assist turns it on); a change applies from the next tell a warden lays, never inside a tell already showing (each warden keeps the length its running tell began with). tell_mult is at least 1 (a lower value is raised to 1). On, the first hit after a pack rest is placed a rest after the longer tell and rounded up to a whole beat (WardenLogic.after_rest), so it can land up to a beat later than off; a phase pull is not rounded (it is maxf(b + tell, last + period), off the beat on and off alike). Every later hit keeps the Pulse; off, nothing changes. In the short periods a warden has less time between tells (the Shieldwall turns only outside its tell).",
     "enabled": false,
     "tell_mult": 1.5
   },
@@ -95,7 +95,8 @@
       "assist_on": "on"
     },
     "retreat": {
-      "_doc": "The retreat panel (RaidRetreatPanel): two columns, RETREAT NOW and IF RELISH FALLS. w is the plate's width; pad its inner margin; title_px/head_px/line_px the title, column-head and line sizes (no text under 13 px); line_h one line's pitch; col_gap the space between the columns; btn_w/btn_h/btn_gap the RETREAT and STAY buttons (btn_h is at least 44, a touch target). The words are RaidLogic.retreat_keep_lines / retreat_fall_lines.",
+      "_doc": "The retreat panel (RaidRetreatPanel): two columns, RETREAT NOW and IF RELISH FALLS. w is the plate's width; pad its inner margin; title_px/head_px/line_px the title, column-head and line sizes (no text under 13 px); line_h one line's pitch; col_gap the space between the columns; btn_w/btn_h/btn_gap the RETREAT and STAY buttons (btn_h is at least 44, a touch target). The words are RaidLogic.retreat_keep_lines / retreat_fall_lines; keep_prefix leads the left column's count line ('so far: ').",
+      "keep_prefix": "so far: ",
       "plate_alpha": 1.0,
       "w": 820,
       "pad": 18,
@@ -141,10 +142,14 @@
     "banner_text_boss": "AWAY TOO LONG · the fight with Vei was called off while you were away"
   },
   "death": {
-    "_doc": "The death frame (RaidDeathCard): card_s is how long the death beat holds the card before the result goes out (the measuring bot never waits, it keeps the 0.9 s beat; 0 = no card), skip_after_s when a click or SPACE may end it early, fade_s its fade-in (none under reduced motion).",
+    "_doc": "The death frame (RaidDeathCard): card_s is how long the death beat holds the card before the result goes out (the measuring bot never waits, it keeps the 0.9 s beat; 0 = no card), skip_after_s when a click or SPACE may end it early, fade_s its fade-in (none under reduced motion). The AFTER row's words (RaidLogic.death_next_row, read by the death card, the retreat panel's IF RELISH FALLS column and Vei's loss card): after_clone when a clone wakes her, after_unmade when she is unmade, after_in then the wait (' in 10 min') when the seed gives one, after_shock last for an unmade death (the town takes the morale shock).",
     "card_s": 4.5,
     "skip_after_s": 0.8,
-    "fade_s": 0.3
+    "fade_s": 0.3,
+    "after_clone": "wakes at Covington",
+    "after_unmade": "unmade · reforms at Covington",
+    "after_in": " in ",
+    "after_shock": " · the town takes a morale shock"
   },
   "clear": {
     "_doc": "The clear card (RaidClearCard): when Relish opens the warden's chest the run holds one card naming what was won (the fort is yours, the warden broken, the loot, what comes next). card_s is the longest it holds before the win goes out, skip_after_s when a click or SPACE may end it early, fade_s its fade-in (none under reduced motion). The measuring bot never sees it (it keeps the wardens.victory_s banner beat).",
@@ -566,7 +571,7 @@
     }
   },
   "wardens": {
-    "_doc": "The wardens (Bellringer, Huntsman, Shieldwall, Pyre-priest) and their fights. The meter row under a warden (warden.gd _draw_meter_row): meter_pips pips of meter_pip_px screen px, meter_gap_px under its body, label_px is the in-world labels' size on screen; a dormant (unwoken) warden draws at dormant_alpha, and a Pyre-priest's sleeping acolytes at the fainter acolyte_dormant_alpha (their alpha is their only dormant cue).The Bellringer's clapper (warden_bellringer.gd): clapper_strike_rad is the strike angle, held clapper_hold_beats of a beat after a slam, and clapper_swing_rad_s the swing rate through the tell. The Shieldwall's GLANCE and FLANKED words hold shield_label_s scene seconds after the last such hit and sit shield_label_out_px beyond its body (clear of the crowd at it). The Pyre-priest's meter gives each acolyte pyre_pips_per_acolyte pips (the right-hand band, spent as they fall; its hp has the rest); its BURNED, SNUFFED and WARDED words hold pyre_label_s scene seconds. A warden's pack (archetypes.<id>.pack, the Huntsman's hounds) shows HORN and its entry rings through the horn, NAME · WARDED while it stands and NAME DOWN for pack_label_s after it falls, and THE PACK BREAKS · WARD DOWN for twice pack_label_s when it breaks because no undead stands (D-d/E 3c; the banner says it too). The risk lever (D-d/E Step 4; WardenLogic.spec): from lever_min_tier up, never in the first dungeon, attack_dmg_mult multiplies all of a warden's attack damage (dmg_unit to her undead and dmg_relish to Relish), relish_dmg_mult its damage to Relish only. Both 1.0: no change. A pack (D-d/E quality pass, knobs at their old values): its units come in at the horn points pushed pack_spawn_wall_px clear of the walls, and while it runs the next attack waits until attack.pack_rest_beats beats past the tell after the beat (the Bellringer, Shieldwall and Pyre-priest 1; the Huntsman 0, its lunge comes at the beat after the tell once the pack is down).",
+    "_doc": "The wardens (Bellringer, Huntsman, Shieldwall, Pyre-priest) and their fights. The meter row under a warden (warden.gd _draw_meter_row): meter_pips pips of meter_pip_px screen px, meter_gap_px under its body, and, while it is awake, the words meter_label at meter_label_px (13 or more) on a small ground plate meter_label_gap_px under the pips (so the row reads over the world); label_px is the in-world labels' size on screen; a dormant (unwoken) warden draws at dormant_alpha, and a Pyre-priest's sleeping acolytes at the fainter acolyte_dormant_alpha (their alpha is their only dormant cue).The Bellringer's clapper (warden_bellringer.gd): clapper_strike_rad is the strike angle, held clapper_hold_beats of a beat after a slam, and clapper_swing_rad_s the swing rate through the tell. The Shieldwall's GLANCE and FLANKED words hold shield_label_s scene seconds after the last such hit and sit shield_label_out_px beyond its body (clear of the crowd at it). The Pyre-priest's meter gives each acolyte pyre_pips_per_acolyte pips (the right-hand band, spent as they fall; its hp has the rest); its BURNED, SNUFFED and WARDED words hold pyre_label_s scene seconds. A warden's pack (archetypes.<id>.pack, the Huntsman's hounds) shows HORN and its entry rings through the horn, NAME · WARDED while it stands and NAME DOWN for pack_label_s after it falls, and THE PACK BREAKS · WARD DOWN for twice pack_label_s when it breaks because no undead stands (D-d/E 3c; the banner says it too). The risk lever (D-d/E Step 4; WardenLogic.spec): from lever_min_tier up, never in the first dungeon, attack_dmg_mult multiplies all of a warden's attack damage (dmg_unit to her undead and dmg_relish to Relish), relish_dmg_mult its damage to Relish only. Both 1.0: no change. A pack (D-d/E quality pass, knobs at their old values): its units come in at the horn points pushed pack_spawn_wall_px clear of the walls, and while it runs the next attack waits until attack.pack_rest_beats beats past the tell after the beat (the Bellringer, Shieldwall and Pyre-priest 1; the Huntsman 0, its lunge comes at the beat after the tell once the pack is down).",
     "lever_min_tier": 2,
     "attack_dmg_mult": 1.0,
     "relish_dmg_mult": 1.0,
@@ -591,6 +596,9 @@
     "meter_pips": 12,
     "meter_pip_px": 3.5,
     "meter_gap_px": 16.0,
+    "meter_label": "break pips",
+    "meter_label_px": 13,
+    "meter_label_gap_px": 4.0,
     "label_px": 15,
     "dormant_alpha": 0.8,
     "acolyte_dormant_alpha": 0.32,

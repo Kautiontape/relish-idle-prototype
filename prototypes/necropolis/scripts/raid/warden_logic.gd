@@ -202,12 +202,21 @@ static func lay_len(tb: float, hit_beat: float, beat: float) -> float:
 	return maxf(0.0, minf(tb, hit_beat - beat))
 
 
-## The first beat a warded attack may land on after a pack rest, stun or phase pull: `rest` beats after the tell
-## that follows beat `beat`, rounded UP to a whole beat so every later hit (last + period) stays on the Pulse.
+## The first beat a warded attack may land on after a pack rest (only the pack rest uses this; a phase pull is
+## `maxf(b + tell, last + period)`, unrounded, off the beat on and off alike): `rest` beats after the tell that
+## follows beat `beat`, rounded UP to a whole beat so every later hit (last + period) stays on the Pulse.
 ## Off, the operand is already a whole number (tell and rest are whole beats), so the ceil changes nothing; with
-## the assist on (a tell of 1.5) the hit lands up to a beat later, always on a beat.
+## the assist on (a tell of 1.5) the hit lands up to a beat later, on a whole beat.
 static func after_rest(beat: float, tell: float, rest: float) -> float:
 	return ceilf(ceilf(beat) + tell + rest)
+
+
+## Whether a tell that locks at beat `b` for a hit at `next` began late (the Huntsman re-places its hit on the
+## beat after one that did). Judged against the SHORTER of the length latched before this frame's refresh (`prev`)
+## and the one now (`tell`): an off-to-on flip that lets the lock start early inside the old window is not late,
+## so the hit keeps its beat. Off, prev == tell and this is `b > next - tell + 0.1`.
+static func tell_late(b: float, next: float, prev: float, tell: float) -> bool:
+	return b > next - minf(prev, tell) + 0.1
 
 
 ## A warden's current tell length: the fresh read (`attack_tell`, the assist applied) only while it is NOT inside

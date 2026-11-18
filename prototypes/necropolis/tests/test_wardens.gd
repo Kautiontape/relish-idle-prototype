@@ -320,7 +320,15 @@ func _assist_tests(t: TestUtil, cfg: Dictionary) -> void:
 	RaidLogic.assist_on = saved_on
 	RaidLogic.assist_mult = saved_mult
 	RaidLogic._assist_booted = saved_booted
-	t.ok(RaidLogic.assist_on == saved_on and RaidLogic.assist_mult == saved_mult and RaidLogic._assist_booted == saved_booted, "the boot tests restore the session's assist state")
+	# the window wardens derive in_tell from the LATCHED length and refresh before any other read of `tell` in _step:
+	# that order is what stops an on-to-off flip from cutting a running tell
+	for wf in ["bellringer", "shieldwall", "pyre_priest"]:
+		var wsrc := FileAccess.get_file_as_string("res://scripts/raid/warden_%s.gd" % wf)
+		var si := wsrc.find("\nfunc _step(")
+		var sbody := wsrc.substr(si, wsrc.find("\nfunc ", si + 1) - si)
+		var ri := sbody.find("\t_refresh_tell(WardenLogic.is_tell(b, _next_attack, _tell()))")
+		var ti := sbody.find("var tell := _tell()")
+		t.ok(si >= 0 and ri >= 0 and (ti < 0 or ri < ti), "%s: _step refreshes the latch from is_tell(b, _next_attack, _tell()) before it reads `var tell := _tell()`" % wf)
 	# a pack rest's hit lands on a whole beat: off the operand is already whole, on (tell 1.5) it rounds up one beat
 	t.ok(WardenLogic.after_rest(7.3, 1.0, 1.0) == ceilf(7.3) + 2.0 and WardenLogic.after_rest(7.0, 1.0, 1.0) == 9.0 and WardenLogic.after_rest(7.3, 1.0, 1.0) == 10.0,
 		"after_rest, off: the old value (ceil(beat) + tell + rest), unchanged")
@@ -344,6 +352,21 @@ func _assist_tests(t: TestUtil, cfg: Dictionary) -> void:
 		cur = WardenLogic.latch_tell(cur, live[fi], tell_at[fi])
 		seen.append(cur)
 	t.ok(seen == [1.0, 1.0, 1.5, 1.5, 1.5, 1.5, 1.0], "latch_tell over frames: a flip on at 2 shows at once (no tell yet), a flip off at 5 waits for the tell's end: " + str(seen))
+	# the Huntsman's lock is "late" against the SHORTER of the length latched before this frame's refresh and the new one:
+	# an off-to-on flip (prev 1.0, tell 1.5) that lets the lock start at next - 1.4 is not late, so its hit keeps its beat
+	t.ok(not WardenLogic.tell_late(8.6, 10.0, 1.0, 1.5) and not WardenLogic.tell_late(8.99, 10.0, 1.0, 1.5), "tell_late: a flip on that locks early in the old window is not late (the lunge keeps its beat)")
+	t.ok(WardenLogic.tell_late(9.2, 10.0, 1.0, 1.5) and WardenLogic.tell_late(9.2, 10.0, 1.5, 1.5), "tell_late: a lock past the shorter length's window is late")
+	var late_same := true
+	for bi in 60:
+		for tl in [1.0, 1.5]:
+			var bb := 5.0 + float(bi) * 0.037
+			late_same = late_same and WardenLogic.tell_late(bb, 8.0, tl, tl) == (bb > 8.0 - tl + 0.1)
+	t.ok(late_same, "tell_late: prev == tell (assist off, or no flip) is the old rule, b > next - tell + 0.1")
+	var hsrc := FileAccess.get_file_as_string("res://scripts/raid/warden_huntsman.gd")
+	var hsi := hsrc.find("\nfunc _step(")
+	var hsb := hsrc.substr(hsi, hsrc.find("\nfunc ", hsi + 1) - hsi)
+	t.ok(hsb.find("var prev := _tell()") >= 0 and hsb.find("var prev := _tell()") < hsb.find("_refresh_tell(_locked)") and hsb.contains("WardenLogic.tell_late(b, _next_attack, prev, tell)"),
+		"the Huntsman reads the latched length before its refresh and judges `late` with it")
 	t.near(WardenLogic.lay_len(2.0, 5.0, 5.0), 0.0, 0.0001, "lay_len: laid at the hit, nothing left")
 	t.ok(WardenLogic.lay_len(2.0, 5.0, 6.0) == 0.0 and WardenLogic.lay_len(2.0, 5.0, 5.0) == 0.0, "lay_len: laid at or past the hit, 0 (never negative)")
 	# Vei's drawn tell never outlasts the time to the hit: a late lay (a Break with Relish down) gets what is left

@@ -712,8 +712,12 @@ func show_cue(text: String, secs: float, color_key: String) -> void:
 
 ## The one-shot "your undead fight on their own" toast is on screen: the idle sub-line says the same words, so it
 ## waits (the banner's text is the cue's, broken at its " · ").
+## The undead cue as the banner shows it (its " · " parts on their own lines), made once: compared every frame.
+var _cue_undead_lines := RaidLogic.CUE_UNDEAD.replace(" · ", "\n")
+
+
 func _undead_cue_up() -> bool:
-	return _banner != null and _banner.visible and _banner.text == RaidLogic.CUE_UNDEAD.replace(" · ", "\n")
+	return _banner != null and _banner.visible and _banner.text == _cue_undead_lines
 
 
 func _tick_cues() -> void:
@@ -784,8 +788,10 @@ func _retreat_lines() -> Array:
 	# the right column reads what the death card reads (RaidEndings.death_inputs, death_next_row, the revive rule)
 	var di: Dictionary = raid.endings.death_inputs()
 	return [RaidLogic.retreat_keep_lines(raid.held, keep,
-			RaidLogic.held_door_retreat_line(hd.state, hd.holder_name) if hd != null else ""),
-		RaidLogic.retreat_fall_lines(raid.endings.phylactery_left(), di["unbanked"], int(di["party_n"]), RaidLogic.death_next_row(raid.seed_data), str(di["shut"]))]
+			RaidLogic.held_door_retreat_line(hd.state, hd.holder_name) if hd != null else "",
+			str(raid.rcfg().get("hud", {}).get("retreat", {}).get("keep_prefix", ""))),
+		RaidLogic.retreat_fall_lines(raid.endings.phylactery_left(), di["unbanked"], int(di["party_n"]),
+			RaidLogic.death_next_row(raid.seed_data, raid.rcfg().get("death", {})), str(di["shut"]))]
 
 
 ## The retreat panel shows (the raid closes it on a stay key: Space, right mouse, Esc).
@@ -1184,7 +1190,26 @@ class WardenBlock:
 	func _notch(x: float, y: float) -> void:
 		draw_line(Vector2(x, y - 11.0), Vector2(x, y + 1.0), Palette.c("vei", 0.9), 2.0)
 
-	## The counter row's pack count: " · +n hounds" once its counter has killed any of its pack in one blow.
+	func _text_w(text: String, px: int) -> float:
+		return ThemeDB.fallback_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+
+	## Row 1's dim 13 px teach label, drawn only where it fits the plate (RaidLogic.row1_fits, `reserve` px left after
+	## it); the COUNTER row below says the same in full. Returns the x after it (`x` when dropped).
+	func _teach(x: float, y: float, text: String, reserve := 0.0) -> float:
+		if not RaidLogic.row1_fits(x, _text_w(text, 13), reserve, size.x):
+			return x
+		return _text(x, y, text, 13, "text_dim")
+
+	## Row 1's counter tally (15 px): its parts in order (RaidLogic.fit_parts drops the last ones that would run
+	## off the plate, `reserve` px kept for a status word after it). Returns the x after it.
+	func _tally(x: float, y: float, parts: Array, key: String, reserve := 0.0) -> float:
+		return _text(x, y, RaidLogic.fit_parts(parts, ThemeDB.fallback_font, 15, x, reserve, size.x), 15, key)
+
+	## " · took n": the pips its weak-point windows took (the pips show them too, so it is the first part dropped).
+	func _took_tag(w: RaidWarden) -> String:
+		return "" if w.weak_taken <= 0 else " · took %d" % w.weak_taken
+
+	## The counter row's pack count:" · +n hounds" once its counter has killed any of its pack in one blow.
 	func _pack_tag(w: RaidWarden) -> String:
 		if w.pack_broken <= 0:
 			return ""
@@ -1239,15 +1264,14 @@ class WardenBlock:
 			else:
 				draw_arc(p, r - 0.6, 0.0, TAU, 14, Palette.c("text_dim", 0.8), 1.3)
 			x += 16.0
-		x = _text(x + 2.0, y, "%d/%d" % [lit, w.meter_n], 15)
-		x = _text(x + 4.0, y, "break pips", 13, "text_dim")   # what the pips are: the blows it takes before it breaks
+		x = _text(x + 2.0, y, "%d/%d" % [lit, w.meter_n], 15)   # (the words "break pips" label the row in the world, warden.gd: row 1 has no room for them)
 		y += 26.0
 		if w is RaidBellringer:
 			var bw := w as RaidBellringer
 			var n := bw.slams_muffled
 			var x2 := x + 14.0
 			if bw.slams > 0:   # no slam yet: no "×0 of 0" (the PHASE row below already says what muffles it)
-				x2 = _text(x2, y - 26.0, "MUFFLED ×%d of %d" % [n, bw.slams] + _pack_tag(w), 15, "undead" if n > 0 or w.pack_broken > 0 else "text_dim")
+				x2 = _tally(x2, y - 26.0, ["MUFFLED ×%d of %d" % [n, bw.slams], _pack_tag(w)], "undead" if n > 0 or w.pack_broken > 0 else "text_dim", 8.0 + _text_w("braced", 13) if bw.muffled else 0.0)
 			if bw.muffled:
 				_text(x2 + 8.0, y - 26.0, "braced", 13, "undead")
 			_text(x0, y, "PHASE", 13, "text_dim")
@@ -1255,12 +1279,11 @@ class WardenBlock:
 			_text(x3 + 12.0, y, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")), 13, "text_dim")
 		elif hw != null:
 			var n2 := hw.intercepts
-			var tag := "INTERCEPTED ×%d" % n2 + ("" if w.weak_taken <= 0 else " · took %d" % w.weak_taken) + _pack_tag(w)
 			var x4 := x + 14.0
 			if n2 > 0 or w.pack_broken > 0:
-				x4 = _text(x4, y - 26.0, tag, 15, "undead")
-			else:   # no intercept yet: teach the counter in words instead of a zero
-				x4 = _text(x4, y - 26.0, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")), 13, "text_dim")
+				x4 = _tally(x4, y - 26.0, ["INTERCEPTED ×%d" % n2, _pack_tag(w), _took_tag(w)], "undead", 8.0 + _text_w("STUNNED", 13) if win_hi > 0 else 0.0)
+			else:   # no intercept yet: teach the counter in words instead of a zero (if it fits, with STUNNED after it)
+				x4 = _teach(x4, y - 26.0, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")), 8.0 + _text_w("STUNNED", 13) if win_hi > 0 else 0.0)
 			if win_hi > 0:
 				_text(x4 + 8.0, y - 26.0, "STUNNED", 13, "undead")
 			# row 2: the hunt, notched where catches change its phase
@@ -1291,9 +1314,9 @@ class WardenBlock:
 			var sw := w as RaidShieldwall
 			var x6 := x + 14.0
 			if sw.flanks > 0 or w.pack_broken > 0:
-				_text(x6, y - 26.0, "FLANKED ×%d of %d" % [sw.flanks, sw.hits] + ("" if w.weak_taken <= 0 else " · took %d" % w.weak_taken) + _pack_tag(w), 15, "undead")
-			else:   # no flank yet: teach the counter in words instead of a zero
-				_text(x6, y - 26.0, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")), 13, "text_dim")
+				_tally(x6, y - 26.0, ["FLANKED ×%d of %d" % [sw.flanks, sw.hits], _pack_tag(w), _took_tag(w)], "undead")
+			else:   # no flank yet: teach the counter in words instead of a zero (if it fits)
+				_teach(x6, y - 26.0, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")))
 			_text(x0, y, "PHASE", 13, "text_dim")
 			var x7 := _text(px0 + 6.0, y, "%d/%d" % [w.phase + 1, (w.spec.get("phases", []) as Array).size()], 15)
 			_text(x7 + 12.0, y, WardenLogic.shield_label(w.spec, w.phase, WardenLogic.lever_on(int(w.spec.get("tier", 1)), bool(w.spec.get("first_dungeon", false)), w.wcfg())), 13, "text_dim")
@@ -1301,9 +1324,9 @@ class WardenBlock:
 			var pp := w as RaidPyrePriest
 			var x8 := x + 14.0
 			if pp.snuffs > 0 or w.pack_broken > 0:
-				_text(x8, y - 26.0, "SNUFFED ×%d" % pp.snuffs + ("" if w.weak_taken <= 0 else " · took %d" % w.weak_taken) + _pack_tag(w), 15, "undead")
-			else:   # no snuff yet: teach the counter in words instead of a zero
-				_text(x8, y - 26.0, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")), 13, "text_dim")
+				_tally(x8, y - 26.0, ["SNUFFED ×%d" % pp.snuffs, _pack_tag(w), _took_tag(w)], "undead")
+			else:   # no snuff yet: teach the counter in words instead of a zero (if it fits)
+				_teach(x8, y - 26.0, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")))
 			_text(x0, y, "PHASE", 13, "text_dim")
 			var x9 := _text(px0 + 6.0, y, "%d/%d" % [w.phase + 1, (w.spec.get("phases", []) as Array).size()], 15)
 			var lv := pp.living()

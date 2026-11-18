@@ -56,7 +56,6 @@ var pack_scatter_t := 99.0     # scene seconds since the last pack broke (draw: 
 var _pack_words: Array = []    # draw only: [{pos, t}] where a pack unit fell to the counter
 
 
-## Dungeon-only: `p_spec` is `RaidLogic.warden_spec(...)`.
 ## This warden's current tell length in beats: the base (assist off: the same every frame) or the assist's longer
 ## one, latched so a LONGER WARNINGS flip applies from the next tell and never inside a running one. Every in-tell
 ## read and draw uses it; `_refresh_tell` (each _step, once `in_tell` is known) is the only writer after the first read.
@@ -72,6 +71,7 @@ func _refresh_tell(in_tell: bool) -> void:
 	_tell_cur = WardenLogic.latch_tell(_tell(), WardenLogic.attack_tell(spec.get("attack", {})), in_tell)
 
 
+## Dungeon-only: `p_spec` is `RaidLogic.warden_spec(...)`.
 func configure(p_raid: Node2D, p_spec: Dictionary) -> void:
 	raid = p_raid
 	spec = p_spec
@@ -570,7 +570,8 @@ func _meter_y() -> float:
 
 ## The meter's echo under the glyph: a row of pips as in the HUD (lit `vei`, spent a dim ring, a
 ## weak-point pip an `undead` ring with a slash), phase notches as short ticks between them. Sized
-## in screen px (divided by the zoom). No text: the HUD carries the counts.
+## in screen px (divided by the zoom). The only text is the row's label on a plate under it (raid.json
+## wardens.meter_label); the HUD carries the counts.
 func _draw_meter_row() -> void:
 	var z := zoom()
 	var pr := float(wcfg().get("meter_pip_px", 3.5)) / z
@@ -593,6 +594,14 @@ func _draw_meter_row() -> void:
 		else:
 			draw_arc(p, pr * 0.8, 0.0, TAU, 10, Palette.c("text_dim", 0.6), 1.0 / z)
 		x += step
+	# what the row is, in words on a small ground plate under it (awake only: this runs only while awake)
+	var label := str(wcfg().get("meter_label", ""))
+	if label != "":
+		var lpx := int(wcfg().get("meter_label_px", 13))
+		var font := ThemeDB.fallback_font
+		var box := Vector2(font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, lpx).x + 1.0, font.get_height(lpx))
+		_draw_plate([[label, lpx, Palette.c("text")]], Vector2(0.0, y + pr * 2.0 + float(wcfg().get("meter_label_gap_px", 4.0)) / z), false,
+			float(wcfg().get("presence", {}).get("plate_alpha", 0.8)), box)
 
 
 ## Telegraph layer (z 37): draws whatever the subclass shows for the next attack.

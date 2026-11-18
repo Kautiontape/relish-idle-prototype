@@ -648,6 +648,25 @@ const TOP_BLOCK_BASE_H := 62.0   # the awake WardenBlock's height with no extra 
 
 const WARDEN_BLOCK_W := 680.0    # the awake WardenBlock's plate width
 const WARDEN_BLOCK_INSET := 12.0   # its text's inset each side
+
+
+## Row 1's tally text: `parts` joined in order, as many as fit the awake block's plate from x with `reserve` px
+## left after them (always at least the first part). The last parts go first.
+static func fit_parts(parts: Array, font: Font, px: int, x: float, reserve: float, plate_w: float) -> String:
+	var s := str(parts[0])
+	for i in range(1, parts.size()):
+		var trial := s + str(parts[i])
+		if not row1_fits(x, font.get_string_size(trial, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x, reserve, plate_w):
+			break
+		s = trial
+	return s
+
+
+## Whether row 1's teach label, `w` px wide and drawn from x, still fits the awake block's plate (`plate_w` wide,
+## its text inset each side) with `reserve` px left for a status word after it. The label is dropped when it does not:
+## the COUNTER row under it says the same in full, so nothing is lost and nothing runs off the plate.
+static func row1_fits(x: float, w: float, reserve: float, plate_w: float) -> bool:
+	return x + w + reserve <= plate_w - WARDEN_BLOCK_INSET
 const BREAK_ROW_PX := 15           # the break / takes / counter rows' font size (the win line: at least 15, in the `text` key)
 const BREAK_ROW_STEP := 22.0       # one wrapped line's height (the font's height at BREAK_ROW_PX is 17, plus 5)
 const BREAK_ROW_KEY := "text"      # the break / takes / counter rows' colour key (full value tone)
@@ -918,7 +937,9 @@ static func death_wait_text(secs: float) -> String:
 ## shock" (state_runs applies economy.morale.death_shock). Without `death_ends` (an older save), or with an
 ## outcome it does not know (a newer economy's, or a broken key): the seed's clones_ready, "wakes at
 ## Covington" if > 0 else "unmade", with no number. A missing or non-positive respawn_s shows no number.
-static func death_next_row(seed: Dictionary) -> Dictionary:
+## The words are `words`, raid.json's `death` block (after_clone, after_unmade, after_in, after_shock), so
+## every caller (the death card, the retreat panel, Vei's loss card) passes it in.
+static func death_next_row(seed: Dictionary, words: Dictionary) -> Dictionary:
 	var de: Variant = seed.get("death_ends", null)
 	var clone := false
 	var secs := 0.0
@@ -927,11 +948,11 @@ static func death_next_row(seed: Dictionary) -> Dictionary:
 		secs = float(de.get("respawn_s", 0.0))
 	else:
 		clone = int(seed.get("clones_ready", 0)) > 0
-	var text := "wakes at Covington" if clone else "unmade · reforms at Covington"
+	var text := str(words.get("after_clone", "")) if clone else str(words.get("after_unmade", ""))
 	if secs > 0.0:
-		text += " in %s" % death_wait_text(secs)
+		text += str(words.get("after_in", "")) + death_wait_text(secs)
 	if not clone:
-		text += " · the town takes a morale shock"
+		text += str(words.get("after_shock", ""))
 	return {"label": "AFTER", "text": text, "key": "text" if clone else "danger"}
 
 
@@ -957,9 +978,10 @@ static func spread_angle(want: float, taken: PackedFloat32Array, sep: float) -> 
 	return wrapf(want, -PI, PI)
 
 
-## The antechamber's last-chance banner, with the loose essence lit there (D-b review SF-4).
+## The antechamber's last-chance banner, with the loose essence lit there (D-b review SF-4). A mote only drifts
+## to Relish within `drift_radius_px` and its lifetime still runs, so the tail says to walk close.
 static func last_chance_banner(lit: int) -> String:
-	return "LAST CHANCE before the warden · your trance is ready and this raise costs no cooldown" + ("" if lit <= 0 else " · %d loose essence here: it drifts to you" % lit)
+	return "LAST CHANCE before the warden · your trance is ready and this raise costs no cooldown" + ("" if lit <= 0 else " · %d loose essence here: walk close to pick it up" % lit)
 
 
 ## T2: the words that say what the circle is for (never that it gathers essence).
@@ -1540,10 +1562,10 @@ static func death_rows_with_shut(rows: Array, shut: String) -> Array:
 ## is held_door_retreat_line's text, its leading newline dropped ("" for none).
 ## The panel's left column ("RETREAT NOW"), lines [{text, key}]: what a retreat keeps, its counts, what
 ## the loot is for (dim, only with something found), then what stays.
-static func retreat_keep_lines(held: bool, keep: Dictionary, door_line: String) -> Array:
+static func retreat_keep_lines(held: bool, keep: Dictionary, door_line: String, keep_prefix: String) -> Array:
 	var out: Array = [{"text": "You keep everything you found and all carried essence.", "key": "text"}]
 	var now := loot_line(keep)
-	out.append({"text": ("so far: " + now) if now != "" else "nothing found yet", "key": "text"})   # no indent: a wrapped line above made "  essence 8" read as a stray
+	out.append({"text": (keep_prefix + now) if now != "" else "nothing found yet", "key": "text"})   # no indent: a wrapped line above made "  essence 8" read as a stray
 	var uses := loot_uses_line(keep)
 	if uses != "":
 		out.append({"text": uses, "key": "text_dim"})
