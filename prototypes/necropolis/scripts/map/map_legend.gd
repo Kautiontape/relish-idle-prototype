@@ -112,11 +112,25 @@ func _process(_delta: float) -> void:
 		return
 	var vrect := valve.get_global_rect() if valve != null else Rect2()
 	var crect := chip.get_global_rect() if chip != null and is_instance_valid(chip) else Rect2()
-	var key := HudLogic.legend_key(get_parent_area_size(), is_open(), _open_user, crect, vrect, _rows.get_child_count())
+	var key := HudLogic.legend_key(get_parent_area_size(), is_open(), _open_user, crect, vrect, _rows.get_child_count(), _min_heights())
 	if key == _legend_key:
 		return
 	_legend_key = key
 	refresh()
+
+
+## The rows' combined minimum heights, summed (what refresh sizes the legend from).
+func _rows_min_h() -> float:
+	var h := 0.0
+	for r in _rows.get_children():
+		h += (r as Control).get_combined_minimum_size().y
+	return h
+
+
+## The head's and the rows' minimum heights: they change when the wrapped labels settle, so a
+## refresh measured on stale ones is redone.
+func _min_heights() -> float:
+	return _head.get_combined_minimum_size().y + _rows_min_h()
 
 
 ## Places the legend just above the valve, as tall as it is (a container does not shrink its own
@@ -129,9 +143,7 @@ func refresh() -> void:
 	var want := is_open()
 	var pad := 2.0 * float(lc["pad_px"])
 	var head_h := _head.get_combined_minimum_size().y
-	var rows_h := 0.0
-	for r in _rows.get_children():
-		rows_h += (r as Control).get_combined_minimum_size().y
+	var rows_h := _rows_min_h()
 	var n := _rows.get_child_count()
 	var h_full := pad + head_h + float(lc["row_gap_px"]) * float(n) + rows_h
 	var h_compact := pad + head_h + float(lc["compact_row_gap_px"]) * float(n) + rows_h

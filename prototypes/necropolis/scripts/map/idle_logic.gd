@@ -420,9 +420,10 @@ static func color_key(m: String) -> String:
 
 # --- layout cache keys -------------------------------------------------------------
 
-## The grid cell Relish's token is in, `cell` world px a side (cells centred on multiples of it, as
-## MapCallouts._chip_signature rounds): the chip layout is keyed on it, so her travel re-lays out
-## only on crossing a cell.
+## The grid cell Relish's token is in, `cell` world px a side (cells centred on multiples of it).
+## The cell is callouts.token_key_px in SCREEN px (the caller passes ctx.px of it), whereas
+## MapCallouts._chip_signature rounds on world px. While she travels the chip layout is keyed on
+## the cell, so it re-lays out only on crossing one.
 static func token_cell(pos: Vector2, cell: float) -> Vector2i:
 	var g := maxf(cell, 0.001)
 	return Vector2i(roundi(pos.x / g), roundi(pos.y / g))
@@ -440,8 +441,19 @@ static func token_pad(cell: float) -> float:
 	return cell * sqrt(0.5)
 
 
+## The token the chip layout is computed against, and the extra radius it gets: {pos, pad, key}.
+## Standing (not travelling): her exact position, no pad (it does not change while she stands, so the
+## key is stable). Travelling: her grid cell's centre, padded by token_pad so the layout kept for the
+## cell still clears her anywhere in it. `key` is what the layout cache keys on.
+static func layout_token(pos: Vector2, travelling: bool, cell: float) -> Dictionary:
+	if not travelling:
+		return {"pos": pos, "pad": 0.0, "key": [false, pos]}
+	var c := token_cell(pos, cell)
+	return {"pos": token_center(c, cell), "pad": token_pad(cell), "key": [true, c]}
+
+
 ## What MapFortIdle._layout's result depends on, as a cache key: every input that can change it
-## between frames. `inp`: zoom, tier, rev, forts (count), cell (Vector2i, ZERO with no token),
+## between frames. `inp`: zoom, tier, rev, forts (count), cell (layout_token's key, [] with no token),
 ## has_token, margin_sig, shares (the valve shares node_obstacles gets), backlog, vei_radius,
 ## cov_pos, vei_pos, widths (each held fort's chip width, in order: its clock ticks between revs).
 static func layout_key(inp: Dictionary) -> Array:

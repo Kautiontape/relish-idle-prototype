@@ -415,11 +415,12 @@ func _layer_keys(t: TestUtil) -> void:
 	var chip := Rect2(12, 60, 330, 100)
 	var valve := Rect2(12, 600, 300, 120)
 	var area := Vector2(1280, 720)
-	var k0 := HudLogic.legend_key(area, true, -1, chip, valve, 4)
-	t.ok(HudLogic.legend_key(area, true, -1, chip, valve, 4) == k0, "the same legend inputs give the same key")
-	for alt in [HudLogic.legend_key(Vector2(1000, 720), true, -1, chip, valve, 4), HudLogic.legend_key(area, false, -1, chip, valve, 4),
-			HudLogic.legend_key(area, true, 1, chip, valve, 4), HudLogic.legend_key(area, true, -1, Rect2(12, 60, 330, 140), valve, 4),
-			HudLogic.legend_key(area, true, -1, chip, Rect2(12, 560, 300, 160), 4), HudLogic.legend_key(area, true, -1, chip, valve, 5)]:
+	var k0 := HudLogic.legend_key(area, true, -1, chip, valve, 4, 300.0)
+	t.ok(HudLogic.legend_key(area, true, -1, chip, valve, 4, 300.0) == k0, "the same legend inputs give the same key")
+	t.ok(HudLogic.legend_key(area, true, -1, chip, valve, 4, 312.0) != k0, "only the measured min heights changing (wrapped rows settling) changes the key")
+	for alt in [HudLogic.legend_key(Vector2(1000, 720), true, -1, chip, valve, 4, 300.0), HudLogic.legend_key(area, false, -1, chip, valve, 4, 300.0),
+			HudLogic.legend_key(area, true, 1, chip, valve, 4, 300.0), HudLogic.legend_key(area, true, -1, Rect2(12, 60, 330, 140), valve, 4, 300.0),
+			HudLogic.legend_key(area, true, -1, chip, Rect2(12, 560, 300, 160), 4, 300.0), HudLogic.legend_key(area, true, -1, chip, valve, 5, 300.0)]:
 		t.ok(alt != k0, "a changed size, open flag, click, chip rect, valve rect or row count changes the legend key")
 	var src := FileAccess.get_file_as_string("res://scripts/map/map_legend.gd")
 	t.ok(src.contains("legend_key"), "MapLegend._process gates its refresh on the key")

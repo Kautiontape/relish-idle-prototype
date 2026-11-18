@@ -356,6 +356,8 @@ static func label_key(rev: int, zoom: float, tier: String, forts: int) -> Array:
 
 
 ## What MapLegend.refresh depends on: its parent's size, whether it is open (and the player's
-## click), the Relish chip's and the valve's rects, and the rows' count. Refresh runs when it changes.
-static func legend_key(area: Vector2, open: bool, open_user: int, chip: Rect2, valve: Rect2, rows: int) -> Array:
-	return [area, open, open_user, chip, valve, rows]
+## click), the Relish chip's and the valve's rects, the rows' count and `min_h` (the head's and the
+## rows' combined minimum heights, summed: wrapped labels settle theirs only after a container layout).
+## Refresh runs when it changes.
+static func legend_key(area: Vector2, open: bool, open_user: int, chip: Rect2, valve: Rect2, rows: int, min_h: float) -> Array:
+	return [area, open, open_user, chip, valve, rows, roundf(min_h * 100.0)]

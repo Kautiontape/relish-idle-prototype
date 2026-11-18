@@ -70,14 +70,15 @@ func _chip_shift(f: Dictionary, c: Dictionary) -> Vector2:
 
 ## Every held fort's placed chip rect ({id: Rect2}, world px), IdleLogic.chip_layout over all the
 ## forts, recomputed only when IdleLogic.layout_key changes (the callouts and the drawing both ask,
-## many times a frame). The token counts as standing at the centre of its coarse grid cell
-## (callouts.token_key_px screen px, as MapCallouts._chip_signature), its radius padded by half the
-## cell's diagonal so a layout kept for the cell still clears her.
+## many times a frame). Standing, Relish's token is her exact position; travelling, the centre of her
+## coarse grid cell (callouts.token_key_px screen px) with its radius padded by half the cell's
+## diagonal, so a layout kept for the cell still clears her (IdleLogic.layout_token).
 func _layout(c: Dictionary) -> Dictionary:
 	var shares: Dictionary = ctx.valve_shares if not ctx.valve_shares.is_empty() else ctx.model.hud.get("valve_target", ctx.model.hud.get("valve", {}))  # as MapCovington._shares
 	var has_token := not ctx.relish.is_empty()
 	var cell_w := ctx.px(float(MapLogic.cfg()["callouts"]["token_key_px"]))
-	var cell := IdleLogic.token_cell(ctx.relish_pos, cell_w) if has_token else Vector2i.ZERO
+	var tok := IdleLogic.layout_token(ctx.relish_pos, str(ctx.relish.get("state", "")) == "travelling", cell_w)
+	var cell: Array = tok["key"] if has_token else []
 	var widths := {}  # held fort id -> chip width (a clock ticks between revs): measured once, used for the key and the items
 	var wlist: Array = []
 	for g in ctx.forts:
@@ -104,8 +105,8 @@ func _layout(c: Dictionary) -> Dictionary:
 		items.append({"id": g["id"], "pos": MapModel.to_vec(g["pos"]), "r": MapLogic.fort_radius(tier), "held": held, "second": not tag.is_empty(),
 			"w": float(widths[g["id"]]) if held else 0.0,
 			"name_w": font.get_string_size(str(g["name"]), HORIZONTAL_ALIGNMENT_LEFT, -1, size).x if shown else -1.0, "tag_w": tag_w})
-	var tr := float(NodeLogic.relish_radii(ctx.zoom)["halo"]) + ctx.px(float(NodeLogic.ncfg()["relish_halo_max_px"]) * 0.5) + IdleLogic.token_pad(cell_w)
-	var token := IdleLogic.token_center(cell, cell_w)
+	var tr := float(NodeLogic.relish_radii(ctx.zoom)["halo"]) + ctx.px(float(NodeLogic.ncfg()["relish_halo_max_px"]) * 0.5) + float(tok["pad"])
+	var token: Vector2 = tok["pos"]
 	# Covington's glyph, name and stream labels and Vei's reach and name, measured as their layers do
 	var names := NodeLogic.node_names()
 	var text_w := {}

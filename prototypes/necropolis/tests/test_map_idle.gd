@@ -56,7 +56,7 @@ func run() -> int:
 func _layout_key(t: TestUtil) -> void:
 	t.suite("map_idle-layout-key")
 	var grid := float(MapLogic.cfg()["callouts"]["token_key_px"])
-	var base := {"rev": 4, "zoom": 1.0, "tier": "mid", "forts": 6, "has_token": true, "cell": IdleLogic.token_cell(Vector2(100, 50), grid), "margin_sig": "a",
+	var base := {"rev": 4, "zoom": 1.0, "tier": "mid", "forts": 6, "has_token": true, "cell": IdleLogic.layout_token(Vector2(100, 50), true, grid)["key"], "margin_sig": "a",
 		"shares": {"work": 0.2, "war": 0.8}, "backlog": 3.0, "vei_radius": 40.0, "cov_pos": Vector2(1, 2), "vei_pos": Vector2(3, 4), "widths": [120.0, 130.0]}
 	var k0 := IdleLogic.layout_key(base)
 	t.ok(IdleLogic.layout_key(base.duplicate(true)) == k0, "the same inputs give the same key on two calls (no frame number)")
@@ -64,7 +64,7 @@ func _layout_key(t: TestUtil) -> void:
 	t.ok(not src.contains("get_process_frames"), "map_fort_idle.gd keys its layout on no frame number")
 	var changes := {"rev": 5, "zoom": 1.5, "tier": "near", "forts": 7, "has_token": false, "margin_sig": "b", "shares": {"work": 0.5, "war": 0.5},
 		"backlog": 4.0, "vei_radius": 41.0, "cov_pos": Vector2(9, 2), "vei_pos": Vector2(3, 9), "widths": [120.0, 131.0],
-		"cell": IdleLogic.token_cell(Vector2(100 + grid * 2.0, 50), grid)}
+		"cell": IdleLogic.layout_token(Vector2(100 + grid * 2.0, 50), true, grid)["key"]}
 	for k in changes:
 		var v := base.duplicate(true)
 		v[k] = changes[k]
@@ -79,6 +79,39 @@ func _layout_key(t: TestUtil) -> void:
 	var corner := IdleLogic.token_center(c1, grid) + Vector2(grid, grid) * 0.5  # a cell is centred on its centre
 	t.ok(absf((corner - IdleLogic.token_center(c1, grid)).length() - IdleLogic.token_pad(grid)) < 0.001, "the token pad is half the cell's diagonal (%.2f)" % IdleLogic.token_pad(grid))
 	t.ok(IdleLogic.token_cell(IdleLogic.token_center(c1, grid), grid) == c1, "a cell's centre is in the cell")
+	_layout_token(t, grid)
+
+
+## IdleLogic.layout_token: standing, the exact token and no pad (the pre-T2 layout); travelling, her
+## cell's centre padded so the kept layout clears her anywhere in the cell.
+func _layout_token(t: TestUtil, grid: float) -> void:
+	var z := 1.0
+	var w := 120.0
+	var items := _chip_items(["ashgate", "old-sluice", "greywall", "vespers"], w)
+	var tok_r := float(NodeLogic.relish_radii(z)["halo"]) + float(NodeLogic.ncfg()["relish_halo_max_px"]) * 0.5
+	var pad_chip := float(IdleLogic.cfg()["chip_token_pad_px"]) / z
+	for f in items:
+		if not bool(f["held"]):
+			continue
+		var place := IdleLogic.chip_rect(f["pos"], float(f["r"]), z, bool(f["second"]), w).get_center()
+		var stand := IdleLogic.layout_token(place, false, grid)
+		t.ok(stand["pos"] == place and float(stand["pad"]) == 0.0, "%s: standing, the helper gives the exact position and no pad" % f["id"])
+		var want := IdleLogic.chip_layout(items, z, true, place, tok_r)
+		var got := IdleLogic.chip_layout(items, z, true, stand["pos"], tok_r + float(stand["pad"]))
+		t.ok(got == want, "%s: standing, the layout equals the direct (pre-T2) one" % f["id"])
+		# travelling: real positions across the cell, corners included, with the chip laid out against the cell centre
+		var cell_c := IdleLogic.token_center(IdleLogic.token_cell(place, grid), grid)
+		var cl := IdleLogic.layout_token(place, true, grid)
+		t.ok(cl["pos"] == cell_c and absf(float(cl["pad"]) - IdleLogic.token_pad(grid)) < 0.001, "%s: travelling, the cell centre and the padded radius" % f["id"])
+		var lay := IdleLogic.chip_layout(items, z, true, cl["pos"], tok_r + float(cl["pad"]))
+		var h := grid * 0.5
+		for off in [Vector2(-h, -h), Vector2(h, -h), Vector2(-h, h), Vector2(h, h), Vector2(0, 0), Vector2(h, 0), Vector2(0, -h)]:
+			var real: Vector2 = cell_c + off * 0.999
+			t.ok(IdleLogic.token_cell(real, grid) == IdleLogic.token_cell(place, grid), "%s: real position %s is in the cell" % [f["id"], str(off)])
+			var rrect := Rect2(real - Vector2.ONE * (tok_r + pad_chip), Vector2.ONE * (tok_r + pad_chip) * 2.0)
+			for g in items:
+				if bool(g["held"]):
+					t.ok(not (lay[g["id"]] as Rect2).intersects(rrect), "%s: chip laid out for the cell clears the real token at %s of the cell (%s)" % [g["id"], str(off), f["id"]])
 
 
 ## The real world's forts as chip_layout items: every fort labelled (name_w 7 px a letter, a 40 px tag
