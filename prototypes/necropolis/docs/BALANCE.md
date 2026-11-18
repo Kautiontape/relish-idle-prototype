@@ -360,6 +360,37 @@ below it. It is also past a new game's 200 bone cap before any mill.
 - `test_build_ladder` checks it: each currency never falls from one level to the next and rises at most 2.5×, and L4
   and L5 fit the new-game cap.
 
+**The calibration list, measured at c15f874** (E4 step 9 (6); one seed). The numbers are the 14-profile batch on
+c15f874's tree, which is sim-identical to the docs-only commits after it (`reports/economy/wip/tools22/batch-c15f874.jsonl`,
+each field as `summarize.py` digests it). The targets are `reports/pacing-spine.md` §4's and IDLE §8's. Nothing here is
+tuned: the run's manager's 2026-11-17 18:00 ruling has the relics, the mint swing and the t2/t3 raids before a backup
+measured and recorded. The queue readings come from a probe (`wip/tools22/qw_probe.gd` with `qw_bot.gd`: the profile's
+bot with its queue logged at each session end; `QW_SKIP=1` swaps in a fill that unqueues every gated entry), run on
+74321d7's tree (c15f874's code), the same seed.
+
+| target | measured | verdict |
+|---|---|---|
+| **pure_idle:** at least one build or level per 6 h for 48–72 h, then a plateau with the chip | 6 builds in the first 6 h of its 7-day close, the last 1.9 h in, then none for 166 h | **Missed, structural.** One setup is one queue (`queue.max_len` 8), and nothing refills it while away. Its 8 are 6 early builds, done in under 2 h at their prices, and the Chapel and the Walls, which keep their slots gated (`lot_locked` at Hamlet, then `no_relics`). The queue's length against the early prices decides this one, not the jam below |
+| **town_only:** a plateau at 2–3 days, then "needs relics" | the last build at 8.0 h (28 860 s, the 08:00 session); stores full from day 1's end (16 250 gold, 550 bone); 12 buildings and 19 levels at day 8; the relics wall from the first load (4 h) | **Missed: the bot's queue jams** (below). From 8.0 h its 8 entries are all gated: the Chapel, Walls and Forge (`no_relics`), the Embalmer (`needs_blueprint`), the Ossuary (`needs_tier`), and the Reliquary and the lot-17/18 pits (`lot_locked`). Relic-free levels that fit the caps stay unqueued (the Mill and the Market at L4, a House at L2, a Pit at L3). With the gate-skipping fill it makes 50 builds against 15, takes every listed relic-free level (L5; L6 and up cost a relic), and its last build is at day 1.46, in the night after day 1. The relic-free content alone lasts about 1.5 days, short of 2–3 |
+| **next affordable**, as gaps between queue starts: S0 (the first 30 min) 10–40 min, S1 (to day 1) 1–3 h, S2 (days 2–5) 4–10 h | sessions: S0 14 min; S1 median 34 min (max 1.5 h, 16 starts); S2 median 26 min (max 39 h, 46 starts) | **S0 met; S1 and S2 missed** (E3 read 14 and 7 min). Starts bunch inside the sessions. The S2 max of 39 h is the jam on days 2.4–4.0: at day 3.0 all 8 entries are gated (the Reliquary, the Chapel's L3, and the lot-21/22 pits at L1, L2 and L3) |
+| **idle workers** at or below 3 after the first hour | 10 (`worker.idle_cap`) in every profile; every slot staffed at every row after 1 h | The wrong metric (§7, trial G3): idle sits at the cap whenever the inflow outruns the slots, and the rest musters to WAR. Slot growth instead: sessions 18 at 1 h, 144 at day 8; continuous 180 at day 4.84; town_only 30; pure_idle 18. The digest has no muster rate |
+| **build value while away** at least 70% (sessions) | 79.4%; the backlog's share 96.3% | **Met** (E3: 49%). once_per_session reads 48.5%, bank_bigs 63.1% |
+| **mint swing** under 10% (`mint.in`'s (max − min) / max over a day of live time, sampled every 10 s) | sessions 35–75% a day (75, 65, 51, 35, 36, 49, 39, 41); continuous 41–95% | **Missed; recorded, not tuned.** The metric counts a day's growth as swing, but a town that doesn't change swings too: town_only (no build after 8.0 h) reads 32.2% every day from day 2, and static (its 4 start buildings, no mill) 26.6%. Both sit inside the pits' feed bonus (`pit.bonus` 0.6: (1.6 − 1) / 1.6 = 37.5%; the first day of static, first30 and pure_idle reads exactly 37.5%). So it isn't the mill (pits get first call, and static has none). That the feed itself cycles is an inference, not probed |
+| **a clone or phylactery charge** before the first t2 and t3 raids | sessions and continuous raid t2 at 0.04 h (Vespers) and t3 at 0.09 h (Hollow Redoubt) with neither; the Chapel is a Village building (Village at 0.8 h, the first Chapel at 3.7 h, the first clone at 4.1 h). once_per_session: t2 at 4.0 h with neither, t3 at 8.0 h with a clone | **Missed, structural** for a bot that raids t2 and t3 in its first session; recorded, not tuned. No death went unmade: sessions' 14 are 8 phylactery and 6 clone |
+| **relics** 6–12 a day under sessions, enough for 25 by day 5–8 (pacing-spine §4) | sessions 14, 13, 3, 4, 17, 10, 15, 11 (87 in 8 days, 34 by day 4), 25 on day 2; continuous 25 on day 1 (126 by day 4.84); once_per_session 47, 25 on day 5 | **Missed; recorded, not tuned:** 2 days of 8 in the band, and 25 three days early. The E4 handoffs wrote this target as "5–8 by day 4", which set a running total against the spine's day window |
+| **a defined bone lever** (the spine's "bone-priced buildings removed costs 15%+"; §2 (b)) | ablation_bone (every bone price 0): Vei-ready day 5.17 against sessions' 6.0001, 0.83 days (14%) sooner; 156 levels against 117 at day 8 | **Undefined by construction:** a price of 0 removes a brake, so this ablation can only speed the game. A lever reading (bone replaced by a gold price, or bone gone as a resource) isn't built |
+| **active play nudges the odds** (continuous 10–30% sooner, IDLE §8) | continuous 4.8358 against 6.0001: 19.4% sooner | **Met** |
+| **lots and stores** (lots full with `no_lot` not before day 2; no store above 2× its value 24 h earlier; bone at least 60% spent) | sessions: lots full at day 5 (120 h); gold at most 1.34× and bone 1.64× its value a day earlier; 96.2% of the bone spent | **Met** under sessions (continuous fills its lots at 30 h) |
+| **carvers by tier** | ablation_keep isn't in the batch | Not measured at this sha |
+
+**The queue jam (an autoplayer defect found here; not fixed in E4).** The bot's fill (`Autoplayer._fill`) queues a
+lot's next level once the level below is built, building or queued, so it counts a gated entry as that lot's level and
+chains more levels onto it. A gated entry keeps its slot (`skipped_gate`), so 8 of them stop the queue while relic-free
+levels wait. It jams town_only from 8.0 h and sessions on days 2.4–4.0, which is sessions' 39 h without a finished
+building and its S2 gap. The game accepts the same queue from a player (a gated entry is queued and holds its slot), so
+it is a Phase I pair: the fill's rule, and whether a gated entry should hold a queue slot at all. A fix moves every
+profile's rows, so it needs the batch re-run.
+
 ## 6. Known balance risks
 - **The knife edge** (systems review S5). Odds of 0.6 need a backlog of about 18,000 raw. Vei's undead
   capacity is about 42/s at q 1.2 and about 20/s at q 2.5, so the active run needs about 5–8 pits and
