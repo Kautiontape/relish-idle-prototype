@@ -147,9 +147,10 @@ func note_mount(away_opened: bool) -> void:
 ## (its fort_flipped, replayed by the router before this call, or a fort held within its grace that
 ## was not already held when the map dove into it, SetpieceLogic.note_dive) says "<Fort> taken by you"
 ## through the flip set piece; one that left it Vei's says it stays hers and you kept what you found
-## (SetpieceLogic.return_kind); a held fort raided again says nothing. Returns the kind (TAKEN, RETREAT, "").
-func note_return(arrive_from: String) -> String:
-	var kind := SetpieceLogic.return_kind(arrive_from, model.fort(arrive_from), _taken_ids.has(arrive_from), model.relish)
+## (SetpieceLogic.return_kind); a held fort raided again says nothing. `stale` (the raid ended while away)
+## never says RETREAT. Returns the kind (TAKEN, RETREAT, "").
+func note_return(arrive_from: String, stale := false) -> String:
+	var kind := SetpieceLogic.return_kind(arrive_from, model.fort(arrive_from), _taken_ids.has(arrive_from), model.relish, SetpieceLogic._last_dive, stale)
 	if kind == SetpieceLogic.TAKEN and not _taken_ids.has(arrive_from):
 		_taken_ids.append(arrive_from)  # no event came: the flip set piece still plays, as for the event
 		_add(SetpieceLogic.FIRST_FLIP if SetpieceLogic.first_flip(arrive_from, model.forts) else SetpieceLogic.FLIP, arrive_from)

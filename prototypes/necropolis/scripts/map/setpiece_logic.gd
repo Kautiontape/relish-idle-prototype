@@ -152,8 +152,9 @@ static func note_dive(fort_id: String, held: bool) -> void:
 ## held when Relish dove: that raid took nothing, so it says nothing. No record for this fort (a
 ## harness teleport that never dove from the map) allows the fallback. A fort still Vei's with Relish
 ## alive is a retreat (she keeps what she found); a death, a held fort past its grace and any other
-## scene say nothing.
-static func return_kind(arrive_from: String, fort: Dictionary, taken_event: bool, relish: Dictionary, dive := _last_dive) -> String:
+## scene say nothing. A stale end (`stale`: the raid ended while away) never says RETREAT: it kept only
+## the last checkpoint. TAKEN is unchanged.
+static func return_kind(arrive_from: String, fort: Dictionary, taken_event: bool, relish: Dictionary, dive := _last_dive, stale := false) -> String:
 	if arrive_from == "" or fort.is_empty() or str(fort.get("id", "")) != arrive_from:
 		return ""
 	if taken_event:
@@ -164,7 +165,7 @@ static func return_kind(arrive_from: String, fort: Dictionary, taken_event: bool
 		return TAKEN if float(fort.get("grace_s_left", 0.0)) > 0.0 and not was_held else ""
 	if float(relish.get("dead_s_left", 0.0)) > 0.0 or str(relish.get("state", "")) == "dead":
 		return ""
-	return RETREAT
+	return "" if stale else RETREAT
 
 
 ## The return line for `kind` (TAKEN or RETREAT) at a fort named `fort_name`; "" for any other kind.

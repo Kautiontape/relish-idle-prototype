@@ -174,6 +174,12 @@ static func explain_gate(want_open: bool, away_open: bool) -> String:
 	return "defer" if away_open else "open"
 
 
+## Whether an open explanation steps aside this frame: it is showing while the away panel (which opens
+## over everything) is up. It hides and defers, to reopen when the panel closes.
+static func explain_yields(panel_visible: bool, away_visible: bool) -> bool:
+	return panel_visible and away_visible
+
+
 ## Vei's own target, from view_vei().tithe: {fort_id, eta_s}. The warned (or waving) fort while
 ## `target` is set, with tithe.eta_s; else the fort the rule would pick now (`next_target`), with
 ## `next_s`; else {fort_id: "", eta_s: -1.0}.

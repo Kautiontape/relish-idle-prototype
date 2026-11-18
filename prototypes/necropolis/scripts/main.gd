@@ -67,13 +67,16 @@ func _on_game_event(ev: Dictionary) -> void:
 
 
 ## `arrive_from` is the node whose scene was just left: the map starts zoomed in on it.
-## `toast` is a one-off line the map shows on arrival (a refused teleport's reason).
-func _open_map(arrive_from := "", toast := "") -> void:
+## `toast` is a one-off line the map shows on arrival (a refused teleport's reason). `stale` marks a
+## return whose raid the state had already ended (a gap): the map then never says "you kept all you found".
+func _open_map(arrive_from := "", toast := "", stale := false) -> void:
 	var args := {"mode": "map"}
 	if arrive_from != "":
 		args["arrive_from"] = arrive_from
 	if toast != "":
 		args["toast"] = toast
+	if stale:
+		args["stale"] = true
 	_swap(MAP, args)
 
 
@@ -226,7 +229,7 @@ func _teleport(id: String, arrive_from := "", from_map := false) -> void:
 func _apply(kind: String, result: Dictionary, seed: Dictionary, arrive_from: String) -> void:
 	var s := Game.state
 	if RouterLogic.result_stale(kind, s.view_relish()):
-		_open_map(arrive_from, RouterLogic.stale_toast())  # the state already ended this run (a gap: run_ended); nothing to write back
+		_open_map(arrive_from, RouterLogic.stale_toast(), true)  # the state already ended this run (a gap: run_ended); nothing to write back
 		return
 	var v2 := result if result.has("v") else Results.from_v1(kind, result, seed)
 	var out := s.apply_result(kind, v2)

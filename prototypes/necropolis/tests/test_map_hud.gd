@@ -89,6 +89,10 @@ func _tip_readouts(t: TestUtil, vp: Vector2, plates: Array, odds: Rect2, tip: Ve
 	var ti := hs.find("func _tip_readouts(")
 	var tr := hs.substr(ti, hs.find("\nfunc ", ti + 1) - ti)
 	t.ok(ti >= 0 and tr.contains("nodes.ctx.zoom, NodeLogic.panel_key(nodes.ctx.panel)]"), "readout cache key carries the nodes' ctx zoom and panel (the rects are built from them, a frame behind the camera)")
+	t.ok(tr.contains("nodes.refresh_rev()") and not tr.contains("model.rev"), "the readout cache key carries the rev the nodes' ctx was refreshed at, not model.rev (which moves a frame before the ctx)")
+	var ns := FileAccess.get_file_as_string("res://scripts/map/map_nodes.gd")
+	var ri := ns.find("func refresh_rev()")
+	t.ok(ri >= 0 and ns.substr(ri, ns.find("\nfunc ", ri + 1) - ri).contains("return _rev") and ns.contains("_rev = model.rev"), "MapNodes.refresh_rev() returns the rev its ctx was last refreshed at")
 	var wm := FileAccess.get_file_as_string("res://scripts/map/world_map.gd")
 	t.ok(wm.contains("hud.nodes = nodes_view") and wm.contains("hud.cam = cam"), "world_map gives the HUD the nodes and the camera")
 

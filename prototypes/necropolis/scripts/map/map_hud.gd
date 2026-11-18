@@ -420,9 +420,10 @@ func _tip_plates() -> Array:
 func _tip_readouts(card_r: Rect2, vp: Vector2) -> Array:
 	if nodes == null or cam == null or not is_instance_valid(nodes) or not is_instance_valid(cam):
 		return []
-	# readout_rects() is built from the nodes' own ctx (zoom past its redraw eps, panel synced in their _process,
-	# a frame behind this tick), so the key carries those too or the cache could stay a step stale.
-	var key := [cam.position, cam.zoom.x, vp, model.rev, card_r, nodes.ctx.zoom, NodeLogic.panel_key(nodes.ctx.panel)]
+	# readout_rects() is built from the nodes' own ctx (refreshed in their _on_refresh, zoom past its redraw eps,
+	# panel synced in their _process: all a frame behind this tick), so the key carries the rev the ctx was last
+	# refreshed at (nodes.refresh_rev(), not the model's own rev, which moves first) and those too, or the cache could stay a step stale.
+	var key := [cam.position, cam.zoom.x, vp, nodes.refresh_rev(), card_r, nodes.ctx.zoom, NodeLogic.panel_key(nodes.ctx.panel)]
 	if key != _ro_key:
 		_ro_key = key
 		_ro_rects = nodes.readout_rects().map(func(r: Rect2): return HudLogic.world_to_screen(r, cam.position, cam.zoom.x, vp))

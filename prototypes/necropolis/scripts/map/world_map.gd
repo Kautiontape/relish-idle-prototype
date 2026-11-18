@@ -35,6 +35,7 @@ var _hover_key: Array = []
 var _ui_acc := 0.0
 var _setup_called := false
 var _arrive_toast := ""  # a one-off line from the router (a refused teleport's reason), shown once on arrival
+var _arrive_stale := false  # the raid that just returned had already been ended by the state (a gap): no "you kept all you found"
 var _arrive_from := ""  # the node whose scene the player just left: the camera eases out from it
 var _ui_layer: CanvasLayer
 
@@ -43,6 +44,7 @@ func setup(args: Dictionary) -> void:
 	_setup_called = true
 	_arrive_from = str(args.get("arrive_from", ""))
 	_arrive_toast = str(args.get("toast", ""))
+	_arrive_stale = bool(args.get("stale", false))
 
 
 func demo_seed() -> Dictionary:
@@ -76,7 +78,7 @@ func _ready() -> void:
 	_hold_hud_for_return(return_layer)
 	opening.refresh()
 	_fit()
-	var returned := setpieces.note_return(_arrive_from)  # "taken by you" or "stays Vei's", before the set pieces go live
+	var returned := setpieces.note_return(_arrive_from, _arrive_stale)  # "taken by you" or "stays Vei's", before the set pieces go live
 	var ease_s := _begin_arrival()
 	if ease_s > 0.0:  # the set pieces play once the camera has eased out to the map
 		get_tree().create_timer(ease_s).timeout.connect(setpieces.go_live)

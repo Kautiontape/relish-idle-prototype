@@ -163,6 +163,11 @@ func _return(t: TestUtil, c: Dictionary) -> void:
 	SetpieceLogic._last_dive = saved
 	t.ok(SetpieceLogic.return_kind("covington", {}, false, alive) == "" and SetpieceLogic.return_kind("", {}, false, alive) == "", "back from town: no line")
 	t.ok(SetpieceLogic.return_kind("vei", {}, true, alive) == "", "back from Vei: no line")
+	# a stale end (the raid ended while away) kept only the last checkpoint: never "you kept all you found"
+	t.ok(SetpieceLogic.return_kind("ashgate", vei_fort, false, alive, {}) == SetpieceLogic.RETREAT, "not stale: a Vei's fort with Relish alive is a retreat")
+	t.ok(SetpieceLogic.return_kind("ashgate", vei_fort, false, alive, {}, true) == "", "stale: the same return says nothing")
+	t.ok(SetpieceLogic.return_kind("ashgate", held_fort, false, alive, {}, true) == SetpieceLogic.TAKEN and SetpieceLogic.return_kind("ashgate", held_fort, false, alive, {}, false) == SetpieceLogic.TAKEN, "a fort held within grace is taken, stale or not")
+	t.ok(SetpieceLogic.return_kind("ashgate", vei_fort, true, alive, {}, true) == SetpieceLogic.TAKEN, "a real fort_flipped event is taken even when stale")
 	t.ok(SetpieceLogic.return_text(SetpieceLogic.TAKEN, "Ashgate") == "Ashgate taken by you", "taken line")
 	t.ok(SetpieceLogic.return_text(SetpieceLogic.RETREAT, "Ashgate") == "Ashgate stays Vei's: you kept all you found", "retreat line: both halves of the glossary's meaning (the fort stays Vei's, you keep what you found)")
 	t.ok(int(c["callout_font_two"]) >= 14 and int(c["callout_font_two"]) <= int(c["callout_font"]), "the two-line form is set no smaller than 14 px, and no bigger than the one line")
@@ -173,6 +178,7 @@ func _return(t: TestUtil, c: Dictionary) -> void:
 	t.ok(src.contains("SetpieceLogic.return_kind(") and src.contains("func note_return("), "MapSetpieces decides the return line through the pure function")
 	var wm := FileAccess.get_file_as_string("res://scripts/map/world_map.gd")
 	t.ok(wm.contains("setpieces.note_return("), "world_map hands the arrival's fort to the set pieces")
+	t.ok(src.contains("func note_return(arrive_from: String, stale := false)") and src.contains(", stale)\n") and wm.contains("setpieces.note_return(_arrive_from, _arrive_stale)") and wm.contains("args.get(\"stale\""), "a stale arrival (args.stale) reaches return_kind through note_return")
 	t.ok(wm.contains("SetpieceLogic.note_dive(node_id,") and wm.find("SetpieceLogic.note_dive(") < wm.find("finished.emit({\"v\": 2, \"teleport_to\""), "world_map records the dive (held or not) before it leaves")
 
 

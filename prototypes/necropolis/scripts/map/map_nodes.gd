@@ -305,6 +305,11 @@ func _sync_panel() -> void:
 		_panel_moved = true
 
 
+## The model rev this node's ctx was last refreshed at (it trails model.rev until this node's next _process).
+func refresh_rev() -> int:
+	return _rev
+
+
 ## Once per model refresh: pull the model's entries into the context, find the forts in Relish's
 ## light and tell the routes, and restart the extrapolation clock when she moved.
 func _on_refresh() -> void:

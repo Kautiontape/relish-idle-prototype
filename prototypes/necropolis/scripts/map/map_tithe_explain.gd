@@ -94,6 +94,7 @@ func _request(want: bool) -> void:
 			refresh()
 		"defer":
 			_deferred = true
+			_panel.visible = false  # one already open steps aside too; on_away_closed reopens it
 
 
 ## The away panel closed: a deferred explanation opens now, if it is still wanted. The seen flag and
@@ -154,6 +155,10 @@ func refresh() -> void:
 
 func _process(_delta: float) -> void:
 	if not _panel.visible:
+		return
+	if OpeningLogic.explain_yields(_panel.visible, away != null and away.visible):
+		_panel.visible = false  # the away panel opened over it (a held warning that opened first): wait, unseen
+		_deferred = true
 		return
 	var anchor: Vector2 = get_viewport().get_canvas_transform() * model.node_pos(_fort_id)
 	var oc := OpeningLogic.cfg()
