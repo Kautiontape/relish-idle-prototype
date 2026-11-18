@@ -218,7 +218,7 @@ static func garrison_stand_in(arrive_from: String, forts_by_id: Dictionary, seen
 	return {"fort_id": arrive_from, "n": -1}
 
 
-## The callout: "Garrison cleared: −N living", or the stand-in's words without N (n < 0).
+## The callout: "Vei's living routed: −N", or the stand-in's words without N (n < 0).
 static func garrison_text(n: int) -> String:
 	return _s("garrison_standin_text") if n < 0 else _s("garrison_fmt") % MapLogic.fmt_mass(n)
 

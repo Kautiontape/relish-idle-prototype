@@ -79,8 +79,8 @@ func _states(t: TestUtil) -> void:
 		t.ok(NodeLogic.fort_state(_fort(10.0, 60.0, 0.0, 160.0, held), m) == m, "held at margin %s: %s" % [m, m])
 	t.ok(NodeLogic.fort_state(_fort(60.0, 60.0, 0.0, 160.0, held), IdleLogic.THIN) == IdleLogic.THIN, "held beats contested")
 	t.ok(NodeLogic.fort_state(_fort(0.0, 0.0, 80.0, 160.0, held), IdleLogic.WILL_FALL) == IdleLogic.WILL_FALL, "held beats emptied")
-	t.ok(NodeLogic.fort_state(_fort(10.0, 60.0, 0.0, 160.0, held), "") == IdleLogic.SAFE, "held with no margin yet: safe (IdleLogic's committed fallback)")
-	t.ok(NodeLogic.fort_state(_fort(10.0, 60.0, 0.0, 160.0, held), "bogus") == IdleLogic.SAFE, "held with an unknown margin: safe")
+	t.ok(NodeLogic.fort_state(_fort(10.0, 60.0, 0.0, 160.0, held), "") == NodeLogic.HELD, "held with no margin: held, never safe (only margin 'safe' is safe)")
+	t.ok(NodeLogic.fort_state(_fort(10.0, 60.0, 0.0, 160.0, held), "bogus") == NodeLogic.HELD, "held with an unknown margin: held, not safe")
 	t.ok(NodeLogic.fort_state(_fort(140.0, 0.0, 0.0), IdleLogic.WILL_FALL) == NodeLogic.HERS, "a margin on a fort that is not held is ignored")
 	var all := {}
 	for s in [NodeLogic.HERS, NodeLogic.OVERRUN, NodeLogic.CONTESTED, NodeLogic.EMPTIED, IdleLogic.SAFE, IdleLogic.THIN, IdleLogic.WILL_FALL]:
@@ -166,12 +166,12 @@ func _static_sig(t: TestUtil) -> void:
 	t.ok(NodeLogic.fort_static_sig(_fort(100.0 + 160.0 / steps * 0.2, 40.0, 10.0, 160.0), flip) == sig, "a drift under one step (a fraction of a body) does not redraw")
 	t.ok(NodeLogic.fort_static_sig(_fort(100.0 + 160.0 / steps * 3.0, 40.0, 10.0, 160.0), flip) != sig, "a few steps of matter redraw")
 	t.ok(NodeLogic.fort_static_sig(_fort(100.0, 60.0, 10.0, 160.0), flip) != sig, "a new pip redraws")
-	var held := _fort(10.0, 60.0, 0.0, 160.0, {"held": true, "held_s_left": 300.0})
+	var held := _fort(10.0, 60.0, 0.0, 160.0, {"held": true, "grace_s_left": 300.0})
 	var hs := NodeLogic.fort_static_sig(held, flip)
 	t.ok(hs != NodeLogic.fort_static_sig(_fort(10.0, 60.0, 0.0, 160.0), flip), "held redraws")
 	var grace := NodeLogic.grace_total(flip, 2)
-	t.ok(NodeLogic.fort_static_sig(_fort(10.0, 60.0, 0.0, 160.0, {"held": true, "held_s_left": 300.0 - grace / steps * 0.2}), flip) == hs, "the countdown under a step does not")
-	t.ok(NodeLogic.fort_static_sig(_fort(10.0, 60.0, 0.0, 160.0, {"held": true, "held_s_left": 300.0 - grace / steps * 3.0}), flip) != hs, "a few steps of countdown do")
+	t.ok(NodeLogic.fort_static_sig(_fort(10.0, 60.0, 0.0, 160.0, {"held": true, "grace_s_left": 300.0 - grace / steps * 0.2}), flip) == hs, "the countdown under a step does not")
+	t.ok(NodeLogic.fort_static_sig(_fort(10.0, 60.0, 0.0, 160.0, {"held": true, "grace_s_left": 300.0 - grace / steps * 3.0}), flip) != hs, "a few steps of countdown do")
 	t.ok(NodeLogic.fort_static_sig(_fort(100.0, 40.0, 10.0, 160.0, {"simulacrum_charges": 3.0}), flip) != sig, "a simulacrum redraws")
 	t.near(NodeLogic.state_alpha(0.0), float(NodeLogic.ncfg()["state_alpha_base"]), 1e-6, "the glyph beat's trough is state_alpha_base")
 	t.ok(NodeLogic.state_alpha(1.0) <= 1.0 and NodeLogic.state_alpha(1.0) > NodeLogic.state_alpha(0.0), "and its crest at most 1")
@@ -427,11 +427,27 @@ func _plates(t: TestUtil) -> void:
 		"the tithe ETA": Palette.c("living"),
 		"WAVE": Palette.c("danger"),
 		"your first dungeon / INSIDE": Palette.c("relish"),
-		"garrison N": Palette.c("text"),
+		"HELD N undead": Palette.c("text"),
+		"retaken: raid it back": Palette.c("danger"),
+		"Vei's: raid it to take it": Palette.c("text_dim"),
 	}
 	for k in labels:
 		var r := MapLogic.contrast_ratio(labels[k], under)
 		t.ok(r >= 4.5, "%s on the plate over %s: %.2f:1 (>= 4.5)" % [k, bright_key, r])
+	# the name tags (NodeLogic.name_tag) are drawn through the same plate (MapNodeLayer.draw_label): each tag's
+	# key over the plate composited on every lane colour the map draws at full alpha
+	var tag_forts := {
+		"overrun": {"held": false, "cap": 80.0, "living": 0.0, "undead": 30.0, "flipped_count": 0},
+		"retaken": {"held": false, "cap": 80.0, "living": 60.0, "undead": 0.0, "flipped_count": 1},
+		"first dungeon": {"held": false, "first_dungeon": true, "first_clear": true, "cap": 80.0, "living": 60.0},
+	}
+	for tk in tag_forts:
+		var tag := NodeLogic.name_tag(tag_forts[tk])
+		t.ok(not tag.is_empty(), "the %s fort has a name tag" % tk)
+		for lane_key in ["undead", "living", "vei"]:
+			var lane_under := Palette.c("ground").lerp(Palette.c(lane_key), 1.0 - plate.a)
+			var tr := MapLogic.contrast_ratio(Palette.c(str(tag["key"])), lane_under)
+			t.ok(tr >= 4.5, "the %s tag (%s) on its plate over a full-alpha %s lane: %.2f:1 (>= 4.5)" % [tk, tag["key"], lane_key, tr])
 	var chip_under := Palette.c("ground").lerp(Palette.c(bright_key), 1.0 - float(cfg["idle"]["plate_alpha"]))
 	for m in [IdleLogic.SAFE, IdleLogic.THIN, IdleLogic.WILL_FALL]:
 		var r := MapLogic.contrast_ratio(Palette.c(IdleLogic.color_key(m)), chip_under)
