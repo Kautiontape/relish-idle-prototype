@@ -35,6 +35,8 @@ const FIRST30_S := 1800
 const FRAME_DT := 0.5  # one substep a frame call: the frame path's cadence changes cost, never results (STATE-API §3)
 const OPEN_ROW_S := 1800.0  # an `open` row every 30 min of sim in open profiles
 const FINE_S := 10.0  # the mint and bodies_net sample (live time only)
+const MINT_WIN_S := 600.0  # (Phase I P3, R-c) mint_swing_win's window: the convoy saw (about 21 s) averages out in it
+const MINT_WIN_MIN := 30  # a window counts once it holds this many samples (half of it live)
 const ACT_S := 60.0  # while it waits in a session the bot looks at the town this often
 const PROBE_S := 43200  # Vei's odds this long into each night (a probe load; the run itself loads once)
 const PARTY_MAX := 3  # the largest standard party: raid.json autopilot.party_profiles "4", three bigs
@@ -156,9 +158,11 @@ var results := {"validated": 0, "invalid": 0, "applied": 0, "refused": 0, "error
 var ledger_max := 0.0
 var vei_ready_t := -1.0
 var vei_ready_wave_t := -1.0  # the old readout beside it (the sizing stop's ruling R2): fronts at her pool then, at the look
+var vei_at_ready := {}  # (Phase I P3, the brief's (b)) the backups and the readout at vei_ready_t, at her node
 var first :={"vat": -1.0, "chapel": -1.0, "clone": -1.0, "wall_queue": -1.0, "wall_report": -1.0, "full_raid": -1.0,
 	"bone_wait_seen": -1.0, "bone_wait_event": -1.0, "lots_full": -1.0}
 var _fine_day := {}
+var _fine_win := {}  # (Phase I P3, R-c) day -> {MINT_WIN_S bucket: [mint sum, samples]}: mint_swing_win
 ## Q-h (Phase I P3): the muster rate per day of live time, at each FINE_S sample: {n, muster_sum, work_sum} (GameState's
 ## split: the muster TownSim took from the WORK stream, and that stream), for summary's workers.muster_per_day
 var _muster_day := {}
@@ -182,19 +186,24 @@ func _init(p: String, cfgs_in: Dictionary, save_dir := "") -> void:
 
 # ------------------------------------------------------------------------------------------- configs ---
 ## The shipped configs with the field at 8 x 6 and its pre-warm off (test_catchup.gd's cfgs(), the harness convention),
-## and a variant: "no_bone_prices" is ablation (b), the dead's buildings at 0 bone (cost and every level_costs entry;
-## their gold prices unchanged).
+## and a variant: "no_bone_buildings" is ablation (b) (Phase I P3, R-d: the spine's "bone-priced buildings removed"),
+## what bone buys among the dead's buildings taken out: a dead's building with a bone price can't be built (its
+## blueprint never drops, so it reads needs_blueprint), and none of them levels (max_level 1: every level of theirs
+## costs bone). The start's pit and charnel house stay at level 1; the Bone Mill (60 gold, no bone) can still be built.
+## E3's variant set those prices to 0, which can only speed the game up (BALANCE §2 (b)).
 static func cfgs(variant := "") -> Dictionary:
 	var out := TestUtil.shipped_configs()  # (Phase I P3) the shipped default: the bots get Grow because it is on
 	out["realm"]["field"]["w"] = 8
 	out["realm"]["field"]["h"] = 6
 	out["economy"]["sim"]["prewarm_ticks"] = 0
-	if variant == "no_bone_prices":
+	if variant == "no_bone_buildings":
 		for id in DEAD_BUILDINGS:
 			var b: Dictionary = out["buildings"][id]
-			(b["cost"] as Dictionary)["bone"] = 0.0
-			for lc in b.get("level_costs", []):
-				(lc as Dictionary)["bone"] = 0.0
+			b["max_level"] = 1
+			if float((b["cost"] as Dictionary).get("bone", 0.0)) > 0.0:
+				var req: Dictionary = (b.get("requires", {}) as Dictionary).duplicate()
+				req["blueprint"] = "removed"
+				b["requires"] = req
 	return out
 
 
@@ -1007,9 +1016,21 @@ func _park(walk: Array, plan: Dictionary, room: int) -> void:
 			"upgrade": lv > 1, "waited_on": ""}], false)["rows"].back()
 		if not (str(row["status"]) == "skipped_gate" and PARK_GATES.has(str(row["reason"]))):
 			continue
+		if str(row["reason"]) == "needs_blueprint" and not _droppable(BuildRules.req_of(s, str(it[0]))["blueprint"]):
+			continue  # (Phase I P3) a gate no clear can lift isn't parked: ablation_bone's removed buildings
 		if bool(_cmd("queue", [str(it[0]) if lv == 1 else "", lot])["ok"]):
 			plan[lot] = [str(it[0]), lv]
 			room -= 1
+
+
+## Whether some fort's first clear drops blueprint `bp` (loot.json first_clear_blueprint_by_tier). Every shipped
+## building's blueprint does; ablation_bone's "removed" doesn't (cfgs("no_bone_buildings")).
+func _droppable(bp: String) -> bool:
+	var by_tier: Dictionary = c.get("loot", {}).get("first_clear_blueprint_by_tier", {})
+	for k in by_tier:
+		if (by_tier[k] as Array).has(bp):
+			return true
+	return false
 
 
 ## The first entry that isn't skipped_gate (the one the queue saves toward), or -1. `never`: a never row (Phase I P3,
@@ -1300,6 +1321,11 @@ func _vei_check(end_t: float) -> void:
 	var v2 := s.view_vei()
 	if bool(v2["can_begin"]) and _full_met(v2) >= int(v2["fronts_required"]) and float(v2["readiness"]) >= VEI_READY_ODDS:
 		vei_ready_t = s.t
+		var bk := s.view_backups()
+		vei_at_ready = {"t": s.t, "phylactery": int(bk["phylactery_charges"]), "clones_ready": int(bk["clones_ready"]),
+			"vats": (bk["vats"] as Array).size(), "backups": int(v2["backups"]), "odds": _r(float(v2["odds"])),
+			"readiness": _r(float(v2["readiness"])), "pool": _r(float(v2["living_pool"])), "backlog": _r(float(v2["backlog"])),
+			"q": _r(float(v2["digest_q"])), "fronts_met": _full_met(v2), "party": (s.view_party()["party"] as Array).size()}
 	_cmd("move", ["covington"])
 	_tick_until(func(): return str(s.view_relish()["state"]) == "home", end_t + 600.0)
 
@@ -1932,6 +1958,21 @@ static func _stat_out(d: Dictionary) -> Dictionary:
 		"bodies_net_min": _r(float(d["bodies_min"])), "bodies_net_max": _r(float(d["bodies_max"]))}
 
 
+## (Phase I P3, R-c) (max - min) / max over a day's MINT_WIN_S window means of mint.in (windows of MINT_WIN_MIN samples or
+## more); -1 with none.
+static func _win_swing(fw: Dictionary) -> float:
+	var lo := INF
+	var hi := -INF
+	for k in fw:
+		var e: Array = fw[k]
+		if int(e[1]) < MINT_WIN_MIN:
+			continue
+		var m := float(e[0]) / int(e[1])
+		lo = minf(lo, m)
+		hi = maxf(hi, m)
+	return _r((hi - lo) / hi) if hi > 0.0 else -1.0
+
+
 func _fine_sample() -> void:
 	var r: Dictionary = s.view_rates()["rates"]
 	var mint := float(r["mint"]["in"])
@@ -1941,6 +1982,12 @@ func _fine_sample() -> void:
 		_fine_day[d] = _stat0()
 	_stat_add(_fine_day[d], mint, bn)
 	_stat_add(_win, mint, bn)
+	var fw: Dictionary = _fine_win.get(d, {})
+	var e: Array = fw.get(int(s.t / MINT_WIN_S), [0.0, 0])
+	e[0] = float(e[0]) + mint
+	e[1] = int(e[1]) + 1
+	fw[int(s.t / MINT_WIN_S)] = e
+	_fine_win[d] = fw
 	if not _muster_day.has(d):
 		_muster_day[d] = {"n": 0, "muster_sum": 0.0, "work_sum": 0.0}
 	var md: Dictionary = _muster_day[d]
@@ -2143,7 +2190,8 @@ func summary() -> Dictionary:
 	var sw := {}
 	for d in _fine_day:
 		sw[d] = _stat_out(_fine_day[d])
-	out["mint_swing"] = {"per_day": sw, "basis": "view_rates mint.in and bodies.net every 10 s of live time"}
+		sw[d]["mint_swing_win"] = _win_swing(_fine_win.get(d, {}))
+	out["mint_swing"] = {"per_day": sw, "basis": "view_rates mint.in and bodies.net every 10 s of live time; mint_swing_win: (max - min) / max of the day's 600 s window means (windows with 30+ samples), so the convoy saw (R-c) averages out and the day's drift stays"}
 	out["growth_away"] = _growth_away()
 	out["builds_per_6h"] = _per_6h()
 	out["vei"] = {"ready_t": vei_ready_t, "ready_day": _r(vei_ready_t / DAY) if vei_ready_t >= 0.0 else -1.0,
@@ -2151,7 +2199,8 @@ func summary() -> Dictionary:
 		"ready_wave_day": _r(vei_ready_wave_t / DAY) if vei_ready_wave_t >= 0.0 else -1.0,
 		"basis": "ready: fronts at her full pool, at the look and on arrival; ready_wave: at the pool she has then, at the look only",
 		"fronts_daily": fronts_daily, "raised": raised, "crafted": crafted,
-		"keep_churn": keep_churn, "crypt_up_h": _r(crypt_up_t / 3600.0) if crypt_up_t >= 0.0 else -1.0}
+		"keep_churn": keep_churn, "crypt_up_h": _r(crypt_up_t / 3600.0) if crypt_up_t >= 0.0 else -1.0,
+		"at_ready": vei_at_ready}
 	out["relics"] = _relics()
 	_note_hold()
 	out["trickle"] = {"paid": int(trickle["paid"]) + s.trickle_paid, "longest_hold_h": _r(float(trickle["longest_hold_s"]) / 3600.0),
@@ -2420,7 +2469,7 @@ static func run_profile(name: String, t: TestUtil) -> int:
 		"ablation_keep":
 			_p_versus(t, name, cfg, {"raid_all": true}, cfg)
 		"ablation_bone":
-			_p_versus(t, name, cfgs("no_bone_prices"), {}, cfg)
+			_p_versus(t, name, cfgs("no_bone_buildings"), {}, cfg)
 		"ablation_skip_fill":
 			_p_versus(t, name, cfg, {"skip_fill": true}, cfg)
 		"sensitivity":

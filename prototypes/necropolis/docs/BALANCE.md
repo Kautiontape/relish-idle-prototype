@@ -80,13 +80,24 @@ there, the fronts met and the backlog at the end (with relics, buildings and lev
   holding the 3 t1 forts, with 6 t2–t3 forts unheld. Sessions held 24 h closed from day 1's end pays 0 (its highest tier
   is already 3). While it pays it is 2 relics a day by construction, against sessions' 93 raid relics in 8 days (about
   12 a day). A finding for the manager, not tuned
-- **(b) The dead's buildings without bone prices** (`autoplay_ablation_bone`). The spine's §4 row reads "bone-priced
-  buildings removed costs 15%+". The table above has no such row: the lever is §7's "bone buys the dead's buildings". It is
-  built as a config variant on fresh GameStates (`Autoplayer.cfgs("no_bone_prices")`): the bone price is 0 in `cost` and in
-  every `level_costs` entry of §7's list (the raising pit, charnel house, bone mill, stables, graveyard, embalmer and
-  forge), with their gold and relic prices unchanged. "Removed" is read as the rows above read it: the lever is taken out,
-  not replaced by a gold price. The Market keeps its bone price (a living building bought with bone), and so do the Crypt's
-  levels.
+- **(b) The bone-priced buildings removed** (`autoplay_ablation_bone`; rebuilt in Phase I P3, R-d). The spine's §4 row
+  reads "bone-priced buildings removed costs 15%+". The table above has no such row: the lever is §7's "bone buys the
+  dead's buildings". It is built as a config variant on fresh GameStates (`Autoplayer.cfgs("no_bone_buildings")`), over
+  §7's list (the raising pit, charnel house, bone mill, stables, graveyard, embalmer and forge):
+  - none of them levels (`max_level` 1; every level of theirs costs bone);
+  - none with a bone price can be built: their blueprint is one no fort drops, so each reads `needs_blueprint`, and the
+    bot doesn't park a gate no clear can lift (`Autoplayer._droppable`; every shipped blueprint drops, so no other
+    profile changes);
+  - the start's pit and charnel house stay at level 1, and the Bone Mill (60 gold, no bone) can still be built. Bone
+    still buys the living's buildings (the Market's levels, the House's) and the Crypt's levels.
+
+  "Removed" is read as the rows above read it: the lever is taken out, not replaced by a gold price. **Until P3 the
+  variant set those bone prices to 0** (`no_bone_prices`). A price of 0 removes a brake, so that variant could only speed
+  the game up: 0.83 days (14%) sooner at c15f874, and 0.17 days (3%) sooner at 4ddc25c (Vei-ready 5.0001 against
+  sessions' 5.1667; 156 levels against 126 at day 8). The rebuilt variant at 4ddc25c's tree with P3's harness (one
+  seed, 8 days): **never Vei-ready**, 10 buildings and 26 levels against sessions' 24 and 126 (79% fewer levels), 2 of 3
+  fronts met, the backlog 98% short. Without new pits the mint stays one pit's, so this reads the dead's buildings as a
+  whole (the pits' mint growth with them), not bone's price alone. The lever is defined and far over 15%.
 - **The sensitivity pass** (`autoplay_sensitivity`; §8): the sessions profile at the frozen bot's death rates
   (`opts.deaths` `"frozen"`) instead of the typical human's.
 - The table's other rows (the valve, a static valve schedule, Relish's tide, circle quality, defending, the ladder and
@@ -444,6 +455,56 @@ old-sluice at 14 569 s).
     shipped fill (none in the stall), and 0.95–3.55 h with parking.
   - **Ruled** (the run's manager, 2026-11-18): `max_len` stays 8; 16 would buy about 2 h. The 48–72 h pure_idle target
     is a relic-free content-depth question, and it goes to P3 with these numbers. P2 adds no depth.
+
+**Phase I P3's calibration rows** (measured on 4ddc25c's tree with P3's harness, one seed unless a second is named;
+P3's batch re-reads every row).
+- **R-a, relics 6–12 a day and 25 by day 5–8: recorded, not tuned** (the run's manager, 2026-11-18).
+  - Sessions banks 14, 11, 4, 7, 15, 23, 6 and 16 relics (96 in 8 days, 25 on day 2), and the trickle pays 13 more
+    (about 2 a day from day 2).
+  - By source (`reports/economy/wip/tools-p3/rel_probe.gd`, each loot joined to its raid):
+    - day 1: 13 from the seven first clears (t1 3, t2 2, t3 8), and 1 from 6 held re-raids;
+    - day 2: 9 from three t2 flips, and 2 from 13 held re-raids;
+    - days 3–4: held re-raids only, 4 and 7 (12 and 17 raids);
+    - days 5–8: re-flips of t3 forts Vei retook (7, 16, 0 and 11), and 5–8 a day from held re-raids.
+  - So the steady part (held re-raids plus the trickle) is **4–9 a day**, and the spikes are flips: **day 1's 13–16**
+    (both seeds, every variant below) and the t3/t4 push near Vei-ready.
+  - The bot's relics are `balance_standins.json`'s `mean_loot` (the resolver opens the chest at yield 0). Cutting it
+    moves neither spike:
+    - t2/t3 −1, and t2 −1 with t3 −2: day 1 stays 13–14 and 25 still lands on day 2 (seed 1). The bot flips t4 sooner,
+      so day 5 reads 28–41.
+    - Every tier halved: day 1 stays 12–16 and 25 lands on day 3–4 (seeds 1 and 2).
+    - Vei-ready doesn't move with the cuts (5.17 at −1/−2, 5.33 halved), so relics don't bind sessions.
+  - A real change would be `loot.json`'s chest relics, which dungeon-i's raid code reads, so it stays. For the balance
+    pass: day 1's 13–16 and the steady 4–9 a day, against the spine's 6–12.
+- **R-c, the mint swing under 10% a day: the cause named, not tuned.** It's the body store's cadence, not a change in
+  the town.
+  - Probed in a new game left alone, 2 h in, at 1 s ticks (`reports/economy/wip/tools-p3/mint_saw_probe.gd`):
+    - a convoy lands about 4 bodies every 21 s (17–22 s);
+    - the one pit burns them in about 10 s (`pit.burn_per_s` 0.6 against rot's 0.175 in);
+    - it then sits at the rot-only feed (`trough_feed` 0.292) until the next load.
+  - So mint.in saws between 9.4 and 12.8 mass/s: pit.bonus × (1 − trough) / (1 + pit.bonus) = **26.6%**, static's day
+    reading at c15f874 to the decimal. The mean doesn't move. The day's (max − min) / max reads that saw on every day of
+    every profile: sessions 36–49% a day at 4ddc25c.
+  - The digest's new `mint_swing_win` reads the swing of the day's 600 s window means, so the saw averages out and the
+    day's drift stays: town_only **2–4% a day** from day 2, sessions 4–18% a day (its growth).
+  - A sim fix would be a steady pit draw: the pits burn at the store's mean inflow rather than each landed load. It keeps
+    the mean mint and removes the saw. That's a MECHANICS change the catch-up reads (I1 bounds the bodies), so P3 doesn't
+    make it.
+- **R-d, a defined bone lever:** §2 (b), rebuilt. Never Vei-ready, and 79% fewer levels at day 8.
+- **V-b, seeded wave jitter: not shipped** (the run's manager's ruling on P3 handoff 7, option (c); the patch is kept as
+  `reports/economy/wip/tools-p3/vb-jitter.patch`).
+  - Measured at a = 0.15 with "safe" read at the jitter's top, over 20 seeds: away_risk_real's prepared_72h lost
+    **0 of 20** absences (0 of 120 forts), and midgame_prepared 0 of 20 (0 of 40).
+  - The cause: the prepared setups leave at the WAR the bot already plays (0.80 and 0.75), and every held fort reads
+    safe even at the top draw (the smallest base margins are 1.91 and 0.47 mass/s), so no draw within ±15% breaks one.
+  - Shipped, it would turn most held forts' word "thin" with the loss still 0. margin_truth would go vacuous: its only
+    safe samples, midgame_2flips' Ashgate, read thin under the jitter.
+  - **The target is replaced.** "A prepared away loses 10–25%" came from a vision check, not from Shawn. His words are
+    "you should be able to lose all but the home town if you're away and it's not properly tuned to be supported"
+    (vision.md, 2026-11-13). Two checks replace it, both in the batch: **a prepared away loses 0 forts**, and **an
+    unprepared away loses some**.
+  - At 4ddc25c: prepared, 0 of 20. Unprepared: midgame_default loses 1 of 2 (Old Sluice retaken), and default_72h loses
+    0 of 6 (it leaves at the WAR the bot plays).
 
 ## 6. Known balance risks
 - **The knife edge** (systems review S5). Odds of 0.6 need a backlog of about 18,000 raw. Vei's undead
