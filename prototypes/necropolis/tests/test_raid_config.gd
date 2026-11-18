@@ -91,6 +91,7 @@ const WORDS := [
 const NUMBERS := [
 	"death.card_w", "death.card_pad", "death.label_w", "death.value_px", "death.label_px", "death.foot_px", "death.sub_px",
 	"death.sub_h", "death.backdrop_a", "death.plate_a", "hud.retreat.margin", "hud.retreat.gap",
+	"hud.stats.plate_w", "hud.stats.label_col", "hud.stats.value_pad",
 ]
 
 ## The words the code formats, with the placeholders each must keep ("%d" words go through `%`, which throws without one).

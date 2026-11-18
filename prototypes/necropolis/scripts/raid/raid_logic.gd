@@ -1078,6 +1078,9 @@ static func wrap_balanced(text: String, font: Font, px: int, max_w: float) -> Pa
 	var first := _wrap_words(words, font, px, max_w)
 	if first.size() <= 1:
 		return first
+	var phrase := _phrase_split(text, font, px, max_w)   # a break at a clause boundary beats an even split that cuts a unit ("at / most")
+	if phrase.size() == 2 and phrase.size() <= first.size():
+		return phrase
 	var lo := 0.0
 	for w in words:
 		lo = maxf(lo, font.get_string_size(w, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x)
@@ -1093,6 +1096,31 @@ static func wrap_balanced(text: String, font: Font, px: int, max_w: float) -> Pa
 	return _wrap_words(words, font, px, hi)
 
 
+## `text` in two lines broken after its last ", " / "; " / ": " / " — " (the punctuation stays on the first line) where
+## both pieces fit `max_w` and are more than one word; [] when no such break exists.
+static func _phrase_split(text: String, font: Font, px: int, max_w: float) -> PackedStringArray:
+	var best := -1
+	var cut_len := 0
+	for d in [", ", "; ", ": ", " — "]:
+		var at: int = text.rfind(d)
+		while at > 0:
+			var keep: int = at + (d.length() - 1 if d == " — " else 1)   # " —" ends the first line; "," ";" ":" too
+			var a := text.substr(0, keep).strip_edges()
+			var b := text.substr(at + d.length()).strip_edges()
+			if a.contains(" ") and b.contains(" ") and font.get_string_size(a, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x <= max_w \
+					and font.get_string_size(b, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x <= max_w:
+				if at > best:
+					best = at
+					cut_len = d.length()
+				break
+			at = text.rfind(d, at - 1)
+	if best < 0:
+		return PackedStringArray()
+	var d2 := text.substr(best, cut_len)
+	var keep2 := best + (d2.length() - 1 if d2 == " — " else 1)
+	return PackedStringArray([text.substr(0, keep2).strip_edges(), text.substr(best + cut_len).strip_edges()])
+
+
 static func _wrap_words(words: PackedStringArray, font: Font, px: int, max_w: float) -> PackedStringArray:
 	var out := PackedStringArray()
 	var line := ""
@@ -1106,6 +1134,11 @@ static func _wrap_words(words: PackedStringArray, font: Font, px: int, max_w: fl
 	if line != "":
 		out.append(line)
 	return out
+
+
+## One column's width in the retreat panel: the plate `w` less its padding and the gap, halved (never negative).
+static func retreat_col_w(w: float, pad: float, col_gap: float) -> float:
+	return maxf(0.0, (w - 2.0 * pad - col_gap) * 0.5)
 
 
 ## The retreat panel's rect on a viewport (raid.json hud.retreat `cfg`: w, margin, gap): as wide as cfg w but at most

@@ -144,7 +144,7 @@ func _round2_tests(t: TestUtil) -> void:
 	t.ok(RaidLogic.phylactery_meaning(_hs(), 2) == PackedStringArray(["a death here revives her in place, once"]), "charges: one row, what one does now")
 	var sw: Dictionary = TestUtil.load_json("res://configs/raid.json")["hud"]["stats"]
 	var dpx := int(sw["detail_px"])
-	var vcol := 420.0 - 92.0 - 8.0   # the StatBlock's value column (value_w)
+	var vcol := _value_col()   # the StatBlock's value column (value_w)
 	t.ok(dpx >= 13, "the stat block's detail lines are 13 px or more")
 	for n in [0, 2]:
 		var wrapped := RaidLogic.wrap_each(RaidLogic.phylactery_meaning(_hs(), n), ThemeDB.fallback_font, dpx, vcol)
@@ -848,12 +848,18 @@ func _lu() -> Dictionary:   # loot_uses
 
 ## Milestone 2 task 5: the retreat panel clears the stat block and fits the viewport; the stat block's meaning lines
 ## never leave a lone word.
+## The StatBlock's value column, from raid.json (plate_w - label_col - value_pad, as value_w()).
+func _value_col() -> float:
+	var s := _hs()
+	return float(s["plate_w"]) - float(s["label_col"]) - float(s["value_pad"])
+
+
 func _t5_tests(t: TestUtil) -> void:
 	t.suite("raid_t5_retreat_place")
 	var rc := _hr()
 	var margin := float(rc.get("margin", 0.0))
 	var gap := float(rc.get("gap", 0.0))
-	var stat_right := 18.0 + 420.0   # the stat block's plate: the box at x 18, the plate 420 px wide
+	var stat_right := 18.0 + float(_hs()["plate_w"])   # the stat block's plate: the box at x 18, the plate plate_w wide
 	t.ok(margin > 0.0 and gap > 0.0, "hud.retreat has a margin and a gap")
 	var r := RaidLogic.retreat_panel_rect(Vector2(1600, 900), rc, stat_right, 300.0)
 	t.ok(r.position.x >= stat_right + gap, "1600x900: the panel's left edge (%.0f) clears the stat block (%.0f) plus the gap (%.0f)" % [r.position.x, stat_right, gap])
@@ -878,7 +884,7 @@ func _t5_tests(t: TestUtil) -> void:
 	t.suite("raid_t5_meaning_wrap")
 	var sw: Dictionary = _hs()
 	var dpx := int(sw["detail_px"])
-	var vcol := 420.0 - 92.0 - 8.0
+	var vcol := _value_col()
 	var fnt := ThemeDB.fallback_font
 	var rows := PackedStringArray([str(sw["essence_meaning"])])
 	for k in ["phyl_meaning_charged", "phyl_meaning_none_1", "phyl_meaning_none_2"]:
@@ -892,6 +898,28 @@ func _t5_tests(t: TestUtil) -> void:
 		t.ok(got.size() >= 1 and " ".join(got).replace(" ·", "").replace("·", "").split(" ", false).size() == row.replace("·", "").split(" ", false).size(), "no word lost in %s" % row)
 	var none_lines := RaidLogic.wrap_each(RaidLogic.phylactery_meaning(sw, 0), fnt, dpx, vcol)
 	t.ok(none_lines.size() == 3, "the no-charge PHYLACT. meaning is still 3 lines, so the stat block's height is unchanged (%s)" % str(none_lines))
+	t.ok(none_lines == PackedStringArray(["revives Relish in place,", "at most once per dungeon.", str(sw["phyl_meaning_none_2"])]),
+		"the no-charge meaning breaks at the comma, not inside 'at most' (%s; widths %.0f / %.0f of %.0f)" % [str(none_lines),
+			fnt.get_string_size("revives Relish in place,", HORIZONTAL_ALIGNMENT_LEFT, -1, dpx).x, fnt.get_string_size("at most once per dungeon.", HORIZONTAL_ALIGNMENT_LEFT, -1, dpx).x, vcol])
+	# no clause break that fits: the even wrap, and a break whose piece is too wide is not taken
+	t.ok(RaidLogic.wrap_balanced("alpha beta gamma delta epsilon zeta", fnt, dpx, 120.0).size() >= 2, "no comma: the balanced wrap")
+	t.ok(RaidLogic.wrap_balanced("alpha beta gamma delta epsilon, zeta eta", fnt, dpx, 150.0) != PackedStringArray(["alpha beta gamma delta epsilon,", "zeta eta"]), "a clause break whose piece is wider than the line is not taken")
+	# the retreat panel's columns at the 700 px clamp
+	var rcfg := _hr()
+	var r700 := RaidLogic.retreat_panel_rect(Vector2(700, 900), rcfg, 438.0, 300.0)
+	var cw := RaidLogic.retreat_col_w(r700.size.x, float(rcfg["pad"]), float(rcfg["col_gap"]))
+	t.ok(cw > 0.0 and is_equal_approx(cw * 2.0 + 2.0 * float(rcfg["pad"]) + float(rcfg["col_gap"]), r700.size.x), "700 px: both columns are %.0f px wide and fill the %.0f px plate" % [cw, r700.size.x])
+	var lpx := int(rcfg["line_px"])
+	for k in ["keep_all", "fort_vei", "fall_revive"]:
+		var sz := fnt.get_multiline_string_size(str(rcfg[k]), HORIZONTAL_ALIGNMENT_LEFT, cw, lpx)
+		t.ok(sz.x <= cw, "700 px: the retreat line %s wraps within the %.0f px column (%.0f px)" % [k, cw, sz.x])
+	t.ok(RaidLogic.retreat_col_w(100.0, 18.0, 32.0) == 16.0 and RaidLogic.retreat_col_w(20.0, 18.0, 32.0) == 0.0, "retreat_col_w halves what padding and gap leave, never below 0")
+	# the panel re-places itself when the viewport or the stat block's edge changes while it is open
+	var psrc2 := FileAccess.get_file_as_string("res://scripts/raid/raid_retreat_panel.gd")
+	t.ok(psrc2.contains("size_changed.connect(_replace_if_moved)") and psrc2.contains("_replace_if_moved()") and psrc2.contains("_placed_vp") and psrc2.contains("is_equal_approx(avoid_right_x, _placed_avoid)"),
+		"the open panel re-places on a viewport resize and on a changed avoid_right_x, and skips when neither moved")
+	var hudsrc := FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd")
+	t.ok(hudsrc.contains("_plate_w = float(words.get(\"plate_w\"") and not hudsrc.contains("420.0 - _col"), "the stat block reads its plate and label widths from raid.json")
 	# a word-wrapped line balances: the wrap that left "dungeon." alone now splits evenly
 	var b := RaidLogic.wrap_balanced("revives Relish in place, at most once per dungeon.", fnt, dpx, vcol)
 	t.ok(b.size() == 2 and b[1].split(" ").size() > 1, "wrap_balanced splits the PHYLACT. sentence into two even lines: %s" % str(b))

@@ -20,7 +20,12 @@ signal chosen(retreat: bool)
 var w := 820.0          # the width asked for (hud.retreat w); `_w` is what the viewport allows
 var margin := 16.0      # hud.retreat margin / gap: RaidLogic.retreat_panel_rect keeps the plate this far in from the viewport's edges and from the stat block
 var gap := 16.0
-var avoid_right_x := 0.0   # the stat block plate's right edge in screen x (the HUD sets it before open); the plate sits right of it plus `gap`
+var avoid_right_x := 0.0:   # the stat block plate's right edge in screen x (the HUD sets it); the plate sits right of it plus `gap`; a change re-places an open panel
+	set(v):
+		avoid_right_x = v
+		_replace_if_moved()
+var _placed_vp := Vector2.ZERO
+var _placed_avoid := 0.0
 var pad := 18.0
 var title_px := 20
 var head_px := 16
@@ -80,6 +85,8 @@ func configure(c: Dictionary) -> void:
 func open(p_cols: Array) -> void:
 	cols = p_cols
 	_fit()
+	if is_inside_tree() and not get_viewport().size_changed.is_connected(_replace_if_moved):
+		get_viewport().size_changed.connect(_replace_if_moved)   # a resize while it shows re-places it
 	visible = true
 	queue_redraw()
 
@@ -119,7 +126,7 @@ func stay_rect() -> Rect2:
 
 ## One column's width.
 func _col_w() -> float:
-	return (_w - 2.0 * pad - col_gap) * 0.5
+	return RaidLogic.retreat_col_w(_w, pad, col_gap)
 
 
 ## The wrapped row count of one line in a column.
@@ -155,8 +162,21 @@ func _fit() -> void:
 	var x0 := (_w - 2.0 * btn.x - btn_gap) * 0.5
 	_retreat_rect = Rect2(Vector2(x0, by), btn)
 	_stay_rect = Rect2(Vector2(x0 + btn.x + btn_gap, by), btn)
+	_placed_vp = vp
+	_placed_avoid = avoid_right_x
 	if is_inside_tree():
 		position = RaidLogic.retreat_panel_rect(vp, cfg, avoid_right_x, h).position
+
+
+## The open panel's inputs moved (the viewport resized, or the stat block's right edge changed): fit and place it
+## again. Nothing is done while it is shut or when neither changed.
+func _replace_if_moved() -> void:
+	if not visible or not is_inside_tree():
+		return
+	if get_viewport_rect().size == _placed_vp and is_equal_approx(avoid_right_x, _placed_avoid):
+		return
+	_fit()
+	queue_redraw()
 
 
 ## What `ev` does to the open panel: "retreat" only for a left press on RETREAT, "stay" for a left

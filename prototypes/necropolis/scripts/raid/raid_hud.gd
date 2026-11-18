@@ -887,7 +887,9 @@ class StatBlock:
 	var _val := 15
 	var _pip := 7.0
 	var _row_max := 24
-	var _col := 92.0
+	var _col := 92.0                        # the label column's width (hud.stats label_col)
+	var _plate_w := 420.0                   # the plate's width (hud.stats plate_w)
+	var _val_pad := 8.0                     # the space kept right of the value column (hud.stats value_pad)
 	var words: Dictionary = {}              # raid.json hud.stats
 	var detail_px := 14                     # the detail lines' size, drawn in full `text`
 	var label_alpha := 0.85                 # the row labels' brightness (text at this alpha)
@@ -906,11 +908,14 @@ class StatBlock:
 		_row_max = int(c.get("pip_row_max", 24))
 		plate_alpha = float(c.get("plate_alpha", 0.96))
 		words = c.get("stats", {})
+		_plate_w = float(words.get("plate_w", _plate_w))
+		_col = float(words.get("label_col", _col))
+		_val_pad = float(words.get("value_pad", _val_pad))
 		detail_px = int(words.get("detail_px", 14))
 		label_alpha = float(words.get("label_alpha", 0.85))
 		essence_lines = RaidLogic.wrap_each(PackedStringArray([str(words.get("essence_meaning", ""))]), ThemeDB.fallback_font, detail_px, value_w())
 		var rows := 3.0 if boss else 14.0   # living, essence, raised | + 4 ward rows, essence meaning, phylactery, its meaning, banked, unbanked, stakes
-		custom_minimum_size = Vector2(420.0, rows * _row + 8.0)
+		custom_minimum_size = Vector2(_plate_w, rows * _row + 8.0)
 		if not boss:
 			_fit()
 
@@ -929,7 +934,7 @@ class StatBlock:
 
 	## The value column's width on the plate.
 	func value_w() -> float:
-		return 420.0 - _col - 8.0
+		return _plate_w - _col - _val_pad
 
 	## BANKED / UNBANKED (RaidLogic.loot_line), wrapped to the value column with each kind whole; the plate
 	## grows a row per extra line. Called only when what they show changes.
@@ -954,7 +959,7 @@ class StatBlock:
 	func _fit() -> void:
 		var loot_extra := maxi(0, banked_lines.size() - 1) + maxi(0, unbanked_lines.size() - 1)
 		var ess_extra := maxi(0, essence_lines.size() - 1)
-		custom_minimum_size = Vector2(420.0, (14.0 + float(ess_extra + phyl_extra + loot_extra) +(2.0 if show_key else 0.0) + float(door_lines.size())) * _row + 8.0)
+		custom_minimum_size = Vector2(_plate_w, (14.0 + float(ess_extra + phyl_extra + loot_extra) +(2.0 if show_key else 0.0) + float(door_lines.size())) * _row + 8.0)
 
 	## A floor glyph as the pickups draw it (RaidLoot.floor_glyph shapes), small, at `p`.
 	func _key_glyph(p: Vector2, shape: String, col: Color) -> void:
