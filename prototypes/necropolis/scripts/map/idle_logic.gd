@@ -190,9 +190,9 @@ static func chip_place(p: Vector2, r: float, zoom: float, second_line: bool, wid
 ## of it, left of it (chip_side_gap_px off it: clear of the tithe countdown and the raid word), then
 ## under the name slid sideways by each of chip_slide_fracs of its width (right, left), then the
 ## same slides on the row above the ring. A place that does not read as its own fort's is dropped
-## (`chip_attached`); of the rest it takes the first that overlaps no other fort's ring, name or tag
-## plate (the plates NodeLogic.fort_label_rects gives, as MapCallouts._label_rects uses them), no
-## chip placed before it and not Relish's token (hard), nor `nodes` (soft). `nodes` are the non-fort
+## (`chip_attached`), as is one over Relish's token; of the rest it takes the first that overlaps no
+## other fort's ring, name or tag plate (the plates NodeLogic.fort_label_rects gives, as
+## MapCallouts._label_rects uses them) and no chip placed before it (hard), nor `nodes` (soft). `nodes` are the non-fort
 ## obstacles (`node_obstacles`: Covington and Vei), each {pos, r (disc radius), rects (world-px
 ## plates)}. When none is free it takes the least hard overlap, then the least soft; when none is
 ## attached, the default.
@@ -238,12 +238,15 @@ static func chip_layout(forts: Array, zoom: float, has_token: bool, token: Vecto
 			cands.append(Rect2(up.position + Vector2(up.size.x * float(frac), 0.0), up.size))
 			cands.append(Rect2(up.position - Vector2(up.size.x * float(frac), 0.0), up.size))
 		# attachment is a hard filter: a place that fails it is dropped, never costed
-		var slack := _ring_gap(base, p, r) * z + float(c["chip_attach_px"])
+		var own_plates: Array = []
+		for pl in plates:
+			if pl["id"] == f["id"]:
+				own_plates.append(pl["rect"])
 		var best := -1
 		var best_cost := Vector2(INF, INF)
 		for i in cands.size():
-			if not chip_attached(cands[i], f, forts, z, slack):
-				continue
+			if not chip_attached(cands[i], f, forts, z, own_plates) or (has_token and (cands[i] as Rect2).intersects(tok)):
+				continue  # drifted from its fort, or over Relish's token
 			var cost := _chip_cost(cands[i], f, forts, plates, out, tok, has_token, nodes)
 			if cost == Vector2.ZERO:
 				best = i
@@ -251,22 +254,32 @@ static func chip_layout(forts: Array, zoom: float, has_token: bool, token: Vecto
 			if cost.x < best_cost.x or (cost.x == best_cost.x and cost.y < best_cost.y):
 				best_cost = cost
 				best = i
-		out[f["id"]] = cands[maxi(best, 0)]  # none attached: the default place
+		out[f["id"]] = cands[maxi(best, 0)]  # none attached and clear of the token: the default place (chip_place)
 	return out
 
 
-## Whether a chip place still reads as its own fort's on sight, in screen px: the gap from the rect
-## to its own ring's edge is at most `slack` (the default place's own gap plus chip_attach_px), and
-## every other fort's ring edge is at least own gap + chip_attach_margin_px from it.
-static func chip_attached(rect: Rect2, f: Dictionary, forts: Array, zoom: float, slack: float) -> bool:
+## Whether a chip place still reads as its own fort's on sight, in screen px: its own gap, the
+## nearer of the gap from the rect to its own ring's edge and to its own name and tag plates
+## (`own_plates`, world-px rects), is at most chip_attach_px, and every other fort's ring edge is at
+## least own gap + chip_attach_margin_px from it.
+static func chip_attached(rect: Rect2, f: Dictionary, forts: Array, zoom: float, own_plates: Array) -> bool:
 	var own := _ring_gap(rect, f["pos"], float(f["r"])) * zoom
-	if own > slack:
+	for pr in own_plates:
+		own = minf(own, _rect_gap(rect, pr) * zoom)
+	if own > float(cfg()["chip_attach_px"]):
 		return false
 	var need := own + float(cfg()["chip_attach_margin_px"])
 	for g in forts:
 		if g["id"] != f["id"] and _ring_gap(rect, g["pos"], float(g["r"])) * zoom < need:
 			return false
 	return true
+
+
+## The gap in world px between two rects; 0 when they touch or overlap.
+static func _rect_gap(a: Rect2, b: Rect2) -> float:
+	var dx := maxf(maxf(a.position.x - b.end.x, b.position.x - a.end.x), 0.0)
+	var dy := maxf(maxf(a.position.y - b.end.y, b.position.y - a.end.y), 0.0)
+	return Vector2(dx, dy).length()
 
 
 ## The gap in world px from `rect` to the edge of the ring at `c` (radius `r`); 0 when they touch.

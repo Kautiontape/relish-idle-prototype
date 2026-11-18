@@ -85,17 +85,21 @@ func _chip_hits(rect: Rect2, f: Dictionary, items: Array, others: Dictionary, z:
 	return hits
 
 
-## Whether chip `rect` reads as fort `f`'s on sight, by the rule written out here (not chip_layout's code): the gap in
-## screen px from the rect to its own ring's edge is at most the default place's own gap plus chip_attach_px, and every
-## other fort's ring edge is at least that gap + chip_attach_margin_px away.
+## Whether chip `rect` reads as fort `f`'s on sight, by the rule written out here (not chip_layout's code): its own gap,
+## the nearer of the screen-px gaps to its own ring's edge and to its own name and tag plates, is at most chip_attach_px,
+## and every other fort's ring edge is at least that gap + chip_attach_margin_px away.
 func _reads_as_own(rect: Rect2, f: Dictionary, items: Array, z: float) -> bool:
 	var gap := func(r: Rect2, g: Dictionary) -> float:
 		var np := Vector2(clampf(g["pos"].x, r.position.x, r.end.x), clampf(g["pos"].y, r.position.y, r.end.y))
 		return maxf(np.distance_to(g["pos"]) - float(g["r"]), 0.0) * z
 	var cfg := IdleLogic.cfg()
-	var dflt := IdleLogic.chip_rect(f["pos"], float(f["r"]), z, bool(f["second"]), float(f["w"]))
 	var own: float = gap.call(rect, f)
-	if own > gap.call(dflt, f) + float(cfg["chip_attach_px"]):
+	var at: Vector2 = f["pos"] + Vector2(0.0, float(f["r"]) + float(NodeLogic.ncfg()["label_off_px"]))
+	for pr in NodeLogic.fort_label_rects(float(f["name_w"]), float(f["tag_w"]), int(MapLogic.cfg()["font_label"])):
+		var pl := Rect2(at + (pr as Rect2).position / z, (pr as Rect2).size / z)
+		var d := Vector2(maxf(maxf(rect.position.x - pl.end.x, pl.position.x - rect.end.x), 0.0), maxf(maxf(rect.position.y - pl.end.y, pl.position.y - rect.end.y), 0.0))
+		own = minf(own, d.length() * z)
+	if own > float(cfg["chip_attach_px"]):
 		return false
 	for g in items:
 		if g["id"] != f["id"] and float(gap.call(rect, g)) < own + float(cfg["chip_attach_margin_px"]):
