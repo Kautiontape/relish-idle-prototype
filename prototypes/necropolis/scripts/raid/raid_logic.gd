@@ -1071,7 +1071,10 @@ static func loop_readout(words: Dictionary, valid: bool, score: int, motes_in: i
 	if not valid:
 		return [str(words.get("live_none", "")), ladder]
 	var strength := "%.2f" % stat_mult(score, circle_cfg)
-	return [word_fmt(words, "live_head", [score, score_class(score, cfg).to_upper()]),
+	var cls := score_class(score, cfg)
+	# release advice only once the score reaches a class worth keeping (soldier or elite)
+	var head_key := "live_head" if cls == "chaff" else "live_head_keep"
+	return [word_fmt(words, head_key, [score, cls]),
 		word_fmt(words, "live_tail", [motes_in, strength]), ladder]
 
 
