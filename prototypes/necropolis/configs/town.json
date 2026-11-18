@@ -384,6 +384,7 @@
     "reasons": {
       "_unknown": "can't do that right now",
       "catching_up": "catching up on your time away: try again in a moment",
+      "wait_slot": "waiting for a slot: the entries above it go first",
       "unknown_building": "no such building",
       "unknown_lot": "no such lot",
       "lot_locked": "that lot isn't open at this tier",

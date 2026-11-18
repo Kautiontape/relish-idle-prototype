@@ -46,6 +46,8 @@ func _p2_counts() -> void:
 	t.ok(BuildSort.is_gate_wait(ws, vcfg) and BuildSort.skip_text(ws, {}, {}, cfg["buildings_view"], vcfg) == "queued: waits for a slot",
 		"P3's wait_slot reads as a wait in its place: '%s'" % BuildSort.skip_text(ws, {}, {}, cfg["buildings_view"], vcfg))
 	t.ok(String(BuildSort.ghosts([ws], {}, {}, cfg["buildings_view"], vcfg)[0]["shape"]) == "plain", "a slot wait's ghost is plain, not struck")
+	var wr := BuildSort.reason_text("wait_slot", {}, {}, cfg["buildings_view"], vcfg)
+	t.ok(wr == String(vcfg["reasons"]["wait_slot"]) and wr.contains("slot"), "wait_slot as a plain reason has its own words, not _unknown: '%s'" % wr)
 	var s := _state("day1")
 	var town := s.view_town()
 	t.ok(town.has("queue_slots") and town.has("queue_list_max"), "the live view has P2's fields")
