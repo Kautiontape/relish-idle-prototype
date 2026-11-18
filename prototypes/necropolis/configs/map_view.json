@@ -652,6 +652,7 @@
       6
     ],
     "chip_w_px": 300,
+    "chip_max_w_px": 490,
     "chip_pad_px": 8,
     "chip_plate_alpha": 0.92,
     "chip_button_w_px": 104,

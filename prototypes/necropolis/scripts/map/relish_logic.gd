@@ -88,6 +88,21 @@ static func chip_buttons(relish: Dictionary) -> Dictionary:
 	return {"go_home": not home, "cancel": state == "travelling"}
 
 
+## Whether the chip's buttons sit on the name's row (true) or wrap to a row below (false): the
+## row (plate padding both sides, the name, each shown button, a gap before each) must fit in
+## `max_w`. `button_ws` holds only the buttons that show. No buttons: true (one row, the name).
+static func chip_inline(name_w: float, button_ws: Array, hsep: float, pad: float, max_w: float) -> bool:
+	return chip_row_w(name_w, button_ws, hsep, pad) <= max_w
+
+
+## The width that row needs.
+static func chip_row_w(name_w: float, button_ws: Array, hsep: float, pad: float) -> float:
+	var w := 2.0 * pad + name_w
+	for bw in button_ws:
+		w += hsep + float(bw)
+	return w
+
+
 # --- the card's actions ----------------------------------------------------------
 
 static func _line(text: String, key := "") -> Dictionary:
