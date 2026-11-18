@@ -40,6 +40,7 @@ var _st := {}
 var _ctx := {}
 
 var _root: VBoxContainer
+var _forecast: Label
 var _status: Label
 var _banner: PanelContainer
 var _banner_label: Label
@@ -111,6 +112,9 @@ func _ready() -> void:
 	_root.add_theme_constant_override("separation", 6)
 	add_child(_root)
 	_build_pin()
+	_forecast = _wrap("", 14, "text")  # "If you leave now: …" (TownForecast), set on every bind
+	_forecast.visible = false
+	_root.add_child(_forecast)
 	_status = _wrap("", 14, "text")
 	_root.add_child(_status)
 	_build_banner()
@@ -211,6 +215,10 @@ func bind(views: Dictionary) -> void:
 	var gate := BuildSort.relic_gate(views, sorted, _st, _bview, _vcfg)
 	_pin.visible = not gate.is_empty()
 	_pin_label.text = String(gate.get("text", ""))
+	var fc := TownForecast.line(views, _vcfg, _bview)
+	if fc != _forecast.text:
+		_forecast.text = fc
+		_forecast.visible = fc != ""
 	_reserved = tab["reserved"]
 	_sug_data = tab["sug"]
 	_sug_bid = "" if _sug_off else String(_sug_data.get("building_id", ""))

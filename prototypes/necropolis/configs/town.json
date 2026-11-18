@@ -485,6 +485,23 @@
         "px": 14, "x_px": 240.0, "y_px": 8.0
       }
     },
+    "forecast": {
+      "_doc": "If you leave now (TownForecast, Q-f): one line at the top of the Build tab. stores: the first to fill within horizon_s is named; idle_min: idle hands worth saying.",
+      "lead": "If you leave now: ",
+      "sep": " · ",
+      "queue_empty": "nothing is queued, so nothing gets built",
+      "starts_now": "{label} starts at once",
+      "starts_in": "{label} starts in ~{t}",
+      "never": "{label} can't be afforded at today's income",
+      "gated": "the queue waits on gates ({label} first)",
+      "full_in": "{id} full in ~{t}",
+      "full_now": "{id} is full: more isn't kept",
+      "idle": "{n} idle hands muster to {to}",
+      "falls": "{fort} will fall",
+      "stores": ["gold", "bone", "bodies"],
+      "horizon_s": 28800,
+      "idle_min": 1
+    },
     "relic_gate": {
       "text": "Needs relics: {list}. You have {have}: raid a fort for more.",
       "item": "{label} {n}", "item_ok": "{label} {n} {mark}", "mark_ok": "✓",

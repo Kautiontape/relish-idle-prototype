@@ -502,7 +502,8 @@ func _forts(realm: Dictionary) -> Array:
 	var out: Array = []
 	for f in realm.get("forts", []):
 		out.append({"id": String(f.get("id", "")), "name": String(f.get("name", "")), "held": bool(f.get("held", false)),
-			"flipped_count": int(f.get("flipped_count", 0)), "first_dungeon": bool(f.get("first_dungeon", false))})
+			"flipped_count": int(f.get("flipped_count", 0)), "first_dungeon": bool(f.get("first_dungeon", false)),
+			"margin": String(f.get("margin", ""))})  # the forecast's will_fall (TownForecast)
 	return out
 
 
