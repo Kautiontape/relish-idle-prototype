@@ -1007,6 +1007,14 @@ The profiles:
         same two knockouts remove it at 10 s (+73.3 against +71.9; +123.7 against +124.3). Nights catch up at
         catchup_dt_max_s, 10 s. One unconfirmed reading: the convoy's corpse projection (the last realm step's
         dead_rate) lags the feed loop's cycle of about 24 s.
+        - **Re-measured and pinned (the E4 close-out, the final review's item 3).** At 3137462 (i1b2_probe), the hour
+          reads open +122.99 against +123.01 at 0.5 s, +138.12 at 5 s, +131.89 at 7 s and +151.34 at 10 s, so the
+          numbers above hold on today's code. test_haul_hour (default suite, about 26 s) runs the same hour at 5 s
+          and 10 s and fails past ±16.0 and ±29.5 of the open hour (measured +15.13 and +28.35).
+        - **Where it is not.** test_town_sim `_haul_wait` runs live 0.5 s steps against one 5 s and one 10 s step
+          on a fort forming at a fixed rate, debited by what each step takes. The departures (1.5 s, and 8.0 s for
+          the second leg), the mass taken (6.5 and 13.0) and the convoy's end all match. So the residual is not the
+          departure mark, and not the leg's arrival arithmetic either. The dead_rate reading stays unconfirmed.
       - **The gate with the fix** (sessions_open, 2 days) is still red, but closer.
         - Day 1: living 70/70 (was 70/62), the backlog 0.02% apart (was 4.7%), the wave clocks 2.2 s apart (was
           78.6), essence 49/45, remnants 25/24, and the crypt L2 closed against L1 open.
