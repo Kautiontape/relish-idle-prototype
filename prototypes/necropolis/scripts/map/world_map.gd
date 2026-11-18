@@ -181,7 +181,9 @@ func _build_ui() -> void:
 	hud.valve = valve  # the bar's tooltips keep off the valve, the legend and the open card
 	hud.legend = legend
 	hud.card = sidebar
-	opening = MapOpening.new()
+	hud.nodes = nodes_view  # and Vei's readout and the other map labels
+	hud.cam = cam
+	opening =MapOpening.new()
 	opening.model = model
 	opening.hud = hud
 	opening.valve = valve

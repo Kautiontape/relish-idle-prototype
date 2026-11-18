@@ -77,6 +77,18 @@ func node_obstacles() -> Array:
 	return _idle.node_obstacles()
 
 
+## The map's own text a bar tooltip keeps clear of, in world px: Covington's glyph labels and Vei's name
+## (node_obstacles' plates) and Vei's ODDS readout block.
+func readout_rects() -> Array:
+	var out: Array = []
+	for n in node_obstacles():
+		out.append_array(n["rects"])
+	var r := _vei_s.readout_rect()
+	if r.size.x > 0.0:
+		out.append(r)
+	return out
+
+
 ## Where Relish's token is drawn, in world px.
 func relish_drawn_pos() -> Vector2:
 	return ctx.relish_pos

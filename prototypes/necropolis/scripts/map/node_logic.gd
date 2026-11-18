@@ -473,6 +473,16 @@ static func vei_readout_shift(vei_x: float, r_out: float, widths: Array, zoom: f
 	return {"dx": s["dx"], "hidden": s["hidden"], "plate": plate}
 
 
+## Vei's readout block (vei_readout_shift's plate, shifted as drawn) in world px; Rect2() while it is hidden.
+static func vei_readout_rect(vei: Vector2, r_out: float, widths: Array, zoom: float, panel: Dictionary) -> Rect2:
+	var s := vei_readout_shift(vei.x, r_out, widths, zoom, panel)
+	if bool(s["hidden"]):
+		return Rect2()
+	var p: Rect2 = s["plate"]
+	var z := maxf(zoom, 0.001)
+	return Rect2(vei + (p.position + Vector2(float(s["dx"]), 0.0)) / z, p.size / z)
+
+
 ## A label's {dx, hidden} as a layer's static_sig carries it: whole px (a pan's sub-pixel drift does not
 ## redraw), and a hidden label's dx dropped.
 static func shift_sig(s: Dictionary) -> Array:

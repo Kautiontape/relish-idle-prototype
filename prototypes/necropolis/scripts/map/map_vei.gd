@@ -76,6 +76,11 @@ func _r_out() -> float:
 	return NodeLogic.vei_struct_radius(ctx.vei_radius) + float(n["backlog_first_gap_px"]) + maxi(int(b["rings"]) - 1, 0) * float(n["backlog_step_px"])
 
 
+## Where her ODDS readout is drawn, in world px (Rect2() while hidden): the tooltip plate keeps off it.
+func readout_rect() -> Rect2:
+	return NodeLogic.vei_readout_rect(ctx.vei_pos, _r_out(), _readout_widths(), ctx.zoom, ctx.panel)
+
+
 ## The strain line under the odds.
 func _strain() -> String:
 	return NodeLogic.strain_line(int(ctx.readout.get("sign", 0)), float(ctx.readout.get("backlog", 0.0)), float(ctx.readout.get("drain_s", -1.0)))

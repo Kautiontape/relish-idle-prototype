@@ -28,6 +28,68 @@ func run() -> int:
 	return t.failures
 
 
+## The map's readouts as tip obstacles, the world-to-screen conversion, and TipPlacer's placement state.
+func _tip_readouts(t: TestUtil, vp: Vector2, plates: Array, odds: Rect2, tip: Vector2) -> void:
+	t.suite("map_hud-tip-readouts")
+	var view := Rect2(Vector2.ZERO, vp)
+	var bare := HudLogic.tip_rect(odds, tip, plates, vp)
+	# a Vei readout where candidate 2 (right of the plates, under the bar) would land
+	var ro := Rect2(bare.position + Vector2(40.0, 6.0), Vector2(150.0, 70.0))
+	t.ok(bare.intersects(ro), "premise: the readout sits where the tip would land: %s" % str(bare))
+	var r := HudLogic.tip_rect(odds, tip, plates, vp, Rect2(), [ro])
+	var hit := false
+	for p in plates:
+		hit = hit or r.intersects(p)
+	t.ok(not r.intersects(ro) and not hit and view.encloses(r) and r.size == tip, "the readout is an obstacle: the plate clears it and the plates, on screen: %s" % str(r))
+	# a long (MINT-length) tip, and readouts stacked under the first
+	var long_tip := Vector2(420.0, 130.0)
+	var ro2 := Rect2(ro.position.x - 20.0, ro.end.y + 4.0, 200.0, 40.0)
+	var r3 := HudLogic.tip_rect(odds, long_tip, plates, vp, Rect2(), [ro, ro2])
+	t.ok(not r3.intersects(ro) and not r3.intersects(ro2) and view.encloses(r3) and r3.size == long_tip, "a long tip clears two stacked readouts: %s" % str(r3))
+	# the readouts do not move where the plates end: candidate 1 still sits at the word's x when there is room
+	var roomy := HudLogic.tip_rect(odds, tip, [Rect2(0, 0, 860, 60)], vp, Rect2(), [Rect2(1200, 400, 100, 50)])
+	t.ok(roomy.position.x == odds.position.x, "a readout far away leaves the plate under its word: %s" % str(roomy))
+	# world to screen: (world - camera) x zoom + viewport / 2, the inverse of screen_to_zoomed up to the zoom
+	var w := Rect2(300, 200, 40, 20)
+	var s := HudLogic.world_to_screen(w, Vector2(250, 180), 2.0, vp)
+	t.ok(s == Rect2(Vector2(900.0, 490.0), Vector2(80.0, 40.0)), "world_to_screen centres the camera and scales: %s" % str(s))
+	var back := HudLogic.screen_to_zoomed(s, Vector2(250, 180), 2.0, vp)
+	t.ok(back.position.is_equal_approx(w.position * 2.0) and back.size.is_equal_approx(w.size * 2.0), "and screen_to_zoomed takes it to the zoomed frame: %s" % str(back))
+	# Vei's readout block, in world px: right of her rings at zoom 1, half the size at zoom 2, none while hidden
+	var vei := Vector2(1000.0, 500.0)
+	var rr := NodeLogic.vei_readout_rect(vei, 40.0, [30.0, 60.0, 90.0], 1.0, {})
+	t.ok(rr.size.x > 90.0 and rr.position.x > vei.x + 40.0 - 10.0 and rr.position.x < vei.x + 80.0, "Vei's readout block sits right of her rings: %s" % str(rr))
+	var rr2 := NodeLogic.vei_readout_rect(vei, 40.0, [30.0, 60.0, 90.0], 2.0, {})
+	t.ok(is_equal_approx(rr2.size.x * 2.0, rr.size.x) and is_equal_approx(rr2.size.y * 2.0, rr.size.y), "at zoom 2 its world size halves: %s" % str(rr2.size))
+	var covered := NodeLogic.vei_readout_rect(vei, 40.0, [30.0, 60.0, 90.0], 1.0, NodeLogic.panel_of(1120.0, 0.0, 1.0, 0.0))
+	t.ok(covered.size == Vector2.ZERO or covered.end.x <= 1120.0, "under an open card (left edge 1120) it shifts clear or is gone: %s" % str(covered))
+	# TipPlacer: the placement state MapHud delegates to
+	var pl := TipPlacer.new()
+	var open: Array = [Rect2(0, 0, 860, 60)]  # room under the bar, so a card in the way can be dodged
+	var first := pl.place(odds, tip, open, Rect2(), vp)
+	t.ok(first["moved"] and (first["rect"] as Rect2) == HudLogic.tip_rect(odds, tip, open, vp), "the first call moves the plate to tip_rect's place")
+	var again := pl.place(odds, tip, open.duplicate(), Rect2(), vp)
+	t.ok(not again["moved"] and again["rect"] == first["rect"], "the same inputs twice: the second call does not move it")
+	var over := (first["rect"] as Rect2).grow(10.0)
+	var opened := pl.place(odds, tip, open, over, vp)
+	t.ok(opened["moved"] and not (opened["rect"] as Rect2).intersects(over) and view.encloses(opened["rect"]), "a card opening over the current rect moves it, and the new rect clears the card: %s" % str(opened["rect"]))
+	t.ok(not pl.place(odds, tip, open, over, vp)["moved"], "the card staying put leaves it")
+	t.ok(pl.place(odds, tip, open, over, vp, [ro])["moved"], "a map readout appearing moves it")
+	pl.reset()
+	t.ok(pl.place(odds, tip, open, over, vp, [ro])["moved"], "after reset the next call moves it, though nothing changed")
+	var landed := (HudLogic.tip_rect(odds, tip, plates, vp, Rect2(), [ro]))
+	var with_ro := TipPlacer.new().place(odds, tip, plates, Rect2(), vp, [ro])
+	t.ok(with_ro["rect"] == landed, "the placer passes the readouts to tip_rect")
+	# MapHud and world_map name the Game autoload (no headless compile): their wiring is pinned as text
+	var hs := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
+	var i := hs.find("func _tip_plates(")
+	var tp := hs.substr(i, hs.find("\nfunc ", i + 1) - i)
+	t.ok(i >= 0 and not tp.contains("_relayout()") and tp.contains("_plate_rects"), "_tip_plates reads the cached rects: no layout pass per tick")
+	t.ok(hs.contains("_placer.place(word, _tip_size, _tip_plates(), card_r, vp, _tip_readouts(card_r, vp))") and hs.contains("_placer.reset()"), "MapHud places through the TipPlacer, reset on show and hide")
+	var wm := FileAccess.get_file_as_string("res://scripts/map/world_map.gd")
+	t.ok(wm.contains("hud.nodes = nodes_view") and wm.contains("hud.cam = cam"), "world_map gives the HUD the nodes and the camera")
+
+
 ## The bar tooltip's own place (HudLogic.tip_rect): clear of every HUD text plate, inside the viewport.
 func _tip_rect(t: TestUtil) -> void:
 	t.suite("map_hud-tip-rect")
@@ -64,6 +126,7 @@ func _tip_rect(t: TestUtil) -> void:
 	t.ok(k0 != HudLogic.tip_key(odds, tip, plates, wide, vp), "tip_key: a card opening changes it")
 	t.ok(k0 != HudLogic.tip_key(odds, tip, plates.slice(1), Rect2(), vp), "tip_key: a plate going changes it")
 	t.ok(k0 != HudLogic.tip_key(mint, tip, plates, Rect2(), vp) and k0 != HudLogic.tip_key(odds, tip, plates, Rect2(), vp + Vector2(1, 0)), "tip_key: the word or the viewport moving changes it")
+	_tip_readouts(t, vp, plates, odds, tip)
 	var r2 := HudLogic.tip_rect(odds, tip, plates, vp)
 	t.ok(r2.position.x >= 560.0 and r2.position.y >= 60.0, "with the column below the goal full, it goes right of the plates under the bar, over the map: %s" % str(r2))
 	var roomy := HudLogic.tip_rect(odds, tip, [Rect2(0, 0, 860, 60)], vp)
@@ -124,7 +187,7 @@ func _tips_on_nodes(t: TestUtil) -> void:
 		t.ok(plain.tooltip_text == "" and plain.mouse_filter == Control.MOUSE_FILTER_IGNORE, "%s: an unknown word leaves the node as it was" % node.get_class())
 		plain.free()
 		node.free()
-	# map_hud.gd's calls, pinned as text: the stream words by their item id (MINT among them), then the three status words
+	# map_hud.gd's calls, pinned as text (MapHud names the Game autoload, so it can't compile headless and can't be built here): the stream words by their item id (MINT among them), then the three status words
 	var hud_src := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
 	t.ok(HudLogic.LABELS.has("mint"), "MINT is a bar item, so the item call carries its tip")
 	t.ok(hud_src.contains("HudLogic.apply_tip(parts[\"name\"], str(it[\"id\"]))"), "map_hud.gd tips each stream word by its item id (MINT, BONE, ...)")
@@ -552,8 +615,23 @@ func _layer_keys(t: TestUtil) -> void:
 			HudLogic.legend_key(area, true, 1, chip, valve, 4, 300.0), HudLogic.legend_key(area, true, -1, Rect2(12, 60, 330, 140), valve, 4, 300.0),
 			HudLogic.legend_key(area, true, -1, chip, Rect2(12, 560, 300, 160), 4, 300.0), HudLogic.legend_key(area, true, -1, chip, valve, 5, 300.0)]:
 		t.ok(alt != k0, "a changed size, open flag, click, chip rect, valve rect or row count changes the legend key")
-	var src := FileAccess.get_file_as_string("res://scripts/map/map_legend.gd")
-	t.ok(src.contains("legend_key"), "MapLegend._process gates its refresh on the key")
+	# the real legend (it names no autoload), outside a tree: _ready by hand, then _process. A refresh rewrites
+	# offset_top, so a sentinel there that survives _process proves the key gated it.
+	var lg := MapLegend.new()
+	lg.model = MapModel.new(GameState.new(TestUtil.configs()))
+	lg._ready()
+	for _i in 4:  # the first frames settle the wrapped rows' heights (each resets the key)
+		lg._process(0.0)
+	lg.offset_top = 12345.0
+	lg._process(0.0)
+	t.ok(lg.offset_top == 12345.0, "MapLegend._process: the same inputs, no refresh")
+	var chip_ctl := Control.new()
+	chip_ctl.size = Vector2(330, 100)
+	lg.chip = chip_ctl
+	lg._process(0.0)
+	t.ok(lg.offset_top != 12345.0, "MapLegend._process: the Relish chip's rect changing refreshes it")
+	chip_ctl.free()
+	lg.free()
 
 
 func _placement(t: TestUtil) -> void:
