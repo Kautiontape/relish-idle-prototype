@@ -24,7 +24,7 @@ var _legend_key: Array = []  # what refresh() last ran for (HudLogic.legend_key)
 ## One state's glyph in a small box: its ring and its shape, drawn as the fort layer draws them.
 class Glyph extends Control:
 	var state := ""
-	var retaken := false  # the RETAKEN row: the map's broken danger frame round the square
+	var retaken := false  # the RETAKEN row: the map's crack through the square
 
 	func _draw() -> void:
 		var cfg := MapLogic.cfg()
@@ -44,7 +44,7 @@ class Glyph extends Control:
 		MapFortGlyph.draw_state(self, state, c, float(n["state_glyph_px"]) * 0.5, float(n["state_stroke_px"]),
 			float(n["state_halo_max_px"]), float(n["state_slash_px"]), n)
 		if retaken:
-			MapFortGlyph.draw_retaken(self, c, float(n["state_glyph_px"]) * 0.5, float(n["retaken_frame_px"]), float(n["retaken_frame_gap_px"]), n)
+			MapFortGlyph.draw_retaken(self, c, float(n["state_glyph_px"]) * 0.5, float(n["retaken_crack_px"]), n)
 
 
 func _ready() -> void:
@@ -117,7 +117,7 @@ func _tag_line() -> Label:
 
 
 ## The map's state a legend row draws: Vei's and retaken are both a fort of hers (a living square;
-## retaken adds the map's broken danger frame), held draws safe, overrun is its own hollow square.
+## retaken adds the map's crack), held draws safe, overrun is its own hollow square.
 func _glyph_state(id: String) -> String:
 	return HudLogic.legend_glyph_state(id)
 

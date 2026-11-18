@@ -180,7 +180,7 @@ static func legend_place(chip: Rect2, valve: Rect2, x: float, w: float, h_full: 
 
 
 ## The fort state a legend row draws: Vei's and retaken are both a fort of hers (a living square;
-## retaken adds its broken frame, legend_glyph_retaken), held draws safe (a diamond), overrun its hollow square.
+## retaken adds its crack, legend_glyph_retaken), held draws safe (a diamond), overrun its hollow square.
 static func legend_glyph_state(id: String) -> String:
 	match id:
 		"held":
@@ -190,7 +190,7 @@ static func legend_glyph_state(id: String) -> String:
 	return NodeLogic.HERS
 
 
-## Whether a legend row's glyph wears the retaken mark (the map's broken frame, NodeLogic.retaken):
+## Whether a legend row's glyph wears the retaken mark (the map's crack, NodeLogic.retaken):
 ## only RETAKEN's, so it and VEI'S differ by shape (V-I1, cr-3 #5).
 static func legend_glyph_retaken(id: String) -> bool:
 	return id == "retaken"

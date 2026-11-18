@@ -328,6 +328,20 @@ static func _soft(rects: Array, soft: Array) -> float:
 	return total
 
 
+## The ring a callout keeps clear of at its own fort (world px): its outer ring (`outer_r`), or, at the first
+## dungeon while it pulses, the pulse at its full reach (`fort_r` + `reach`, half its `halo` beyond), since a
+## line set against the outer ring sat on that pulse.
+static func callout_own_r(outer_r: float, fort_r: float, first_pulse: bool, reach: float, halo: float) -> float:
+	return maxf(outer_r, fort_r + reach + halo * 0.5) if first_pulse else outer_r
+
+
+## Whether a callout shows as the HUD toast instead (V-I1 item 6): its best place near the fort still
+## overlaps a hard mark by more than callout_toast_hard (a crowded corner leaves it nowhere clear), so on
+## the map it would print over another fort's or Covington's labels.
+static func callout_to_toast(hard: float) -> bool:
+	return hard > _n("callout_toast_hard")
+
+
 ## Where a set-piece callout sits for the fort at `fort` (ring radius `ring_r`), as the shared place
 ## for the retreat and the taken lines. `base_y` is the baseline of its last line when it stands
 ## above the fort (callout_gap_px over the rings, over Relish's token when she stands there: the

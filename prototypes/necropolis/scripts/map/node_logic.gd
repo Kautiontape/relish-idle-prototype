@@ -332,22 +332,18 @@ static func name_tag(f: Dictionary) -> Dictionary:
 
 
 ## A fort Vei took back: not held, and taken before (flipped_count > 0). Its name tag reads
-## "retaken" and its glyph wears the broken frame (MapFortGlyph.draw_retaken), which the legend's
-## RETAKEN row draws too, so it never looks like a fort that was always hers.
+## "retaken" and its glyph is cracked (MapFortGlyph.draw_retaken), which the legend's RETAKEN row
+## draws too, so it never looks like a fort that was always hers.
 static func retaken(f: Dictionary) -> bool:
 	return not bool(f.get("held", false)) and int(f.get("flipped_count", 0)) > 0
 
 
-## The retaken mark: a broken square frame `half` from `p` to each side, only its corners drawn, each
-## corner two arms `arm` long (segment pairs for draw_multiline: 4 corners x 2 arms). Corners only, so
-## it is a different shape from the overrun's whole hollow square, in greyscale too.
-static func broken_frame(p: Vector2, half: float, arm: float) -> PackedVector2Array:
-	var out := PackedVector2Array()
-	for sx in [-1.0, 1.0]:
-		for sy in [-1.0, 1.0]:
-			var c := p + Vector2(sx, sy) * half
-			out.append_array([c, c - Vector2(sx * arm, 0.0), c, c - Vector2(0.0, sy * arm)])
-	return out
+## The retaken mark: a crack corner to corner across a glyph `h` from `p` to its edge, `ext` times its
+## half-diagonal reach so it cuts clean through the square's corners ([from, to]). A cut, not a colour,
+## so VEI'S and RETAKEN differ in greyscale too.
+static func crack(p: Vector2, h: float, ext: float) -> PackedVector2Array:
+	var d := Vector2(h, h) * ext
+	return PackedVector2Array([p - Vector2(d.x, -d.y), p + Vector2(d.x, -d.y)])
 
 
 ## The tag line's font size in screen px (the name's is font_label).

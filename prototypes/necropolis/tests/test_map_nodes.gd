@@ -169,18 +169,12 @@ func _countdowns(t: TestUtil) -> void:
 	back["flipped_count"] = 1
 	tag = NodeLogic.name_tag(back)
 	t.ok(tag.get("text", "") == n["label_retaken"] and tag.get("key", "") == "danger", "retaken (flipped before, not held): danger tag")
-	# V-I1 item 3 (cr-3 #5): a retaken fort wears the broken frame; the tag and the frame share one predicate
+	# V-I1 item 3 (cr-3 #5): a retaken fort is cracked; the tag and the crack share one predicate
 	t.ok(NodeLogic.retaken({"held": false, "flipped_count": 1}) and not NodeLogic.retaken({"held": true, "flipped_count": 1}) \
 		and not NodeLogic.retaken({"held": false, "flipped_count": 0}) and not NodeLogic.retaken({}), "retaken: not held and taken before")
-	var bf := NodeLogic.broken_frame(Vector2(10, 20), 11.0, 5.0)
-	var corners_ok := bf.size() == 16
-	for i in range(0, bf.size(), 2):
-		var a: Vector2 = bf[i]
-		var b: Vector2 = bf[i + 1]
-		corners_ok = corners_ok and absf(absf(a.x - 10.0) - 11.0) < 0.001 and absf(absf(a.y - 20.0) - 11.0) < 0.001 and is_equal_approx(a.distance_to(b), 5.0)
-		corners_ok = corners_ok and (b - Vector2(10, 20)).length() < (a - Vector2(10, 20)).length()  # each arm runs from a corner inward along a side
-	t.ok(corners_ok, "the broken frame: 4 corners x 2 arms, each from a corner, 5 long, along a side (%d points)" % bf.size())
-	t.ok(str(n["retaken_frame_key"]) == "danger" and float(n["retaken_frame_arm_frac"]) < 0.5, "the frame is danger, and its arms leave each side's middle open (broken, not the overrun's whole square)")
+	var ck := NodeLogic.crack(Vector2(10, 20), 7.0, 1.2)
+	t.ok(ck.size() == 2 and ck[0].is_equal_approx(Vector2(10 - 8.4, 20 + 8.4)) and ck[1].is_equal_approx(Vector2(10 + 8.4, 20 - 8.4)), "the crack runs corner to corner through the glyph and past it: " + str(ck))
+	t.ok(str(n["retaken_crack_key"]) == "ground" and float(n["retaken_crack_ext"]) >= 1.0 and float(n["retaken_crack_px"]) >= 2.0, "a ground-coloured cut, at least 2 px, clean through the corners (a shape, so greyscale tells it from VEI'S)")
 	t.ok(NodeLogic.name_tag(_fort(100.0, 40.0, 0.0, 0.0)).is_empty(), "a plain hers fort has no tag")
 	var held := _fort(100.0, 0.0, 60.0, 0.0)
 	held["held"] = true

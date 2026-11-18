@@ -306,7 +306,7 @@ func _clarity(t: TestUtil) -> void:
 	MapSeen.forget_memory()
 	DirAccess.remove_absolute(spath)
 	t.ok(HudLogic.legend_glyph_state("held") == IdleLogic.SAFE and HudLogic.legend_glyph_state("overrun") == NodeLogic.OVERRUN and HudLogic.legend_glyph_state("hers") == NodeLogic.HERS and HudLogic.legend_glyph_state("retaken") == NodeLogic.HERS, "each legend row draws the map's own state glyph")
-	t.ok(HudLogic.legend_glyph_retaken("retaken") and not HudLogic.legend_glyph_retaken("hers") and not HudLogic.legend_glyph_retaken("held") and not HudLogic.legend_glyph_retaken("overrun"), "only RETAKEN's glyph wears the broken frame: VEI'S and RETAKEN differ by shape")
+	t.ok(HudLogic.legend_glyph_retaken("retaken") and not HudLogic.legend_glyph_retaken("hers") and not HudLogic.legend_glyph_retaken("held") and not HudLogic.legend_glyph_retaken("overrun"), "only RETAKEN's glyph is cracked: VEI'S and RETAKEN differ by shape")
 	var lc: Dictionary = MapLogic.cfg()["clarity"]["legend"]
 	t.ok((lc["rows"] as Array).size() == 4, "four states in the legend")
 	var lplate := Palette.c("ground").lightened(float(MapLogic.cfg()["panel_bg_lighten"]))
@@ -341,9 +341,11 @@ func _clarity(t: TestUtil) -> void:
 	t.ok(cue_key == "text" and int(MapLogic.cfg()["clarity"]["hover_cue_size_px"]) >= 13, "the cue/key is in the text colour at 13 px or more, not the greyest text")
 	var key := HudLogic.bar_cue({"highest_tier_flipped": 0})
 	t.ok(key == str(MapLogic.cfg()["clarity"]["bar_key"]) and HudLogic.bar_cue({}) == key, "no fort taken: the key")
-	for w in ["MINT: undead your pits make", "ODDS: to beat Vei now", "STRAIN: how backed up her queue is", "DRAIN: till it empties"]:
+	for w in ["MINT: undead your pits make", "ODDS: to beat Vei now", "STRAIN: her queue's backup", "DRAIN: till it empties"]:
 		t.ok(key.contains(w), "the key glosses the word in the glossary's meaning: " + w)
-	t.ok(key.ends_with("hover a word for more"), "and still points to the hover lines")
+	# it shares the second row with the status (no added height): day 1's status is about 380 px of the bar's max_w
+	var key_w := ThemeDB.fallback_font.get_string_size(key, HORIZONTAL_ALIGNMENT_LEFT, -1, int(MapLogic.cfg()["clarity"]["hover_cue_size_px"])).x
+	t.ok(key_w + 380.0 + float(MapLogic.cfg()["topbar_gap_px"]) <= float(MapLogic.cfg()["topbar_max_w_px"]), "the key (%.0f px) fits beside day 1's status on one row" % key_w)
 	t.ok(HudLogic.bar_cue({"highest_tier_flipped": 1}) == HudLogic.hover_cue() and HudLogic.bar_cue({"highest_tier_flipped": 0, "won": true}) == HudLogic.hover_cue(), "a fort taken (or won): the hover cue")
 	t.ok(HudLogic.bar_key_shown({}) and not HudLogic.bar_key_shown({"highest_tier_flipped": 2}), "the key keys off highest_tier_flipped (no seen flag)")
 	t.ok(hs.contains("var cue_text := HudLogic.bar_cue(hud)") and hs.contains("_cue.text = cue_text"), "refresh sets the bar's last cell from bar_cue")

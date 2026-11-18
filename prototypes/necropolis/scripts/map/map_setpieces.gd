@@ -369,8 +369,15 @@ func _callout(id: String, text: String, alpha: float, key := "undead") -> Array:
 	var hit: Dictionary = _placed.get(ck, {})
 	if hit.is_empty() or hit["sig"] != sig:
 		var made := _place_callout(id, text, hit.get("choice", {}))  # the last choice stays while it is still free
-		hit = {"sig": sig, "lines": made["lines"], "rects": made["rects"], "choice": made["choice"]}
+		# no place near the fort is clear of the hard marks (a crowded corner, as the first dungeon by
+		# Covington): the line goes to the HUD toast, once, rather than print over other labels (V-I1 item 6)
+		var toast := bool(hit.get("toast", false)) or SetpieceLogic.callout_to_toast(float(made["hard"]))
+		if toast and not bool(hit.get("toast", false)) and hud != null:
+			hud.show_toast(text)
+		hit = {"sig": sig, "lines": made["lines"], "rects": made["rects"], "choice": made["choice"], "toast": toast}
 		_placed[ck] = hit
+	if bool(hit["toast"]):
+		return []
 	_fort_rects.append_array(hit["rects"])  # the build line, placed after this frame's callouts, goes round them
 	var out: Array = []
 	for l in hit["lines"]:
@@ -411,7 +418,9 @@ func _place_callout(id: String, text: String, prev: Dictionary) -> Dictionary:
 	var z := ctx.zoom
 	var size := int(c["callout_font"])
 	var p := MapModel.to_vec(f["pos"]) * z
-	var ring_r := NodeLogic.outer_radius("fort", int(f["tier"]), 0.0) * z
+	var nc := NodeLogic.ncfg()  # the first dungeon's pulse reaches past its outer ring: the line keeps clear of it too
+	var ring_r := SetpieceLogic.callout_own_r(NodeLogic.outer_radius("fort", int(f["tier"]), 0.0), MapLogic.fort_radius(int(f["tier"])),
+		NodeLogic.first_dungeon_pulse(f), float(nc["first_reach_px"]), float(nc["first_halo_max_px"])) * z
 	var gap := float(c["callout_gap_px"])
 	var base_y := p.y - ring_r - gap
 	var halo := float(NodeLogic.relish_radii(z)["halo"]) * z
@@ -440,7 +449,7 @@ func _place_callout(id: String, text: String, prev: Dictionary) -> Dictionary:
 	for i in texts.size():
 		var pos := (at["pos"] as Vector2) + Vector2(0.0, float(i) * float(at["line"]))
 		lines.append({"pos": pos / z, "text": str(texts[i]), "size": int(at["size"])})
-	return {"lines": lines, "rects": at["rects"], "choice": {"form": at["form"], "place": at["place"], "slide": at["slide"]}}
+	return {"lines": lines, "rects": at["rects"], "choice": {"form": at["form"], "place": at["place"], "slide": at["slide"]}, "hard": float(at.get("hard", 0.0))}
 
 
 ## The forts' hard obstacles in the zoomed frame, for a callout at the fort `own_id` ("" at Covington): {rings:
