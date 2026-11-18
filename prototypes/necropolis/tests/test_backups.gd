@@ -69,10 +69,14 @@ const CLOCK := 1_800_000_000  # a "now" for the saves (unix seconds)
 ## reports and day1 (not armed) are unchanged. The proof: this tree with grow out of GameState.STANCE_IDS passes every
 ## old pin here and in test_big_undead (225 PASS, 0 FAIL). Was: midgame_2flips 9c683088… / d1014dba…, pre_vei
 ## 45f2ea1c… / e3093d57… (state / events).
+## Re-pinned at the V-I1 round's report text (map-i; the standing re-pin rule): the three away reports only. The backlog
+## line's label is "Vei's queue" and its odds are whole percents ("your odds 5% → 8%", StateViews.odds_pct); every state
+## and event hash is unchanged. The proof: 180121f (the old text, the same sim) passes the old pins in its full suite.
+## Was: day1 836f4889…, midgame_2flips d172a2cf…, pre_vei 1d42c14b… (away).
 const TIP := {
 	"day1": {"state": "1ec82f7a6d729e068b3a2b676b3f4eabf48e7c5d45e8844f18d5b35be2c0ff25",
 		"events": "bf49daaddc2123e6ee4b4da8affd68561ee577d54c464d657e414d0452193d34",
-		"away": "836f4889cf26a75217d0a0df65fe083ae12e9fd38519215389dc4e38cbe8740d", "steps": 4320, "n_events": 2},
+		"away": "1428a98321b7f4c45c46c7c45c9b95fc1c72dcdf34907034f1e65e32fb8b1408", "steps": 4320, "n_events": 2},
 	# midgame's state and away report re-baselined at E3-3's foreman: its Market's foreman (u8, m 1.183, presence +0.064)
 	# takes its 12 h gold from +6,912 to +9,094, to the 9,750 cap (193 not stored), so the report's ready line is the
 	# stores-full raid prompt and it gains "Gold is full: 193 not stored"; its morale 0.630 -> 0.694. The events are
@@ -103,7 +107,7 @@ const TIP := {
 	# in test_stances and in test_big_undead (288 PASS, 0 FAIL). Was 1ab0643a…
 	"midgame_2flips": {"state": "bb6fc5dd7fc35fed7dc5cb3cefbbfae7b22146466e4e4ab72bbddb67e53cebb1",
 		"events": "47b8beb6aabf4999e69ed75d1752a7bb724cf79b98c595f6ad5c14e80344f355",
-		"away": "d172a2cf9b4ab0ccc5c2d218d60bd02bb7e8e8ab548e59ac9ec7cce06eb92af1", "steps": 4356, "n_events": 241},
+		"away": "e3aacf3f4aba391b14fb5c661f6e431b50b6498cfaba4d7908da5f449ce262e6", "steps": 4356, "n_events": 241},
 	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i) on the gold-trap stop; the standing re-pin
 	# rule): its floor sheds as before, but only one of the two Houses resumes, since the second would leave the gold
 	# income (0.60) exactly at the paying upkeep, so one building_unpaid event fewer (15, not 16); the gold climbs at
@@ -118,7 +122,7 @@ const TIP := {
 	# The proof: the claim off (× 0) passes the old pins (was f23659ff… / a8a97ed8…).
 	"pre_vei": {"state": "68c68ffdc82dc8c62a249d8fe91f0fd2c184c5522775ce967a180a255297384a",
 		"events": "fb00b6b760bbd7366d217e5421aa89e3ea3aeef9909f2f64b947bc2aae796177",
-		"away": "1d42c14b95a5de056457bb73452d994a3bdb622da1a2c3e378a0108523a54adf", "steps": 4321, "n_events": 16},
+		"away": "f701ba3f7ca574714ae85e093e3813cbe9e7b2e2d441981a31b435e4b10b5ed2", "steps": 4321, "n_events": 16},
 }
 
 

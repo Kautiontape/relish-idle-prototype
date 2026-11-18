@@ -1056,7 +1056,8 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 	var losses: Array = []
 	# gains: each stream's net rate and net total, the backlog with its arrow and Vei's odds before and after (E4 step 3:
 	# "away: +N, odds A → B"; the odds a player reads, MECHANICS §3 step 8: at the away's start from its age, backlog and
-	# backups, and now view_vei's (E4 step 9, option B; Phase I P3's odds split: the first-attempt odds)
+	# backups, and now view_vei's (E4 step 9, option B; Phase I P3's odds split: the first-attempt odds), as whole
+	# percents (odds_pct; the V-I1 round: "Vei's queue ▲ … · your odds 5% → 8%")
 	var now := away_streams(gs)
 	var k_odds := gs._req_f("realm.K")
 	var b0 := float(b["streams"]["backlog"])
@@ -1069,7 +1070,7 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 		var fmt := str(rep["backlog_fmt"] if id == "backlog" else rep["stream_fmt"])
 		gains.append(_away_line(fmt.format({"label": str(rep["stream_labels"][id]), "arrow": arrow,
 			"rate": _fmt_rate(rep, rate), "total": _fmt_signed(rep, total),
-			"odds_from": "%.2f" % odds_from, "odds_to": "%.2f" % odds_to}), "stream", ""))
+			"odds_from": odds_pct(odds_from), "odds_to": odds_pct(odds_to)}), "stream", ""))
 	# builds finished, then each queued build that started, with when (since you left) and why
 	var done: Array = []
 	var done_lots: Array[String] = []  # api-request #19 (town-i, Phase I P3): each building_done's lot, as the names
@@ -1213,6 +1214,25 @@ static func _away_line(text: String, kind: String, target: String) -> Dictionary
 	return {"text": text, "kind": kind, "target": target}
 
 
+## Whether a new `building_id` (level 0, state constructing) stands on some lot and none of it is built yet (level >= 1).
+static func _producer_constructing(gs: GameState, building_id: String) -> bool:
+	var building := false
+	for lot_id in gs.town_sim.buildings:
+		var b: Dictionary = gs.town_sim.buildings[lot_id]
+		if str(b["building_id"]) != building_id:
+			continue
+		if int(b["level"]) >= 1:
+			return false
+		building = building or str(b["state"]) == "constructing"
+	return building
+
+
+## The away report's odds as the top bar prints them (HudLogic.status's odds_text, "YOUR ODDS 8%"; the V-I1 round, map-i):
+## a whole percent, 0..100.
+static func odds_pct(odds: float) -> String:
+	return "%d%%" % roundi(clampf(odds, 0.0, 1.0) * 100.0)
+
+
 ## R2 (the run's manager, from Shawn's "needs relics: raid a fort"; IDLE §7): every capped store, gold and bone, is
 ## full: each within `tol` (idle.report.full_tol, a fraction of its cap) of its cap, or above it.
 static func stores_full(gs: GameState, tol: float) -> bool:
@@ -1278,10 +1298,15 @@ static func afford_text(gs: GameState, rep: Dictionary, row: Dictionary, store: 
 					"rate": _fmt_rate(rep, float(net.get(s, 0.0)))})
 			return str(rep["afford_living_fmt" if movable else "afford_living_last_fmt"]).format({"name": name,
 				"short": _fmt_count(rep, gshort), "rate": _fmt_rate(rep, float(net.get(s, 0.0)))})
-		var own := str(row["building_id"]) == str((rep["afford_producer"] as Dictionary).get(s, ""))
+		var prod := str((rep["afford_producer"] as Dictionary).get(s, ""))
+		var own := str(row["building_id"]) == prod
 		var fmt := ("afford_never_self" if own else "afford_never") + ("_fmt" if movable else "_last_fmt")
+		# Phase I P3's housekeeping: while a new producer of the store is under construction (level 0), "build a Bone
+		# Mill" names one already started, so the lever is afford_raise_building's, "wait for the Bone Mill to finish"
+		var raise := str(rep["afford_raise_self"][s]) if own else (str(rep["afford_raise_building"][s])
+			if _producer_constructing(gs, prod) else str(rep["afford_raise"][s]))
 		return str(rep[fmt]).format({"name": name, "store": str(rep["afford_stores"][s]),
-			"rate": _fmt_rate(rep, float(net.get(s, 0.0))), "raise": str(rep["afford_raise_self" if own else "afford_raise"][s])})
+			"rate": _fmt_rate(rep, float(net.get(s, 0.0))), "raise": raise})
 	return str(rep["afford_wait_fmt"]).format({"name": name, "store": str(rep["afford_stores"][s]),
 		"when": _when(rep, ceilf(a / 60.0) * 60.0)})
 

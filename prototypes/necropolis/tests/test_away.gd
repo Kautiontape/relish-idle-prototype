@@ -186,6 +186,31 @@ func _never_head_line() -> void:
 	var texts: Array = (n.view_away()["ready"] as Array).map(func(l): return str(l["text"]))
 	t.ok(n.build_queue.size() == 1 and BuildRules.never_row(n.view_town()["queue"][0]) and texts.has(want),
 		"after 1 h away the Pit is still skipped, and the report reads \"%s\": %s" % [want, str(texts)])
+	# Phase I P3's housekeeping: with a Bone Mill under construction (level 0) the lever is afford_raise_building's,
+	# not "build a Bone Mill" (one is started). Revert proof: without afford_text's _producer_constructing branch the
+	# line reads afford_raise's words and this fails
+	var m := _mk(c)
+	m.cmd_new_game(1)
+	m.tick(m.substep_s())
+	m.town_sim.gold = 100.0
+	m.town_sim.bone = 30.0
+	t.ok(m.cmd_queue_build("bone_mill", "lot-06")["ok"] and m.cmd_queue_build("raising_pit", "lot-05")["ok"],
+		"(setup) a Bone Mill (gold only), then a Raising Pit")
+	for i in 30:
+		m.tick(m.substep_s())
+	var mill_lot: Dictionary = m.town_sim.buildings.get("lot-06", {})
+	var prow := {}
+	for r in m.view_town()["queue"]:
+		if str(r["building_id"]) == "raising_pit":
+			prow = r
+	t.ok(str(mill_lot.get("state", "")) == "constructing" and int(mill_lot.get("level", -1)) == 0 and not prow.is_empty()
+		and float(prow["affordable_in_s"]) < 0.0,
+		"(setup) the Mill is under construction at level 0 and the Pit can't be afforded: %s, %s" % [str(mill_lot), str(prow)])
+	var line := StateViews.afford_text(m, rep, prow, "bone", BuildRules.queue_net(m), false)
+	var want_b := str(rep["afford_never_last_fmt"]).format({"name": "Raising Pit", "store": str(rep["afford_stores"]["bone"]),
+		"rate": "0/s", "raise": str(rep["afford_raise_building"]["bone"])})
+	t.ok(line == want_b and not line.contains(str(rep["afford_raise"]["bone"])),
+		"a Bone Mill under construction: \"%s\" (want \"%s\")" % [line, want_b])
 
 
 # ------------------------------------------------------------------------------ helpers ----
@@ -817,18 +842,27 @@ func _report_sections(c: Dictionary, n: GameState, q: GameState) -> void:
 	print("  [away] the 12 h report: %s" % JSON.stringify(rep))
 	t.ok(rep["shown"] and rep["away_s"] == 43200.0 and rep["capped"] == false, "shown, away_s 43200, not capped")
 	var streams: Array = c["economy"]["idle"]["report"]["streams"]
-	var heads: Array = rep["gains"].slice(0, streams.size()).map(func(l): return str(l["text"]).split(" ")[0])
-	t.ok(heads == streams and rep["gains"].slice(0, streams.size()).all(func(l): return l["kind"] == "stream" and l["target"] == ""),
-		"the gains open with the %d streams, in order: %s" % [streams.size(), str(heads)])
-	t.ok(str(rep["gains"][0]["text"]).begins_with("backlog ▲ +") or str(rep["gains"][0]["text"]).begins_with("backlog ▼ −"), "the backlog carries its arrow: %s" % rep["gains"][0]["text"])
-	# E4 step 3: "away: +N, odds A → B", the odds now as view_vei reads them, and rising with the backlog
+	var labels: Dictionary = c["economy"]["idle"]["report"]["stream_labels"]
+	var lines: Array = rep["gains"].slice(0, streams.size()).map(func(l): return str(l["text"]))
+	var heads_ok := lines.size() == streams.size()
+	for i in mini(lines.size(), streams.size()):
+		heads_ok = heads_ok and str(lines[i]).begins_with(str(labels[streams[i]]) + " ")
+	t.ok(heads_ok and rep["gains"].slice(0, streams.size()).all(func(l): return l["kind"] == "stream" and l["target"] == ""),
+		"the gains open with the %d streams' labels, in order: %s" % [streams.size(), str(lines)])
+	# the V-I1 round (map-i): the backlog line is labelled with the glossary's word, as STRAIN's tooltip says it
+	var bl_head := str(labels["backlog"])
+	t.ok(bl_head == "Vei's queue", "the backlog stream reads as Vei's queue: %s" % bl_head)
+	t.ok(str(rep["gains"][0]["text"]).begins_with(bl_head + " ▲ +") or str(rep["gains"][0]["text"]).begins_with(bl_head + " ▼ −"), "the backlog carries its arrow: %s" % rep["gains"][0]["text"])
+	# E4 step 3: "away: +N, odds A → B", the odds now as view_vei reads them, and rising with the backlog; as whole
+	# percents like the top bar's YOUR ODDS since the V-I1 round ("your odds 5% → 8%")
 	var bl_line := str(rep["gains"][0]["text"])
-	var odds_tail := bl_line.get_slice(" · odds ", 1)
-	var o_from := float(odds_tail.get_slice(" → ", 0))
-	var o_to := float(odds_tail.get_slice(" → ", 1))
-	t.ok(bl_line.contains(" · odds ") and odds_tail.get_slice(" → ", 1) == "%.2f" % float(n.view_vei()["odds"])
-		and (o_to >= o_from if bl_line.begins_with("backlog ▲") else o_to <= o_from),
-		"the backlog line ends with Vei's odds before and after, the after one view_vei's: %s" % bl_line)
+	var odds_tail := bl_line.get_slice(" · your odds ", 1)
+	var o_from := int(odds_tail.get_slice(" → ", 0).trim_suffix("%"))
+	var o_to := int(odds_tail.get_slice(" → ", 1).trim_suffix("%"))
+	t.ok(bl_line.contains(" · your odds ") and odds_tail.get_slice(" → ", 1) == StateViews.odds_pct(float(n.view_vei()["odds"]))
+		and odds_tail.get_slice(" → ", 1) == "%d%%" % roundi(float(n.view_vei()["odds"]) * 100.0)
+		and (o_to >= o_from if bl_line.begins_with(bl_head + " ▲") else o_to <= o_from),
+		"the backlog line ends with Vei's odds before and after in percent, the after one view_vei's: %s" % bl_line)
 	t.ok(_find(rep, "gains", "refilled") == {"text": "Ashgate refilled", "kind": "refilled", "target": ""}, "gains: Ashgate refilled")
 	t.ok(_find(rep, "ready", "raid") == {"text": "Ashgate refilled: raid it", "kind": "raid", "target": "ashgate"}, "ready: Ashgate refilled: raid it")
 	t.ok(_find(rep, "ready", "slab") == {"text": "2 husks: raise at the slab", "kind": "slab", "target": "slab"}, "ready: 2 husks: raise at the slab")
@@ -904,12 +938,16 @@ func _report_consistency(s: GameState, n: GameState) -> void:
 		"bodies": float(lb["held"]["bodies"]) - float(la["held"]["bodies"]),
 		"gold": n.town_sim.gold - s.town_sim.gold, "bone": n.town_sim.bone - s.town_sim.bone, "living": n.town_sim.living - s.town_sim.living,
 	}
+	var labels: Dictionary = cfgs()["economy"]["idle"]["report"]["stream_labels"]
 	var bad: Array = []
 	for l in rep["gains"]:
 		if l["kind"] != "stream":
 			continue
-		var id := str(l["text"]).split(" ")[0]
-		var nums := _numbers(str(l["text"]).get_slice(" · odds ", 0))  # the backlog line's odds tail is checked above
+		var id := ""  # the stream whose label (economy.json idle.report.stream_labels) opens the line
+		for sid in labels:
+			if str(l["text"]).begins_with(str(labels[sid]) + " "):
+				id = str(sid)
+		var nums := _numbers(str(l["text"]).get_slice(" · your odds ", 0))  # the backlog line's odds tail is checked above
 		var total := float(want[id])
 		var rate := total / 43200.0
 		var ok := nums.size() == 2 and absf(nums[1] - total) <= 0.5 and absf(nums[0] - rate) <= maxf(0.05 * absf(rate), 0.0005)
@@ -920,23 +958,35 @@ func _report_consistency(s: GameState, n: GameState) -> void:
 
 
 ## Tokens: every token with a digit in every line of the reports here parses under the map's rule (a rate
-## or a mass), so nothing is glued to a word.
+## or a mass), so nothing is glued to a word. The backlog line's odds are whole percents (the V-I1 round), which the
+## map draws as text, as the valve's payoff line does ("percentages stay out of the rate face"): a percent token is
+## allowed after " · your odds " only.
 func _report_tokens(reps: Array) -> void:
 	var rate := RegEx.new()
 	rate.compile(RATE_RE)
 	var mass := RegEx.new()
 	mass.compile(MASS_RE)
+	var pct := RegEx.create_from_string("^\\d{1,3}%$")
 	var bad: Array = []
 	var n := 0
+	var n_pct := 0
 	for rep in reps:
 		for pair in _lines(rep):
-			for tok in str(pair[1]["text"]).split(" ", false):
+			var text := str(pair[1]["text"])
+			var odds_at := text.find(" · your odds ")
+			var at := 0
+			for tok in text.split(" ", false):
+				var pos := text.find(tok, at)
+				at = pos + tok.length()
 				if RegEx.create_from_string("\\d").search(tok) == null:
 					continue
 				n += 1
-				if rate.search(tok) == null and mass.search(tok) == null:
-					bad.append("'%s' in '%s'" % [tok, pair[1]["text"]])
-	t.ok(bad.is_empty() and n > 20, "%d number tokens, each a rate or a mass under the map's patterns%s" % [n, "" if bad.is_empty() else ": " + str(bad)])
+				if odds_at >= 0 and pos > odds_at and pct.search(tok) != null:
+					n_pct += 1
+				elif rate.search(tok) == null and mass.search(tok) == null:
+					bad.append("'%s' in '%s'" % [tok, text])
+	t.ok(bad.is_empty() and n > 20 and n_pct > 0, "%d number tokens, each a rate or a mass under the map's patterns, or one of %d odds percents%s" % [
+		n, n_pct, "" if bad.is_empty() else ": " + str(bad)])
 
 
 ## Shown (IDLE §7, STATE-API §5.19): a reporting catch-up's report is shown; cmd_dismiss_away sets shown false

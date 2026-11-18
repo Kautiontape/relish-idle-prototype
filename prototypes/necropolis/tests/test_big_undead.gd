@@ -71,9 +71,12 @@ const CLOCK := 1_800_000_000  # a "now" for the saves (unix seconds)
 ## out of GameState.STANCE_IDS passes every old pin here and in test_backups (225 PASS, 0 FAIL). Was: pre_vei a100f008… /
 ## 618ddc3b… live, 700b706e… / e3093d57… caught; midgame_2flips aa33406e… / f0094e8c… live, fb2fbcd7… / 9d7e28db…
 ## caught; PARENT_C3 6982227b… live, 3cacefd0… caught (state / events).
+## Re-pinned at the V-I1 round's report text (map-i; the standing re-pin rule): the caught away reports only, PARENT_C3's
+## too, as test_backups' re-pin ("Vei's queue", the odds in whole percents); every state and event unchanged. The proof:
+## 180121f passes the old pins (was day1 836f4889…, pre_vei 1d42c14b…, midgame_2flips 46a405cb…, PARENT_C3 d273871e…).
 const PARENT := {
 	"day1": {"live": {"state": "0b4b2c8c088675b2", "events": "d4879c9aa75cb133", "n_events": 2},
-		"caught": {"state": "3e768c1b3a617251", "events": "bf49daaddc2123e6", "away": "836f4889cf26a752", "n_events": 2, "steps": 4320}},
+		"caught": {"state": "3e768c1b3a617251", "events": "bf49daaddc2123e6", "away": "1428a98321b7f4c4", "n_events": 2, "steps": 4320}},
 	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i); the standing re-pin rule), live and caught:
 	# its floor sheds as before, but the second House no longer resumes (it would leave the income exactly at the paying
 	# upkeep), so one building_unpaid event fewer in each (15, not 16), and the report gains its "Still stopped" line.
@@ -85,7 +88,7 @@ const PARENT := {
 	# unchanged). day1's and midgame_2flips' convoys land nothing here. The claim off passes the old pins (was a9cdb710…
 	# live, ffeda0ce… / a8a97ed8… caught).
 	"pre_vei": {"live": {"state": "1eaada3cf4bde37c", "events": "6e879ad9b1177900", "n_events": 16},
-		"caught": {"state": "6f8ed1542208b6e2", "events": "fb00b6b760bbd736", "away": "1d42c14b95a5de05", "n_events": 16, "steps": 4321}},
+		"caught": {"state": "6f8ed1542208b6e2", "events": "fb00b6b760bbd736", "away": "f701ba3f7ca57471", "n_events": 16, "steps": 4321}},
 	# E4 step 7: pre_vei's caught report above and PARENT_C3's below re-pinned for the away report only (the full store's
 	# line moved from losses to ready; was 982d56f5… and a3210db8…), as test_backups'; states and events unchanged; with
 	# the line back under losses the old hashes pass (test_backups' revert proof, E4 review item 5)
@@ -95,13 +98,13 @@ const PARENT := {
 	# mint_alpha 0.7, the old line, fort_retaken without the two keys) passes the old pins (was 7b0b81e0… / 64c42f4e…
 	# live, 7cf1dab3… / 9edee230… / 9e4483b4… caught; PARENT_C3 41a73272… live, 7ae237fa… / 70cd4e03… caught)
 	"midgame_2flips": {"live": {"state": "97171ab5d5342f6a", "events": "6e34a65334fc7ba5", "n_events": 124},
-		"caught": {"state": "0ba549848e510f9b", "events": "ee318cbe479427fd", "away": "46a405cb57882b26", "n_events": 242, "steps": 4356}},
+		"caught": {"state": "0ba549848e510f9b", "events": "ee318cbe479427fd", "away": "87738a43c2418e84", "n_events": 242, "steps": 4356}},
 }
 ## The siege commit's parent (2287fea: the foreman at work, no siege acting): midgame_2flips with u9 moved to the crypt,
 ## from the same harness on a git archive of it (the same with none moved: the siege did nothing there). Re-pinned at
 ## E4 step 3 as PARENT is, and at B1 (ii) (above).
 const PARENT_C3 := {"live": {"state": "d33e0fe7d972c362", "events": "6e34a65334fc7ba5", "n_events": 124},
-	"caught": {"state": "3e71eed56c873d12", "events": "ee318cbe479427fd", "away": "d273871e016b022f", "n_events": 242, "steps": 4356}}
+	"caught": {"state": "3e71eed56c873d12", "events": "ee318cbe479427fd", "away": "161a53fa047bb519", "n_events": 242, "steps": 4356}}
 ## The foreman in the per-kind cases: speed 4 (m = 1.0 + 4 × 0.05 = 1.2), presence 5 (+0.05 morale).
 const FM := {"speed": 4.0, "presence": 5.0}
 

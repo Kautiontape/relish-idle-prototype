@@ -1550,7 +1550,7 @@ Every field is live from E2a:
 | `relic_trickle` | Dictionary | v12 (E4 step 9, ruling 3; MECHANICS §2's relics row): `{paying: bool, next_s: float}`. The idle relic trickle pays one relic per `economy.json` `relic_trickle.period_s` (12 h) of game time while it pays (read at each step's start, open and caught up alike), into the relic store (lost at `relics_cap`). It pays while some fort's hold has lasted `relic_trickle.hold_s` (24 h) unbroken (v14, Phase I P3, R-b; §10 A18: `realm.forts[].held_for_s`); v12 to v13 it paid while every fort at or below `highest_tier_flipped` was held. `next_s` is the paying seconds left to its next relic, `-1.0` while it doesn't pay; the accrued seconds are kept while it doesn't |
 | `sign` | int | sustained-differential sign: `1` = ▲ (backlog growing), `-1` = ▼, `0` = holding |
 | `drain_s` | float | `backlog / -EMA` when the EMA < 0, else `-1.0` (holding) |
-| `odds` | float | v14 (Phase I P3, the odds split; §10 A16): the first-attempt estimate a player reads, 0..1: `readiness` / (1 + exp(−(`backups` − `realm.json` `odds.backups_mid`) / `odds.backups_scale`)) (`GameState.first_odds`), fit to the faithful grade at Vei-ready. The away report's "odds A → B" and the save summary show these. Before v14 these were the readiness |
+| `odds` | float | v14 (Phase I P3, the odds split; §10 A16): the first-attempt estimate a player reads, 0..1: `readiness` / (1 + exp(−(`backups` − `realm.json` `odds.backups_mid`) / `odds.backups_scale`)) (`GameState.first_odds`), fit to the faithful grade at Vei-ready (refit at P3's re-grade: mid 5.57, scale 1.24). The away report's "odds A → B" and the save summary show these. Before v14 these were the readiness |
 | `won` | bool | |
 | `readiness` | float | v14: the win odds, 0..1 (v12, E4 step 9; the manager's 2026-11-17 13:44 ruling, option B): `odds.time_weight` · t / (t + `odds.time_s`) + (1 − `time_weight`) · min(`odds.backlog_cap`, strain), t the game's age (`t` above) and strain `backlog / (backlog + K)` (`view_vei.strain`); `GameState.win_odds`. `view_hud.odds` and `view_vei.odds` from v12 to v13. Nothing in the fight reads it (her tithe period, reship and need read the strain); the boss seed's `odds`, the bots' Vei-ready (≥ 0.6) and BALANCE's Vei-ready rows read it, and the map valve's "odds in 10 min" projects it (`GameState.win_odds_of`) |
 | `backups` | int | v14: the backups a first attempt on Vei could spend, min(phylactery charges, `backups.json` `phylactery.max_per_dungeon`) + clones ready (`GameState.vei_backups`), which `odds` reads |
@@ -2385,7 +2385,10 @@ The "While you were away" report, for the map's panel (`AwayLogic`, Phase I).
 - **gains** (`target` `""`):
   - each stream in `idle.report.streams`' order (`stream`): Vei's backlog (with ▲, ▼ or ■ for its net),
     the mint, workers, bodies, gold, bone and Covington's living, each its net rate over the absence and
-    its net total: `"backlog ▲ +2.1/s · +69,552"`. The totals are the ledger's and the stores' changes:
+    its net total: `"backlog ▲ +2.1/s · +69,552"`. From the V-I1 round (map-i's text pass) the backlog's label is
+    `"Vei's queue"` (the glossary's word, as STRAIN's tooltip has it) and its odds tail is whole percents, as the top
+    bar's YOUR ODDS: `"Vei's queue ▲ +2.1/s · +69,552 · your odds 5% → 8%"` (`StateViews.odds_pct`; the tokens after
+    `· your odds ` are percents, not masses). The totals are the ledger's and the stores' changes:
     the mint `ledger().sources.mint`'s, the backlog, bodies and workers their `held` pools' (workers in
     workers), gold, bone and living the town's; the rate is the total over `away_s`;
   - the builds finished (`build`, `building_done` events): `"2 builds finished: Inn · Bakery"`. v14 (api-request
@@ -2464,7 +2467,7 @@ The "While you were away" report, for the map's panel (`AwayLogic`, Phase I).
 ```gdscript
 Game.state.view_away()  # midgame_2flips loaded 12 h after its save (shipped configs)
 # -> {rev: 4423, shown: true, away_s: 43200.0, capped: false,
-#     gains: [{text: "backlog ▲ +5.0/s · +216,247", kind: "stream", target: ""},
+#     gains: [{text: "Vei's queue ▲ +5.0/s · +216,247 · your odds …", kind: "stream", target: ""},
 #             {text: "mint +10/s · +446,432", kind: "stream", target: ""},
 #             {text: "workers 0/s · 0", kind: "stream", target: ""},
 #             {text: "bodies 0/s · −2", kind: "stream", target: ""},

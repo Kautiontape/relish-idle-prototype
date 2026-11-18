@@ -34,8 +34,8 @@
     "catchup_gate_tol": 0.01, "catchup_gate_tally_floor": { "gold": 6.0, "bone": 1.0 },
     "report": {
       "streams": ["backlog", "mint", "workers", "bodies", "gold", "bone", "living"],
-      "stream_labels": { "backlog": "backlog", "mint": "mint", "workers": "workers", "bodies": "bodies", "gold": "gold", "bone": "bone", "living": "living" },
-      "stream_fmt": "{label} {rate} · {total}", "backlog_fmt": "{label} {arrow} {rate} · {total} · odds {odds_from} → {odds_to}",
+      "stream_labels": { "backlog": "Vei's queue", "mint": "mint", "workers": "workers", "bodies": "bodies", "gold": "gold", "bone": "bone", "living": "living" },
+      "stream_fmt": "{label} {rate} · {total}", "backlog_fmt": "{label} {arrow} {rate} · {total} · your odds {odds_from} → {odds_to}",
       "arrow_up": "▲", "arrow_down": "▼", "arrow_flat": "■",
       "plus": "+", "minus": "−", "rate_unit": "/s", "thousands": ",", "rate_sig_digits": 2, "rate_max_decimals": 3,
       "builds_one_fmt": "{n} build finished: {names}", "builds_fmt": "{n} builds finished: {names}", "list_sep": " · ",
@@ -71,6 +71,7 @@
       "afford_living_falling_last_fmt": "{name} can't be afforded at the current income of {rate} gold: the living buy less than the stalls can sell. Build housing or an Inn",
       "afford_stores": { "gold": "gold", "bone": "bone", "relics": "relics" },
       "afford_raise": { "gold": "build a Market", "bone": "build a Bone Mill" },
+      "afford_raise_building": { "gold": "wait for the Market to finish", "bone": "wait for the Bone Mill to finish" },
       "afford_producer": { "gold": "market", "bone": "bone_mill" },
       "afford_raise_self": { "gold": "nothing else makes gold", "bone": "nothing else makes bone" },
       "afford_starved_fmt": "{name} can't be afforded, {short} bone short at the current income of {rate} bone: the pits are eating every body. Raise WAR, or move it down",

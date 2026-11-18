@@ -98,6 +98,8 @@ const REPORT_KEYS := ["streams", "stream_labels", "stream_fmt", "backlog_fmt", "
 	# W: the unpaid line under a minute ("briefly") and, when it stopped nothing, without its tail; the stuck head
 	# short of relics in Shawn's words, with and without the move down
 	"unpaid_brief_fmt", "unpaid_none_fmt", "unpaid_none_brief_fmt", "afford_relics_last_fmt",
+	# Phase I P3's housekeeping: the never line's lever while its store's producer is under construction (level 0)
+	"afford_raise_building",
 	# W2: a start that waited but began within a minute of you leaving ("started within a minute of you leaving, ...")
 	"started_brief_fmt",
 	# E3-1: the losses' Thrift lines (one per building the Thrift stance idled during the absence; kind `unpaid`)
@@ -453,7 +455,7 @@ static func report_config_problem(cfgs: Dictionary) -> String:
 	# R2: the queue head's line names the store its time waits on, for every store a queue time can wait on, and
 	# what raises it, for gold and bone (W: relics' line is afford_relics_last_fmt's, "raid a fort"); the raid prompt's
 	# full_tol is a fraction of the cap
-	for pair in [["afford_stores", ["gold", "bone", "relics"]], ["afford_raise", ["gold", "bone"]]]:
+	for pair in [["afford_stores", ["gold", "bone", "relics"]], ["afford_raise", ["gold", "bone"]], ["afford_raise_building", ["gold", "bone"]]]:
 		for k in pair[1]:
 			if not (rep[pair[0]] is Dictionary and (rep[pair[0]] as Dictionary).has(k)):
 				return "config economy.idle.report.%s has no %s" % [pair[0], k]

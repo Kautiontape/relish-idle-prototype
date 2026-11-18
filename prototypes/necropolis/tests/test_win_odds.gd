@@ -148,10 +148,11 @@ func _away_line() -> void:
 	var rep := StateViews.away_report(s, before, [], 8.0 * 3600.0, false)
 	var line := ""
 	for l in rep["gains"]:
-		if str(l["text"]).contains(" · odds "):
+		if str(l["text"]).contains(" · your odds "):
 			line = str(l["text"])
-	var tail := line.get_slice(" · odds ", 1)
-	t.ok(tail.get_slice(" → ", 0) == "%.2f" % o0 and tail.get_slice(" → ", 1) == "%.2f" % float(s.view_vei()["odds"]),
+	var tail := line.get_slice(" · your odds ", 1)
+	# whole percents, as the top bar's YOUR ODDS (the V-I1 round)
+	t.ok(tail.get_slice(" → ", 0) == "%d%%" % roundi(o0 * 100.0) and tail.get_slice(" → ", 1) == "%d%%" % roundi(float(s.view_vei()["odds"]) * 100.0),
 		"the backlog line's odds are the win odds at the start and now: %s (%.3f → %.3f)" % [line, o0, float(s.view_vei()["odds"])])
 
 
@@ -192,8 +193,9 @@ func _strain_label() -> void:
 
 
 ## Phase I P3's odds split (the manager's ruling; realm.json odds.backups_mid, backups_scale): the odds a player reads are
-## first_odds_of(readiness, backups) = readiness / (1 + exp(-(backups - mid) / scale)), fit to P1's faithful grade at
-## sessions' Vei-ready (6dc16a2, score 65, readiness 0.6118): 1+8 won 9/20, 1+4 3/20, 1+2 1/20, 0+0 0/20. Within the
+## first_odds_of(readiness, backups) = readiness / (1 + exp(-(backups - mid) / scale)), refit to P3's faithful grade at
+## sessions' Vei-ready (180121f's sessions seed 1 at day 5.1667, score 65, readiness 0.6053): its own 1+6 won 9/20, 1+4
+## 5/20, 1+2 1/20, 0+0 0/20 (was P1's, 6dc16a2 at readiness 0.6118: 1+8 9/20, 1+4 3/20, 1+2 1/20, 0+0 0/20). Within the
 ## brief's ten points of each; rising in both inputs, never above the readiness; backups_mid -1e9 is the readiness bit for
 ## bit (the revert proof); backups count the revives a run may use (min(charges, max_per_dungeon)) and the clones ready.
 func _first_attempt() -> void:
@@ -201,15 +203,15 @@ func _first_attempt() -> void:
 	var ocf: Dictionary = TestUtil.configs()["realm"]["odds"]
 	var mid := float(ocf["backups_mid"])
 	var sc := float(ocf["backups_scale"])
-	var r := 0.6118
-	var grade := {9: 0.45, 5: 0.15, 3: 0.05, 0: 0.0}
+	var r := 0.6053
+	var grade := {7: 0.45, 5: 0.25, 3: 0.05, 0: 0.0}
 	var fit := []
 	var within := true
 	for n in grade:
 		var o := GameState.first_odds_of(r, int(n), mid, sc)
 		fit.append("%d: %.3f (%.2f)" % [n, o, float(grade[n])])
 		within = within and absf(o - float(grade[n])) <= 0.10
-	t.ok(within, "at readiness 0.6118 the odds are within ten points of P1's grade: %s" % ", ".join(fit))
+	t.ok(within, "at readiness 0.6053 the odds are within ten points of P3's grade: %s" % ", ".join(fit))
 	var rising := true
 	var capped := true
 	for n in range(0, 21):
@@ -261,10 +263,10 @@ func _away_backups() -> void:
 	var rep := StateViews.away_report(s, before, [], 8.0 * 3600.0, false)
 	var line := ""
 	for l in rep["gains"]:
-		if str(l["text"]).contains(" · odds "):
+		if str(l["text"]).contains(" · your odds "):
 			line = str(l["text"])
-	var tail := line.get_slice(" · odds ", 1)
+	var tail := line.get_slice(" · your odds ", 1)
 	var o1 := float(s.view_vei()["odds"])
-	t.ok("%.2f" % o0 != "%.2f" % o1, "(setup) the odds at the start and now differ as printed: %.3f against %.3f" % [o0, o1])
-	t.ok(tail.get_slice(" → ", 0) == "%.2f" % o0 and tail.get_slice(" → ", 1) == "%.2f" % o1,
+	t.ok(roundi(o0 * 100.0) != roundi(o1 * 100.0), "(setup) the odds at the start and now differ as printed: %.3f against %.3f" % [o0, o1])
+	t.ok(tail.get_slice(" → ", 0) == "%d%%" % roundi(o0 * 100.0) and tail.get_slice(" → ", 1) == "%d%%" % roundi(o1 * 100.0),
 		"A is the odds on the start's 9 backups, B on today's 1: %s (%.3f → %.3f)" % [line, o0, o1])
