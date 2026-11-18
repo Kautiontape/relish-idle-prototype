@@ -56,11 +56,14 @@ var _last_views := {}
 ## `--town-place=<uid>:<lot>` places an existing big undead the same way, after demo_raise.place_delay_s.
 ## `--town-staff-vat=<slot>[,<slot>]` staffs those clone vats (the real cmd_staff_vat) right after setup's
 ## first fetch; the rev change shows it on the next one (a debug driver for the Backups tab's screenshot).
+## `--town-show=<building_id>` opens the Build tab with that building's row focused and scrolled into view
+## (the backups' "Show the Chapel of Vats" route), for a screenshot of a row below the fold.
 var _raise_lot := ""
 var _log_set := false  # prints frame numbers of the set-piece beats
 var _frame := 0
 var _walkers_n := 0
 var _grow_label: Label
+var _goal: Label  # the first goal in town (TownGuide.goal), top-left of the town view; hidden once met
 var _grow_log: Array = []  # [{t, building_id, lot_id}] of what the autoplayer built
 var _grown_s := 0.0
 
@@ -94,6 +97,9 @@ func setup(_args: Dictionary) -> void:
 	_debug_slab()
 	_fetch()
 	_debug_set_pieces()
+	var show := _debug_arg("town-show")  # debug `--town-show=<building_id>`: the Build tab, that row focused
+	if show != "":
+		_on_show_building(show, _panels[0])
 	if _demo == "tierup":
 		var spec: Dictionary = ConfigDb.v("town", "view", {}).get("demo_tierup", {})
 		get_tree().create_timer(float(spec.get("delay_s", 0.0))).timeout.connect(
@@ -332,6 +338,7 @@ func _build_ui() -> void:
 	build.to_realm.connect(_on_return)  # the relic pin's To the realm: the same one exit as the HUD's Return
 	_view.suggestion_dismissed.connect(build.on_suggestion_dismissed)
 	_view.sfx.connect(_on_sfx)
+	_build_goal()
 	var crypt: Control = _panels[4]
 	crypt.hold_started.connect(_play.bind("raise_hold"))
 	crypt.raise_started.connect(_on_raise_started)
@@ -413,6 +420,7 @@ func _fetch(spread := false) -> void:
 	var views := _fetch_views()
 	_tier = String(views["town"].get("tier", ""))
 	_last_views = views
+	_update_goal(views)
 	var now := _bound.filter(_binds_now)
 	if spread:
 		_later = TownModel.merge_pending(_later, now)  # merged: a fetch before the queue drains drops nothing
@@ -468,11 +476,39 @@ func _fetch_views() -> Dictionary:
 	return views
 
 
-## The forts as the crypt's Siege… chooser needs them: [{id, name, held}] in world order.
+## The first-goal plate: one line in `text` on a ground plate edged in `select`, at guide.goal's x/y in the
+## town view, under the lot card (so an open card is never covered). Hidden until a goal is due.
+func _build_goal() -> void:
+	var g: Dictionary = ConfigDb.v("town", "view", {}).get("guide", {}).get("goal", {})
+	_goal = TownUI.label("", maxi(int(g.get("px", 14)), TownUI.MIN_TEXT), "text")
+	var sb := TownUI.panel_box()
+	sb.border_color = Palette.c("select")
+	_goal.add_theme_stylebox_override("normal", sb)
+	_goal.position = Vector2(float(g.get("x_px", 12.0)), float(g.get("y_px", 8.0)))
+	_goal.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_goal.visible = false
+	_view.add_child(_goal)
+	_view.move_child(_goal, _view.card.get_index())
+
+
+## Sets the goal line from the fetched views; the label is touched only when the text changes.
+func _update_goal(views: Dictionary) -> void:
+	if _goal == null:
+		return
+	var text := String(TownGuide.goal(views, ConfigDb.v("town", "view", {}).get("guide", {})).get("text", ""))
+	if text != _goal.text:
+		_goal.text = text
+		_goal.visible = text != ""
+		_goal.reset_size()
+
+
+## The forts as the crypt's Siege… chooser and the first goal (TownGuide) need them:
+## [{id, name, held, flipped_count, first_dungeon}] in world order.
 func _forts(realm: Dictionary) -> Array:
 	var out: Array = []
 	for f in realm.get("forts", []):
-		out.append({"id": String(f.get("id", "")), "name": String(f.get("name", "")), "held": bool(f.get("held", false))})
+		out.append({"id": String(f.get("id", "")), "name": String(f.get("name", "")), "held": bool(f.get("held", false)),
+			"flipped_count": int(f.get("flipped_count", 0)), "first_dungeon": bool(f.get("first_dungeon", false))})
 	return out
 
 
