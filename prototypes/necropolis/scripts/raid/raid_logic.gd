@@ -889,6 +889,14 @@ static func death_tell(words: Dictionary, src: String) -> String:
 	return ""
 
 
+## The attack's own name as the KILLED BY headline says it ("slam" of "The Bellringer's slam"): the word the RED TELL
+## row uses for the blow, so the row and the headline never name one attack two ways. "" for a source with no tell.
+static func death_attack(words: Dictionary, src: String) -> String:
+	if death_tell(words, src) == "":
+		return ""
+	return str(words.get("attack_" + src, ""))
+
+
 ## The death card's KILLED BY text: the cause, then the tell she missed when the attack had one
 ## ("The Bellringer's slam · missed: the swing").
 static func death_line(words: Dictionary, src: String, warden_name: String) -> String:
@@ -939,13 +947,15 @@ static func clear_card_rows(words: Dictionary, uses_words: Dictionary, warden_na
 ## The death card's rows [{label, text, key}] (key: a Palette key): who killed her, the tell she missed when
 ## the attack had one (its own row, so a long cause never clips: "The Bellringer's toll" / "the ring at your
 ## feet"), what the last checkpoint banked, what is lost.
-static func death_card_rows(words: Dictionary, cause: String, banked_counts: Dictionary, unbanked: Dictionary, party_n: int, missed := "", after := {}) -> Array:
+static func death_card_rows(words: Dictionary, cause: String, banked_counts: Dictionary, unbanked: Dictionary, party_n: int, missed := "", after := {}, attack := "") -> Array:
 	var bl := loot_line(banked_counts)
 	var lost := death_lost_line(words, unbanked, party_n)
 	var nothing := str(words.get("nothing", ""))
 	var rows: Array = [{"label": str(words.get("label_killed_by", "")), "text": cause, "key": "danger"}]
 	if missed != "":
-		rows.append({"label": str(words.get("label_missed", "")), "text": word_fmt(words, "missed_row", [missed]), "key": "danger"})   # V-I1: the tell's name in a plain sentence (the capture's missed_tell stays the bare name)
+		# `attack` (death_attack) is the headline's word for the same blow, so one attack has one name; without it the row names the tell alone
+		var sentence := word_fmt(words, "missed_row_named", [attack, missed]) if attack != "" else word_fmt(words, "missed_row", [missed])
+		rows.append({"label": str(words.get("label_missed", "")), "text": sentence, "key": "danger"})   # V-I1: the tell's name in a plain sentence (the capture's missed_tell stays the bare name)
 	rows.append({"label": str(words.get("label_banked", "")), "text": bl if bl != "" else nothing, "key": "text" if bl != "" else "text_dim"})
 	rows.append({"label": str(words.get("label_lost", "")), "text": lost, "key": "danger" if lost != nothing else "text_dim"})
 	if not after.is_empty():

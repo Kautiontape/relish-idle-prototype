@@ -311,7 +311,7 @@ func death_rows() -> Array:
 	var shut: String = di["shut"]
 	var party_n: int = di["party_n"]
 	return RaidLogic.death_rows_with_shut(dw, RaidLogic.death_card_rows(dw, cause, RaidLogic.loot_counts(banked), ub, party_n,
-		RaidLogic.death_tell(dw, _raid.relish.last_hit_src), RaidLogic.death_next_row(_raid.seed_data, dw)), shut)
+		RaidLogic.death_tell(dw, _raid.relish.last_hit_src), RaidLogic.death_next_row(_raid.seed_data, dw), RaidLogic.death_attack(dw, _raid.relish.last_hit_src)), shut)
 
 
 # ------------------------------------------------------------------- result ---
