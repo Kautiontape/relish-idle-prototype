@@ -491,7 +491,9 @@ func _readout() -> void:
 	t.ok(s.view_hud()["drain_s"] == s.view_vei()["drain_s"], "view_hud agrees")
 	var k := float(s._cfg()["K"])
 	t.near(s.view_vei()["strain"], 1000.0 / (1000.0 + k), 1e-12, "strain = backlog / (backlog + K)")
-	t.ok(s.view_vei()["odds"] == s.win_odds(s.t, s.view_vei()["strain"]), "odds = the win odds at the game's age on that strain")
+	t.ok(s.view_vei()["readiness"] == s.win_odds(s.t, s.view_vei()["strain"]), "readiness = the win odds at the game's age on that strain")
+	# Phase I P3's odds split: odds are the first-attempt estimate on that readiness and the backups
+	t.ok(s.view_vei()["odds"] == s.first_odds(s.view_vei()["readiness"], s.vei_backups()), "odds = first_odds(readiness, backups)")
 	s._readout["diff_ema"] = -5e-324
 	t.ok(s.view_vei()["drain_s"] == -1.0 and is_finite(s.view_vei()["drain_s"]), "a vanishing EMA gives -1.0, never INF")
 	s.realm.vei["undead_queue"] = 0.0
