@@ -6,7 +6,7 @@ extends RefCounted
 ## enforces this). No signals: consumers poll
 ## `rev` and drain_events(). The contract is docs/STATE-API.md.
 
-const API_VERSION := 13
+const API_VERSION := 14
 const SAVE_VERSION := 2
 const ARRIVE_EPS := 0.01  # px left at or under which Relish has arrived
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
@@ -40,6 +40,7 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	"economy.relic_trickle.period_s",
 	"realm.hold.mint_ref", "realm.hold.mint_alpha",  # (E4 step 5, B1: hold_mult)
 	"realm.odds.time_weight", "realm.odds.time_s", "realm.odds.backlog_cap",  # (E4 step 9, option B: win_odds)
+	"realm.odds.backups_mid", "realm.odds.backups_scale",  # (Phase I P3: the odds split, first_odds)
 	# T3.4a: the economy and realm tunables that had inline numeric fallbacks (the realm `field` block aside)
 	"economy.sim.substep_s", "economy.sim.max_substeps_per_frame", "economy.sim.autosave_s", "economy.sim.prewarm_dt",
 	"economy.sim.prewarm_ticks", "economy.opening.valve.work", "economy.opening.valve.war", "economy.opening.valve.flood",
@@ -907,7 +908,9 @@ func cmd_set_haul_target(target: String) -> Dictionary:
 # ------------------------------------------------------------------- runs ----
 ## The sustained-differential readout (MECHANICS §3.5) from `_diff` and the saved EMA: sign is ±1
 ## past ±readout.sign_eps, else 0; drain_s is backlog / −EMA while the EMA < 0, else −1.0 (and −1.0
-## if that would not be finite); odds is the win odds at the game's age (win_odds), strain her backlog / (backlog + K).
+## if that would not be finite); readiness is the win odds at the game's age (win_odds), strain her backlog / (backlog +
+## K); odds is the first-attempt estimate on that readiness and the backups now (first_odds; Phase I P3's odds split),
+## backups the count it reads (vei_backups).
 func _vei_readout() -> Dictionary:
 	var ema := float(_readout["diff_ema"])
 	var eps := _req_f("realm.readout.sign_eps")
@@ -917,18 +920,44 @@ func _vei_readout() -> Dictionary:
 		var d := backlog / -ema
 		drain = d if is_finite(d) else -1.0
 	var strain := realm.strain()
+	var ready := win_odds(t, strain)
+	var n := vei_backups()
 	return {
 		"diff": _diff, "diff_ema": ema,
-		"odds": win_odds(t, strain), "strain": strain,
+		"odds": first_odds(ready, n), "readiness": ready, "backups": n, "strain": strain,
 		"sign": 1 if ema > eps else (-1 if ema < -eps else 0),
 		"drain_s": drain,
 	}
 
 
+## The backups a first attempt on Vei could spend (Phase I P3's odds split): the phylactery revives a run may use,
+## min(charges, backups.phylactery.max_per_dungeon), plus the clones ready (her fight's backups_total less the charges a
+## run can't use).
+func vei_backups() -> int:
+	return mini(_phylactery_charges, _phylactery_max()) + clones_ready
+
+
+## The first-attempt odds (Phase I P3, the manager's odds split): the readiness `readiness` (win_odds) times a logistic
+## in the backups `backups` (vei_backups), on realm.json odds.backups_mid and backups_scale. The odds a player reads;
+## the bots' Vei-ready, the boss seed and the fight read the readiness or the strain, never these. Read live.
+func first_odds(readiness: float, backups: int) -> float:
+	return first_odds_of(readiness, backups, _req_f("realm.odds.backups_mid"), _req_f("realm.odds.backups_scale"))
+
+
+## first_odds on explicit tunables (pure; the map's valve can project with it on win_odds_of's readiness):
+## readiness / (1 + exp(-(backups - mid) / scale)). scale <= 0 is a step (readiness at or past mid, else 0); mid -1e9
+## is the readiness bit for bit (the revert proof).
+static func first_odds_of(readiness: float, backups: int, mid: float, scale: float) -> float:
+	if scale <= 0.0:
+		return readiness if float(backups) >= mid else 0.0
+	return readiness / (1.0 + exp(-(float(backups) - mid) / scale))
+
+
 ## The win odds (MECHANICS §3.5; E4 step 9, the manager's 2026-11-17 13:44 ruling, option B) at the game's age `age_s`
 ## (sim seconds since the new game, `t`) and Vei's strain `strain` (RealmSim.strain): realm.json odds.time_weight ·
-## age / (age + odds.time_s) + (1 − time_weight) · min(odds.backlog_cap, strain). The odds a player reads, the boss
-## seed's and the bots' Vei-ready are these; her tithe period, reship and one-wave need read the strain alone, so
+## age / (age + odds.time_s) + (1 − time_weight) · min(odds.backlog_cap, strain). Since Phase I P3's odds split this is
+## the readiness: the boss seed's odds and the bots' Vei-ready are these, and the odds a player reads are first_odds on
+## them; her tithe period, reship and one-wave need read the strain alone, so
 ## nothing in the fight reads them. Read live (a test may change the config after setup). time_weight 0 with
 ## backlog_cap 1 is the strain bit for bit (the revert proof).
 func win_odds(age_s: float, strain: float) -> float:

@@ -56,10 +56,16 @@ const CLOCK := 1_800_000_000  # a "now" for the saves (unix seconds)
 ## states only, since to_dict() carries api_version; the events and away reports don't move, and neither does any pin
 ## from the vat clip (no fixture tends a vat). The proof: the P2 tip with API_VERSION set back to 12 passes the old pins.
 ## Was: day1 60e6df8c…, midgame_2flips 033dd114…, pre_vei ae145315….
+## Re-pinned at Phase I P3 (API v14: wait_slot, the never head's skip, #19's lots, #20's revived_in_place and the odds
+## split; the standing re-pin rule): the three states (api_version 14) and the three away reports, whose backlog line's
+## "odds A → B" are now the first-attempt odds (GameState.first_odds on the readiness and the backups). The events
+## don't move. The proof: the v14 tree with API_VERSION set back to 13 and realm.json odds.backups_mid -1e9 (the
+## readiness bit for bit) passes every old pin in this suite, test_stances and test_big_undead (288 PASS, 0 FAIL).
+## Was: day1 e0c2c449… / ab49446c…, midgame_2flips 99fdcbb4… / 330008c2…, pre_vei 579ad780… / 50f7cc0b… (state / away).
 const TIP := {
-	"day1": {"state": "e0c2c449d10dfb43370d5dc819ef91fd94752a992c0384ea078b19de90a5e4c5",
+	"day1": {"state": "1ec82f7a6d729e068b3a2b676b3f4eabf48e7c5d45e8844f18d5b35be2c0ff25",
 		"events": "bf49daaddc2123e6ee4b4da8affd68561ee577d54c464d657e414d0452193d34",
-		"away": "ab49446c969569f989a1f08c655f3247f929c4c7837d0e7820a1f43e45afd839", "steps": 4320, "n_events": 2},
+		"away": "836f4889cf26a75217d0a0df65fe083ae12e9fd38519215389dc4e38cbe8740d", "steps": 4320, "n_events": 2},
 	# midgame's state and away report re-baselined at E3-3's foreman: its Market's foreman (u8, m 1.183, presence +0.064)
 	# takes its 12 h gold from +6,912 to +9,094, to the 9,750 cap (193 not stored), so the report's ready line is the
 	# stores-full raid prompt and it gains "Gold is full: 193 not stored"; its morale 0.630 -> 0.694. The events are
@@ -84,9 +90,9 @@ const TIP := {
 	# under hold.mint_ref), so α plays no part. The proof tree (the most-undead rule in _tithe_target and the train,
 	# mint_alpha 0.7, the old line, fort_retaken without the two keys) passes the old pins (was 54ae7149… / 7eb703c3… /
 	# e0a288bf…)
-	"midgame_2flips": {"state": "99fdcbb4e5a603810ad23f3bcfb1f4559728aab4e80aa944f914c94c50964b6f",
+	"midgame_2flips": {"state": "9c68308892a8c40c5e08a10230917073fe950211b4938970034dfe4b84b30620",
 		"events": "d1014dbadd6ad58404818316e0e65a295e012af5ef8675ffb59dd678d1899e90",
-		"away": "330008c2b9838f07917f3f4b503f5b83cf77bb43299b8ec361438f9cdb6991ec", "steps": 4356, "n_events": 240},
+		"away": "d172a2cf9b4ab0ccc5c2d218d60bd02bb7e8e8ab548e59ac9ec7cce06eb92af1", "steps": 4356, "n_events": 240},
 	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i) on the gold-trap stop; the standing re-pin
 	# rule): its floor sheds as before, but only one of the two Houses resumes, since the second would leave the gold
 	# income (0.60) exactly at the paying upkeep, so one building_unpaid event fewer (15, not 16); the gold climbs at
@@ -99,9 +105,9 @@ const TIP := {
 	# +1,868,492 (+1,867,726), the mint +2,251,317 (+2,251,104), the bone not stored 4,731 (4,730), the end bodies 0.34
 	# (0). The events are unchanged. day1's and midgame_2flips' convoys land nothing in these 12 h, so they don't move.
 	# The proof: the claim off (× 0) passes the old pins (was f23659ff… / a8a97ed8…).
-	"pre_vei": {"state": "579ad7808c60f00ca9581c077a31044c726877b255e51d6f5b35191d3dba441b",
+	"pre_vei": {"state": "45f2ea1c16758d87cf6afd52127b35f14647be695cf4b6baaefca4c8df620fa8",
 		"events": "e3093d57d7355dc31433aca50040e476c11b5e6fa89ed1372a608aa1860d5a84",
-		"away": "50f7cc0b2696b50d0f54f21abaddb8d858442e4410f8a7ad9148fa415774d44d", "steps": 4321, "n_events": 15},
+		"away": "1d42c14b95a5de056457bb73452d994a3bdb622da1a2c3e378a0108523a54adf", "steps": 4321, "n_events": 15},
 }
 
 

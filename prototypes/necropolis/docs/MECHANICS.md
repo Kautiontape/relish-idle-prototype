@@ -717,6 +717,13 @@ corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
   strain (§3.4), so she still fights back harder as the queue clogs, not as the game ages. The odds a player reads
   therefore don't drive her pressure directly; the strain is in `view_vei.strain`, never shown as odds. Until E4
   step 9 the odds were the strain (`time_weight` 0 with `backlog_cap` 1 gives them back bit for bit).
+- **Readiness and the first-attempt odds** (Phase I P3, the run's manager's odds split; STATE-API §10 A16): the win
+  odds above are now the **readiness** (`view_vei.readiness`). The boss seed carries it, Vei-ready reads it (≥ 0.6)
+  and BALANCE's pacing rows measure it. The **odds** a player reads are the first-attempt estimate on it and the
+  backups: `readiness / (1 + exp(−(backups − odds.backups_mid) / odds.backups_scale))`, with backups = min(phylactery
+  charges, `phylactery.max_per_dungeon`) + clones ready. Since P1's pool-scaled break the backups decide a first
+  attempt (§6), so each clone raises the odds shown, and the readiness bounds what backups can buy. The fit is to the
+  faithful grade at Vei-ready (BALANCE §5); `backups_mid` −1e9 gives the readiness back bit for bit.
 - The EMA is saved (`readout.diff_ema`); the raw `diff` is not.
 - Vei's panel and the confrontation dialog show all three.
 - `RealmSim.readout()` stays for its old readers with the same keys. Its `capacity` is the most

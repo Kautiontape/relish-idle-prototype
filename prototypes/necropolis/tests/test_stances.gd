@@ -35,10 +35,14 @@ const CLOCK := 1_800_000_000  # a "now" for the saves (unix seconds)
 ## Re-pinned at E4 step 9's odds lever (option B; the standing re-pin rule): the three away reports only, as
 ## test_backups' re-pin (the backlog line's "odds A → B" are the win odds); states and events unchanged. The proof:
 ## the change at odds time_weight 0, backlog_cap 1 passes the old pins here (was 4f807d58… / 1d3c4855… / 0915402c…).
+## Re-pinned at Phase I P3's odds split (API v14; the standing re-pin rule): the three away reports only, as
+## test_backups' re-pin (the backlog line's "odds A → B" are the first-attempt odds); states and events unchanged. The
+## proof: the change with API_VERSION 13 and odds.backups_mid -1e9 passes the old pins here (was ab49446c… / 330008c2… /
+## 50f7cc0b…).
 const TIP := {
 	"day1": {"state": "fbc9c79e62dc856e69d09c8468037cb0f6cd426ec5fd46e5e4fa951f89ef8b6b",
 		"events": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
-		"away": "ab49446c969569f989a1f08c655f3247f929c4c7837d0e7820a1f43e45afd839", "steps": 4320, "n_events": 0},
+		"away": "836f4889cf26a75217d0a0df65fe083ae12e9fd38519215389dc4e38cbe8740d", "steps": 4320, "n_events": 0},
 	# midgame's state and away report re-baselined at E3-3's foreman: its Market's foreman (u8, m 1.183, presence +0.064)
 	# takes its 12 h gold from +6,912 to +9,094, to the 9,750 cap (193 not stored), so the report's ready line is the
 	# stores-full raid prompt and it gains "Gold is full: 193 not stored"; its morale 0.630 -> 0.694. The events are
@@ -57,7 +61,7 @@ const TIP := {
 	# the old pins (was ccdf38fd… / 0466a66d… / e0a288bf…)
 	"midgame_2flips": {"state": "22a85c67268629792e832f5b20a42cb5fbc08e2598b0f152ca6ded8a0e2af944",
 		"events": "f17e78e57a431cf40ea91355d57f364ba071f83bb8bec84836dcc7fbe674c33e",
-		"away": "330008c2b9838f07917f3f4b503f5b83cf77bb43299b8ec361438f9cdb6991ec", "steps": 4356, "n_events": 237},
+		"away": "d172a2cf9b4ab0ccc5c2d218d60bd02bb7e8e8ab548e59ac9ec7cce06eb92af1", "steps": 4356, "n_events": 237},
 	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i); the standing re-pin rule): the second House
 	# no longer resumes after the floor, so one event fewer (10, not 11; stance_fired aside), and the away report is
 	# test_backups' re-pinned pre_vei report ("Still stopped, ... Build a Market"). The proof (the E4 step 4 review's
@@ -68,7 +72,7 @@ const TIP := {
 	# 58a6cc49… / a8a97ed8…).
 	"pre_vei": {"state": "de513152d69743260fd894dbb6ca6af748470f4dae3104227ef2955e0cdd70b7",
 		"events": "efa1e63ebbc4696325c4165bb19bde5bc21019c63723ee23dab7ee4a6a7bb84d",
-		"away": "50f7cc0b2696b50d0f54f21abaddb8d858442e4410f8a7ad9148fa415774d44d", "steps": 4321, "n_events": 10},
+		"away": "1d42c14b95a5de056457bb73452d994a3bdb622da1a2c3e378a0108523a54adf", "steps": 4321, "n_events": 10},
 }
 
 

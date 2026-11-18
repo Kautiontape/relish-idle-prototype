@@ -769,7 +769,10 @@ func _fixtures() -> void:
 		"pre_vei: a city of 20 buildings (Walls, a Chapel of Vats, the Reliquary), none unpaid")
 	# (E4 step 9, option B) the fixture was made at odds = strain about 0.6; the win odds read its 3 h age as well
 	t.near(v.view_vei()["strain"], 0.6, 0.005, "pre_vei: strain about 0.6")
-	t.ok(v.view_vei()["odds"] == v.win_odds(v.t, v.view_vei()["strain"]), "pre_vei: odds %.3f, the win odds at its age" % v.view_vei()["odds"])
+	t.ok(v.view_vei()["readiness"] == v.win_odds(v.t, v.view_vei()["strain"]), "pre_vei: readiness %.3f, the win odds at its age" % v.view_vei()["readiness"])
+	# Phase I P3's odds split: view_vei's odds are the first-attempt estimate on it and pre_vei's backups
+	t.ok(v.view_vei()["odds"] == v.first_odds(v.view_vei()["readiness"], v.vei_backups()),
+		"pre_vei: odds %.3f, first_odds on it and its %d backups" % [v.view_vei()["odds"], v.vei_backups()])
 	t.ok(v.party_uids.size() == 4 and v.big_undead.all(func(b): return b["front"] != "" and b["place"] == "party"), "pre_vei: a party of 4, each on a front")
 	t.ok(v._phylactery_charges == 1 and v.view_backups()["clones_ready"] == 1, "pre_vei: 1 phylactery charge, 1 clone ready")
 	t.ok(v.view_backups()["phylactery_charges"] == 1 and v.view_relish()["phylactery_charges"] == 1

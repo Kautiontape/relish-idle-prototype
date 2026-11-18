@@ -42,6 +42,7 @@ const HELD_RAID_YIELD := 0.5  # raid a held fort once its yield_mult is back to 
 const STANCES := ["vigil", "harvest"]
 const BANK_FRONTS := ["giants", "carvers"]  # bank_bigs: the fronts only the bigs fill (no backlog term; carvers' q aside)
 const VEI_READY_ODDS := 0.6  # BALANCE §1's Vei-ready: odds >= 0.6 and fronts_required fronts met (E4 step 3: the odds gate)
+# (since Phase I P3's odds split the gate reads view_vei's readiness, the old formula, not its first-attempt odds)
 const KEEP_SHARE := 0.25  # keep_fronts: a keeper brings at least this share of what the bigs must bring to its front
 const RAID_ROOM := 2  # keep_fronts: keepers leave the crypt room for this many raiders (two raiders reach t3)
 const SLOT := "ap"
@@ -1281,7 +1282,7 @@ func _vei_check(end_t: float) -> void:
 	if vei_ready_t >= 0.0:
 		return
 	var v := s.view_vei()
-	if float(v["odds"]) < VEI_READY_ODDS or str(s.view_relish()["state"]) != "home":
+	if float(v["readiness"]) < VEI_READY_ODDS or str(s.view_relish()["state"]) != "home":
 		return
 	if vei_ready_wave_t < 0.0 and int(v["fronts_met"]) >= int(v["fronts_required"]):
 		vei_ready_wave_t = s.t
@@ -1291,7 +1292,7 @@ func _vei_check(end_t: float) -> void:
 		return
 	_tick_until(func(): return str(s.view_relish()["state"]) == "at_vei", end_t)
 	var v2 := s.view_vei()
-	if bool(v2["can_begin"]) and _full_met(v2) >= int(v2["fronts_required"]) and float(v2["odds"]) >= VEI_READY_ODDS:
+	if bool(v2["can_begin"]) and _full_met(v2) >= int(v2["fronts_required"]) and float(v2["readiness"]) >= VEI_READY_ODDS:
 		vei_ready_t = s.t
 	_cmd("move", ["covington"])
 	_tick_until(func(): return str(s.view_relish()["state"]) == "home", end_t + 600.0)
@@ -1391,11 +1392,12 @@ func play_first30() -> void:
 
 ## The close: cmd_save at a whole second, a fresh GameState, cmd_load with clock_override `gap` s later (the real
 ## catch-up). A night's close also loads the save into a throwaway state PROBE_S on, for Vei's odds 12 h after closing.
+## The odds_* records are view_vei's readiness (Phase I P3's odds split: the series P2 measured, the old formula).
 func close(gap: int, night := false) -> Dictionary:
 	_tick_to(ceilf(s.t - 1e-9))
 	var t0 := s.t
 	var v0 := s.view_vei()
-	var rec := {"t": t0, "gap": gap, "night": night, "backlog_before": float(v0["backlog"]), "odds_close": float(v0["odds"]),
+	var rec := {"t": t0, "gap": gap, "night": night, "backlog_before": float(v0["backlog"]), "odds_close": float(v0["readiness"]),
 		"value_done_before": _value_done()}
 	s.clock_override = CLOCK0 + int(t0)
 	var sv := s.cmd_save(SLOT)
@@ -1407,7 +1409,7 @@ func close(gap: int, night := false) -> Dictionary:
 		p.clock_override = CLOCK0 + int(t0) + PROBE_S
 		if bool(p.cmd_load(SLOT)["ok"]):
 			var pv := p.view_vei()
-			rec["odds_12h"] = float(pv["odds"])
+			rec["odds_12h"] = float(pv["readiness"])
 			rec["backlog_12h"] = float(pv["backlog"])
 	var n := _fresh()
 	n.clock_override = CLOCK0 + int(t0) + gap
@@ -1426,7 +1428,7 @@ func close(gap: int, night := false) -> Dictionary:
 	_scan_away(ready)
 	var v1 := s.view_vei()
 	rec["backlog_after"] = float(v1["backlog"])
-	rec["odds_load"] = float(v1["odds"])
+	rec["odds_load"] = float(v1["readiness"])
 	rec["ready"] = ready
 	closes.append(rec)
 	_next_fine = s.t
@@ -2002,7 +2004,8 @@ func _row(kind: String) -> Dictionary:
 		"tier": str(tn["tier"]), "lots_free": free, "no_lot": no_lot, "buildings": nb, "levels": lv,
 		"queue_len": q.size(), "queue_head": head, "next_afford_s": _r(_next_afford(q)), "relics_wall": _queue_wall(q),
 		"mint": _r(float(rates["mint"]["in"])), "bodies_net": _r(float(rates["bodies"]["net"])), "window": _stat_out(_win),
-		"backlog": _r(float(v["backlog"])), "odds": _r(float(v["odds"])), "sign": int(v["sign"]), "digest_q": _r(float(v["digest_q"])),
+		"backlog": _r(float(v["backlog"])), "odds": _r(float(v["odds"])), "readiness": _r(float(v["readiness"])),
+		"backups": int(v["backups"]), "sign": int(v["sign"]), "digest_q": _r(float(v["digest_q"])),
 		"fronts": fronts, "fronts_met": int(v["fronts_met"]), "fronts_required": int(v["fronts_required"]),
 		"relics": int(inv["relics"]), "essence": int(inv["essence"]), "husks": (inv["husks"] as Array).size(),
 		"remnants": (inv["remnants"] as Array).size(), "big": _big_counts(s.view_big_undead()), "held": held,

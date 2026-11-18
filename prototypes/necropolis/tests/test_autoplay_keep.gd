@@ -430,12 +430,15 @@ func run() -> int:
 	var g := Autoplayer._bot("keep_test_odds", c0, {"print_rows": false})
 	g.new_game()
 	g._vei_check(g.s.t + 3600.0)
-	var odds_new := float(g.s.view_vei()["odds"])
+	# (Phase I P3's odds split) the gate reads view_vei's readiness, the win odds; its odds are the first-attempt estimate
+	var odds_new := float(g.s.view_vei()["readiness"])
 	t.ok(odds_new < Autoplayer.VEI_READY_ODDS and g.vei_ready_t < 0.0,
-		"fronts met but odds %.3f < %.1f: no Vei-ready" % [odds_new, Autoplayer.VEI_READY_ODDS])
-	g.s.realm.vei["undead_queue"] = 2.0 * float(c0["realm"]["K"])  # odds 2/3
+		"fronts met but readiness %.3f < %.1f: no Vei-ready" % [odds_new, Autoplayer.VEI_READY_ODDS])
+	g.s.realm.vei["undead_queue"] = 2.0 * float(c0["realm"]["K"])  # readiness 2/3
 	g._vei_check(g.s.t + 3600.0)
-	t.ok(g.vei_ready_t >= 0.0, "fronts met and odds %.3f: Vei-ready at %.0f s" % [float(g.s.view_vei()["odds"]), g.vei_ready_t])
+	t.ok(g.vei_ready_t >= 0.0 and float(g.s.view_vei()["odds"]) < Autoplayer.VEI_READY_ODDS,
+		"fronts met and readiness %.3f: Vei-ready at %.0f s, with the first-attempt odds at %.3f (no backups)" % [
+		float(g.s.view_vei()["readiness"]), g.vei_ready_t, float(g.s.view_vei()["odds"])])
 	g.cleanup()
 	_full_pool_ready(c)
 	_pump_lost_cause(c)

@@ -56,6 +56,9 @@ static func hud(gs: GameState) -> Dictionary:
 		# v12 (E4 step 9, ruling 3): the idle relic trickle, and the tier it reads
 		"highest_tier_flipped": gs.highest_tier_flipped(), "relic_trickle": relic_trickle(gs),
 		"sign": ro["sign"], "drain_s": ro["drain_s"], "odds": ro["odds"], "won": gs.won,
+		# v14 (Phase I P3, the odds split): `odds` is the first-attempt estimate (GameState.first_odds), `readiness` the
+		# win odds it reads (GameState.win_odds, the bots' Vei-ready), `backups` the count it reads (vei_backups)
+		"readiness": ro["readiness"], "backups": ro["backups"],
 	}
 
 
@@ -700,9 +703,11 @@ static func vei(gs: GameState) -> Dictionary:
 		"rev": gs.rev, "backlog": float(gs.realm.vei["undead_queue"]), "living_pool": float(gs.realm.vei["living_pool"]),
 		"pool_cap": gs._pool_cap(), "diff": float(ro["diff"]), "diff_ema": float(ro["diff_ema"]),
 		"sign": ro["sign"], "drain_s": ro["drain_s"], "odds": ro["odds"], "digest_q": gs.digest_q(),
-		# v12 (E4 step 9, option B): her strain, backlog / (backlog + K), which her tithe period, reship and need read;
-		# `odds` is the win odds (GameState.win_odds), the one odds a view shows
-		"strain": ro["strain"],
+		# v12 (E4 step 9, option B): her strain, backlog / (backlog + K), which her tithe period, reship and need read.
+		# v14 (Phase I P3, the odds split): `odds` is the first-attempt estimate a player reads (GameState.first_odds),
+		# `readiness` the win odds it reads (GameState.win_odds: the bots' Vei-ready, the boss seed's odds) and `backups`
+		# the count it reads (GameState.vei_backups)
+		"strain": ro["strain"], "readiness": ro["readiness"], "backups": ro["backups"],
 		"fronts": fronts, "fronts_required": gs._fronts_required(), "fronts_met": VeiFronts.fronts_met(fronts),
 		"tithe": vei_tithe(gs),
 		"can_begin": why == "", "reason": why, "won": gs.won,
@@ -1003,8 +1008,9 @@ static func away_before(gs: GameState) -> Dictionary:
 			unpaid.append(str(lot_id))
 		elif gs.town_sim.buildings[lot_id]["state"] == "thrift":
 			thrift.append(str(lot_id))
+	# backups (Phase I P3's odds split): the count the away's starting odds read (GameState.vei_backups)
 	return {"t": gs.t, "streams": away_streams(gs), "overflow": _overflow(gs), "forts": forts, "villages": villages,
-		"unpaid": unpaid, "thrift": thrift}
+		"unpaid": unpaid, "thrift": thrift, "backups": gs.vei_backups()}
 
 
 static func _overflow(gs: GameState) -> Dictionary:
@@ -1025,12 +1031,12 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 	var ready: Array = []
 	var losses: Array = []
 	# gains: each stream's net rate and net total, the backlog with its arrow and Vei's odds before and after (E4 step 3:
-	# "away: +N, odds A → B"; the win odds, MECHANICS §3 step 8: at the away's start from its age and backlog, and now
-	# view_vei's (E4 step 9, option B)
+	# "away: +N, odds A → B"; the odds a player reads, MECHANICS §3 step 8: at the away's start from its age, backlog and
+	# backups, and now view_vei's (E4 step 9, option B; Phase I P3's odds split: the first-attempt odds)
 	var now := away_streams(gs)
 	var k_odds := gs._req_f("realm.K")
 	var b0 := float(b["streams"]["backlog"])
-	var odds_from := gs.win_odds(float(b["t"]), b0 / (b0 + k_odds))
+	var odds_from := gs.first_odds(gs.win_odds(float(b["t"]), b0 / (b0 + k_odds)), int(b["backups"]))
 	var odds_to := float(gs._vei_readout()["odds"])
 	for id in rep["streams"]:
 		var total := float(now[id]) - float(b["streams"][id])

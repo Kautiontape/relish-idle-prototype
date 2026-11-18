@@ -71,7 +71,9 @@ static func boss_seed_v2(gs: GameState, run_id: int, seed_rev: int) -> Dictionar
 		"v": 2, "kind": "boss", "run_id": run_id, "seed_rev": seed_rev,
 		"rng_seed": derived_rng_seed(gs, run_id),
 		"backlog": float(gs.realm.vei["undead_queue"]), "living_pool": float(gs.realm.vei["living_pool"]),
-		"odds": ro["odds"], "sign": ro["sign"], "drain_s": ro["drain_s"], "digest_q": gs.digest_q(),
+		# `odds` is the readiness (GameState.win_odds; Phase I P3's odds split: the seed keeps the old formula, not
+		# view_vei's first-attempt odds; nothing in the fight reads it)
+		"odds": ro["readiness"], "sign": ro["sign"], "drain_s": ro["drain_s"], "digest_q": gs.digest_q(),
 		"vei_capacity": gs._req_f("realm.R_vei"),
 		"fronts": [],  # filled below, from the seed itself (its key keeps its place)
 		"fronts_required": gs._fronts_required(),
