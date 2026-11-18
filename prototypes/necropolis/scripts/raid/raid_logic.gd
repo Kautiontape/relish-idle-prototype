@@ -280,8 +280,17 @@ static func gap_ends_run(ev: Dictionary, run_id: int, open_run_id: int) -> bool:
 
 ## The exit the state already recorded for the run a gap ended (run_ended.outcome); an away_report carries none,
 ## and anything unknown, so a retreat.
-static func gap_outcome(ev: Dictionary) -> String:
+static func gap_outcome(ev: Dictionary, pending_exit := "") -> String:
+	if str(ev.get("type", "")) == "away_report":
+		return checkpoint_outcome(pending_exit)   # the rule the checkpoint uses: never contradicts a recorded death or win
 	return checkpoint_outcome(str(ev.get("outcome", "")))
+
+
+## A gap while an ending beat is already running (`ended` with a `pending_exit`: the death or victory beat): the beat
+## already matches what the state recorded (the checkpoint carries pending_exit), so the gap only suppresses sends;
+## no banner, no card freed, no second timer, and the beat's own single finish runs.
+static func gap_leaves_beat(ended: bool, pending_exit: String) -> bool:
+	return ended and pending_exit != ""
 
 
 ## The banner a gap-ended raid shows (the glossary's words: "checkpoint" is the banked point).
@@ -291,7 +300,8 @@ static func gap_banner() -> String:
 
 ## What is pending after a checkpoint send (RaidEndings._send_checkpoint): the payload when the state refused it
 ## with catching_up (it is resent later), else nothing (accepted, or refused for a reason that will not pass).
-## Each send replaces what was pending, so a newer checkpoint supersedes an older one.
+## Each send replaces what was pending, so a newer checkpoint supersedes an older one. (Today state_runs.gd's
+## checkpoint does not refuse with catching_up, no run being open during a catch-up: this is a guard for if it does.)
 static func checkpoint_pending_after(payload: Dictionary, res: Dictionary) -> Dictionary:
 	if not bool(res.get("ok", false)) and str(res.get("reason", "")) == "catching_up":
 		return payload

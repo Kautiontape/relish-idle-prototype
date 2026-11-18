@@ -46,6 +46,13 @@ func _end_tests(t: TestUtil) -> void:
 		"no outcome, or an unknown one, reads as a retreat")
 	t.ok(RaidLogic.close_plan(true, "relish_died")["exit"] == "relish_died" and RaidLogic.close_plan(true, "retreated")["closing"],
 		"the gap's result plan is close_plan's: a retreat pays the last checkpoint, an ending stands")
+	t.ok(RaidLogic.gap_outcome(away, "relish_died") == "relish_died" and RaidLogic.gap_outcome(away, "warden_beaten") == "warden_beaten"
+		and RaidLogic.gap_outcome(away, "") == "retreated", "an away_report's outcome follows the checkpoint rule (pending_exit)")
+	t.ok(RaidLogic.gap_outcome(ended, "relish_died") == "retreated", "a run_ended keeps the event's own outcome")
+	t.ok(RaidLogic.gap_leaves_beat(true, "relish_died") and RaidLogic.gap_leaves_beat(true, "warden_beaten"),
+		"a gap in a running death or victory beat leaves the beat alone")
+	t.ok(not RaidLogic.gap_leaves_beat(false, "") and not RaidLogic.gap_leaves_beat(true, "") and not RaidLogic.gap_leaves_beat(false, "relish_died"),
+		"no beat under way: the AWAY TOO LONG stop runs")
 	var b := RaidLogic.gap_banner()
 	t.ok(b.begins_with("AWAY TOO LONG") and b.contains("last checkpoint"), "the banner says it in the glossary's words: " + b)
 
@@ -119,6 +126,10 @@ func _wiring_tests(t: TestUtil) -> void:
 		"it sets retreat_by, shows the banner and holds the beat from raid.json")
 	t.ok(_func_src(end, "func _finish_gap(").contains("finish("), "the beat's end finishes (the one emit)")
 	t.ok(ge.contains("if finished or _gap"), "it runs once")
+	var lb := ge.find("RaidLogic.gap_leaves_beat(ended, pending_exit)")
+	t.ok(lb >= 0 and ge.substr(lb, 200).contains("return") and lb < ge.find("show_banner(") and lb < ge.find("queue_free()") and lb < ge.find("create_timer("),
+		"gap_end returns early on a running ending, before the card, banner and timer")
+	t.ok(raid.contains("RaidLogic.gap_outcome(ev, endings.pending_exit)"), "the handler passes pending_exit")
 	t.ok(_func_src(end, "func _send_checkpoint(").contains("_post_checkpoint(") and _func_src(end, "func _post_checkpoint(").contains("checkpoint_pending_after("),
 		"a refused checkpoint is kept")
 	t.ok(_func_src(end, "func tick(").contains("checkpoint_resend_due(") and _func_src(raid, "func _process(").contains("endings.tick()"),

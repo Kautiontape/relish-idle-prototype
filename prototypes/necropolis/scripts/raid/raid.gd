@@ -308,7 +308,7 @@ func _on_game_event(ev: Dictionary) -> void:
 	var run_id := int(seed_data.get("run_id", 0))
 	var open_id := int(Game.state.view_relish().get("run_id", -1)) if str(ev.get("type", "")) == "away_report" else -1
 	if RaidLogic.gap_ends_run(ev, run_id, open_id):
-		endings.gap_end(RaidLogic.gap_outcome(ev))
+		endings.gap_end(RaidLogic.gap_outcome(ev, endings.pending_exit))
 	elif str(ev.get("type", "")) == "away_report" and _from_run and not is_boss():
 		seed_data = RaidLogic.reread_seed(seed_data, Game.state.view_dungeon_seed(str(seed_data.get("fort", {}).get("id", ""))))
 

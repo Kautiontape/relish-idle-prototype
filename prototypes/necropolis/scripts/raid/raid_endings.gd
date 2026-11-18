@@ -131,6 +131,8 @@ func gap_end(outcome: String) -> void:
 		return
 	_gap = true
 	_pending_cp = {}
+	if RaidLogic.gap_leaves_beat(ended, pending_exit):
+		return   # a death or victory beat is running and already matches the state: it keeps its card and its one finish
 	if not ended:
 		retreat_by = "gap"
 	ended = true
