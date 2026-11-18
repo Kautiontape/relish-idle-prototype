@@ -56,8 +56,9 @@ func _start() -> void:
 	_raid.found_loot = RaidLogic.merge_loot(_raid.found_loot, loot)
 	# the clear's payoff, then its effect on the map: the counter-garrison mass this run killed
 	var killed: float = _raid.ledger_v2.killed if _raid.ledger_v2 != null else 0.0
-	_raid.hud.show_banner(RaidLogic.held_banner(_raid.fort_name()) + "\n" + RaidLogic.held_payoff(loot)
-		+ "\n" + RaidLogic.held_map_effect(killed), _c("banner_s", 3.5), "undead_core")
+	var hw: Dictionary = _raid.rcfg().get("held", {})
+	_raid.hud.show_banner(RaidLogic.held_banner(hw, _raid.fort_name()) + "\n" + RaidLogic.held_payoff(hw, loot)
+		+ "\n" + RaidLogic.held_map_effect(hw, killed), _c("banner_s", 3.5), "undead_core")
 	var pos: Vector2 = _raid.relish.global_position
 	# the set piece: a ring sweeps out from Relish and the walls flash toward the town's colour
 	var ring_px := _c("ring_px", 720.0)

@@ -131,7 +131,7 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	_hint_plate.anchor_top = 1.0
 	var hint_cfg: Dictionary = raid.rcfg().get("hud", {}).get("hint", {})
 	_hint = _mk_label(self, int(hint_cfg.get("font_px", 19)), Palette.c("text"))
-	_hint.text = RaidLogic.HINT_IDLE
+	_hint.text = str(hint_cfg.get("idle_text", ""))
 	_hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	_hint.anchor_top = 1.0
 	_hint.offset_top = -52.0
@@ -366,7 +366,7 @@ func refresh() -> void:
 		_door_prompt.visible = dp != ""
 	if not raid.is_boss():
 		st.set_phyl(raid.phylactery_left())
-		st.phyl_word = RaidLogic.phylactery_word(st.phyl)
+		st.phyl_word = RaidLogic.phylactery_word(st.words, st.phyl)
 		if st.phyl_word != "":
 			# no revive is a state, not a mood: `danger` whatever her hp (the halo's dashes say it in the world)
 			st.phyl_tone = Palette.c("danger")
@@ -393,10 +393,11 @@ func refresh() -> void:
 			_push_t = 0.0
 			_update_push()
 		var at_exit: bool = raid.exit_hint_ready()
-		_hint.text = RaidLogic.hint_text(raid.trance_active, at_exit)
+		var hint_words: Dictionary = raid.rcfg().get("hud", {}).get("hint", {})
+		_hint.text = RaidLogic.hint_text(hint_words, raid.trance_active, at_exit)
 		if at_exit:
 			_hint.visible = true
-		_hint2.text = RaidLogic.hint_sub_text(raid.trance_active, at_exit, raid.first_raise_done)
+		_hint2.text = RaidLogic.hint_sub_text(hint_words, raid.trance_active, at_exit, raid.first_raise_done)
 		_hint2.visible = _hint.visible and _hint2.text != "" and not _undead_cue_up()
 		# the "your undead fight on their own" cue (once per run)
 		if not _undead_cue_shown:
@@ -407,7 +408,7 @@ func refresh() -> void:
 			var cues: Dictionary = raid.rcfg().get("hud", {}).get("cues", {})
 			if RaidLogic.undead_cue_due(_undead_cue_shown, raid.kills, _scene_s, float(cues.get("undead_delay_s", 5.0)), alive):
 				_undead_cue_shown = true
-				show_cue(RaidLogic.CUE_UNDEAD, float(cues.get("undead_s", 3.5)), "undead")
+				show_cue(str(cues.get("undead_text", "")), float(cues.get("undead_s", 3.5)), "undead")
 	st.queue_redraw()
 
 
@@ -487,12 +488,12 @@ func _update_goal() -> void:
 	s["no_army"] = (held or alive or s["chest"]) and _no_army()   # the row follows a goal row only
 	# the sleeping warden's ring must stay clear: compact rows while the block's FULL rect (measured with the full
 	# rows even when compact shows, so it cannot flicker) meets the ring's screen rect
-	var full_rows := RaidLogic.goal_rows(s)
+	var full_rows := RaidLogic.goal_rows(g, s)
 	var vw := get_viewport().get_visible_rect().size.x
 	var full := Rect2(Vector2(vw * 0.5 + _goal_block.offset_left, _goal_block.offset_top),
 		Vector2(_goal_block.offset_right - _goal_block.offset_left, _goal_block.height_for(full_rows)))
 	s["compact"] = alive and not held and RaidLogic.goal_compact(full, _sleeping_ring_rect(w))
-	_goal_block.set_rows(RaidLogic.goal_rows(s) if s["compact"] else full_rows)
+	_goal_block.set_rows(RaidLogic.goal_rows(g, s) if s["compact"] else full_rows)
 
 
 ## The screen rect of the sleeping warden's ring and glyph (RaidLogic.warden_ring_rect, through the canvas
@@ -541,7 +542,7 @@ func _route_text() -> String:
 		return ""
 	var goal: Vector2 = ((lay["rooms"] as Array)[wroom] as Rect2).get_center()
 	var step := LayoutLogic.waypoint(lay, rel.global_position, goal, rel.radius)
-	return RaidLogic.route_line(_route_len, _hops_left, RaidLogic.compass(step - rel.global_position))
+	return RaidLogic.route_line(_goal_cfg(raid), _route_len, _hops_left,RaidLogic.compass(step - rel.global_position))
 
 
 ## Nothing to raise with: no undead alive, no loose or carried essence, no unstirred corpse pile.
@@ -590,7 +591,7 @@ func _update_push() -> void:
 		var rt := int(doors[best].get("room", -1))
 		if rf >= 0 and rt >= 0 and lay.has("room_hops"):
 			hops = int(((lay["room_hops"] as Array)[rf] as Array)[rt])
-	_push.set_text(RaidLogic.push_line(raid.enemies.size(), word, hops, _risk, at_exit,
+	_push.set_text(RaidLogic.push_line(_goal_cfg(raid), raid.enemies.size(), word, hops, _risk, at_exit,
 		raid.endings.rooms_seen(), (lay.get("rooms", []) as Array).size(), not _clearing))
 
 
@@ -721,7 +722,7 @@ func show_cue(text: String, secs: float, color_key: String) -> void:
 ## The one-shot "your undead fight on their own" toast is on screen: the idle sub-line says the same words, so it
 ## waits (the banner's text is the cue's, broken at its " · ").
 ## The undead cue as the banner shows it (its " · " parts on their own lines), made once: compared every frame.
-var _cue_undead_lines := RaidLogic.CUE_UNDEAD.replace(" · ", "\n")
+var _cue_undead_lines := str(ConfigDb.data.get("raid", {}).get("hud", {}).get("cues", {}).get("undead_text", "")).replace(" · ", "\n")
 
 
 func _undead_cue_up() -> bool:
@@ -748,7 +749,8 @@ func on_first_carry() -> void:
 	if _first_mote_cue_shown:
 		return
 	_first_mote_cue_shown = true
-	show_cue(RaidLogic.CUE_FIRST_MOTE, float(raid.rcfg().get("hud", {}).get("cues", {}).get("first_mote_s", 4.0)), "essence")
+	var cues: Dictionary = raid.rcfg().get("hud", {}).get("cues", {})
+	show_cue(str(cues.get("first_mote_text", "")), float(cues.get("first_mote_s", 4.0)), "essence")
 
 
 ## A banner whose text `provider` recomputes 4 times a second while it shows (the last chance's
@@ -795,11 +797,12 @@ func _retreat_lines() -> Array:
 	var keep := RaidLogic.loot_counts(RaidLogic.loot_snapshot(raid.found_loot, raid.carried_count()))
 	# the right column reads what the death card reads (RaidEndings.death_inputs, death_next_row, the revive rule)
 	var di: Dictionary = raid.endings.death_inputs()
-	return [RaidLogic.retreat_keep_lines(raid.held, keep,
-			RaidLogic.held_door_retreat_line(hd.state, hd.holder_name) if hd != null else "",
-			str(raid.rcfg().get("hud", {}).get("retreat", {}).get("keep_prefix", ""))),
-		RaidLogic.retreat_fall_lines(raid.endings.phylactery_left(), di["unbanked"], int(di["party_n"]),
-			RaidLogic.death_next_row(raid.seed_data, raid.rcfg().get("death", {})), str(di["shut"]))]
+	var rw: Dictionary = raid.rcfg().get("hud", {}).get("retreat", {})
+	var dw: Dictionary = raid.rcfg().get("death", {})
+	return [RaidLogic.retreat_keep_lines(rw, raid.rcfg().get("loot_uses", {}), raid.held, keep,
+			RaidLogic.held_door_retreat_line(raid.rcfg().get("held_door", {}), hd.state, hd.holder_name) if hd != null else ""),
+		RaidLogic.retreat_fall_lines(rw, dw, raid.endings.phylactery_left(), di["unbanked"], int(di["party_n"]),
+			RaidLogic.death_next_row(raid.seed_data, dw), str(di["shut"]))]
 
 
 ## The retreat panel shows (the raid closes it on a stay key: Space, right mouse, Esc).
@@ -865,7 +868,7 @@ class StatBlock:
 	var words: Dictionary = {}              # raid.json hud.stats
 	var detail_px := 14                     # the detail lines' size, drawn in full `text`
 	var label_alpha := 0.85                 # the row labels' brightness (text at this alpha)
-	var essence_lines := PackedStringArray()   # RaidLogic.ESSENCE_MEANING wrapped to value_w() at detail_px (setup)
+	var essence_lines := PackedStringArray()   # hud.stats essence_meaning wrapped to value_w() at detail_px (setup)
 	var plate_alpha := 0.96
 	var show_key := false
 	var door_lines := PackedStringArray()   # D-e task 6: the held door's DOOR row, wrapped (empty: no row)
@@ -882,7 +885,7 @@ class StatBlock:
 		words = c.get("stats", {})
 		detail_px = int(words.get("detail_px", 14))
 		label_alpha = float(words.get("label_alpha", 0.85))
-		essence_lines = RaidLogic.wrap_each(PackedStringArray([RaidLogic.ESSENCE_MEANING]), ThemeDB.fallback_font, detail_px, value_w())
+		essence_lines = RaidLogic.wrap_each(PackedStringArray([str(words.get("essence_meaning", ""))]),ThemeDB.fallback_font, detail_px, value_w())
 		var rows := 3.0 if boss else 14.0   # living, essence, raised | + 4 ward rows, essence meaning, phylactery, its meaning, banked, unbanked, stakes
 		custom_minimum_size = Vector2(420.0, rows * _row + 8.0)
 		if not boss:
@@ -919,7 +922,7 @@ class StatBlock:
 		if n == phyl and not phyl_meaning.is_empty():
 			return   # called every frame: nothing to rebuild while the count holds
 		phyl = n
-		phyl_meaning = RaidLogic.wrap_each(RaidLogic.phylactery_meaning(n), ThemeDB.fallback_font, detail_px, value_w())
+		phyl_meaning = RaidLogic.wrap_each(RaidLogic.phylactery_meaning(words, n),ThemeDB.fallback_font, detail_px, value_w())
 		var extra := phyl_meaning.size() - 1
 		if extra != phyl_extra:
 			phyl_extra = extra
@@ -951,7 +954,7 @@ class StatBlock:
 			_key_glyph(Vector2(x + 6.0, y - 4.0), str(g["shape"]), Palette.c(str(g["key"])))
 			draw_string(f, Vector2(x + 16.0, y), str(k[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Palette.c("text_dim"))
 			x += 22.0 + f.get_string_size(str(k[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
-		draw_string(f, Vector2(6.0, y + _row), RaidLogic.KEY_PILE_LINE, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Palette.c("text_dim"))
+		draw_string(f, Vector2(6.0, y + _row), str(words.get("key_pile", "")), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Palette.c("text_dim"))
 
 	## A row label; `wide` lets it run past the label column (a header whose row has no value).
 	func _label(y: float, text: String, wide := false) -> void:

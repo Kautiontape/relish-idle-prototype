@@ -56,20 +56,26 @@
     "_doc": "The stat block (top left). plate_alpha is its backing plate: near opaque so a corpse glyph or pickup under the block never crosses its text. Every HUD plate's alpha is pinned by tests/test_raid_clarity.gd: its dimmest text must stay 4.5:1 (lines 3:1) over the brightest thing the world can put under it, so lowering one fails the suite. warden_plate_alpha backs the awake warden's block.",
     "plate_alpha": 0.96,
     "stats": {
-      "_doc": "The stat block's reading aids (RaidHud.StatBlock). detail_px is the size of its detail lines (the ESSENCE meaning and the PHYLACT. meaning; 13 or more) drawn in full text colour; label_alpha is how bright its row labels draw (text at this alpha; the contrast test measures it). ward_head heads the four rank rows (what the player owns); living_label and the enemy / enemies values (one '%d' each) say the LIVING row counts the dungeon's enemies, not people.",
+      "_doc": "The stat block's reading aids (RaidHud.StatBlock). detail_px is the size of its detail lines (the ESSENCE meaning and the PHYLACT. meaning; 13 or more) drawn in full text colour; label_alpha is how bright its row labels draw (text at this alpha; the contrast test measures it). ward_head heads the four rank rows (what the player owns); living_label and the enemy / enemies values (one '%d' each) say the LIVING row counts the dungeon's enemies, not people. essence_meaning, phyl_none, phyl_meaning_* and key_pile are the block's other words (RaidLogic.phylactery_word / phylactery_meaning).",
       "detail_px": 14,
       "label_alpha": 0.85,
       "ward_head": "YOUR UNDEAD",
       "living_label": "LIVING",
       "enemy": "%d enemy",
-      "enemies": "%d enemies"
+      "enemies": "%d enemies",
+      "essence_meaning": "circle it: RAISE undead · leave by an exit: BANK it",
+      "phyl_none": "NO REVIVE · a death ends the raid",
+      "phyl_meaning_charged": "a death here revives her in place, once",
+      "phyl_meaning_none_1": "revives Relish in place, at most once per dungeon.",
+      "phyl_meaning_none_2": "The Ossuary Tower crafts it from essence.",
+      "key_pile": "grey ×9 = a corpse pile (bodies in it): walk close, it gives essence"
     },
     "break_wrap_min_px": 120,
     "warden_plate_alpha": 0.96,
     "banner_plate_alpha": 0.94,
     "door_plate_alpha": 0.86,
     "hint": {
-      "_doc": "The bottom-centre hint (the idle, trance and exit lines, and the idle sub-line) on a ground plate fitted to its lines: plate_alpha backs it, bottom_px is the plate's gap above the screen bottom (the danger frame's inner edge is 10 px in, so at least 20), pad_px its side margin, gap_px the space between a line and the plate's edge and between the lines. font_px and sub_font_px are the hint's and the sub-line's sizes. The held door's prompt (door_prompt_h tall) sits door_gap_px over the plate's top. banner_plate_alpha backs the cue and wake banners, door_plate_alpha the held door's prompt.",
+      "_doc": "The bottom-centre hint (the idle, trance and exit lines, and the idle sub-line) on a ground plate fitted to its lines: plate_alpha backs it, bottom_px is the plate's gap above the screen bottom (the danger frame's inner edge is 10 px in, so at least 20), pad_px its side margin, gap_px the space between a line and the plate's edge and between the lines. font_px and sub_font_px are the hint's and the sub-line's sizes. The held door's prompt (door_prompt_h tall) sits door_gap_px over the plate's top. banner_plate_alpha backs the cue and wake banners, door_plate_alpha the held door's prompt. The words: trance_text, exit_text, idle_text, idle_sub_text (RaidLogic.hint_text / hint_sub_text).",
       "plate_alpha": 0.96,
       "bottom_px": 24,
       "pad_px": 14,
@@ -77,18 +83,24 @@
       "sub_font_px": 15,
       "gap_px": 4,
       "door_gap_px": 8,
-      "door_prompt_h": 28
+      "door_prompt_h": 28,
+      "trance_text": "DRAG A LOOP AROUND ESSENCE · each mote inside becomes one undead",
+      "exit_text": "AT EXIT · RETREAT banks your loot",
+      "idle_text": "HOLD SPACE · circle essence to RAISE undead",
+      "idle_sub_text": "your undead fight on their own · keep Relish safe and raise more"
     },
     "pip_row_max": 24,
     "pip_px": 8.0,
     "label_px": 13,
     "value_px": 15,
     "cues": {
-      "_doc": "One-line onboarding cues shown through the banner. max_wait_s: a cue queued behind a visible banner is dropped after this many real seconds. first_mote_s: how long the first-mote cue shows. undead_s / undead_delay_s: the 'your undead fight on their own' cue's time and the scene seconds after which it is due even with no kill.",
+      "_doc": "One-line onboarding cues shown through the banner. max_wait_s: a cue queued behind a visible banner is dropped after this many real seconds. first_mote_s: how long the first-mote cue shows. undead_s / undead_delay_s: the 'your undead fight on their own' cue's time and the scene seconds after which it is due even with no kill. first_mote_text / undead_text are the two cues' words.",
       "max_wait_s": 6.0,
       "first_mote_s": 4.0,
       "undead_s": 3.5,
-      "undead_delay_s": 5.0
+      "undead_delay_s": 5.0,
+      "first_mote_text": "ESSENCE IN YOUR SLOTS · circle it to RAISE undead · or carry it out an exit to BANK it",
+      "undead_text": "YOUR UNDEAD FIGHT ON THEIR OWN · keep Relish safe and raise more"
     },
     "legend": {
       "_doc": "The control legend (bottom left, above the trance meter): open every raid until a fort has been taken, then a collapsed chip the player can reopen. Sizes in px; plate_alpha backs it; chip_h is at least 44 (touch target).",
@@ -104,8 +116,15 @@
       "assist_on": "on"
     },
     "retreat": {
-      "_doc": "The retreat panel (RaidRetreatPanel): two columns, RETREAT NOW and IF RELISH FALLS. w is the plate's width; pad its inner margin; title_px/head_px/line_px the title, column-head and line sizes (no text under 13 px); line_h one line's pitch; col_gap the space between the columns; btn_w/btn_h/btn_gap the RETREAT and STAY buttons (btn_h is at least 44, a touch target). The words are RaidLogic.retreat_keep_lines / retreat_fall_lines; keep_prefix leads the left column's count line ('so far: ').",
+      "_doc": "The retreat panel (RaidRetreatPanel): two columns, RETREAT NOW and IF RELISH FALLS. w is the plate's width; pad its inner margin; title_px/head_px/line_px the title, column-head and line sizes (no text under 13 px); line_h one line's pitch; col_gap the space between the columns; btn_w/btn_h/btn_gap the RETREAT and STAY buttons (btn_h is at least 44, a touch target). The words are RaidLogic.retreat_keep_lines / retreat_fall_lines; keep_prefix leads the left column's count line ('so far: '). head_* are the column heads; keep_all, keep_none, fort_yours, fort_vei and fall_revive the lines.",
       "keep_prefix": "so far: ",
+      "head_keep": "RETREAT NOW",
+      "head_fall": "IF RELISH FALLS",
+      "keep_all": "You keep everything you found and all carried essence.",
+      "keep_none": "nothing found yet",
+      "fort_yours": "The fort stays yours.",
+      "fort_vei": "The fort stays Vei's · you can come back and break its warden.",
+      "fall_revive": "a phylactery charge revives her here (at most once per dungeon)",
       "plate_alpha": 1.0,
       "w": 820,
       "pad": 18,
@@ -119,11 +138,29 @@
       "btn_gap": 24
     },
     "goal": {
-      "_doc": "The goal block (top centre, where the warden's block sits, before the wake and after the warden falls; a held raid keeps it the whole run): the goal line (goal_px), the route line (route_px) and the rows under them (row_px), on a ground plate at plate_alpha. The words are RaidLogic.goal_line / route_line and WardenLogic.break_line / takes_line / counter_line.",
+      "_doc": "The goal block (top centre, where the warden's block sits, before the wake and after the warden falls; a held raid keeps it the whole run): the goal line (goal_px), the route line (route_px) and the rows under them (row_px), on a ground plate at plate_alpha. The words are RaidLogic.goal_line / route_line and WardenLogic.break_line / takes_line / counter_line; the goal, route, no-army, rooms-seen and push-line (push_*, risk_*) words live in this block ('%s' / '%d' are filled by the code).",
       "goal_px": 17,
       "route_px": 14,
       "row_px": 15,
-      "plate_alpha": 0.96
+      "plate_alpha": 0.96,
+      "goal_break": "GOAL · break %s to take %s",
+      "goal_held": "YOUR FORT · clear its counter-garrison for loot",
+      "chest_row": "open the chest to take the fort",
+      "no_army": "NO UNDEAD WITH YOU AND NOTHING TO RAISE · retreat, then send WAR here or bring big undead",
+      "no_army_short": "NO UNDEAD, NOTHING TO RAISE · retreat, then send WAR here or bring big undead",
+      "route_here": "you are in the warden's room",
+      "route_ahead_one": "the warden is %d room on%s",
+      "route_ahead_many": "the warden is %d rooms on%s",
+      "route_next_door": " · next door %s",
+      "route_room": "room %d of %d · %s",
+      "rooms_seen": "%d of %d rooms seen",
+      "push_living": "LIVING %d left",
+      "push_at_exit": "AT EXIT",
+      "push_exit": "exit %s",
+      "push_exit_next": "exit %s, next room",
+      "push_exit_rooms": "exit %s, %d rooms",
+      "risk_none": "nothing at risk",
+      "risk_some": "%s at risk"
     }
   },
   "trace_notch": {
@@ -138,7 +175,13 @@
     "ring_s": 1.1,
     "wall_flash_s": 1.4,
     "wall_flash_intensity": 1.7,
-    "mote_ring_px": 46.0
+    "mote_ring_px": 46.0,
+    "_doc": "The held-fort clear's banner words (RaidLogic.held_banner / held_payoff / held_map_effect): banner_text with no fort name, banner_holds with one ('%s' the fort), payoff the loot line ('%d' relics, remnants, essence) and payoff_husk its tail when the roll gave a husk, map_effect the counter-garrison mass this run killed ('%d').",
+    "banner_text": "COUNTER-GARRISON CLEARED",
+    "banner_holds": "COUNTER-GARRISON CLEARED · %s holds",
+    "payoff": "+%d relics · +%d remnants · +%d essence",
+    "payoff_husk": " · +%d husk",
+    "map_effect": "on the map: counter-garrison −%d"
   },
   "checkpoint": {
     "banner_s": 2.5
@@ -181,7 +224,7 @@
     "tag": "· guards ×{mult}"
   },
   "death": {
-    "_doc": "The death frame (RaidDeathCard): card_s is how long the death beat holds the card before the result goes out (the measuring bot never waits, it keeps the 0.9 s beat; 0 = no card), skip_after_s when a click or SPACE may end it early, fade_s its fade-in (none under reduced motion). The AFTER row's words (RaidLogic.death_next_row, read by the death card, the retreat panel's IF RELISH FALLS column and Vei's loss card): after_clone when a clone wakes her, after_unmade when she is unmade, after_in then the wait (' in 10 min') when the seed gives one, after_shock last for an unmade death (the town takes the morale shock).",
+    "_doc": "The death frame (RaidDeathCard): card_s is how long the death beat holds the card before the result goes out (the measuring bot never waits, it keeps the 0.9 s beat; 0 = no card), skip_after_s when a click or SPACE may end it early, fade_s its fade-in (none under reduced motion). The AFTER row's words (RaidLogic.death_next_row, read by the death card, the retreat panel's IF RELISH FALLS column and Vei's loss card): after_clone when a clone wakes her, after_unmade when she is unmade, after_in then the wait (' in 10 min') when the seed gives one, after_shock last for an unmade death (the town takes the morale shock). label_* are the card's row labels, cause_* / tell_* the KILLED BY and MISSED words ('%s' the warden's name), nothing / lost_bigs / shut_text the LOST, BANKED and SHUT IN texts.",
     "card_s": 4.5,
     "skip_after_s": 0.8,
     "fade_s": 0.3,
@@ -191,13 +234,55 @@
     "after_clone":"wakes at Covington",
     "after_unmade": "unmade · reforms at Covington",
     "after_in": " in ",
-    "after_shock": " · the town takes a morale shock"
+    "after_shock": " · the town takes a morale shock",
+    "label_killed_by": "KILLED BY",
+    "label_missed": "MISSED",
+    "label_banked": "BANKED",
+    "label_lost": "LOST",
+    "label_after": "AFTER",
+    "label_shut": "SHUT IN",
+    "cause_unnamed": "The warden",
+    "cause_slam": "%s's slam",
+    "cause_toll": "%s's toll",
+    "cause_lunge": "%s's lunge",
+    "cause_bash": "%s's bash",
+    "cause_rush": "%s's rush",
+    "cause_fire": "%s's fire",
+    "cause_hound": "%s's hounds",
+    "cause_pack": "%s's pack",
+    "cause_living": "the living",
+    "cause_wound": "a wound",
+    "tell_slam": "the swing",
+    "tell_toll": "the ring at your feet",
+    "tell_lunge": "the line",
+    "tell_arc": "the lit arc",
+    "tell_fire": "the marked ground",
+    "killed_missed": "%s · missed: %s",
+    "nothing": "nothing",
+    "lost_bigs": "%d big undead",
+    "shut_text": "%s · lost at the cache"
   },
   "clear": {
-    "_doc": "The clear card (RaidClearCard): when Relish opens the warden's chest the run holds one card naming what was won (the fort is yours, the warden broken, the loot, what comes next). card_s is the longest it holds before the win goes out, skip_after_s when a click or SPACE may end it early, fade_s its fade-in (none under reduced motion). The measuring bot never sees it (it keeps the wardens.victory_s banner beat).",
+    "_doc": "The clear card (RaidClearCard): when Relish opens the warden's chest the run holds one card naming what was won (the fort is yours, the warden broken, the loot, what comes next). card_s is the longest it holds before the win goes out, skip_after_s when a click or SPACE may end it early, fade_s its fade-in (none under reduced motion). The measuring bot never sees it (it keeps the wardens.victory_s banner beat). title ('%s' the fort), label_* and the taken / loot_none / next_text rows are its words (RaidLogic.clear_card_title / clear_card_rows).",
     "card_s": 12.0,
     "skip_after_s": 0.8,
-    "fade_s": 0.3
+    "fade_s": 0.3,
+    "title": "%s IS YOURS",
+    "label_broken": "BROKEN",
+    "label_taken": "TAKEN",
+    "label_loot": "LOOT",
+    "label_use": "USE",
+    "label_next": "NEXT",
+    "taken_text": "its living become your dead · it joins your realm as a held fort",
+    "loot_none": "nothing this time",
+    "next_text": "Vei contests it once its grace runs out · send WAR there to hold it"
+  },
+  "loot_uses": {
+    "_doc": "What each kind of loot is for (RaidLogic.loot_uses_line), read by the clear card's USE row and the retreat panel's dim line: relics, husk (a husk found: it wins over remnants), remnants, essence.",
+    "relics": "relics are spent when you build",
+    "husk": "husk: the frame a big undead is raised in · lay it on the crypt slab and slot remnants to shape it",
+    "remnants": "remnants feed the crypt slab, which raises big undead",
+    "essence": "essence pays for backups (Ossuary Tower)"
   },
   "revive": {
     "crack_s": 1.1,
@@ -450,7 +535,19 @@
     "plate_gap_px": 4.0,
     "cache_off_px": 12.0,
     "park_px": 22.0,
-    "zone_pad_px": 8.0
+    "zone_pad_px": 8.0,
+    "_doc_words": "The held door's words (RaidLogic.held_door_*; '%s' is the big's name): entry the world label and banner, prompt the plate's prompt, label_* the world label by state, row_* the HUD row, retreat_* the retreat panel's line (a leading newline; the panel drops it).",
+    "entry": "HELD DOOR · a big on the plate holds it · it stays behind · the warden fight is harder without it",
+    "prompt": "AT THE HELD DOOR · click a big to send it (the plate sends the nearest) · it stays shut in until the warden falls · a retreat or a death loses it",
+    "label_held": "HELD · %s",
+    "label_sent": "SENT · %s",
+    "label_shut": "SHUT IN · %s",
+    "label_freed": "REJOINS · %s",
+    "row_held": "HELD DOOR · %s holds it · leaving the room shuts it in until the warden falls",
+    "row_shut": "SHUT IN · %s · rejoins when the warden falls · a retreat or a death loses it",
+    "retreat_sent": "\n%s is sent to the plate · lost if you retreat.",
+    "retreat_held": "\n%s is on the plate · lost if you retreat.",
+    "retreat_shut": "\n%s is shut in at the cache: a retreat loses it."
   },
   "floor": {
     "tint": "contour"

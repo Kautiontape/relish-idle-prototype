@@ -253,7 +253,7 @@ func _record(exit: String) -> Dictionary:
 		"bot": RaidAutopilot.enabled(), "outcome": exit, "closed": closing,
 		"retreat_by": _raid.endings.retreat_by if exit == "retreated" and _raid.endings != null else "",   # a gap's result is a retreat too (retreat_by "gap")
 		"assist": RaidLogic.assist_on,   # LONGER WARNINGS was on at the row: runs with it on skew the miss and tell analysis
-		"killed_by": (src if src != "" else "wound") if died else "", "missed_tell": RaidLogic.death_tell(src) if died else "",
+		"killed_by": (src if src != "" else "wound") if died else "", "missed_tell": RaidLogic.death_tell(_raid.rcfg().get("death", {}), src) if died else "",
 		"scene_s": snappedf(_scene_s, 0.01), "wall_live_s": snappedf(float(_wall_live_ms) / 1000.0, 0.01),
 		"wall_s": snappedf(float(Time.get_ticks_msec() - _t0_ms) / 1000.0, 0.01),
 		"raises": _raid.raises, "relish_hits": rel.hits.duplicate() if rel != null and is_instance_valid(rel) else {},

@@ -28,6 +28,8 @@ var btn := Vector2(150.0, 44.0)   # 44 px tall: the touch-target floor
 var btn_gap := 24.0
 var plate_alpha := 0.97   # the panel's ground plate; a test holds its dim text at 4.5:1 over the brightest world colour
 
+var head_keep := ""     # the column heads (hud.retreat head_keep / head_fall), set by configure
+var head_fall := ""
 var title := "LEAVE THE RAID?"
 var cols: Array = [[], []]
 var _retreat_rect := Rect2()
@@ -55,6 +57,8 @@ func configure(c: Dictionary) -> void:
 	btn = Vector2(float(c.get("btn_w", btn.x)), float(c.get("btn_h", btn.y)))
 	btn_gap = float(c.get("btn_gap", btn_gap))
 	plate_alpha = float(c.get("plate_alpha", plate_alpha))
+	head_keep = str(c.get("head_keep", head_keep))
+	head_fall = str(c.get("head_fall", head_fall))
 
 
 ## Show the panel with `p_cols` = [left, right] (RaidLogic.retreat_keep_lines, retreat_fall_lines), sized to
@@ -193,7 +197,7 @@ func _draw() -> void:
 	draw_string(font, Vector2(pad, pad + 20.0), title, HORIZONTAL_ALIGNMENT_LEFT, w - 2.0 * pad, title_px, Palette.c("vei"))
 	var cw := _col_w()
 	var top := pad + 30.0
-	var heads := [RaidLogic.RETREAT_HEAD, RaidLogic.FALL_HEAD]
+	var heads := [head_keep, head_fall]
 	var head_keys := ["relish", "danger"]
 	for c in 2:
 		var x := pad + float(c) * (cw + col_gap)

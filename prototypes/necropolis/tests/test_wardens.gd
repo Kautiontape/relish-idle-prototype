@@ -448,18 +448,18 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(WardenLogic.pack_label(pk, 3, 5) == "HOUNDS 3 of 5 · it takes ×%s" % str(snappedf(float(pk["ward_mult"]), 0.01)), "the HUD row while they run: " + WardenLogic.pack_label(pk, 3, 5))
 	t.ok(WardenLogic.pack_label(pk, 0, 5) == "", "and nothing once they are down")
 	t.ok(WardenLogic.pack_teach(pk).begins_with("at 2/3 and 1/3 of its strength it calls %d hounds" % int(pk["size"])), "the teach row from the spec: " + WardenLogic.pack_teach(pk))
-	t.ok(RaidLogic.death_cause("hound", "The Huntsman") == "The Huntsman's hounds", "the death card names the hounds")
-	t.ok(RaidLogic.death_cause("pack", "The Bellringer") == "The Bellringer's pack", "and any other warden's pack")
+	t.ok(RaidLogic.death_cause(cfg["death"], "hound", "The Huntsman") == "The Huntsman's hounds", "the death card names the hounds")
+	t.ok(RaidLogic.death_cause(cfg["death"], "pack", "The Bellringer") == "The Bellringer's pack", "and any other warden's pack")
 	# 3c: the death card names the attack and the tell she missed
-	t.ok(RaidLogic.death_line("slam", "The Bellringer") == "The Bellringer's slam · missed: the swing", "the card names the missed tell: " + RaidLogic.death_line("slam", "The Bellringer"))
-	t.ok(RaidLogic.death_line("toll", "The Bellringer") == "The Bellringer's toll · missed: the ring at your feet" and RaidLogic.TELL_ATTACKS.has("toll")
-		and not RaidLogic.chain_soaks("toll", true), "a toll death has its own line, and the toll stays a tell-attack: " + RaidLogic.death_line("toll", "The Bellringer"))
-	t.ok(RaidLogic.death_line("lunge", "The Huntsman") == "The Huntsman's lunge · missed: the line"
-		and RaidLogic.death_line("rush", "The Shieldwall") == "The Shieldwall's rush · missed: the lit arc"
-		and RaidLogic.death_line("bash", "The Shieldwall") == "The Shieldwall's bash · missed: the lit arc"
-		and RaidLogic.death_line("fire", "The Pyre-priest") == "The Pyre-priest's fire · missed: the marked ground", "every warden attack's tell")
-	t.ok(RaidLogic.death_line("hound", "The Huntsman") == "The Huntsman's hounds" and RaidLogic.death_line("living", "") == "the living"
-		and RaidLogic.death_line("", "x") == "a wound", "no tell, no missed: (a pack, the living, a wound)")
+	t.ok(RaidLogic.death_line(cfg["death"], "slam", "The Bellringer") == "The Bellringer's slam · missed: the swing", "the card names the missed tell: " + RaidLogic.death_line(cfg["death"], "slam", "The Bellringer"))
+	t.ok(RaidLogic.death_line(cfg["death"], "toll", "The Bellringer") == "The Bellringer's toll · missed: the ring at your feet" and RaidLogic.TELL_ATTACKS.has("toll")
+		and not RaidLogic.chain_soaks("toll", true), "a toll death has its own line, and the toll stays a tell-attack: " + RaidLogic.death_line(cfg["death"], "toll", "The Bellringer"))
+	t.ok(RaidLogic.death_line(cfg["death"], "lunge", "The Huntsman") == "The Huntsman's lunge · missed: the line"
+		and RaidLogic.death_line(cfg["death"], "rush", "The Shieldwall") == "The Shieldwall's rush · missed: the lit arc"
+		and RaidLogic.death_line(cfg["death"], "bash", "The Shieldwall") == "The Shieldwall's bash · missed: the lit arc"
+		and RaidLogic.death_line(cfg["death"], "fire", "The Pyre-priest") == "The Pyre-priest's fire · missed: the marked ground", "every warden attack's tell")
+	t.ok(RaidLogic.death_line(cfg["death"], "hound", "The Huntsman") == "The Huntsman's hounds" and RaidLogic.death_line(cfg["death"], "living", "") == "the living"
+		and RaidLogic.death_line(cfg["death"], "", "x") == "a wound", "no tell, no missed: (a pack, the living, a wound)")
 	# Step 4b (option A): a warden's tell-attacks strike her directly; the chain soaks everything else
 	var bypass := true
 	for src in ["slam", "lunge", "bash", "rush", "fire"]:

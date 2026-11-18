@@ -52,6 +52,7 @@ Boss result: the v2 boss result (STATE-API 8.2) from `VeiFronts.boss_result`, bu
 
 ## Tuning knobs (all in `configs/raid.json`)
 
+- **The raid's words** (RaidLogic's player-facing text) live in raid.json, not in code: `hud.hint`, `hud.cues`, `hud.stats`, `hud.goal`, `hud.retreat`, `death`, `clear`, `held`, `held_door` and `loot_uses` (each `_doc` names its keys). RaidLogic's helpers take the block as their first argument (`words`); `tests/test_raid_config.gd` WORDS / FORMATS pin them.
 - `relish`: hp 30, speed 240, radius, i-frames.
 - `trance`: time_scale 0.35, max_hold 4.0, cooldown 6.0, lockout 1.0, dim alpha.
 - `essence`: lifetime 12s, drift radius/speed, stir radius 90, stir orb count 2-4, pop speed.

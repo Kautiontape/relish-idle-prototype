@@ -254,6 +254,8 @@ func on_chest_opened(c: RaidChest) -> void:
 	var card := RaidClearCard.new()
 	_raid.hud.add_child(card)
 	cards.append(card)
-	card.setup(RaidLogic.clear_card_title(_raid.fort_name()), RaidLogic.clear_card_rows(warden_name, won))
+	var clear_words: Dictionary = _raid.rcfg().get("clear", {})
+	card.setup(RaidLogic.clear_card_title(clear_words, _raid.fort_name()),
+		RaidLogic.clear_card_rows(clear_words, _raid.rcfg().get("loot_uses", {}), warden_name, won))
 	card.dismissed.connect(finish_win)
 	_raid.get_tree().create_timer(float(_raid.rcfg().get("clear", {}).get("card_s", 12.0))).timeout.connect(finish_win)

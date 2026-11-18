@@ -302,13 +302,14 @@ func death_inputs() -> Dictionary:
 ## The death card's rows: what killed her, what the last checkpoint banked, what is lost.
 func death_rows() -> Array:
 	var wname: String = _raid.warden_run.warden_name if _raid.warden_run != null else ""
-	var cause := RaidLogic.death_cause(_raid.relish.last_hit_src, wname)
+	var dw: Dictionary = _raid.rcfg().get("death", {})
+	var cause := RaidLogic.death_cause(dw, _raid.relish.last_hit_src, wname)
 	var di := death_inputs()
 	var ub: Dictionary = di["unbanked"]
 	var shut: String = di["shut"]
 	var party_n: int = di["party_n"]
-	return RaidLogic.death_rows_with_shut(RaidLogic.death_card_rows(cause, RaidLogic.loot_counts(banked), ub, party_n,
-		RaidLogic.death_tell(_raid.relish.last_hit_src), RaidLogic.death_next_row(_raid.seed_data, _raid.rcfg().get("death", {}))), shut)
+	return RaidLogic.death_rows_with_shut(dw, RaidLogic.death_card_rows(dw, cause, RaidLogic.loot_counts(banked), ub, party_n,
+		RaidLogic.death_tell(dw, _raid.relish.last_hit_src), RaidLogic.death_next_row(_raid.seed_data, dw)), shut)
 
 
 # ------------------------------------------------------------------- result ---
