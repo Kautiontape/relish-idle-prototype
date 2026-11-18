@@ -448,6 +448,12 @@
     "essence": "essence pays for backups (Ossuary Tower)"
   },
   "revive": {
+    "_doc": "A phylactery charge reviving Relish in place (RaidEndings.try_phylactery). crack_s / crack_radius_px: the violet crack ring. banner_s: how long the banner under the HUD's banner row shows (RaidLogic.revive_banner builds it). banner: the line, '%s' filled by left_none (no charge left; at most 1 per dungeon), left_one or left_fmt ('%d' charges left). mark_*: the revive mark.",
+    "banner_s": 4.0,
+    "banner": "A PHYLACTERY CRACKS · Relish stands again · %s",
+    "left_none": "no revive left in this dungeon",
+    "left_one": "1 more revive left in this dungeon",
+    "left_fmt": "%d more revives left in this dungeon",
     "crack_s": 1.1,
     "crack_radius_px": 90.0,
     "mark_radius_px": 19.0,

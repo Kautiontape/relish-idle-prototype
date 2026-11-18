@@ -499,6 +499,14 @@ static func revives_left(revived: int, seed: Dictionary) -> int:
 	return maxi(0, mini(int(seed.get("phylactery_charges", 0)), int(seed.get("phylactery_max_per_dungeon", 0))) - revived)
 
 
+## The banner when a phylactery charge revives Relish in a raid: `words` is raid.json's `revive` block, `left`
+## the charges still spendable after this one (revives_left). The glossary's terms: a phylactery charge revives
+## Relish in place, at most once per dungeon.
+static func revive_banner(words: Dictionary, left: int) -> String:
+	var tail := str(words.get("left_none", "")) if left <= 0 else (str(words.get("left_one", "")) if left == 1 else word_fmt(words, "left_fmt", [left]))
+	return word_fmt(words, "banner", [tail])
+
+
 ## A BANKED / UNBANKED line from loot_counts / unbanked: the non-zero kinds only ("relics 1 ·
 ## remnants 2 · essence 5"); "" when every kind is zero (the HUD shows one dim word then).
 static func loot_line(c: Dictionary) -> String:

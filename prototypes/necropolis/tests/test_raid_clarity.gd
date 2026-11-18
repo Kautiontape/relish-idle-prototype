@@ -22,7 +22,22 @@ func run() -> int:
 	_hit_word_tests(t)
 	_warden_note_tests(t)
 	_stat_block_tests(t)
+	_revive_banner_tests(t)
 	return t.failures
+
+
+## A phylactery revive in a raid says so (RaidLogic.revive_banner, raid.json revive words).
+func _revive_banner_tests(t: TestUtil) -> void:
+	t.suite("raid_revive_banner")
+	var rv: Dictionary = TestUtil.load_json("res://configs/raid.json")["revive"]
+	var sd := {"phylactery_charges": 1, "phylactery_max_per_dungeon": 1}
+	t.ok(RaidLogic.revive_banner(rv, RaidLogic.revives_left(1, sd)) == "A PHYLACTERY CRACKS · Relish stands again · no revive left in this dungeon", "the one charge spent: none left: " + RaidLogic.revive_banner(rv, 0))
+	t.ok(RaidLogic.revive_banner(rv, 1) == "A PHYLACTERY CRACKS · Relish stands again · 1 more revive left in this dungeon", "one more: said in the singular")
+	t.ok(RaidLogic.revive_banner(rv, 2).ends_with("2 more revives left in this dungeon"), "two more")
+	t.ok(RaidLogic.revive_banner({}, 0) == "", "a missing word stays blank, never a throw")
+	t.ok(float(rv["banner_s"]) >= 3.0, "it holds long enough to read")
+	for s in [RaidLogic.revive_banner(rv, 0), RaidLogic.revive_banner(rv, 1)]:
+		t.ok(not s.contains("the run") and not s.contains("backup"), "glossary words (no 'the run'): " + s)
 
 
 ## The loop's screen-space plates (RaidLogic.live_plate_rect / result_plate_rects): always inside the viewport by

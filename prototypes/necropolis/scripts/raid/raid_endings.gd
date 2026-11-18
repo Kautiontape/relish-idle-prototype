@@ -251,6 +251,7 @@ func try_phylactery() -> bool:
 	RaidFx.crack(_raid.fx_root, relish.global_position, Palette.c("relish"),
 		float(rc.get("crack_radius_px", 90.0)), float(rc.get("crack_s", 1.1)))
 	_raid.hud.flash(Palette.c("relish"))
+	_raid.hud.show_banner(RaidLogic.revive_banner(rc, phylactery_left()), float(rc.get("banner_s", 4.0)))   # says she was saved
 	if _raid._standalone:
 		print("RAID_REVIVE n=%d left=%d hp=%.1f" % [revived, phylactery_left(), relish.hp])
 		print("REVIVE_DEMO frame=%d charges_left=%d" % [Engine.get_process_frames(), phylactery_left()])

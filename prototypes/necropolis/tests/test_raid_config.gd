@@ -90,12 +90,13 @@ const WORDS := [
 	"vei_fight.card_title_win", "vei_fight.card_title_lose", "vei_fight.card_sub_win", "vei_fight.card_time", "vei_fight.card_backups",
 	"vei_fight.card_of", "vei_fight.card_none", "vei_fight.card_party", "vei_fight.card_backlog", "vei_fight.card_backlog_spent",
 	"vei_fight.card_button",
+	"revive.banner", "revive.left_none", "revive.left_one", "revive.left_fmt",
 ]
 
 ## The death card's numbers (raid.json death, read by RaidDeathCard and the clear card): each must be a number above zero.
 const NUMBERS := [
 	"death.card_w", "death.card_pad", "death.label_w", "death.value_px", "death.label_px", "death.foot_px", "death.sub_px",
-	"death.sub_h", "death.backdrop_a", "death.plate_a", "hud.retreat.margin", "hud.retreat.gap",
+	"death.sub_h", "death.backdrop_a", "death.plate_a", "hud.retreat.margin", "hud.retreat.gap", "revive.banner_s",
 	"hud.stats.plate_w", "hud.stats.label_col", "hud.stats.value_pad", "hud.stats.row_px",
 	"wardens.archetypes.bellringer.weak_point.counter_needed_from_tier", "wardens.archetypes.huntsman.weak_point.counter_needed_from_tier",
 	"wardens.archetypes.shieldwall.weak_point.counter_needed_from_tier", "wardens.archetypes.pyre_priest.weak_point.counter_needed_from_tier",
@@ -141,6 +142,7 @@ const FORMATS := {
 	"hud.text.checkpoint": ["%d", "%d", "%d", "%d", "%d"],
 	"vei_loss.keep_text": ["%d"], "relish.word_struck": ["%d"], "trace_notch.grade_head": ["%d", "%s"], "trace_notch.tier_tail": ["%d", "%s", "%s"],
 	"trace_notch.live_head": ["%d", "%s"], "trace_notch.live_tail": ["%d", "%s"], "trace_notch.live_ladder": ["%d", "%d"],
+	"revive.banner": ["%s"], "revive.left_fmt": ["%d"],
 	"vei_fight.banner_court": ["%d"], "vei_fight.banner_front": ["%s", "%d", "%d"], "vei_fight.banner_crack": ["%s", "%d", "%s"],
 	"vei_fight.lane_have": ["%d", "%d"], "vei_fight.lane_short": ["%d"], "vei_fight.safe_cue": ["%d"], "vei_fight.hud_need": ["%d"],
 	"vei_fight.hud_ferried": ["%.2f"], "vei_fight.hud_left": ["%d", "%s"], "vei_fight.hud_cracked": ["%d"], "vei_fight.eta": ["%d"],
