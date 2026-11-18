@@ -48,12 +48,13 @@ func _tip_rect(t: TestUtil) -> void:
 		t.ok(not (case[2] as Rect2).intersects(r), "%s: and the open card" % case[0])
 	# a card that really is in the way: the card-less answer lands on it, the card-aware one avoids it and the plates
 	var wide := Rect2(600, 12, 1000, 888)
-	var sparse: Array = [Rect2(0, 0, 860, 60)]
+	var sparse: Array = [Rect2(0, 0, 860, 60), Rect2(0, 60, 300, 100)]
 	var far := Rect2(500, 34, 68, 22)
+	var right_card := Rect2(800, 12, 800, 888)
 	var bare := HudLogic.tip_rect(far, tip, sparse, vp)
-	t.ok(bare.intersects(wide), "without the card the plate would sit on it: %s" % str(bare))
-	var dodged := HudLogic.tip_rect(far, tip, sparse, vp, wide)
-	t.ok(not dodged.intersects(wide) and not dodged.intersects(sparse[0]) and view.encloses(dodged), "with the card passed it clears the card and the plate, on screen: %s" % str(dodged))
+	t.ok(bare.intersects(right_card), "without the card the plate would sit on it: %s" % str(bare))
+	var dodged := HudLogic.tip_rect(far, tip, sparse, vp, right_card)
+	t.ok(not dodged.intersects(right_card) and not dodged.intersects(sparse[0]) and not dodged.intersects(sparse[1]) and view.encloses(dodged), "with the card passed it clears the card and the plates, on screen: %s" % str(dodged))
 	# the full column and a card across the map: nothing is clear, so the fallback applies (least overlap, clamped on screen)
 	var cramped := HudLogic.tip_rect(odds, tip, plates, vp, wide)
 	t.ok(HudLogic.tip_rect(odds, tip, plates, vp).intersects(wide) and view.encloses(cramped) and cramped.size == tip, "no clear place: the least-overlapping candidate, still on screen: %s" % str(cramped))
