@@ -253,6 +253,20 @@ func _eta_and_chip(t: TestUtil) -> void:
 	t.ok(not RelishLogic.chip_inline(290.0, [100.0, 100.0], 6.0, 8.0, 490.0), "chip: a long travelling name with two buttons wraps")
 	t.near(RelishLogic.chip_row_w(200.0, [100.0, 80.0], 6.0, 8.0), 408.0, 1e-9, "chip row width: pad both sides + name + each button and its gap")
 	t.ok(RelishLogic.chip_inline(250.0, [100.0, 100.0], 6.0, 8.0, 490.0) == (16.0 + 250.0 + 212.0 <= 490.0), "chip: inline iff the row width is within max")
+	# the longest fort name, travelling, with GO HOME and CANCEL, fits one row at the chip's font
+	var cc: Dictionary = MapLogic.cfg()["controls"]
+	var font := ThemeDB.fallback_font
+	var worst := 0.0
+	var worst_name := ""
+	for f in TestUtil.load_json("res://configs/world.json")["forts"]:
+		var txt := RelishLogic.chip_text({"state": "travelling", "at": "covington", "target": str(f["id"]), "eta_s": 754.0}, {str(f["id"]): str(f["name"])})
+		var w := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, int(cc["chip_font_px"])).x
+		if w > worst:
+			worst = w
+			worst_name = str(f["name"])
+	var bw := float(cc["chip_button_w_px"])
+	var row := RelishLogic.chip_row_w(worst, [bw, bw], float(cc["chip_hsep_px"]), float(cc["chip_pad_px"]))
+	t.ok(worst > 0.0 and RelishLogic.chip_inline(worst, [bw, bw], float(cc["chip_hsep_px"]), float(cc["chip_pad_px"]), float(cc["chip_max_w_px"])), "chip: the longest fort name (%s, %.0f px row) fits chip_max_w_px %d" % [worst_name, row, int(cc["chip_max_w_px"])])
 
 
 func _reasons(t: TestUtil) -> void:
@@ -327,11 +341,11 @@ func _actions(t: TestUtil) -> void:
 	t.ok(RelishLogic.actions_sig(b) == RelishLogic.actions_sig(RelishLogic.fort_actions(_fort("ashgate", false, "not_at_fort"), {"state": "travelling", "at": "covington", "target": "ashgate", "eta_s": 2.1}, auto, names, CM)), "but not with a ticking ETA")
 	# the line above DESCEND: the count, or the warning in its key; the structure key ignores text and key
 	var di := c.find_custom(func(i): return i["act"] == "descend")
-	t.ok(di > 0 and c[di - 1]["kind"] == "line" and c[di - 1]["text"] == "2 undead and 1 big undead come in" and not c[di - 1].has("key"), "a count line directly above DESCEND")
+	t.ok(di > 0 and not c.any(func(i): return str(i["text"]).contains("come in")) and not c[di - 1].has("key"), "no warning: no count line above DESCEND")
 	var warned := RelishLogic.fort_actions(_fort("ashgate", true, ""), there, auto, names,
 		{"ci": {"garrison": 0, "starter": 0, "bigs": 0, "total": 0}, "warn": {"text": "No undead come in. X", "key": "danger"}})
 	var wdi := warned.find_custom(func(i): return i["act"] == "descend")
-	t.ok(warned[wdi - 1]["text"] == "No undead come in. X" and warned[wdi - 1]["key"] == "danger", "the warning replaces the count, with its key")
+	t.ok(warned[wdi - 1]["text"] == "No undead come in. X" and warned[wdi - 1]["key"] == "danger", "the warning sits above DESCEND, with its key")
 	t.ok(RelishLogic.actions_sig(warned) == RelishLogic.actions_sig(c), "the structure key ignores the line's text and key")
 
 

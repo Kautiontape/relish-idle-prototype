@@ -392,3 +392,17 @@ static func label_key(rev: int, zoom: float, tier: String, forts: int, panel := 
 ## Refresh runs when it changes.
 static func legend_key(area: Vector2, open: bool, open_user: int, chip: Rect2, valve: Rect2, rows: int, min_h: float) -> Array:
 	return [area, open, open_user, chip, valve, rows, roundf(min_h * 100.0)]
+
+
+## How the legend's rows draw for `mode` ("full", "compact", "closed") and the height they settled
+## at (0: not measured yet). {visible, alpha}: the rows stay laid out until measured once (hidden
+## rows measure one word per line), but a closed legend never shows them: alpha 0 until they hide.
+static func legend_rows_state(mode: String, settled_h: float) -> Dictionary:
+	var closed := mode == "closed"
+	return {"visible": not closed or settled_h <= 0.0, "alpha": 0.0 if closed else 1.0}
+
+
+## Whether the legend's cached key must be cleared: the rows' settled height was just first set
+## (0 before, positive now), so the layout is redone with it.
+static func legend_settled_first(prev_h: float, now_h: float) -> bool:
+	return prev_h <= 0.0 and now_h > 0.0

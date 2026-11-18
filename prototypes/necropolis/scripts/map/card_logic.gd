@@ -324,20 +324,15 @@ static func comes_plain_text(ci: Dictionary) -> String:
 	return s
 
 
-## "11 come in: garrison 2 (WAR) · starter 8 · big undead 1".
+## "from: garrison 2 (WAR) · starter 8 · big undead 1" (the plain line above it has the count).
 static func comes_in_text(ci: Dictionary) -> String:
-	return str(_c().get("comes_in_fmt", "%d %d %d %d")) % [ci["total"], ci["garrison"], ci["starter"], ci["bigs"]]
+	return str(_c().get("comes_in_fmt", "%d %d %d")) % [ci["garrison"], ci["starter"], ci["bigs"]]
 
 
 ## The tide bias as the card says it: 3.0 reads "3", 2.5 reads "2.5".
 static func bring_more_text(tide_bias: float) -> String:
 	var word := str(roundi(tide_bias)) if is_equal_approx(tide_bias, roundf(tide_bias)) else String.num(tide_bias)
 	return str(_c().get("bring_more_fmt", "%s")) % word
-
-
-## The pinned count line: "8 undead and 1 big undead come in".
-static func comes_count_text(ci: Dictionary) -> String:
-	return str(_c().get("comes_count_fmt", "%d %d")) % [int(ci["garrison"]) + int(ci["starter"]), ci["bigs"]]
 
 
 ## The descend dialog's text: the warning line, a blank line, then the ask.

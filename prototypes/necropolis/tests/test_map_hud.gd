@@ -124,6 +124,10 @@ func _clarity(t: TestUtil) -> void:
 	var far_chip := HudLogic.legend_place(Rect2(900, 200, 330, 120), valve, 12.0, 490.0, 300.0, 250.0, 40.0, true, 10.0)
 	t.ok(far_chip["mode"] == "full", "a chip beside the legend's columns does not bound it")
 	t.ok(HudLogic.legend_place(chip, valve, 12.0, 490.0, 300.0, 250.0, 40.0, false, 10.0)["mode"] == "closed", "not wanted open: the button")
+	t.ok(HudLogic.legend_rows_state("closed", 0.0)["visible"] and HudLogic.legend_rows_state("closed", 0.0)["alpha"] == 0.0, "closed and not yet measured: laid out to measure, but drawn at alpha 0")
+	t.ok(not HudLogic.legend_rows_state("closed", 120.0)["visible"] and HudLogic.legend_rows_state("closed", 120.0)["alpha"] == 0.0, "closed once measured: hidden")
+	t.ok(HudLogic.legend_rows_state("full", 0.0)["visible"] and HudLogic.legend_rows_state("compact", 120.0)["alpha"] == 1.0, "open: shown and opaque")
+	t.ok(HudLogic.legend_settled_first(0.0, 90.0) and not HudLogic.legend_settled_first(90.0, 92.0) and not HudLogic.legend_settled_first(0.0, 0.0), "the key is cleared only when the settled height is first set")
 	t.ok(not JSON.stringify(MapLogic.cfg().get("opening", {})).to_lower().contains("drown"), "the opening's lines do not say drown")
 	# the card rises to the screen's top only where the HUD's plates leave it room
 	t.ok(HudLogic.sidebar_top(1600.0, 338.0, 1000.0, 12.0, 150.0, 12.0) == 12.0, "1600 wide, plates end at 1000: the card starts at the top")

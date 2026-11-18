@@ -139,7 +139,7 @@ static func move_items(relish: Dictionary, id: String, here_text: String) -> Arr
 ## its reason in words), the haul line and its button. Items: {kind: "line"|"button", text, act, enabled}.
 ## `act` is "move", "cancel", "descend", "haul" or "haul_auto".
 ## `comes` is {ci: CardLogic.comes_in(), warn: CardLogic.comes_in_warning()}: the line above DESCEND
-## is the warning (with its key) when there is one, else the count of who comes in.
+## is the warning (with its key) when there is one, else none (the card's plain line has the count).
 static func fort_actions(fort: Dictionary, relish: Dictionary, haul: Dictionary, names: Dictionary, comes: Dictionary) -> Array:
 	var id := str(fort.get("id", ""))
 	var out := move_items(relish, id, "Relish is here")
@@ -147,8 +147,6 @@ static func fort_actions(fort: Dictionary, relish: Dictionary, haul: Dictionary,
 	var warn: Dictionary = comes.get("warn", {})
 	if not warn.is_empty():
 		out.append(_line(str(warn["text"]), str(warn["key"])))
-	else:
-		out.append(_line(CardLogic.comes_count_text(comes.get("ci", {"garrison": 0, "starter": 0, "bigs": 0}))))
 	out.append(_button("DESCEND", "descend", can))
 	if not can and str(fort.get("reason", "")) != "":
 		out.append(_line(reason_text(str(fort["reason"]))))

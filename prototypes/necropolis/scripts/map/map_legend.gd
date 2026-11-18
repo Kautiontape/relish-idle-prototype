@@ -131,11 +131,13 @@ func _process(_delta: float) -> void:
 	if _rows.visible:  # the same height two frames running while laid out: the wrap has settled
 		var live := _rows_min_h()
 		if live > 0.0 and is_equal_approx(live, _rows_h_last):
+			if HudLogic.legend_settled_first(_rows_h_settled, live):
+				_legend_key = []  # the first measure: lay out again (a closed legend hides its rows now)
 			_rows_h_settled = live
 		_rows_h_last = live
 	var vrect := valve.get_global_rect() if valve != null else Rect2()
 	var crect := chip.get_global_rect() if chip != null and is_instance_valid(chip) else Rect2()
-	var key :=HudLogic.legend_key(get_parent_area_size(), is_open(), _open_user, crect, vrect, _rows.get_child_count(), _min_heights())
+	var key := HudLogic.legend_key(get_parent_area_size(), is_open(), _open_user, crect, vrect, _rows.get_child_count(), _min_heights())
 	if key == _legend_key:
 		return
 	_legend_key = key
@@ -182,9 +184,11 @@ func refresh() -> void:
 	var p := HudLogic.legend_place(crect, vrect, x, w, h_full, h_compact, pad + head_h, want, gap)
 	var mode := str(p["mode"])
 	_shown_open = mode != "closed"
-	var rows_vis := _shown_open or _rows_h_settled <= 0.0  # until measured once, the rows stay laid out
-	if _rows.visible != rows_vis:
-		_rows.visible = rows_vis
+	var rs := HudLogic.legend_rows_state(mode, _rows_h_settled)  # closed: never drawn, even before measured
+	if _rows.visible != bool(rs["visible"]):
+		_rows.visible = bool(rs["visible"])
+	if not is_equal_approx(_rows.modulate.a, float(rs["alpha"])):
+		_rows.modulate.a = float(rs["alpha"])
 	var sep := int(lc["compact_row_gap_px"] if mode == "compact" else lc["row_gap_px"])
 	if _rows.get_theme_constant("separation") != sep:
 		_rows.add_theme_constant_override("separation", sep)
