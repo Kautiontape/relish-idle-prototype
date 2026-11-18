@@ -815,7 +815,18 @@ func _replace_tests(t: TestUtil) -> void:
 	t.ok(rm.contains("if not visible or not is_inside_tree():\n\t\treturn") and rm.contains("get_viewport_rect().size == _placed_vp and is_equal_approx(avoid_right_x, _placed_avoid)") and rm.contains("_fit()"),
 		"_replace_if_moved does nothing while shut, or when neither the viewport nor avoid_right_x moved; else it refits and places")
 	var ft := _func_src(psrc, "func _fit(")
-	t.ok(ft.contains("_placed_vp = vp") and ft.contains("_placed_avoid = avoid_right_x"), "_fit records the viewport and edge it placed for")
+	t.ok(ft.contains("_fit_for(get_viewport_rect().size if is_inside_tree() else Vector2.ZERO)"), "_fit fits for the viewport it is in (_fit_for)")
+	# behavioural, no tree (M2 review 5(b)): _fit_for records the viewport and edge it placed for, the inputs the guard above compares
+	var fp := RaidRetreatPanel.new()
+	fp.configure(_hr())
+	fp.cols = [_cl(["a"]), _cl(["b"])]
+	fp.avoid_right_x = 300.0
+	fp._fit_for(Vector2(1280, 720))
+	var rec1 := fp._placed_vp == Vector2(1280, 720) and is_equal_approx(fp._placed_avoid, 300.0)
+	fp.avoid_right_x = 450.0
+	fp._fit_for(Vector2(1600, 900))
+	t.ok(rec1 and fp._placed_vp == Vector2(1600, 900) and is_equal_approx(fp._placed_avoid, 450.0), "_fit_for records the viewport and edge it placed for, each time")
+	fp.free()
 
 ## r2 #3: the retreat panel's IF RELISH FALLS lines and the death card's rows, built from the same death state with
 ## the real raid.json words, say the same thing. Both sides are pure RaidLogic functions: the panel's column from
@@ -1278,6 +1289,30 @@ func _t5_tests(t: TestUtil) -> void:
 	t.ok(is_equal_approx(p.size.x, n.size.x) and p.retreat_rect().position.x >= 0.0 and p.stay_rect().end.x <= p.size.x and p.retreat_rect().end.x <= p.stay_rect().position.x,
 		"at the 700 px clamp's width (%.0f px) both buttons sit inside the panel, side by side (x %.0f..%.0f)" % [p.size.x, p.retreat_rect().position.x, p.stay_rect().end.x])
 	p.free()
+	# the vertical clamp (M2 review 2): a panel taller than the viewport hangs from the top margin, never above it
+	var tall := RaidLogic.retreat_panel_rect(Vector2(1600, 200), rc, stat_right, 300.0)
+	t.ok(tall.position.y == margin, "a panel taller than its 200 px viewport sits at the top margin (y %.0f), not above it" % tall.position.y)
+	# `_fit_for` (M2 review 5(b)): the real panel fitted and placed for a viewport size, with no tree; its size and place
+	# follow the viewport and the stat block's edge, and it records what it was placed for (the re-place guard's inputs)
+	var q := RaidRetreatPanel.new()
+	q.configure(rc)
+	q.cols = [_cl(["a"]), _cl(["b"])]
+	q._fit_for(Vector2(1600, 900))
+	var q1600 := RaidLogic.retreat_panel_rect(Vector2(1600, 900), rc, 0.0, q.size.y)
+	t.ok(is_equal_approx(q.size.x, float(rc["w"])) and q.position == q1600.position and q._placed_vp == Vector2(1600, 900),
+		"_fit_for(1600x900): %.0f px wide at %s, the rect retreat_panel_rect gives, and 1600x900 recorded" % [q.size.x, str(q.position)])
+	q._fit_for(Vector2(700, 900))
+	t.ok(is_equal_approx(q.size.x, n.size.x) and q.position.x >= margin and q.position.x + q.size.x <= 700.0 - margin and q._placed_vp == Vector2(700, 900),
+		"_fit_for(700x900): the panel narrows to %.0f px and stays inside the margins (x %.0f)" % [q.size.x, q.position.x])
+	q.avoid_right_x = stat_right   # not in a tree: the setter's re-place has no viewport to read and waits
+	q._fit_for(Vector2(1600, 900))
+	t.ok(q.position.x >= stat_right + gap and is_equal_approx(q._placed_avoid, stat_right),
+		"_fit_for after the stat block's edge moves to %.0f: the panel's left edge (%.0f) clears it plus the gap" % [stat_right, q.position.x])
+	q.free()
+	# enemies_text through word_fmt (M2 review 1): an edited word never throws. One with a placeholder too many blanks;
+	# one with none reads as written (word_fmt's plain-word rule); the configured one counts
+	t.ok(RaidLogic.enemies_text(3, {"enemies": "%d of %d"}) == "" and RaidLogic.enemies_text(3, {"enemies": "enemies"}) == "enemies"
+		and RaidLogic.enemies_text(1, {"enemy": "%d enemy"}) == "1 enemy", "enemies_text: a placeholder mismatch blanks, a plain word stands, %d counts")
 	var psrc := FileAccess.get_file_as_string("res://scripts/raid/raid_retreat_panel.gd")
 	var hsrc := FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd")
 	t.ok(psrc.contains("RaidLogic.retreat_panel_rect(") and hsrc.contains("avoid_right_x"), "the panel is placed by RaidLogic.retreat_panel_rect, the HUD passes the stat block's right edge")

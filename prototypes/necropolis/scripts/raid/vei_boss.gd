@@ -75,7 +75,8 @@ var _seq_t := 0.0
 var _emitted := false
 var _card: VeiCard = null       # the win or loss card, once the closing set piece is done
 var _rcfg_cache := {}
-var _vw_cache := {}              # vwords(), read once
+var _vw_cache := {}              # vwords(), read once per ConfigDb.data
+var _vw_src := {}                # the ConfigDb.data _vw_cache was read from (a reload replaces it)
 var _tag_p := -1.0               # the pressure _tag_text was built for (hud_info runs every frame)
 var _tag_text := ""
 var _bdev: BossDev = null
@@ -87,10 +88,19 @@ func vcfg() -> Dictionary:
 
 
 ## raid.json `vei_fight`: the fight's banners, hints, HUD words and end-card words.
+## The walk runs once per ConfigDb.data (the HUD reads this every frame); a reload (ConfigDb.reload, the map's F6)
+## replaces that Dictionary, so the next read walks the new one. The Dictionary itself stays ConfigDb's.
 func vwords() -> Dictionary:
-	if _vw_cache.is_empty():   # the walk once (the HUD reads this every frame); the Dictionary itself stays ConfigDb's
+	if not is_same(_vw_src, ConfigDb.data):
+		_vw_src = ConfigDb.data
 		_vw_cache = ConfigDb.data.get("raid", {}).get("vei_fight", {})
 	return _vw_cache
+
+
+## The break's guard config: vcfg() with the guards pressured by her living reserve (VeiFronts.pressured), set at
+## the break's start ({} before it). BossDev's --boss-stress reads it.
+func guard_cfg() -> Dictionary:
+	return _gvc
 
 
 ## The boss scene's own warm list (vei.json `sound.warm`): unravel and the param kinds, no warden kinds.

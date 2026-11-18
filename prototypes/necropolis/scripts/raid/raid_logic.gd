@@ -1208,12 +1208,14 @@ static func retreat_panel_rect(viewport: Vector2, cfg: Dictionary, avoid_right_x
 	x = maxf(x, avoid_right_x + gap)
 	x = minf(x, viewport.x - margin - w)
 	x = maxf(x, margin)
-	return Rect2(Vector2(x, floorf((viewport.y - height) * 0.5)), Vector2(w, height))
+	# centred vertically, never above the top margin (a panel taller than the viewport hangs from it)
+	return Rect2(Vector2(x, maxf(margin, floorf((viewport.y - height) * 0.5))), Vector2(w, height))
 
 
 ## The LIVING row's value: how many enemies stand here (`words`: raid.json hud.stats enemy / enemies, "%d" in each).
+## Through word_fmt like every formatted word: an edited word without its %d blanks instead of throwing.
 static func enemies_text(n: int, words: Dictionary) -> String:
-	return str(words.get("enemy" if n == 1 else "enemies", "%d")) % n
+	return word_fmt(words, "enemy" if n == 1 else "enemies", [n])
 
 
 ## The PHYLACT. row's words: "" while a charge is left; with none, what a death would mean (true
