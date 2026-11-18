@@ -835,7 +835,7 @@ dismissed) and the `away_report` event.
 | Vei-ready under the sessions profile | about 5–8 days (about 4–10 h of active play in all) |
 | share of backlog growth that happens while away, under sessions | ≥ 70%. At c15f874 (BALANCE §5's calibration list): 96.3%, and 79.4% of the build value |
 | dead air: active minutes in which nothing has positive projected value | < 10% |
-| continuous play (open all day, always acting), in calendar time to Vei-ready | **10–30% sooner** than sessions. Being present is never pointless, and idle still wins. The throttles are loot recovery and the relic cap. Since E4 step 9 (the win odds, mostly time-based with the backlog term capped; BALANCE §5's `odds` row): continuous day 4.8291 against sessions' 6.0001, **19.5% sooner** (was 44.9% with the odds the strain), and no profile's odds reach 0.6 before day 4.24. At c15f874: 4.8358 against 6.0001, 19.4% sooner. |
+| continuous play (open all day, always acting), in calendar time to Vei-ready | **10–30% sooner** than sessions. Being present is never pointless, and idle still wins. The throttles are loot recovery and the relic cap. At 69542f2 (E4 step 9, the win odds, mostly time-based with the backlog term capped; BALANCE §5's `odds` row), unchanged through 553a66f, 4384a17 and b475eb3: continuous day 4.8291 against sessions' 6.0001, **19.5% sooner** (was 44.9% with the odds the strain), and no profile's odds reach 0.6 before day 4.24. At c15f874, after 4f8b493's ready-vat hand moved the sim (BALANCE §5's calibration list): continuous 4.8358 against 6.0001, **19.4% sooner**. Two trees, so two numbers. |
 | pure idle from a fresh start (never raids) | never Vei-ready (relics gate the endgame), but a full queue and a supported setup keep growing for about 2–3 days. **Missed at c15f874** (BALANCE §5's calibration list): pure_idle's one queue runs dry 1.9 h into its close, and town_only's bot jams its queue on gated entries at 8.0 h; with a fill that skips them, town_only's relic-free content lasts to day 1.46 |
 | after an 8 h night away with a sensible setup | the report shows backlog ▲ and at least one thing to do. From E4 step 3 the backlog line ends with Vei's odds before and after ("· odds 0.02 → 0.11" on sessions' first night), and one night never takes them near 1. Since E4 step 9 they are the win odds (MECHANICS §3.5): sessions' first night reads 0.06 at its close and 0.16 on its load, its sixth 0.57 → 0.61 |
 | away 24 h with the default setup | at least half the held forts lost |
@@ -996,7 +996,7 @@ The profiles:
           the pits' feed loop turned that into more mint, more corpses and more bone.
         - In the sessions run, bone read 233 closed against 59 open at 14 400 s, and the Bone Mill L2 started 1 790 s
           early.
-      - **Fixed** (TownSim._haul_wait_s; MECHANICS §4.2; measured on the fix's own code): the waiting convoy leaves at the step's first
+      - **Fixed** (TownSim._haul_wait_s; MECHANICS §4.2; measured at 4384a17, the fix's own code): the waiting convoy leaves at the step's first
         sim.substep_s mark after a fort's projected corpses pass the threshold, as live play's next substep finds
         it.
         - Live play is bit for bit as before, since a live step has no mark inside it.
