@@ -130,7 +130,16 @@ func _ready() -> void:
 	_empty = _wrap("No buildings.", 14, "text_dim")
 	_root.add_child(_empty)
 	_build_queue_section()
-	visibility_changed.connect(func(): if not is_visible_in_tree(): cancel_placement())
+	visibility_changed.connect(_on_visibility)
+
+
+## Leaving this tab ends placement. Coming back to it with a lot's inspector open in the card closes the card: the
+## inspector here shows that lot (BuildSort.lot_click's rule: the card never repeats this tab).
+func _on_visibility() -> void:
+	if not is_visible_in_tree():
+		cancel_placement()
+	elif _card_mode == "inspect":
+		_close_card()
 
 
 ## The lot card the town view hosts: this tab fills it and handles its buttons.
@@ -488,15 +497,21 @@ func on_lot_clicked(lot_id: String) -> void:
 		else:
 			_say("%s: %s." % [_lot_name(lot_id), _reason(BuildSort.lot_refusal(_town_lot(lot_id), row), row)])
 		return
-	if lot_id != "" and _entry_at(lot_id) != {}:  # a built or constructing lot: the inspector, in the card too
-		_open_card(lot_id, "inspect")
-		_select_lot(lot_id)
-	elif lot_id != "" and bool(_town_lot(lot_id).get("unlocked", false)):  # an empty open lot: what fits it
-		_select_lot("")
-		_open_card(lot_id, "catalog")
-	else:
-		_select_lot("")
-		_close_card()
+	match BuildSort.lot_click(lot_id, _entry_at(lot_id) != {} if lot_id != "" else false,
+			bool(_town_lot(lot_id).get("unlocked", false)) if lot_id != "" else false, is_visible_in_tree()):
+		"dock":  # a built or constructing lot, this tab showing: the inspector here, no card repeating it over the town
+			_close_card()
+			_select_lot(lot_id)
+			ensure_control_visible.call_deferred(_insp["node"])
+		"inspect":  # another tab is showing: the card is the only place the lot's inspector shows
+			_open_card(lot_id, "inspect")
+			_select_lot(lot_id)
+		"catalog":  # an empty open lot: what fits it
+			_select_lot("")
+			_open_card(lot_id, "catalog")
+		_:
+			_select_lot("")
+			_close_card()
 
 
 func _town_lot(lot_id: String) -> Dictionary:
@@ -961,8 +976,7 @@ func _update_queue() -> void:
 	_q_empty.visible = entries.is_empty()
 	while _q_pool.size() < entries.size():
 		_q_pool.append(_make_q_row(_q_pool.size()))
-	var tt: Dictionary = _vcfg.get("queue_text", {})
-	var etas := BuildSort.queue_etas(entries, _st, _ctx.get("catalog", {}), _views.get("town", {}), _tp.rate, _vcfg)
+	var etas :=BuildSort.queue_etas(entries, _st, _ctx.get("catalog", {}), _views.get("town", {}), _tp.rate, _vcfg)
 	for i in _q_pool.size():
 		var w: Dictionary = _q_pool[i]
 		w["node"].visible = i < entries.size()
@@ -971,16 +985,12 @@ func _update_queue() -> void:
 		var e: Dictionary = entries[i]
 		var what := ("Upgrade %s to Lv %d" % [_label(e["building_id"]), e["level"]]) if e["upgrade"] else _label(e["building_id"])
 		var status := String(e["status"])
-		var why := BuildSort.entry_reason(e, _ctx.get("catalog", {}), _st, _bview, _vcfg)
 		var waits := BuildSort.is_gate_wait(e, _vcfg)  # a gate waited out in its place: queued, not struck
-		var glyph: String = ".." if waits else {"next": ">", "waiting_funds": "||", "skipped_gate": "x", "queued": "-"}.get(status, "-")
 		var title := "%d. %s on %s" % [i + 1, what, _lot_name(String(e["lot_id"]))]
 		w["title"].text = "[s]%s[/s]" % title if status == "skipped_gate" and not waits else title
-		var line := BuildSort.skip_text(e, _ctx.get("catalog", {}), _st, _bview, _vcfg) if status == "skipped_gate" \
-			else BuildSort.fmt(String(tt.get(status, "")), {"why": why})
-		w["detail"].text = "%s %s" % [glyph, line]
-		w["detail"].add_theme_color_override("font_color", Palette.c("text_dim" if waits else
-			{"next": "text", "waiting_funds": "select", "skipped_gate": "danger", "queued": "text_dim"}.get(status, "text_dim")))
+		var detail := BuildSort.queue_detail(e, _ctx.get("catalog", {}), _st, _bview, _vcfg)
+		w["detail"].text = String(detail["text"])
+		w["detail"].add_theme_color_override("font_color", Palette.c(String(detail["key"])))
 		w["eta"].text = String(etas[i])
 		w["eta"].visible = String(etas[i]) != ""  # a gate-skipped entry says why instead
 		w["up"].disabled = i == 0

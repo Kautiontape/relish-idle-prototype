@@ -207,6 +207,8 @@
       "rate_eps": 0.005,
       "net_px": 24, "split_px": 12, "stock_px": 13, "name_px": 13,
       "tol_frac": 0.02, "tol_min": 0.5,
+      "_burst_doc": "HudModel.muster_burst: idle hands over the idle cap muster in one substep, which view_hud reads as a rate for that substep; at burst_min_hands or more the workers cell shows the settled rate and text.burst.",
+      "burst_min_hands": 0.5,
       "streams": ["workers", "living", "gold", "bone", "bodies"],
       "ink": {"workers": "undead", "living": "living", "gold": "living", "bone": "dead", "bodies": "dead"},
       "producer_input": {"bone_mill": "bodies", "market": "buyers"},
@@ -216,6 +218,7 @@
       "morale_bar": {"w_px": 120.0, "h_px": 8.0},
       "text": {
         "in": "in", "out": "out", "rot": "rot", "muster": "muster", "steady": "→ steady {n}",
+        "burst": "{n} over the idle cap mustered at once",
         "_muster_doc": "The idle muster (view_hud.split.muster_to): FLOOD, Vei's queue, unless the Muster stance sends it to WAR. muster_word follows its rate in the workers cell; muster_tip is that row's tooltip.",
         "muster_word": {"flood": "idle → FLOOD", "war": "idle → WAR"},
         "muster_tip": {"flood": "Idle hands beyond the idle cap muster to FLOOD: they join Vei's queue. The Muster stance sends them to WAR, your forts, instead.",
@@ -493,15 +496,24 @@
         "phylactery": "Phylactery charge: revives Relish in place, at most once per dungeon. The Ossuary Tower crafts it from essence."
       },
       "goal": {
-        "_doc": "The first-goal plate: the game's goal (head, head_px) over the first step not yet met (its own lead, else lead; px).",
+        "_doc": "The goal plate, at every tier (TownGuide.goal/step, V-I1): the game's goal (head, head_px) over the step due now (its own lead, else lead; px). The top bar's next: line shows the same step's `short`. steps: the first steps, at `tiers` only, while one isn't met; then the next tier (tier, with tier_missing; relics while relics hold it back; the top bar's own line is its short); then at the top tier forts (any fort not held) or vei.",
         "head": "Your goal: take Vei's forts, then beat Vei. Beating Vei wins the game.",
         "lead": "Next step: ",
         "steps": [
           {"id": "mill", "until": "built", "building": "bone_mill", "lead": "First step: ",
-            "text": "build a Bone Mill. Bone and gold pay for buildings, and your town makes both."},
+            "text": "build a Bone Mill. Bone and gold pay for buildings, and your town makes both.",
+            "short": "next: build a Bone Mill"},
           {"id": "fort", "until": "fort_taken",
-            "text": "take your first fort. Return to the realm, raid {fort} and break its warden."}
+            "text": "take your first fort. Return to the realm, raid {fort} and break its warden.",
+            "short": "next: take your first fort: raid {fort} → Return to the realm"}
         ],
+        "tier": "reach {tier}: {need} buildings (you have {have}).{missing}",
+        "tier_missing": " Still missing: {list}.",
+        "relics": "reach {tier}. The buildings it needs cost {n} {unit} (you have {have}): raid a fort.",
+        "forts": "take Vei's forts ({n} still hers), then face Vei when your odds are good.",
+        "forts_short": "next: take Vei's forts ({n} still hers) → Return to the realm",
+        "vei": "face Vei when your odds are good. Return to the realm to face her.",
+        "vei_short": "next: face Vei when your odds are good → Return to the realm",
         "fort_any": "a fort Vei holds",
         "tiers": ["hamlet", "village"],
         "head_px": 18, "px": 16, "x_px": 240.0, "y_px": 8.0

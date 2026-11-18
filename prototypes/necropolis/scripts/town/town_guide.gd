@@ -46,22 +46,55 @@ static func add_lines(box: Container, bid: String, bcfg: Dictionary, gcfg: Dicti
 		box.add_child(l)
 
 
-## The first goal in town: the first `guide.goal.steps` entry whose `until` isn't met in `views`, as
-## {id, head, text}: `head` is the game's goal (goal.head), `text` the step with its lead (the step's own `lead`,
-## else goal.lead). {} once every step is met. `views` needs `town.buildings` and `forts`
-## ([{flipped_count, first_dungeon, name}], the shell's realm digest).
-static func goal(views: Dictionary, gcfg: Dictionary) -> Dictionary:
+## The goal plate at every tier (V-I1 top change 3, clarity-review-3 #4): the game's goal (goal.head) over the step due
+## now (step). {id, head, text, short, relics}. `views` needs `town` (buildings, tier, next_tier), `inventory` and
+## `forts` ([{held, flipped_count, first_dungeon, name}], the shell's realm digest); `hcfg`/`bview` word the tier.
+static func goal(views: Dictionary, gcfg: Dictionary, hcfg: Dictionary, bview: Dictionary) -> Dictionary:
+	var out := step(views, gcfg, hcfg, bview)
+	out["head"] = String((gcfg.get("goal", {}) as Dictionary).get("head", ""))
+	return out
+
+
+## The step due now: the one the goal plate shows (`text`, its lead + the step) and the top bar's next: line shows
+## (`short`), from one source so the two can't disagree (V-I1). In order:
+## - the first steps (goal.steps, at goal.tiers only), while one's `until` isn't met: the Bone Mill, then the first fort;
+## - the next tier, from HudModel.next_line (the top bar's own line): its relic wall when relics hold the tier back
+##   (`relics` true), else its building count and missing gate buildings;
+## - at the top tier, the realm: Vei's forts while any isn't held (still hers: Vei's, overrun or retaken), else Vei.
+static func step(views: Dictionary, gcfg: Dictionary, hcfg: Dictionary, bview: Dictionary) -> Dictionary:
 	var g: Dictionary = gcfg.get("goal", {})
-	var tiers: Array = g.get("tiers", [])  # a first goal is for a new game: the early tiers only
-	if not tiers.is_empty() and not String((views.get("town", {}) as Dictionary).get("tier", "")) in tiers:
-		return {}
-	for step in g.get("steps", []):
-		if _met(step, views):
-			continue
-		var text := BuildSort.fmt(String(step.get("text", "")), {"fort": first_fort(views, g)})
-		return {"id": String(step.get("id", "")), "head": String(g.get("head", "")),
-			"text": String(step.get("lead", g.get("lead", ""))) + text}
-	return {}
+	var lead := String(g.get("lead", ""))
+	var tiers: Array = g.get("tiers", [])  # the first steps are for a new game: the early tiers only
+	if tiers.is_empty() or String((views.get("town", {}) as Dictionary).get("tier", "")) in tiers:
+		for st in g.get("steps", []):
+			if _met(st, views):
+				continue
+			var vars := {"fort": first_fort(views, g)}
+			return {"id": String(st.get("id", "")), "text": String(st.get("lead", lead)) + BuildSort.fmt(String(st.get("text", "")), vars),
+				"short": BuildSort.fmt(String(st.get("short", "")), vars), "relics": false}
+	var nl := HudModel.next_line(views, hcfg, bview)
+	if String(nl["tier"]) != "":
+		if bool(nl["relics"]):
+			return {"id": "relics", "text": lead + BuildSort.fmt(String(g.get("relics", "")), {"tier": nl["tier"], "n": nl["need"],
+				"unit": nl["unit"], "have": nl["have"]}), "short": String(nl["text"]), "relics": true}
+		var missing := ""
+		if not (nl["missing"] as Array).is_empty():
+			missing = BuildSort.fmt(String(g.get("tier_missing", "")), {"list": ", ".join(nl["missing"])})
+		return {"id": "tier", "text": lead + BuildSort.fmt(String(g.get("tier", "")), {"tier": nl["tier"], "need": nl["b_need"],
+			"have": nl["b_have"], "missing": missing}), "short": String(nl["text"]), "relics": false}
+	var left := forts_left(views)
+	var id := "forts" if left > 0 else "vei"
+	return {"id": id, "text": lead + BuildSort.fmt(String(g.get(id, "")), {"n": left}),
+		"short": BuildSort.fmt(String(g.get(id + "_short", "")), {"n": left}), "relics": false}
+
+
+## How many forts are still Vei's: every fort not held now (Vei's, overrun or retaken; glossary "The map's fort states").
+static func forts_left(views: Dictionary) -> int:
+	var n := 0
+	for f in views.get("forts", []):
+		if not bool(f.get("held", false)):
+			n += 1
+	return n
 
 
 static func _met(step: Dictionary, views: Dictionary) -> bool:

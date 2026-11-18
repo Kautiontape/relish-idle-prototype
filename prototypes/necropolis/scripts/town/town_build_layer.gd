@@ -19,6 +19,9 @@ var statuses: Dictionary = {}
 ## The lot whose card is open ("" for none): its hover tag isn't drawn, since the card's first line says the
 ## same and the card would cover the tag's tail.
 var card_lot := ""
+## The goal plate's rect in this layer's space (TownView.set_cover), which draws over this layer: the suggestion's
+## tag keeps clear of it. An empty rect when none shows.
+var cover := Rect2()
 
 ## The suggestion's breathing outline: its own node, so only it redraws per frame.
 var _breath: Node2D
@@ -31,6 +34,12 @@ var _last_phase := 0.0
 func set_hover(lot_id: String) -> void:
 	if lot_id != hover_lot:
 		hover_lot = lot_id
+		queue_redraw()
+
+
+func set_cover(r: Rect2) -> void:
+	if r != cover:
+		cover = r
 		queue_redraw()
 
 
@@ -179,13 +188,16 @@ func _sug_layout() -> Dictionary:
 	var w := sz.x + pad * 2.0 + x_w
 	var host: Vector2 = (get_parent() as Control).size if get_parent() is Control else Vector2(1e6, 1e6)
 	var room := BuildSort.dismiss_room(x_w)  # the dismiss box reaches past the plate's right end
-	var p := Vector2(clampf(r.get_center().x - w * 0.5, 4.0, maxf(host.x - w - room - 4.0, 4.0)), r.position.y - h - 6.0)
-	var above := p.y >= 4.0
-	if not above:
-		p.y = r.end.y + 6.0
-	var plate := Rect2(p, Vector2(w, h))
+	var keep := model.sug_keep(_sug_lot, font, host.x)  # other lots, their badges, the crypt's name
+	if cover.has_area():
+		keep.append(cover)  # the goal plate, which draws over this layer
+	var below := r.end.y  # below its lot: past its own badge
+	for p in TownModel.badge_plates(model.lot(_sug_lot).get("building", {}), vcfg.get("badge", {}), font, host.x):
+		below = maxf(below, (p["rect"] as Rect2).end.y)
+	var at := BuildSort.sug_place(r, Vector2(w, h), room, keep, host, below, 6.0)
+	var plate := Rect2(at["pos"], Vector2(w, h))
 	return {"plate": plate, "text": text, "fs": fs, "x_cell": Rect2(plate.end.x - x_w, plate.position.y, x_w, h), "pad": pad,
-		"above": above}
+		"above": bool(at["above"])}
 
 
 func _draw_suggestion() -> void:

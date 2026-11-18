@@ -581,6 +581,55 @@ static func badge_lines(b: Dictionary, sep: String) -> Array:
 	return [[badge + (sep if badge != "" and away != "" else "") + away, key]]
 
 
+## Where the town view draws `b`'s badge lines (badge_lines, under its rect, centred, kept inside a view
+## `host_w` wide; `bcfg` = view.badge): [{rect (the ground plate), x (the text's left), text, key, fs}]. One
+## source for the drawing (TownView._badges) and for what the suggestion's tag keeps clear of (BuildLayer, V-I1).
+static func badge_plates(b: Dictionary, bcfg: Dictionary, font: Font, host_w: float) -> Array:
+	var out: Array = []
+	var lines := badge_lines(b, String(bcfg.get("sep", " · ")))
+	if lines.is_empty() or not b.has("rect"):
+		return out
+	var fs := maxi(int(bcfg.get("px", TownUI.MIN_TEXT)), TownUI.MIN_TEXT)
+	var gap := float(bcfg.get("gap_px", 2.0))
+	var pad := float(bcfg.get("pad_px", 3.0))
+	var r: Rect2 = b["rect"]
+	var y := r.end.y + gap
+	for ln in lines:
+		var sz := font.get_string_size(String(ln[0]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
+		var x := clampf(r.get_center().x - sz.x * 0.5, pad + 2.0, maxf(host_w - sz.x - pad - 2.0, pad + 2.0))
+		out.append({"rect": Rect2(x - pad, y, sz.x + pad * 2.0, sz.y), "x": x, "text": String(ln[0]), "key": String(ln[1]), "fs": fs})
+		y += sz.y
+	return out
+
+
+## What the suggestion's tag on lot `except` keeps clear of (BuildSort.sug_place; V-I1: at City it sat on the
+## Raising Pit's "4 working" above its lot): every other lot, the badges under their buildings and the crypt's name,
+## as the labels layer draws them in a view `host_w` wide (badge_plates, name_plate).
+func sug_keep(except: String, font: Font, host_w: float) -> Array:
+	var keep: Array = []
+	var fs := maxi(int(_v.get("label_px", TownUI.MIN_TEXT)), TownUI.MIN_TEXT)
+	for l in lots:
+		if String(l["id"]) == except:
+			continue
+		keep.append(l["rect"])
+		var b: Dictionary = l.get("building", {})
+		if b.is_empty():
+			continue
+		for p in badge_plates(b, _v.get("badge", {}), font, host_w):
+			keep.append(p["rect"])
+		if String(b.get("building_id", "")) == HEART:
+			keep.append(name_plate(l["rect"], String(b.get("label", "")), font, fs)["rect"])
+	return keep
+
+
+## The ground plate of a name drawn centred above `r` at `fs` (TownView._label: the crypt's name, a hovered
+## building's), and the text's baseline: {rect, base}.
+static func name_plate(r: Rect2, text: String, font: Font, fs: int) -> Dictionary:
+	var sz := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
+	var base := Vector2(r.get_center().x - sz.x * 0.5, r.position.y - font.get_descent(fs) - 2.0)
+	return {"rect": Rect2(base - Vector2(4, font.get_ascent(fs) + 1), Vector2(sz.x + 8, sz.y + 2)), "base": base}
+
+
 ## "lot 5" for "lot-05": the lot as a player reads it. `vcfg.lot_name` is the format ({n} = the lot's
 ## number, no leading zeros). An id with no number reads as its tail ("lot x"); "" stays "".
 static func lot_name(lot_id: String, vcfg: Dictionary) -> String:

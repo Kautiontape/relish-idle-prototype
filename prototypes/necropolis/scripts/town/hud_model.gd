@@ -31,6 +31,20 @@ static func split_text(parts: Array, hcfg: Dictionary) -> String:
 	return _t(hcfg, "factor_sep").join(out) + " /s"
 
 
+## A muster lump: idle hands over the idle cap (a building demolished or a slot lost frees its hands; a save loaded
+## over the cap) all muster in one substep, and view_hud reads that lump as this substep's rate: 2 hands in a 0.5 s
+## substep read −4.00/s, then ±0.00/s (V-I1 item 4: pre_vei's 35 workers, 12 idle against a cap of 10). The workers
+## cell shows the settled rate and says the lump in hands. `w` is view_town().workers (muster = this substep's rate,
+## muster_steady = the settled one), `substep_s` the sim's. {hands, extra (the lump's share of this substep's muster
+## rate), muster (the settled rate)}, or {} under hud.burst_min_hands.
+static func muster_burst(w: Dictionary, substep_s: float, hcfg: Dictionary) -> Dictionary:
+	var extra := float(w.get("muster", 0.0)) - float(w.get("muster_steady", w.get("muster", 0.0)))
+	var hands := extra * substep_s
+	if hands < float(hcfg.get("burst_min_hands", 0.5)):
+		return {}
+	return {"hands": hands, "extra": extra, "muster": float(w.get("muster_steady", 0.0))}
+
+
 ## The sign glyph beside a net rate (shape, so the sign is never colour only): up, down or flat.
 static func glyph(x: float, hcfg: Dictionary) -> String:
 	var g: Dictionary = hcfg.get("glyph", {})
@@ -332,15 +346,25 @@ static func next_tier_line(tier: String, next: Dictionary, hcfg: Dictionary, bvi
 ## missing gate buildings: "next: Town — needs 4 relics (have 3): raid a fort". N is those buildings' relic
 ## costs summed (BuildSort.relic_wall: view_catalog costs of what view_town().next_tier.missing still asks for,
 ## minus what stands or is being built), M the relics held (view_inventory().relics). {text, relics: bool (the
-## wall is the line), need, have}.
+## wall is the line), need, have, unit} plus the parts the goal plate words the same step from (TownGuide.step, V-I1):
+## tier (the next tier, capitalized; "" at the top), b_have / b_need (finished buildings / the tier's count), missing
+## (the gate buildings' labels).
 static func next_line(views: Dictionary, hcfg: Dictionary, bview: Dictionary) -> Dictionary:
 	var town: Dictionary = views.get("town", {})
 	var next: Dictionary = town.get("next_tier", {})
+	var miss: Array = []
+	for b in next.get("missing", []):
+		miss.append(BuildSort.label_of(String(b), bview))
+	var parts := {"tier": String(next.get("tier", "")).capitalize(), "b_have": int(next.get("have", 0)),
+		"b_need": int(next.get("need", 0)), "missing": miss}
 	var wall := BuildSort.relic_wall(views) if String(next.get("tier", "")) != "" else {}
-	if wall.is_empty():
-		return {"text": next_tier_line(String(town.get("tier", "")), next, hcfg, bview), "relics": false, "need": 0, "have": 0}
-	return {"text": BuildSort.fmt(_t(hcfg, "next_relics"), {"tier": String(next["tier"]).capitalize(), "n": wall["need"],
-		"unit": _unit(int(wall["need"]), hcfg), "have": wall["have"]}), "relics": true, "need": wall["need"], "have": wall["have"]}
+	var out := {"text": next_tier_line(String(town.get("tier", "")), next, hcfg, bview), "relics": false, "need": 0, "have": 0, "unit": ""}
+	if not wall.is_empty():
+		out = {"text": BuildSort.fmt(_t(hcfg, "next_relics"), {"tier": String(next["tier"]).capitalize(), "n": wall["need"],
+			"unit": _unit(int(wall["need"]), hcfg), "have": wall["have"]}), "relics": true, "need": wall["need"], "have": wall["have"],
+			"unit": _unit(int(wall["need"]), hcfg)}
+	out.merge(parts)
+	return out
 
 
 static func _unit(n: int, hcfg: Dictionary) -> String:

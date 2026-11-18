@@ -36,6 +36,7 @@ var _vcfg: Dictionary = {}
 var _bview: Dictionary = {}
 var _bcfg: Dictionary = {}
 var _idle_cap := 0.0
+var _substep_s := 0.5  # the sim's substep (economy.json sim.substep_s): a muster lump's hands are its rate × this
 var _tab := {}  # this bind's BuildSort.tab_suggestion: the idle line and the bottleneck read the same needs and sort
 var _cells := {}  # stream id -> {net, name, split, stock, bar}
 var _tier: Label
@@ -55,6 +56,7 @@ func _ready() -> void:
 	_bview = ConfigDb.data.get("buildings_view", {})
 	_bcfg = ConfigDb.data.get("buildings", {})
 	_idle_cap = float(ConfigDb.data.get("economy", {}).get("worker", {}).get("idle_cap", 0.0))
+	_substep_s = float(ConfigDb.data.get("economy", {}).get("sim", {}).get("substep_s", 0.5))
 	var sb := TownUI.panel_box()
 	sb.set_content_margin_all(4)
 	add_theme_stylebox_override("panel", sb)
@@ -224,8 +226,9 @@ func bind(views: Dictionary) -> void:
 	_tier.text = String(town.get("tier", "")).capitalize()
 	_essence.text = BuildSort.fmt(String(_vcfg.get("guide", {}).get("essence_short", "")),
 		{"n": int(views.get("inventory", {}).get("essence", 0))})
-	var nl := HudModel.next_line(views, _hcfg, _bview)
-	_next.text = String(nl["text"])
+	# the step due now, the goal plate's own (TownGuide.step): the first steps, the next tier or its relic wall, the realm
+	var nl := TownGuide.step(views, _vcfg.get("guide", {}), _hcfg, _bview)
+	_next.text = String(nl["short"])
 	var lit: bool = nl["relics"]  # the relic wall: a lit colour, words not colour alone, and a way out
 	if lit != _next_lit:  # a theme override is a relayout: only when the line flips
 		_next_lit = lit
@@ -239,6 +242,10 @@ func bind(views: Dictionary) -> void:
 func _bind_cell(id: String, c: Dictionary, town: Dictionary, hud: Dictionary, flow: Dictionary, views: Dictionary) -> void:
 	var hr := BuildSort.hud_rate(hud, id)
 	var net := float(hr.get("rate", 0.0))
+	# a muster lump is hands, not a flow: the cell shows the settled rate and says the lump (HudModel.muster_burst)
+	var burst := HudModel.muster_burst(town.get("workers", {}), _substep_s, _hcfg) if id == "workers" else {}
+	if not burst.is_empty():
+		net += float(burst["extra"])
 	c["net"].text = "%s %s" % [HudModel.glyph(net, _hcfg), HudModel.net_text(net, _hcfg)]
 	c["net"].modulate.a = 0.6 if HudModel.is_flat(net, _hcfg) else 1.0
 	var inn := float(flow.get("in", 0.0))
@@ -247,9 +254,13 @@ func _bind_cell(id: String, c: Dictionary, town: Dictionary, hud: Dictionary, fl
 	if id == "workers":
 		var w: Dictionary = town.get("workers", {})
 		var parts := [["in", inn], ["rot", -float(w.get("rot", out))]]
-		if float(w.get("muster", 0.0)) > 0.0:
-			parts.append(["muster", -float(w["muster"])])
+		var muster := float(burst.get("muster", w.get("muster", 0.0)))
+		if muster > 0.0:
+			parts.append(["muster", -muster])
 		split = HudModel.split_text(parts, _hcfg)
+		if not burst.is_empty():
+			split += String(_hcfg.get("text", {}).get("factor_sep", " · ")) + BuildSort.fmt(String(_hcfg.get("text", {}).get("burst", "")),
+				{"n": roundi(float(burst["hands"]))})
 		var total := float(w.get("total", 0.0))
 		var steady := float(w.get("steady", 0.0))
 		var kept := HudModel.kept(town, hud)
