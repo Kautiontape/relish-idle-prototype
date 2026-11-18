@@ -145,7 +145,35 @@ func _round2_tests(t: TestUtil) -> void:
 	# A3: the undead line under the idle hint until the first raise
 	t.ok(RaidLogic.hint_sub_text(_hh(), false, false, false) == _hh()["idle_sub_text"] and _hh()["idle_sub_text"] == "your undead fight on their own · keep Relish safe and raise more", "idle, no raise yet: the second line")
 	t.ok(RaidLogic.hint_sub_text(_hh(), false, false, true) == "", "after the first raise: one line")
-	t.ok(RaidLogic.hint_sub_text(_hh(), true, false, false) == "" and RaidLogic.hint_sub_text(_hh(), false, true, false) == "", "the trance and exit hints take the line alone")
+	t.ok(RaidLogic.hint_sub_text(_hh(), true, false, false) == _hh()["trance_sub_text"]
+		and _hh()["trance_sub_text"] == "a rounder circle makes stronger undead · a bigger loop takes in more motes", "the trance, nothing raised yet: what a loop decides")
+	t.ok(RaidLogic.hint_sub_text(_hh(), true, true, false) == _hh()["trance_sub_text"], "the trance's line wins at the exit too, as its main line does")
+	t.ok(RaidLogic.hint_sub_text(_hh(), true, false, true) == "" and RaidLogic.hint_sub_text(_hh(), false, true, false) == "", "after a raise the trance line is gone, and the exit hint takes its line alone")
+	# T1: the live readout beside the pen (RaidTraceLive) and the result's tier and strength
+	var tnw: Dictionary = _rj()["trace_notch"]
+	var rjson: Dictionary = _rj()
+	var ccfg := {"multiplier_base": 0.5, "multiplier_per_100": 1.0}
+	var l82 := RaidLogic.loop_readout(tnw, true, 82, 5, rjson, ccfg)
+	t.ok(l82 == ["LET GO NOW: 82 · SOLDIER", "5 motes inside · strength ×1.32", "60+ SOLDIER · 90+ ELITE"], "82 reads SOLDIER, 5 motes, strength x1.32 (%s)" % str(l82))
+	t.ok(RaidLogic.loop_readout(tnw, true, 95, 3, rjson, ccfg)[0] == "LET GO NOW: 95 · ELITE", "95 reads ELITE")
+	t.ok(RaidLogic.loop_readout(tnw, true, 40, 0, rjson, ccfg)[0] == "LET GO NOW: 40 · CHAFF" and RaidLogic.loop_readout(tnw, true, 40, 0, rjson, ccfg)[1] == "0 motes inside · strength ×0.90", "40 reads CHAFF, x0.90")
+	t.ok(RaidLogic.loop_readout(tnw, false, 0, 0, rjson, ccfg) == ["keep looping", "60+ SOLDIER · 90+ ELITE"], "not a ring yet: keep looping and the ladder")
+	var rc2 := {"raise": {"soldier_min_score": 55, "elite_min_score": 85}}
+	t.ok(RaidLogic.loop_readout(tnw, true, 87, 2, rc2, {"multiplier_base": 0.0, "multiplier_per_100": 2.0})
+		== ["LET GO NOW: 87 · ELITE", "2 motes inside · strength ×1.74", "55+ SOLDIER · 85+ ELITE"], "a changed config changes the ladder, the tier and the strength")
+	t.ok(RaidLogic.loop_readout(tnw, true, 84, 8, rjson, ccfg)[0].ends_with(RaidLogic.score_class(84, rjson).to_upper()), "the readout's tier is the tier the raise makes (score_class)")
+	t.ok(RaidLogic.word_fmt(tnw, "tier_tail", [3, "SOLDIER", "%.2f" % RaidLogic.stat_mult(82, ccfg)]) == "×3 SOLDIER · strength ×1.32", "the result's tail names tier and strength")
+	# (trace_feedback.gd names autoloads, so the headless suite reads its source rather than loading it)
+	t.ok(FileAccess.get_file_as_string("res://scripts/raid/trace_feedback.gd").contains("static func band_for(s: int)")
+		and FileAccess.get_file_as_string("res://scripts/raid/trace_live.gd").contains("RaidTraceFeedback.band_for(score)"), "the readout's colour is the feedback's band lookup")
+	var over := Palette.c("ground").lerp(Color.WHITE, 1.0 - float(tnw["live_plate_alpha"]))   # worst case: white under the plate
+	var cr_dim := MapLogic.contrast_ratio(Palette.c("text_dim"), over)
+	t.ok(cr_dim >= 4.5 and int(tnw["live_ladder_px"]) >= 13 and int(tnw["live_font_px"]) >= 13, "the ladder's dim text holds 4.5:1 on its plate even over white (%.1f)" % cr_dim)
+	t.ok(float(TestUtil.load_json("res://configs/circle.json")["feedback_hold_s"]) >= 1.4, "the result holds long enough to read three items")
+	var tsrc := FileAccess.get_file_as_string("res://scripts/raid/trance.gd")
+	t.ok(tsrc.contains("raid.raiser.motes_inside(") and tsrc.contains("RaidLogic.loop_readout(") and FileAccess.get_file_as_string("res://scripts/raid/raid_raise.gd").contains("motes_inside(center, radius)"),
+		"the readout and the raise count motes with one function")
+	t.ok(tsrc.count("CircleScorer.grade(") == 2 and tsrc.contains("trace.append(w)\n\t\t\tif _trace_line != null:\n\t\t\t\t_trace_line.points = trace\n\t\t\t_update_live()"), "one grade per appended point (and the release's), none per frame")
 	t.ok(hsrc.contains("RaidLogic.hint_sub_text(hint_words, raid.trance_active, at_exit, raid.first_raise_done)"), "the HUD picks the second line with the helper")
 	# A4: PHYLACT. explanation and the loot uses
 	t.ok(RaidLogic.phylactery_meaning(_hs(), 0) == PackedStringArray(["revives Relish in place, at most once per dungeon.", "The Ossuary Tower crafts it from essence."]), "no charge: the Jargon line in two rows")

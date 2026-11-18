@@ -361,7 +361,7 @@ func _vei_words_tests(t: TestUtil) -> void:
 		and rj["vei_loss"]["keep_text"] == "%d%% stays", "vei_fight: the end card's words (and vei_loss.keep_text)")
 	var rt: Dictionary = rj["relish"]
 	var tn: Dictionary = rj["trace_notch"]
-	t.ok(rt["word_struck"] == "STRUCK −%d" and rt["word_soaked"] == "SOAKED" and tn["grade_head"] == "%d — %s" and tn["tier_tail"] == "×%d %s"
+	t.ok(rt["word_struck"] == "STRUCK −%d" and rt["word_soaked"] == "SOAKED" and tn["grade_head"] == "%d — %s" and tn["tier_tail"] == "×%d %s · strength ×%s"
 		and tn["not_circle"] == "0 — NOT A CIRCLE" and [tn["word_perfect"], tn["word_great"], tn["word_good"], tn["word_okay"], tn["word_shaky"], tn["word_poor"], tn["word_awful"]]
 		== ["PERFECT!", "GREAT", "GOOD", "OKAY", "SHAKY", "POOR", "AWFUL"], "relish's hit words and the circle feedback's words, word for word")
 	var dir := "res://scripts/raid/"

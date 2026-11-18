@@ -15,7 +15,8 @@ const WORDS := [
 	"hud.legend.assist_label", "hud.legend.assist_off", "hud.legend.assist_on",
 	"hud.retreat.keep_prefix", "hud.retreat.head_keep", "hud.retreat.head_fall", "hud.retreat.keep_all", "hud.retreat.keep_none",
 	"hud.retreat.fort_yours", "hud.retreat.fort_vei", "hud.retreat.fall_revive",
-	"hud.hint.trance_text", "hud.hint.exit_text", "hud.hint.idle_text", "hud.hint.idle_sub_text",
+	"hud.hint.trance_text", "hud.hint.exit_text", "hud.hint.idle_text", "hud.hint.idle_sub_text", "hud.hint.trance_sub_text",
+	"trace_notch.live_head", "trace_notch.live_tail", "trace_notch.live_ladder", "trace_notch.live_none",
 	"hud.cues.first_mote_text", "hud.cues.undead_text",
 	"hud.stats.essence_meaning", "hud.stats.phyl_none", "hud.stats.phyl_meaning_charged", "hud.stats.phyl_meaning_none_1",
 	"hud.stats.phyl_meaning_none_2", "hud.stats.key_pile",
@@ -94,6 +95,7 @@ const NUMBERS := [
 	"death.card_w", "death.card_pad", "death.label_w", "death.value_px", "death.label_px", "death.foot_px", "death.sub_px",
 	"death.sub_h", "death.backdrop_a", "death.plate_a", "hud.retreat.margin", "hud.retreat.gap",
 	"hud.stats.plate_w", "hud.stats.label_col", "hud.stats.value_pad",
+	"trace_notch.live_font_px", "trace_notch.live_ladder_px", "trace_notch.live_gap_px", "trace_notch.live_pad_px", "trace_notch.live_plate_alpha",
 ]
 
 ## The words the code formats, with the placeholders each must keep ("%d" words go through `%`, which throws without one).
@@ -130,7 +132,8 @@ const FORMATS := {
 	"hud.stats.loose": ["%d"], "hud.stats.on_floor": ["%d"],
 	"hud.text.title_tier": ["%s", "%d"], "hud.text.raised_big": ["%d", "%d"], "hud.text.raised_ranks": ["%d", "%d", "%d"],
 	"hud.text.checkpoint": ["%d", "%d", "%d", "%d", "%d"],
-	"vei_loss.keep_text": ["%d"], "relish.word_struck": ["%d"], "trace_notch.grade_head": ["%d", "%s"], "trace_notch.tier_tail": ["%d", "%s"],
+	"vei_loss.keep_text": ["%d"], "relish.word_struck": ["%d"], "trace_notch.grade_head": ["%d", "%s"], "trace_notch.tier_tail": ["%d", "%s", "%s"],
+	"trace_notch.live_head": ["%d", "%s"], "trace_notch.live_tail": ["%d", "%s"], "trace_notch.live_ladder": ["%d", "%d"],
 	"vei_fight.banner_court": ["%d"], "vei_fight.banner_front": ["%s", "%d", "%d"], "vei_fight.banner_crack": ["%s", "%d", "%s"],
 	"vei_fight.lane_have": ["%d", "%d"], "vei_fight.lane_short": ["%d"], "vei_fight.safe_cue": ["%d"], "vei_fight.hud_need": ["%d"],
 	"vei_fight.hud_ferried": ["%.2f"], "vei_fight.hud_left": ["%d", "%s"], "vei_fight.hud_cracked": ["%d"], "vei_fight.eta": ["%d"],

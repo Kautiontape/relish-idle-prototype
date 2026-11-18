@@ -520,10 +520,7 @@ func perform_raise(g: Dictionary) -> void:
 		return
 	var center: Vector2 = g["center"]
 	var radius: float = g["radius"]
-	var picked: Array = []
-	for e in get_tree().get_nodes_in_group("raid_essence"):
-		if is_instance_valid(e) and not e.absorbing and e.global_position.distance_to(center) <= radius:
-			picked.append(e)
+	var picked: Array = raiser.motes_inside(center, radius)
 	if picked.is_empty():
 		return
 	for e in picked:
@@ -542,6 +539,7 @@ func perform_raise(g: Dictionary) -> void:
 	if fb != null and is_instance_valid(fb):
 		fb.raised_n = n
 		fb.raised_tier = tier
+		fb.raised_mult = mult
 	var vc := vcfg()
 	if phase == Phase.FRONTS:
 		var li := BossLogic.nearest_lane(center, lanes)

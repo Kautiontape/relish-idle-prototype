@@ -23,14 +23,21 @@ func show_feedback(g: Dictionary, trace: PackedVector2Array) -> void:
 	_last_feedback = fb
 
 
-func perform(g: Dictionary) -> void:
-	var score := int(g["score"])
-	var center: Vector2 = g["center"]
-	var radius: float = g["radius"]
+## The essence motes a ring at `center` / `radius` takes in: every raid_essence mote not already absorbing whose
+## centre is within the radius. `perform` raises one undead per mote in this list; the live readout counts it.
+func motes_inside(center: Vector2, radius: float) -> Array:
 	var picked: Array = []
 	for e in _raid.get_tree().get_nodes_in_group("raid_essence"):
 		if is_instance_valid(e) and not e.absorbing and e.global_position.distance_to(center) <= radius:
 			picked.append(e)
+	return picked
+
+
+func perform(g: Dictionary) -> void:
+	var score := int(g["score"])
+	var center: Vector2 = g["center"]
+	var radius: float = g["radius"]
+	var picked: Array = motes_inside(center, radius)
 	if picked.is_empty():
 		return
 	var motes: Array = []
@@ -51,6 +58,7 @@ func perform(g: Dictionary) -> void:
 	if _last_feedback != null and is_instance_valid(_last_feedback):
 		_last_feedback.raised_n = count
 		_last_feedback.raised_tier = tier
+		_last_feedback.raised_mult = float(spec["stat_mult"])
 	var mult := float(spec["stat_mult"])
 	var stats := RaidLogic.undead_stats(mult, tier, cfg)
 	var masses: Array = spec["unit_masses"]

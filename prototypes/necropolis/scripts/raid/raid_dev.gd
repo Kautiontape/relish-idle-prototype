@@ -5,6 +5,8 @@ extends RefCounted
 ## Flags: --raid-fixture=<fixture>,<fort_id> (needs --new-game: all worktrees share user://),
 ## --raid-stress=N [--raid-stress-door] (the crowd pushed through a doorway), --raid-perf, --raid-autoexit=<frames>, --raid-autodie=<frames>,
 ## --raid-held-shot=<png> (with --raid-held and the autopilot: a screenshot 0.3 s into the clear set piece), --raid-motes=N, --raid-trance-hold (open the trance at start), --raid-held, --raid-warden (Relish starts in the antechamber),
+## --raid-trace-demo=<frac> (with --raid-trance-hold and --raid-motes=N: a scripted loop is drawn through the trance's real tracing path, one point per frame,
+##   around the motes with a slight wobble; frac of a turn: under 1 it stops mid-draw and holds, 1 or more releases it; prints TRACE_DEMO frame= score= motes= tier= released=),
 ## --raid-greyscale (the greyscale check over the screen), --raid-autodie-src=<slam|lunge|bash|fire|living> (who the autodie hit names on the death card),
 ## --raid-clones=<n> / --raid-death-ends=<clone|unmade>:<respawn_s> (the death card's AFTER row: clones_ready, or the injected seed key),
 ## --raid-archetype=<id> (demo seed's warden), --raid-big-speed=<n> (demo party big undead),
@@ -30,7 +32,8 @@ var _stress := 0                # --raid-stress=N
 var _autoexit := -1             # --raid-autoexit=<frames>
 var _autodie := -1              # --raid-autodie=<frames>
 var _go := false                # --raid-warden-go autopilot
-var _run_ended := -1            # --raid-run-ended=<frames>: the frame a synthetic run_ended goes out (-1 off)
+var _demo_frac := -1.0          # --raid-trace-demo=<frac> (-1 off)
+var _run_ended := -1           # --raid-run-ended=<frames>: the frame a synthetic run_ended goes out (-1 off)
 var _fell := -1               # --raid-warden-fell=<frames>: frames after the wake, the warden falls (the clear card's shots)
 var _woke_at := -1
 var _ap: RaidAutopilot = null   # --raid-autopilot=<score>: the headless measuring bot
@@ -152,6 +155,8 @@ func start() -> void:
 	_autoexit = int(cli_value("--raid-autoexit=")) if cli_value("--raid-autoexit=") != "" else -1
 	_autodie = int(cli_value("--raid-autodie=")) if cli_value("--raid-autodie=") != "" else -1
 	_run_ended = int(cli_value("--raid-run-ended=")) if cli_value("--raid-run-ended=") != "" else -1
+	if cli_value("--raid-trace-demo=") != "" and not _raid.is_boss():
+		_demo_frac = float(cli_value("--raid-trace-demo="))
 	if cli_flag("--raid-warden") and not _raid.is_boss():
 		_place_in_antechamber()
 	if cli_flag("--raid-assist"):
@@ -209,6 +214,8 @@ func tick() -> void:
 		_autopilot()
 	if _fell >= 0 and not _raid._ended:
 		_fell_tick(frame)
+	if _demo_frac >= 0.0 and _demo_f != -2 and not _raid._ended:
+		_demo_tick(_demo_frac)
 
 
 ## Hook 3: every physics frame of a live run (the measuring bot's think step).
@@ -299,6 +306,75 @@ func _spawn_loot_sample() -> void:
 		pk.position = _raid.resolve_walls(_raid.relish.position + Vector2(-105.0 + 70.0 * i, -120.0), 10.0)
 		_raid.units_root.add_child(pk)
 		i += 1
+
+
+## --raid-trace-demo=<frac>: once the trance is open, a scripted loop through the trance's real tracing path
+## (synthetic left-button and mouse-motion events in screen coordinates into trance.handle_input), one point per
+## frame, centred on Relish and wide enough to enclose the dev motes, with a deterministic wobble (a soldier-band
+## score). `frac` of a full turn: under 1 it stops mid-draw and holds, 1 or more it goes on to the release.
+const DEMO_TURN_FRAMES := 90
+const DEMO_WOBBLE := 0.09
+const DEMO_MARGIN_PX := 28.0
+var _demo_f := -1               # frames drawn so far (-1 not started, -2 done)
+var _demo_c := Vector2.ZERO
+var _demo_r := 0.0
+
+
+func _demo_world(f: int) -> Vector2:
+	var th := -PI / 2.0 + TAU * float(f) / float(DEMO_TURN_FRAMES)
+	return _demo_c + Vector2(_demo_r * (1.0 + DEMO_WOBBLE * sin(3.0 * th + 0.7)), 0.0).rotated(th)
+
+
+func _demo_event(pos_world: Vector2, kind: String, pressed := true) -> void:
+	var xf: Transform2D = _raid.get_canvas_transform()
+	var ev: InputEvent
+	if kind == "motion":
+		ev = InputEventMouseMotion.new()
+	else:
+		ev = InputEventMouseButton.new()
+		ev.button_index = MOUSE_BUTTON_LEFT
+		ev.pressed = pressed
+	ev.position = xf * pos_world
+	_raid.trance.handle_input(ev)
+
+
+func _demo_report(released: bool) -> void:
+	var tr: RaidTrance = _raid.trance
+	var g := CircleScorer.grade(tr.trace) if tr.trace.size() >= 3 else {"valid": false, "score": 0}
+	var n := 0
+	if g["valid"]:
+		n = _raid.raiser.motes_inside(g["center"], float(g["radius"])).size()
+	print("TRACE_DEMO frame=%d score=%d motes=%d tier=%s released=%s" % [Engine.get_process_frames(), int(g["score"]), n,
+		RaidLogic.score_class(int(g["score"]), _raid.rcfg()), str(released).to_lower()])
+
+
+func _demo_tick(frac: float) -> void:
+	var tr: RaidTrance = _raid.trance
+	if _demo_f == -1:
+		if tr.state != RaidTrance.State.ACTIVE:
+			return
+		var far := 0.0
+		_demo_c = _raid.relish.global_position
+		for e in _raid.get_tree().get_nodes_in_group("raid_essence"):
+			far = maxf(far, e.global_position.distance_to(_demo_c))
+		_demo_r = maxf(far, 40.0) + DEMO_MARGIN_PX
+		_demo_event(_demo_world(0), "button")
+		_demo_f = 0
+		return
+	if _demo_f < 0:
+		return
+	var total := int(round(frac * DEMO_TURN_FRAMES))
+	if _demo_f < total:
+		_demo_f += 1
+		_demo_event(_demo_world(_demo_f), "motion")
+		return
+	if frac >= 1.0:
+		_demo_report(true)   # graded as the release will grade it
+		_demo_event(_demo_world(_demo_f), "button", false)
+		print("TRACE_DEMO raises=%d" % _raid.raises)
+	else:
+		_demo_report(false)
+	_demo_f = -2
 
 
 ## N fresh motes (mass 1) around Relish.

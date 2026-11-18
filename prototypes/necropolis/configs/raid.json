@@ -117,7 +117,7 @@
     "banner_plate_alpha": 0.94,
     "door_plate_alpha": 0.86,
     "hint": {
-      "_doc": "The bottom-centre hint (the idle, trance and exit lines, and the idle sub-line) on a ground plate fitted to its lines: plate_alpha backs it, bottom_px is the plate's gap above the screen bottom (the danger frame's inner edge is 10 px in, so at least 20), pad_px its side margin, gap_px the space between a line and the plate's edge and between the lines. font_px and sub_font_px are the hint's and the sub-line's sizes. The held door's prompt (door_prompt_h tall) sits door_gap_px over the plate's top. banner_plate_alpha backs the cue and wake banners, door_plate_alpha the held door's prompt. The words: trance_text, exit_text, idle_text, idle_sub_text (RaidLogic.hint_text / hint_sub_text).",
+      "_doc": "The bottom-centre hint (the idle, trance and exit lines, and the idle sub-line) on a ground plate fitted to its lines: plate_alpha backs it, bottom_px is the plate's gap above the screen bottom (the danger frame's inner edge is 10 px in, so at least 20), pad_px its side margin, gap_px the space between a line and the plate's edge and between the lines. font_px and sub_font_px are the hint's and the sub-line's sizes. The held door's prompt (door_prompt_h tall) sits door_gap_px over the plate's top. banner_plate_alpha backs the cue and wake banners, door_plate_alpha the held door's prompt. The words: trance_text, exit_text, idle_text, idle_sub_text, trance_sub_text (the trance's second line, until the first raise) (RaidLogic.hint_text / hint_sub_text).",
       "plate_alpha": 0.96,
       "bottom_px": 24,
       "pad_px": 14,
@@ -129,7 +129,8 @@
       "trance_text": "DRAG A LOOP AROUND ESSENCE · each mote inside becomes one undead",
       "exit_text": "AT EXIT · RETREAT banks your loot",
       "idle_text": "HOLD SPACE · circle essence to RAISE undead",
-      "idle_sub_text": "your undead fight on their own · keep Relish safe and raise more"
+      "idle_sub_text": "your undead fight on their own · keep Relish safe and raise more",
+      "trance_sub_text": "a rounder circle makes stronger undead · a bigger loop takes in more motes"
     },
     "pip_row_max": 24,
     "pip_px": 8.0,
@@ -223,11 +224,20 @@
     }
   },
   "trace_notch": {
-    "_doc": "The circle's feedback (RaidTraceFeedback): the tier notches' length and width, and its words. grade_head is the head over a fitted ring ('%d' the score, '%s' its grade word), tier_tail the tail ('%d' the units raised, '%s' their tier, upper-cased), not_circle the head over a trace that fits no ring, and word_* the grade words, best score band first (perfect from 98, great 90, good 80, okay 70, shaky 60, poor 50, awful below).",
+    "_doc": "The circle's feedback (RaidTraceFeedback): the tier notches' length and width, and its words. grade_head is the head over a fitted ring ('%d' the score, '%s' its grade word), tier_tail the tail ('%d' the units raised, '%s' their tier, upper-cased, '%s' the strength multiplier to 2 decimals). RaidTraceLive (the readout beside the pen while a loop is drawn; RaidLogic.loop_readout): live_head ('%d' the score now, '%s' the tier it would make, upper-cased), live_tail ('%d' the motes inside the fitted ring, '%s' the strength multiplier), live_ladder ('%d' the soldier score, '%d' the elite score, from raise.*_min_score) and live_none (shown in place of the first two while the trace fits no ring); live_font_px / live_ladder_px the sizes, live_gap_px the offset from the pen tip, live_pad_px the plate's padding, live_plate_alpha its backing. not_circle the head over a trace that fits no ring, and word_* the grade words, best score band first (perfect from 98, great 90, good 80, okay 70, shaky 60, poor 50, awful below).",
     "len_px": 9.0,
     "width_px": 3.0,
     "grade_head": "%d — %s",
-    "tier_tail": "×%d %s",
+    "tier_tail": "×%d %s · strength ×%s",
+    "live_head": "LET GO NOW: %d · %s",
+    "live_tail": "%d motes inside · strength ×%s",
+    "live_ladder": "%d+ SOLDIER · %d+ ELITE",
+    "live_none": "keep looping",
+    "live_font_px": 20,
+    "live_ladder_px": 15,
+    "live_gap_px": 26,
+    "live_pad_px": 8,
+    "live_plate_alpha": 0.92,
     "not_circle": "0 — NOT A CIRCLE",
     "word_perfect": "PERFECT!",
     "word_great": "GREAT",

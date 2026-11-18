@@ -1022,10 +1022,29 @@ static func hint_text(words: Dictionary, trance_active: bool, at_exit: bool) -> 
 	return str(words.get("idle_text", ""))
 
 
-## The idle hint's second line (dim, under the idle line): shown while nothing has been raised yet, and only
-## when the idle line itself shows (the trance's and the exit's instructions stand alone).
+## The hint's second line (dim, under the first): until the first raise, the trance's line says what a loop
+## decides (trance_sub_text: stat_mult and RaidRaise.motes_inside), the idle line's says what the undead do
+## (idle_sub_text, only when the idle line itself shows). The exit's instruction stands alone.
 static func hint_sub_text(words: Dictionary, trance_active: bool, at_exit: bool, raised_any: bool) -> String:
-	return "" if (trance_active or at_exit or raised_any) else str(words.get("idle_sub_text", ""))
+	if raised_any:
+		return ""
+	if trance_active:
+		return str(words.get("trance_sub_text", ""))
+	return "" if at_exit else str(words.get("idle_sub_text", ""))
+
+
+## The readout beside the pen while a loop is drawn (RaidTraceLive): [head, tail, ladder] for a ring the trace
+## fits (the tier it would make by score_class, the strength by stat_mult, the motes RaidRaise.motes_inside
+## finds), [none, ladder] when it fits none. The ladder's numbers are raise.soldier/elite_min_score.
+## `words` is raid.json's `trace_notch` block.
+static func loop_readout(words: Dictionary, valid: bool, score: int, motes_in: int, cfg: Dictionary, circle_cfg: Dictionary) -> Array:
+	var r: Dictionary = cfg.get("raise", {})
+	var ladder := word_fmt(words, "live_ladder", [int(r.get("soldier_min_score", 60)), int(r.get("elite_min_score", 90))])
+	if not valid:
+		return [str(words.get("live_none", "")), ladder]
+	var strength := "%.2f" % stat_mult(score, circle_cfg)
+	return [word_fmt(words, "live_head", [score, score_class(score, cfg).to_upper()]),
+		word_fmt(words, "live_tail", [motes_in, strength]), ladder]
 
 
 ## The "your undead fight on their own" cue is due once: an undead stands and (a living has died or

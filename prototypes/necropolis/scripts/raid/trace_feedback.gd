@@ -11,6 +11,7 @@ var score := 0
 var valid := false
 var raised_n := 0          # set by perform_raise: units the circle made
 var raised_tier := ""      # display tier: chaff | soldier | elite
+var raised_mult := 1.0     # set by perform_raise: the strength multiplier (RaidLogic.stat_mult of the score)
 var _age := 0.0
 
 
@@ -48,11 +49,16 @@ static func _words() -> Dictionary:
 	return ConfigDb.data.get("raid", {}).get("trace_notch", {})
 
 
-func _band() -> Dictionary:
+## The band a score falls in (the live readout shares it).
+static func band_for(s: int) -> Dictionary:
 	for b in BANDS:
-		if score >= b.min:
+		if s >= b.min:
 			return b
 	return BANDS[-1]
+
+
+func _band() -> Dictionary:
+	return band_for(score)
 
 
 func _grade_word() -> String:
@@ -93,10 +99,10 @@ func _draw() -> void:
 		draw_string(ThemeDB.fallback_font, c + Vector2(-80, -fitted_radius - 14),
 			head, HORIZONTAL_ALIGNMENT_CENTER, 160, 22, text_col)
 		if raised_n > 0 and raised_tier != "":
-			var tail := RaidLogic.word_fmt(_words(), "tier_tail", [raised_n, raised_tier.to_upper()])
+			var tail := RaidLogic.word_fmt(_words(), "tier_tail", [raised_n, raised_tier.to_upper(), "%.2f" % raised_mult])
 			_plate(c + Vector2(0, fitted_radius + 28), tail, a)
-			draw_string(ThemeDB.fallback_font, c + Vector2(-80, fitted_radius + 28),
-				tail, HORIZONTAL_ALIGNMENT_CENTER, 160, 22, text_col)
+			draw_string(ThemeDB.fallback_font, c + Vector2(-190, fitted_radius + 28),
+				tail, HORIZONTAL_ALIGNMENT_CENTER, 380, 22, text_col)
 	else:
 		var c2 := to_local(trace[trace.size() / 2]) if trace.size() > 0 else Vector2.ZERO
 		draw_string(ThemeDB.fallback_font, c2 + Vector2(-80, -20),

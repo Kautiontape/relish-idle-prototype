@@ -93,7 +93,7 @@ from the elite's kills), `LIVING < 20`, and the log no `SCRIPT ERROR`:
 ```sh
 WAYLAND_DISPLAY=wayland-2 flock -w 300 /tmp/necropolis-godot.lock timeout 150 \
   godot --display-driver wayland --audio-driver Dummy --rendering-driver opengl3 \
-  --path /home/shawn/documents/apps/games/relish-idle-prototype/prototypes/necropolis -- \
+  --path prototypes/necropolis -- \
   --shot=/tmp/necropolis-raid-raise.png --frames=240 --scene=res://scenes/raid/Raid.tscn \
   --clicks="960,546;960,546;960,546;960,546;960,546;960,546;960,546;960,546;960,546;960,546;960,546;960,546;960,546;960,546" \
   --trace=960,546,120
