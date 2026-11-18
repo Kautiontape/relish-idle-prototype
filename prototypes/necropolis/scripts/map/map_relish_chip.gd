@@ -14,6 +14,7 @@ var cam: MapCamera
 var _name: Button
 var _home: Button
 var _cancel: Button
+var _row: HBoxContainer  # the buttons' row; hidden when neither shows, so it leaves no gap
 var _rev := -2
 
 
@@ -30,15 +31,16 @@ func _ready() -> void:
 	_name.flat = true
 	MapUi.style_button(_name, int(c["chip_font_px"]))
 	_name.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
+	_name.custom_minimum_size.y = float(c["chip_name_h_px"])  # the name is one line: no 44 px button pad
 	_name.tooltip_text = "Centre the map on Relish"
 	_name.pressed.connect(_centre)
 	vb.add_child(_name)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", int(c["chip_hsep_px"]))
-	vb.add_child(row)
-	_home = _button(row, "GO HOME", float(c["chip_button_w_px"]))
+	_row = HBoxContainer.new()
+	_row.add_theme_constant_override("separation", int(c["chip_hsep_px"]))
+	vb.add_child(_row)
+	_home = _button(_row, "GO HOME", float(c["chip_button_w_px"]))
 	_home.pressed.connect(_go_home)
-	_cancel = _button(row, "CANCEL", float(c["chip_button_w_px"]))
+	_cancel = _button(_row, "CANCEL", float(c["chip_button_w_px"]))
 	_cancel.pressed.connect(_do_cancel)
 	if hud != null:
 		hud.inset_changed.connect(_sit)
@@ -71,6 +73,7 @@ func refresh(force := false) -> void:
 	var b := RelishLogic.chip_buttons(model.relish)
 	_home.visible = b["go_home"]
 	_cancel.visible = b["cancel"]
+	_row.visible = _home.visible or _cancel.visible
 	reset_size.call_deferred()  # shrink the plate when a button hides
 
 

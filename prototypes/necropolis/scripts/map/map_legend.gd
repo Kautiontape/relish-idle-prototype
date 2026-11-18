@@ -61,6 +61,7 @@ func _ready() -> void:
 	MapUi.style_button(_head, int(cfg["font_label"]))
 	_head.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_head.pressed.connect(_toggle)
+	_head.custom_minimum_size.y = float(lc["head_h_px"])  # a one-line toggle, not a 44 px button
 	vb.add_child(_head)
 	_rows = VBoxContainer.new()
 	_rows.add_theme_constant_override("separation", int(lc["row_gap_px"]))
@@ -167,7 +168,7 @@ func refresh() -> void:
 	var gap := float(lc["gap_above_valve_px"])
 	var vrect := valve.get_global_rect() if valve != null else Rect2(0.0, get_parent_area_size().y + gap, w, 0.0)
 	var crect := chip.get_global_rect() if chip != null and is_instance_valid(chip) else Rect2()
-	var p := HudLogic.legend_place(crect, vrect, x, w, h_full, h_compact, pad + head_h, want, _open_user == 1, gap)
+	var p := HudLogic.legend_place(crect, vrect, x, w, h_full, h_compact, pad + head_h, want, gap)
 	var mode := str(p["mode"])
 	_shown_open = mode != "closed"
 	if _rows.visible != _shown_open:

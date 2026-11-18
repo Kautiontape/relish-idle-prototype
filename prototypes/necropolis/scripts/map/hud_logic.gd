@@ -137,14 +137,13 @@ static func tooltip_style() -> Dictionary:
 ## Where the fort legend sits and how it shows, from the real rects. `chip` and `valve` are their
 ## panels' rects; the legend is `w` wide at left edge `x`, bottom-aligned `gap` above the valve.
 ## `h_full`, `h_compact` (rows closer together) and `h_closed` (the button) are its heights.
-## `want_open`: it would show expanded (open by default, or as the player left it); `user_open`: the
-## player clicked it open (kept for callers; the room rule no longer differs). The Relish chip (when it
+## `want_open`: it would show expanded (open by default, or as the player left it). The Relish chip (when it
 ## overlaps the legend's columns) bounds the top: the legend's top is at least the chip's bottom plus
 ## `gap`. An open legend that does not fit at full height shows compact if that fits, else collapsed
 ## (the legend is open by default, so compact must serve the default on a short screen too).
 ## Returns {mode: "full"|"compact"|"closed", rect: Rect2}.
 static func legend_place(chip: Rect2, valve: Rect2, x: float, w: float, h_full: float, h_compact: float, h_closed: float,
-		want_open: bool, _user_open: bool, gap: float) -> Dictionary:
+		want_open: bool, gap: float) -> Dictionary:
 	var bottom := valve.position.y - gap
 	var floor_y := -INF
 	if chip.size.y > 0.0 and chip.position.x < x + w and chip.end.x > x:
