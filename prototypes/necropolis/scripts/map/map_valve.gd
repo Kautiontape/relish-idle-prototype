@@ -250,7 +250,7 @@ func _payoff_parts_for(proj: Dictionary) -> Array:
 	var p := ValveLogic.payoff(model.vei, proj, float(model.realm_cfg.get("K", 0.0)), model.realm_cfg.get("odds", {}),
 		float(model.hud.get("t", 0.0)))  # (E4 step 9: the win odds view_vei shows)
 	var eps := float(model.realm_cfg.get("readout", {}).get("sign_eps", 0.0))
-	var parts: Array = [{"kind": "main", "text": ValveLogic.payoff_line(p, eps)}]
+	var parts: Array = [{"kind": "main", "text": ValveLogic.payoff_line(p, eps, model.realm_cfg.get("odds", {}))}]
 	parts.append_array(ValveLogic.payoff_cost_parts(proj, base, eps))
 	return parts
 
