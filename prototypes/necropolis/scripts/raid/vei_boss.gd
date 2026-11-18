@@ -754,9 +754,7 @@ func _lose(reason: String) -> void:
 		return
 	end_reason = reason
 	_end_common()
-	var text := {"fronts_held": "HER FRONTS HOLD", "horde_ferried": "THE HORDE IS FERRIED",
-		"relish_unmade": "RELISH IS UNMADE"}
-	hud.show_banner(str(text.get(reason, "THE FIGHT IS LOST")), 3.0, "danger")
+	hud.show_banner(BossLogic.loss_banner(reason, rcfg().get("vei_loss", {})), 3.0, "danger")
 	lanes_node.lose_f = 0.0
 	vei.feed_f = 0.0
 	_seq_kind = "lose"
@@ -770,7 +768,11 @@ func _lose(reason: String) -> void:
 func _lose_card() -> void:
 	_seq_kind = ""
 	if _card == null:
-		var info := BossLogic.loss_card(seed_data, spent, party_lost, fight_t, end_reason, float(vcfg().get("loss_backlog_keep", 0.35)), rcfg().get("death", {}))
+		var lw: Dictionary = rcfg().get("vei_loss", {})
+		var info := BossLogic.loss_card(seed_data, spent, party_lost, fight_t, end_reason, float(vcfg().get("loss_backlog_keep", 0.35)), rcfg().get("death", {}), lw)
+		info["cause"] = BossLogic.loss_cause(end_reason, {"last_hit_src": relish.last_hit_src if relish != null else "", "streak_max": streak_max,
+			"break_beats": int(vcfg().get("break_beats", 8)), "fronts_cleared": _cleared_now(), "fronts_required": VeiFronts.required(vcfg())}, lw)
+		info["pressure_row"] = BossLogic.pressure_row(pressure, float(seed_data.get("living_pool", 0.0)), lw) if phase1_s >= 0.0 else {}
 		info["phyl_total"] = int(seed_data.get("phylactery_charges", 0))
 		info["clones_total"] = int(seed_data.get("clones_ready", 0))
 		_card = VeiCard.new()
@@ -778,6 +780,26 @@ func _lose_card() -> void:
 		_card.setup(info, vcfg().get("card", {}), _emit.bind(false))
 	if _bot != null and not (_bdev != null and _bdev.hold_card):
 		_emit(false)
+
+
+## The ids of the fronts that have fallen: the list frozen at the break, or phase 1's own until then.
+func _cleared_now() -> Array:
+	if phase1_s >= 0.0:
+		return fronts_cleared
+	var out: Array = []
+	for f in p1.get("fronts", []):
+		if bool(f["cleared"]):
+			out.append(String(f["id"]))
+	return out
+
+
+## A gap (RaidEndings.gap_end) forfeits a boss fight in the state (no writeback), so a closing set piece
+## or card still up would contradict it: stop the set piece and take the card down.
+func gap_cut_end() -> void:
+	_seq_kind = ""
+	if _card != null and is_instance_valid(_card):
+		_card.queue_free()
+	_card = null
 
 
 func _end_common() -> void:
@@ -874,6 +896,7 @@ func hud_info() -> Dictionary:
 	return {"phase": phase, "break_began": phase1_s >= 0.0, "eta": eta, "rule_on": rule_on,
 		"rule": BossLogic.phase2_hint(int(vc.get("break_beats", 8)), int(vc.get("lapse_cost", -1))) if rule_on else "", "met": met, "required": VeiFronts.required(vc),
 		"t": float(p1.get("t", 0.0)), "max_t": float(vc.get("phase1_max_s", 90.0)),
+		"pressure": pressure, "pressure_tag": BossLogic.pressure_tag(pressure, rcfg().get("vei_loss", {})),
 		"horde": horde, "ferry": ferry, "streak": int(brk.get("streak", 0)), "break_beats": int(vc.get("break_beats", 8)),
 		"winning": float(brk.get("ema", 0.0)) > ferry_beat, "phyl_left": phylactery_left(), "clones_left": clones_left(),
 		"spent_phyl": int(spent["phylactery"]), "spent_clones": int(spent["clones"]), "hint": hint,

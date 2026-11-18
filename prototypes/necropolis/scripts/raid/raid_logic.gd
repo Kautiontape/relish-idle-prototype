@@ -320,6 +320,17 @@ static func gap_leaves_beat(ended: bool, pending_exit: String) -> bool:
 	return ended and pending_exit != ""
 
 
+## What RaidEndings.gap_end does for a gap: {leave, cut_end}. `leave`: a death or victory beat is running and matches
+## the state (gap_leaves_beat), so it keeps its card and its one finish. A boss fight never leaves its beat: the
+## state forfeits it on a gap (StateRuns.end_open writes nothing back for a boss) and the boss never sets
+## pending_exit, so a set piece or a card still up (`ended`) would contradict the state; `cut_end` takes the card
+## down and stops the set piece before the banner shows.
+static func gap_plan(ended: bool, pending_exit: String, boss: bool) -> Dictionary:
+	if boss:
+		return {"leave": false, "cut_end": ended}
+	return {"leave": gap_leaves_beat(ended, pending_exit), "cut_end": false}
+
+
 ## The banner a gap-ended run shows, from raid.json's `gap_end` block (the raid's words, or the Vei fight's: a boss
 ## run has no checkpoint, the state forfeits it).
 static func gap_banner(gap_cfg: Dictionary, boss := false) -> String:

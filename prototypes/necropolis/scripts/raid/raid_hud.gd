@@ -236,8 +236,8 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		_boss_block.set_anchors_preset(Control.PRESET_CENTER_TOP)
 		_boss_block.anchor_left = 0.5
 		_boss_block.anchor_right = 0.5
-		_boss_block.offset_left = -320.0
-		_boss_block.offset_right = 320.0
+		_boss_block.offset_left = -BossLogic.BLOCK_W * 0.5   # the BACKLOG row's width test reads BossLogic.BLOCK_W
+		_boss_block.offset_right = BossLogic.BLOCK_W * 0.5
 		_boss_block.offset_top = 10.0
 		_boss_block.offset_bottom = 10.0 + BossBlock.H_BREAK
 		_banner.offset_top = 10.0 + BossBlock.H_BREAK + 8.0
@@ -1612,7 +1612,7 @@ class BossBlock:
 		var info := _info()
 		if info.is_empty():
 			return
-		_next.resize(17)
+		_next.resize(18)
 		_next[0] = int(info["break_began"]) | (int(info["over"]) << 1) | (int(info["won"]) << 2) | (int(info["winning"]) << 3) | (int(info["lapse_on"]) << 4)
 		_next[1] = int(info["met"])
 		_next[2] = floori(float(info["t"]))
@@ -1630,6 +1630,7 @@ class BossBlock:
 		_next[14] = int(info["required"])
 		_next[15] = int(info["notch"])
 		_next[16] = int(info["rule_on"])
+		_next[17] = roundi(float(info["pressure"]) * 100.0) if str(info["pressure_tag"]) != "" else 0   # the guards tag shows only above the threshold
 		var eta_key := str(info["eta"])
 		if _next != _key or eta_key != _eta_key or (bool(info["lapse_on"]) and not Pulse.reduced_motion):
 			_key = _next.duplicate()
@@ -1691,15 +1692,19 @@ class BossBlock:
 			# The backlog drains by deaths, not by this clock (it would take ~90 min): no minus, no slant.
 			_label(x0, y, "BACKLOG")
 			var x2 := _text(col2, y, thousands(roundi(float(info["horde"]))), 20)
-			x2 = _text(x2 + 10.0, y, "ferried %.2f/s" % float(info["ferry"]), 13, "text_dim")
+			x2 = _text(x2 + BossLogic.GAP_FERRY, y, "ferried %.2f/s" % float(info["ferry"]), 13, "text_dim")
+			var tag := str(info["pressure_tag"])   # "· guards ×2.3" only when her pool presses the break (BossLogic.pressure_tag)
+			if tag != "":
+				x2 = _text(x2 + BossLogic.GAP_TAG, y, tag, 13, "living")
+			x2 += BossLogic.GAP_STATUS
 			if bool(info["won"]):
-				_text(x2 + 18.0, y, "SHE BREAKS", 15, "vei")
+				_text(x2, y, "SHE BREAKS", 15, "vei")
 			elif bool(info["over"]):
-				_text(x2 + 18.0, y, "the fight is lost", 13, "danger")
+				_text(x2, y, "the fight is lost", 13, "danger")
 			elif bool(info["winning"]):
-				_text(x2 + 18.0, y, "raise > ferry", 13, "undead")
+				_text(x2, y, "raise > ferry", 13, "undead")
 			else:
-				_text(x2 + 18.0, y, "raise < ferry", 13, "living")
+				_text(x2, y, "raise < ferry", 13, "living")
 			y += 28.0
 			# the break meter, as the wardens': lit from the left, notched, a lapse's pips slashed
 			_label(x0, y, "BREAK")

@@ -600,6 +600,90 @@ func _result_wiring(t: TestUtil, cfg: Dictionary) -> void:
 		t.ok(BossLogic.result_of(cut, true).is_empty(), "result_of refuses a state without '%s' (a renamed fight_state key fails loudly)" % key)
 
 
+## A readable Vei loss: the cause row, the guards' pressure row and tag (BossLogic.loss_cause / pressure_row /
+## pressure_tag, raid.json vei_loss), on the card (VeiCard.rows_for / layout_rows / plate_h_for) and in the HUD's BACKLOG row.
+func _loss_cause_tests(t: TestUtil, cfg: Dictionary, lw: Dictionary, dw: Dictionary, sd: Dictionary, sd_de: Dictionary,
+		keep: float, ccfg: Dictionary, fnt: Font) -> void:
+	t.suite("vei_loss_cause")
+	var cb := BossLogic.loss_cause("relish_unmade", {"last_hit_src": "weave"}, lw)
+	t.ok(cb["label"] == "KILLED BY" and cb["text"] == "her weave", "relish_unmade, struck last by her weave: KILLED BY her weave")
+	t.ok(BossLogic.loss_cause("relish_unmade", {"last_hit_src": "living"}, lw)["text"] == "her guards", "struck last by the living: her guards")
+	for other in ["", "slam", "pack", "wound"]:
+		t.ok(BossLogic.loss_cause("relish_unmade", {"last_hit_src": other}, lw)["text"] == "a wound", "any other source ('%s') reads a wound" % other)
+	var cf := BossLogic.loss_cause("horde_ferried", {"streak_max": 6, "break_beats": 20}, lw)
+	t.ok(cf["label"] == "BREAK" and cf["text"] == "best streak 6 of 20 · the horde ran out first", "horde_ferried: BREAK, the best streak of the beats a break takes: " + str(cf["text"]))
+	var ff := BossLogic.loss_cause("fronts_held", {"fronts_cleared": ["giants", "carvers"], "fronts_required": 3}, lw)
+	t.ok(ff["label"] == "FRONTS" and ff["text"] == "2 of 4 fell · 3 needed · Swarm and Raw held", "fronts_held: FRONTS, how many fell, how many were needed, which held: " + str(ff["text"]))
+	var f0 := BossLogic.loss_cause("fronts_held", {"fronts_cleared": [], "fronts_required": 3}, lw)
+	t.ok(f0["text"] == "0 of 4 fell · 3 needed · Giants, Swarm, Carvers and Raw held", "none fell: all four held, listed: " + str(f0["text"]))
+	var f1 := BossLogic.loss_cause("fronts_held", {"fronts_cleared": ["giants", "swarm", "carvers"], "fronts_required": 4}, lw)
+	t.ok(f1["text"] == "3 of 4 fell · 4 needed · Raw held", "one held: no 'and'")
+	var f4 := BossLogic.loss_cause("fronts_held", {"fronts_cleared": BossLogic.FRONT_IDS.duplicate(), "fronts_required": 3}, lw)
+	t.ok(not str(f4["text"]).contains("held"), "all fell: no held clause")
+	t.ok(BossLogic.loss_cause("weird", {}, lw).is_empty() and BossLogic.loss_cause("closed", {}, lw).is_empty(), "an unknown reason has no row")
+	t.ok(not RaidLogic.TELL_ATTACKS.has("weave") and RaidLogic.chain_soaks("weave", true) == RaidLogic.chain_soaks("", true) and RaidLogic.chain_soaks("weave", true),
+		"'weave' is no tell-attack: the chain soaks it exactly as it soaks an unnamed hit")
+	t.ok(BossLogic.loss_banner("relish_unmade", lw) == "RELISH IS UNMADE" and BossLogic.loss_banner("fronts_held", lw) == "HER FRONTS HOLD"
+		and BossLogic.loss_banner("horde_ferried", lw) == "THE HORDE IS FERRIED" and BossLogic.loss_banner("x", lw) == "THE FIGHT IS LOST", "the loss banners, from raid.json")
+
+	t.suite("vei_loss_pressure")
+	var pm_full := VeiFronts.pressure_mult(600.0, cfg)
+	var pm_demo := VeiFronts.pressure_mult(380.0, cfg)
+	t.near(pm_full, 2.3, 0.0001, "her full pool of 600 presses x2.3")
+	t.ok(pm_demo == 1.0 and BossLogic.pressure_row(pm_demo, 380.0, lw).is_empty() and BossLogic.pressure_tag(pm_demo, lw) == "",
+		"the demo seed's pool of 380 (x1.0) shows no row and no tag")
+	var pr := BossLogic.pressure_row(pm_full, 600.0, lw)
+	t.ok(pr["label"] == "GUARDS" and pr["text"] == "×2.3 · 600 in her living reserve", "the GUARDS row: " + str(pr["text"]))
+	t.ok(BossLogic.pressure_tag(pm_full, lw) == "· guards ×2.3", "the HUD tag: " + BossLogic.pressure_tag(pm_full, lw))
+	var thr := float(lw["pressure_min"])
+	t.ok(thr > 1.0 and thr <= pm_full and BossLogic.pressure_row(thr - 0.001, 400.0, lw).is_empty() and not BossLogic.pressure_row(thr, 400.0, lw).is_empty()
+		and BossLogic.pressure_tag(thr - 0.001, lw) == "" and BossLogic.pressure_tag(thr, lw) != "", "the threshold (%s) gates both" % str(thr))
+
+	t.suite("vei_loss_card_rows")
+	var vwd := VeiCard.value_w(ccfg)
+	var loss_min := float(ccfg.get("loss_h_px", 520.0))
+	var worst_h := 0.0
+	var all_ok := true
+	var shapes_ok := true
+	var sd_w := sd_de.duplicate(true)
+	sd_w["death_ends"] = {"outcome": "unmade", "respawn_s": 3599}
+	for reason in ["fronts_held", "horde_ferried", "relish_unmade"]:
+		for src in ["weave", "living", ""]:
+			for cleared in [[], ["giants", "carvers"]]:
+				var info := BossLogic.loss_card(sd_w, {"phylactery": 1, "clones": 1}, [], 65.0, reason, keep, dw, lw)
+				info["cause"] = BossLogic.loss_cause(reason, {"last_hit_src": src, "streak_max": 19, "break_beats": 20, "fronts_cleared": cleared, "fronts_required": 3}, lw)
+				info["pressure_row"] = BossLogic.pressure_row(pm_full, 600.0, lw)
+				info["phyl_total"] = 1
+				info["clones_total"] = 1
+				var rows := VeiCard.rows_for(info)
+				shapes_ok = shapes_ok and str(rows[0]["id"]) == "cause" and str(rows[1]["id"]) == "pressure_row" and str(rows[2]["label"]) == "FIGHT TIME" \
+					and (reason == "relish_unmade") == (str(rows[rows.size() - 1]["id"]) == "after") and rows.size() == (7 if reason == "relish_unmade" else 6)
+				var laid := VeiCard.layout_rows(rows, vwd, fnt)
+				for lr in laid:
+					for ln in (lr["lines"] as PackedStringArray):
+						all_ok = all_ok and fnt.get_string_size(ln, HORIZONTAL_ALIGNMENT_LEFT, -1, VeiCard.VALUE_PX).x <= vwd
+					if not bool(lr["stacked"]):
+						var side := vwd - fnt.get_string_size(str(lr["label"]), HORIZONTAL_ALIGNMENT_LEFT, -1, VeiCard.LABEL_PX).x - VeiCard.LABEL_GAP
+						all_ok = all_ok and fnt.get_string_size(str((lr["lines"] as PackedStringArray)[0]), HORIZONTAL_ALIGNMENT_LEFT, -1, VeiCard.VALUE_PX).x <= side
+				worst_h = maxf(worst_h, VeiCard.plate_h_for(laid, loss_min))
+	t.ok(shapes_ok, "rows_for: the cause row first, the pressure row second, then FIGHT TIME; AFTER last and only after a final death")
+	t.ok(all_ok, "layout_rows: no value of any reason (with the pressure row and AFTER) is wider than its span (%d px)" % int(vwd))
+	t.ok(worst_h >= loss_min and worst_h + 2.0 * 20.0 <= 900.0, "the plate (worst %d px, button inside it) fits the 900 px viewport with a margin" % int(worst_h))
+	var info_n := BossLogic.loss_card(sd, {}, [], 1.0, "fronts_held", keep, dw, lw)
+	var rn := VeiCard.rows_for(info_n)
+	t.ok(rn.size() == 4 and str(rn[0]["label"]) == "FIGHT TIME", "a card with no cause or pressure row (the demo seed, a dev kill) keeps its old rows")
+
+	t.suite("vei_loss_hud_row")
+	var worst := 0.0
+	var tag_w := BossLogic.pressure_tag(9.9, lw)
+	for status in [["the fight is lost", 13], ["SHE BREAKS", 15], ["raise > ferry", 13], ["raise < ferry", 13]]:
+		worst = maxf(worst, BossLogic.backlog_row_w(fnt, VeiCard._thousands(999999999), "ferried 99.99/s", tag_w, str(status[0]), int(status[1])))
+	var room := BossLogic.BLOCK_W - BossLogic.BLOCK_INSET - BossLogic.BACKLOG_COL
+	t.ok(worst <= room, "the worst BACKLOG row (999,999,999, ferried 99.99/s, '%s', longest status) is %d px, within the block's %d px" % [tag_w, int(worst), int(room)])
+	var real_w := BossLogic.backlog_row_w(fnt, VeiCard._thousands(55350000), "ferried 8.50/s", BossLogic.pressure_tag(pm_full, lw), "raise < ferry", 13)
+	t.ok(real_w < worst and real_w <= room, "the full-pool row (%d px) fits too" % int(real_w))
+	t.ok(fnt.get_string_size("BACKLOG", HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x + 12.0 < BossLogic.BACKLOG_COL, "the BACKLOG label ends before the value column")
+
 ## The HUD read-outs (D-d): the seconds-to-break hint, the lapse count, the phase-2 rule and the end card.
 func _hud_readouts(t: TestUtil, cfg: Dictionary) -> void:
 	var lc := int(cfg.get("lapse_cost", -1))
@@ -647,16 +731,17 @@ func _hud_readouts(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(ec0["spent"] == 0 and ec0["party_lost"] == 0 and float(ec0["backlog_spent"]) == 0.0, "end_card: an empty fight is all zeros (never negative)")
 	# the loss card: the win card's frame, the share of the backlog that stays, the AFTER row after a final death
 	var dw: Dictionary = TestUtil.load_json("res://configs/raid.json")["death"]   # the AFTER words are raid.json's, passed in
+	var lw: Dictionary = TestUtil.load_json("res://configs/raid.json")["vei_loss"]   # and the loss words
 	var keep := float(cfg.get("loss_backlog_keep", -1.0))
 	t.ok(keep > 0.0 and keep < 1.0, "vei.json loss_backlog_keep is a share (%s)" % str(keep))
 	for reason in ["fronts_held", "horde_ferried", "relish_unmade"]:
-		var lcd := BossLogic.loss_card(sd, {}, [], 40.0, reason, keep, dw)
-		t.ok(bool(lcd["lost"]) and lcd["reason"] == reason and lcd["ended"] == BossLogic.LOSS_WORDS[reason] and str(lcd["ended"]) != "" \
+		var lcd := BossLogic.loss_card(sd, {}, [], 40.0, reason, keep, dw, lw)
+		t.ok(bool(lcd["lost"]) and lcd["reason"] == reason and lcd["ended"] == lw["ended"][reason] and str(lcd["ended"]) != "" \
 			and lcd["time_text"] == "0:40" and not lcd.has("backlog_spent"), "loss_card %s: its own words, the fight time, no backlog-spent figure" % reason)
 		t.ok(lcd["keep_pct"] == roundi(keep * 100.0) and lcd["keep_text"] == "%d%% stays" % roundi(keep * 100.0),
 			"loss_card %s: the backlog reads as the share that stays, from loss_backlog_keep" % reason)
 		t.ok((reason == "relish_unmade") == not (lcd["after"] as Dictionary).is_empty(), "loss_card %s: the AFTER row only after a final death" % reason)
-	t.ok(str(BossLogic.loss_card(sd, {}, [], 1.0, "weird", keep, dw)["ended"]) == "the fight is lost", "loss_card: an unknown reason reads 'the fight is lost'")
+	t.ok(str(BossLogic.loss_card(sd, {}, [], 1.0, "weird", keep, dw, lw)["ended"]) == "the fight is lost", "loss_card: an unknown reason reads 'the fight is lost'")
 	for sp in [[0, 0], [1, 0], [1, 1]]:
 		var lcs := BossLogic.loss_card(sd, {"phylactery": sp[0], "clones": sp[1]}, ["a", "ghost", "b"], 65.4, "relish_unmade", keep, dw)
 		t.ok(lcs["spent"] == sp[0] + sp[1] and lcs["spent_phyl"] == sp[0] and lcs["spent_clones"] == sp[1] and lcs["backups_total"] == 3 \
@@ -704,6 +789,7 @@ func _hud_readouts(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(VeiCard.plate_h_for(laid_short, loss_min) == loss_min, "Vei's loss card: with no AFTER row the plate keeps loss_h_px (the minimum)")
 	var vk := VeiCard.rows_for(BossLogic.end_card(sd, {}, [], 1.0, 100.0, 40.0))
 	t.ok(vk.size() == 4 and str(vk[3]["label"]) == "BACKLOG SPENT", "the win card's rows are the same list (BACKLOG SPENT last)")
+	_loss_cause_tests(t, cfg, lw, dw, sd, sd_de, keep, ccfg, fnt)
 	# the card draws only what loss_card hands it; the scene builds it from the fight's own fields (no sim read)
 	var lsrc := FileAccess.get_file_as_string("res://scripts/raid/vei_boss.gd")
 	var li := lsrc.find("func _lose_card(")

@@ -132,7 +132,7 @@ func _land(w: Dictionary) -> void:
 	_flare = maxf(_flare, 0.5)
 	if _land_hit:
 		hits += 1
-		boss.relish.take_hit(float(w.get("dmg", 12.0)))
+		boss.relish.take_hit(float(w.get("dmg", 12.0)), "weave")   # named for the loss card's KILLED BY (not a RaidLogic.TELL_ATTACKS: the chain soaks it as before)
 
 
 func _process(delta: float) -> void:

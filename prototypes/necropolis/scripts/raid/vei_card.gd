@@ -75,9 +75,16 @@ static func value_w(cfg: Dictionary) -> float:
 
 
 ## The card's rows as [{label, text, key, id}], in order. `id` marks a row with an extra drawing ("backups").
-## Add a row here (the loss card's pressure and cause rows go in this list) and layout_rows sizes it.
+## A loss's `info.cause` and `info.pressure_row` ({label, text, key}, BossLogic.loss_cause / pressure_row) come first,
+## in that order. Add a row here and layout_rows sizes it.
 static func rows_for(info: Dictionary) -> Array:
-	var rows: Array = [{"label": "FIGHT TIME", "text": str(info["time_text"]), "key": "text", "id": "time"}]
+	var rows: Array = []
+	# a loss names its cause first (BossLogic.loss_cause), then the guards' pressure when the break had any (BossLogic.pressure_row)
+	for k in ["cause", "pressure_row"]:
+		var extra: Dictionary = info.get(k, {})
+		if not extra.is_empty():
+			rows.append({"label": str(extra["label"]), "text": str(extra["text"]), "key": str(extra.get("key", "text")), "id": k})
+	rows.append({"label": "FIGHT TIME", "text": str(info["time_text"]), "key": "text", "id": "time"})
 	var total := int(info["backups_total"])
 	rows.append({"label": "BACKUPS SPENT", "text": ("%d of %d" % [int(info["spent"]), total]) if total > 0 else "none to spend", "key": "text", "id": "backups"})
 	rows.append({"label": "BIG UNDEAD LOST", "text": "%d of %d" % [int(info["party_lost"]), int(info["party"])], "key": "text", "id": "party"})

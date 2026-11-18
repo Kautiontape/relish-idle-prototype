@@ -109,7 +109,7 @@ func _send_checkpoint(loot := {}) -> void:
 
 
 ## Send one payload; a catching_up refusal keeps it as the pending one (RaidLogic.checkpoint_pending_after: each
-## send replaces what was pending, so a newer checkpoint supersedes an older one).
+## send replaces what was pending, so a newer checkpoint supersedes an older one; gap_end drops it).
 func _post_checkpoint(payload: Dictionary) -> void:
 	var res: Dictionary = Game.state.cmd_run_checkpoint(int(payload["run_id"]), payload["loot"], str(payload["outcome"]))
 	_pending_cp = RaidLogic.checkpoint_pending_after(payload, res)
@@ -130,9 +130,14 @@ func gap_end(outcome: String) -> void:
 	if finished or _gap:
 		return
 	_gap = true
+	# A gap drops a still-pending checkpoint: that only matters if state_runs ever refuses a death or win checkpoint
+	# with catching_up (it does not today; see RaidLogic.checkpoint_pending_after).
 	_pending_cp = {}
-	if RaidLogic.gap_leaves_beat(ended, pending_exit):
+	var plan := RaidLogic.gap_plan(ended, pending_exit, _raid.is_boss())
+	if bool(plan["leave"]):
 		return   # a death or victory beat is running and already matches the state: it keeps its card and its one finish
+	if bool(plan["cut_end"]):
+		_raid.gap_cut_end()   # the Vei fight's end set piece or card contradicts the forfeit the state recorded
 	if not ended:
 		retreat_by = "gap"
 	ended = true
