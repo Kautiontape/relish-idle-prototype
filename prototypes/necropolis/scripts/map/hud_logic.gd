@@ -87,6 +87,47 @@ static func objective_text(hud: Dictionary) -> String:
 	return str(cfg.get("objective_won_text", "")) if hud.get("won", false) else str(cfg.get("objective_text", ""))
 
 
+## Whether the run's goal and the valve's one-line explanation show: while no fort has been taken
+## (view_hud.highest_tier_flipped is 0: existing state, no save flag). After that the goal line is
+## gone and the valve's explanation stays as its hover tooltip.
+static func goal_shown(hud: Dictionary) -> bool:
+	return int(hud.get("highest_tier_flipped", 0)) == 0 and not bool(hud.get("won", false))
+
+
+## The run's goal under the objective strip: the config's lines, one per row.
+static func goal_text() -> String:
+	return "\n".join(PackedStringArray(MapLogic.cfg().get("clarity", {}).get("goal_lines", [])))
+
+
+## Whether the fort legend shows expanded: the player's click when there was one (`user`: 1 open,
+## 0 closed), else while no fort has been taken (goal_shown), collapsed to a button afterwards.
+static func legend_open(hud: Dictionary, user: int) -> bool:
+	return goal_shown(hud) if user < 0 else user == 1
+
+
+## The fort state a legend row draws: Vei's and retaken are both a fort of hers (a living square;
+## the map tells a retaken one by its danger tag), held draws safe (a diamond), overrun its hollow square.
+static func legend_glyph_state(id: String) -> String:
+	match id:
+		"held":
+			return IdleLogic.SAFE
+		"overrun":
+			return NodeLogic.OVERRUN
+	return NodeLogic.HERS
+
+
+## Where the card's top edge sits: `high` (near the screen's top, the whole height for the card)
+## when the HUD's plates (`plates_right`) end `gap` clear of the card's left edge, else `low` (under them).
+static func sidebar_top(viewport_w: float, card_w: float, plates_right: float, gap: float, low: float, high: float) -> float:
+	return high if plates_right + gap <= viewport_w - card_w else low
+
+
+## The hover line of a jargon word (the bar's MINT, ODDS, STRAIN, DRAIN; the valve's WORK, WAR,
+## FLOOD), from config; "" for a word with none.
+static func tip(id: String) -> String:
+	return str(MapLogic.cfg().get("clarity", {}).get("tips", {}).get(id, ""))
+
+
 ## A screen rect (the open card) in a world-anchored layer's frame, world x zoom (MapCallouts'):
 ## screen - viewport / 2 + camera position x zoom.
 static func screen_to_zoomed(r: Rect2, cam_pos: Vector2, zoom: float, viewport: Vector2) -> Rect2:

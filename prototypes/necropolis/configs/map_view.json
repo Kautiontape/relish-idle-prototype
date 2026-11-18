@@ -162,6 +162,8 @@
   "ui_refresh_s": 0.25,
   "sidebar_width_px": 338.0,
   "sidebar_top_px": 150.0,
+  "sidebar_top_high_px": 12.0,
+  "sidebar_top_gap_px": 12.0,
   "sidebar_margin_px": 16,
   "sidebar_bg_alpha": 0.93,
   "panel_bg_lighten": 0.04,
@@ -536,6 +538,44 @@
   "objective_won_text": "Vei has drowned in the dead. The realm is quiet.",
   "drain_empty_text": "queue empty",
   "strain_label": "STRAIN",
+  "drain_label": "DRAIN",
+  "clarity": {
+    "goal_lines": [
+      "The run: take Vei's forts and grow your necropolis while you're away, until you can beat Vei.",
+      "Beating Vei wins. FLOOD clogs her queue and raises your odds; face her when they're good."
+    ],
+    "goal_gap_px": 0.0,
+    "valve_line": "WORK: your town's jobs · WAR: your forts · FLOOD: Vei's queue",
+    "valve_tip": "The valve splits your new undead into WORK (your town's jobs), WAR (your forts) and FLOOD (Vei's queue).\nWAR sends undead to your forts, spread by distance, with Relish's fort drawing 3× its share. FLOOD sends them into Vei's queue, which raises your odds against her.",
+    "tips": {
+      "mint": "MINT: the undead your Raising Pits make each second. The map's valve splits it into WORK (your town's jobs), WAR (your forts) and FLOOD (Vei's queue).",
+      "odds": "Your chance to beat Vei if you faced her now. It grows with time and with her clogged queue.",
+      "strain": "How backed up Vei's queue is. ▲ means it is growing (FLOOD is clogging it); ▼ means she is working it down.",
+      "drain": "How long until Vei's queue empties at this rate. ∞ means it is not emptying.",
+      "work": "WORK: your town's jobs",
+      "war": "WAR sends undead to your forts, spread by distance, with Relish's fort drawing 3× its share.",
+      "flood": "FLOOD sends undead into Vei's queue, which raises your odds against her."
+    },
+    "legend": {
+      "open_text": "Legend −",
+      "closed_text": "Legend +",
+      "width_px": 490.0,
+      "word_w_px": 76.0,
+      "pad_px": 10.0,
+      "row_gap_px": 8.0,
+      "glyph_px": 34.0,
+      "glyph_gap_px": 10.0,
+      "ring_r_px": 14.0,
+      "gap_above_valve_px": 10.0,
+      "plate_alpha": 0.96,
+      "rows": [
+        {"state": "hers", "word": "VEI'S", "key": "text", "line": "Not taken yet. Raid it and break its warden to take it."},
+        {"state": "held", "word": "HELD", "key": "undead", "line": "Yours, taken by breaking its warden. Vei contests it when its timer ends; WAR troops hold it."},
+        {"state": "overrun", "word": "OVERRUN", "key": "text", "line": "Your WAR killed its living and your undead fill it, but it is still Vei's until you break its warden."},
+        {"state": "retaken", "word": "RETAKEN", "key": "danger", "line": "Vei won it back. Raid it to win it back."}
+      ]
+    }
+  },
   "cap_mark": "▮ FULL",
   "sidebar_row_label_px": 118,
   "sidebar_row_gap_px": 6,
@@ -679,6 +719,7 @@
     "head_fmt": "%s: never, %s bone short. The pits eat every body: %s"
   },
   "cards": {
+    "scroll_cue": "▼ scroll for more",
     "warden_fallback_fmt": "The %s",
     "tell_none": "no tell known yet",
     "tell_label": "TELL",
@@ -1071,7 +1112,7 @@
   "opening": {
     "opening_s": 900.0,
     "response_frac": 0.25,
-    "valve_text": "Drag toward WAR to hold forts, toward FLOOD to drown Vei",
+    "valve_text": "Drag the valve: toward WAR to garrison your forts, toward FLOOD to clog Vei's queue",
     "send_fmt": "Send Relish to %s: taken first time, it holds a blueprint",
     "descend_fmt": "Descend into %s: break its warden to take it",
     "line_width_px": 1.0,

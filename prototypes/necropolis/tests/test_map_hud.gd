@@ -22,7 +22,58 @@ func run() -> int:
 	_one_source(t)
 	_fit(t)
 	_wrap(t)
+	_clarity(t)
 	return t.failures
+
+
+## C2: the run's goal shows until a fort is taken; the jargon words have config tooltips; nothing
+## on the map says "drown Vei".
+func _clarity(t: TestUtil) -> void:
+	t.suite("map_hud-clarity")
+	t.ok(HudLogic.goal_shown({"highest_tier_flipped": 0}), "no fort taken: the goal shows")
+	t.ok(HudLogic.goal_shown({}), "a view without the field reads as a new game")
+	t.ok(not HudLogic.goal_shown({"highest_tier_flipped": 1}), "a fort taken: the goal is gone")
+	t.ok(not HudLogic.goal_shown({"highest_tier_flipped": 0, "won": true}), "won: no goal line")
+	var goal := HudLogic.goal_text()
+	t.ok(goal.contains("take Vei's forts") and goal.contains("necropolis") and goal.contains("FLOOD clogs her queue") and goal.contains("raises your odds"), "the goal line states the run and FLOOD: " + goal)
+	t.ok(not goal.to_lower().contains("drown"), "no 'drown Vei' on the goal line")
+	for id in ["mint", "odds", "strain", "drain", "work", "war", "flood"]:
+		t.ok(HudLogic.tip(id) != "", "%s has a tooltip line" % id)
+	t.ok(HudLogic.tip("nothing") == "", "an unknown word has none")
+	t.ok(HudLogic.tip("mint").contains("Raising Pit"), "MINT says where undead come from")
+	t.ok(not JSON.stringify(MapLogic.cfg().get("opening", {})).to_lower().contains("drown"), "the opening's lines do not say drown")
+	# the card rises to the screen's top only where the HUD's plates leave it room
+	t.ok(HudLogic.sidebar_top(1600.0, 338.0, 1000.0, 12.0, 150.0, 12.0) == 12.0, "1600 wide, plates end at 1000: the card starts at the top")
+	t.ok(HudLogic.sidebar_top(1280.0, 338.0, 1000.0, 12.0, 150.0, 12.0) == 150.0, "1280 wide: the plates reach the card's column, so it starts under them")
+	t.ok(HudLogic.sidebar_top(1600.0, 338.0, 1255.0, 12.0, 150.0, 12.0) == 150.0, "the gap is kept clear of the plates")
+	# the fort legend: open until a fort is taken, then a button; the player's click stands
+	t.ok(HudLogic.legend_open({"highest_tier_flipped": 0}, -1), "legend open on a new game")
+	t.ok(not HudLogic.legend_open({"highest_tier_flipped": 2}, -1), "legend collapsed once a fort is taken")
+	t.ok(HudLogic.legend_open({"highest_tier_flipped": 2}, 1), "a click opens it afterwards")
+	t.ok(not HudLogic.legend_open({"highest_tier_flipped": 0}, 0), "a click closes it on day 1")
+	t.ok(HudLogic.legend_glyph_state("held") == IdleLogic.SAFE and HudLogic.legend_glyph_state("overrun") == NodeLogic.OVERRUN and HudLogic.legend_glyph_state("hers") == NodeLogic.HERS and HudLogic.legend_glyph_state("retaken") == NodeLogic.HERS, "each legend row draws the map's own state glyph")
+	var lc: Dictionary = MapLogic.cfg()["clarity"]["legend"]
+	t.ok((lc["rows"] as Array).size() == 4, "four states in the legend")
+	var lplate := Palette.c("ground").lightened(float(MapLogic.cfg()["panel_bg_lighten"]))
+	lplate.a = float(lc["plate_alpha"])
+	var lbright := ""
+	for k in Palette.keys():
+		if lbright == "" or MapLogic.luminance(Palette.c(k)) > MapLogic.luminance(Palette.c(lbright)):
+			lbright = k
+	var lthrough := Palette.c(lbright).lerp(lplate, lplate.a)  # the brightest key showing through the plate's alpha
+	for row in lc["rows"]:
+		for key in [str(row["key"]), "text_dim"]:
+			var lr := MapLogic.contrast_ratio(Palette.c(key), lthrough)
+			t.ok(lr >= 4.5, "legend %s (%s) reads %.1f:1 on its plate (>= 4.5)" % [row["word"], key, lr])
+	t.ok(int(MapLogic.cfg()["font_label"]) >= 12, "legend text is at least 12 px")
+	# the goal's plate is the bar's: its text reads 4.5:1 over the brightest key showing through
+	var a := float(MapLogic.cfg()["topbar_plate_alpha"])
+	var bright := ""
+	for k in Palette.keys():
+		if bright == "" or MapLogic.luminance(Palette.c(k)) > MapLogic.luminance(Palette.c(bright)):
+			bright = k
+	var through := Palette.c("ground").lerp(Palette.c(bright), 1.0 - a)
+	t.ok(MapLogic.contrast_ratio(Palette.c("text"), through) >= 4.5, "the goal's text reads 4.5:1 on the strip's plate")
 
 
 func _type(t: TestUtil) -> void:
@@ -307,6 +358,27 @@ func _placement(t: TestUtil) -> void:
 	var far: Array = [[Rect2(0, 0, 10, 10)], [Rect2(500, 500, 10, 10)]]
 	t.ok(HudLogic.place(far, 5, 4.0) == [0, 0], "well-separated plates all place")
 	t.ok(HudLogic.place([], 5, 4.0).is_empty(), "nothing in, nothing out")
+	# a callout candidate over a fort's name label is rejected for the next candidate (C2 item 3)
+	var anchor := Vector2(300, 300)
+	var lab_rects := NodeLogic.fort_label_rects(60.0, -1.0, 12)
+	t.ok(lab_rects.size() == 1, "a fort with no tag has one label rect")
+	var lab: Rect2 = lab_rects[0]
+	lab.position += anchor
+	var over := Rect2(lab.position + Vector2(5, 2), Vector2(80, 20))
+	var clear := Rect2(lab.position + Vector2(0, 80), Vector2(80, 20))
+	t.ok(over.intersects(lab), "the first candidate sits on the label")
+	t.ok(HudLogic.place([[over, clear]], 5, 4.0, [lab]) == [1], "the candidate over a label is rejected for the next")
+	t.ok(HudLogic.place([[over]], 5, 4.0, [lab]) == [-1], "no clear candidate: the callout is skipped")
+	# the tag's plate is occupied too: a rect under the name but over the tag line is rejected
+	var two := NodeLogic.fort_label_rects(60.0, 140.0, 12)
+	t.ok(two.size() == 2, "a tagged fort has a name rect and a tag rect")
+	t.ok(two[1].position.y > two[0].position.y and two[1].size.x > two[0].size.x, "the tag plate sits under the name and is wider here")
+	t.ok(HudLogic.place([[two[1].grow(-2.0)]], 5, 0.0, two) == [-1], "a candidate over the tag plate is rejected")
+	# the rects are the plates draw_label draws: pad, ascent and height from the nodes config
+	var n := NodeLogic.ncfg()
+	var want := Rect2(-30.0 - float(n["plate_pad_px"]), 12.0 - 12.0 * float(n["plate_ascent"]), 60.0 + 2.0 * float(n["plate_pad_px"]), 12.0 * float(n["plate_height"]))
+	t.ok(lab_rects[0].is_equal_approx(want), "the name's rect is draw_label's plate for dy = font size")
+	t.ok(NodeLogic.label_plate(-30.0, 60.0, 12, 12.0).is_equal_approx(want), "label_plate is what draw_label draws")
 
 
 ## The top bar and Vei's node read one MapModel.readout(): identical odds, sign and drain, with

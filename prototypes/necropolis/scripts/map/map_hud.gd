@@ -29,6 +29,8 @@ var _drain: Label
 var _tithe: Label
 var _speed_tag: Label
 var _objective: Button
+var _goal: Label  # the run's goal under the strip, while no fort has been taken (HudLogic.goal_shown)
+var _goal_plate: ColorRect
 var _leave: Label  # the quiet state's "Safe to leave" line under the strip (not clickable)
 var _leave_plate: ColorRect
 var _leave_rect := Rect2()  # the room kept for the leave line, shown or not
@@ -55,6 +57,7 @@ func _ready() -> void:
 	_bar_plate = _plate()
 	_obj_plate = _plate()
 	_leave_plate = _plate()
+	_goal_plate = _plate()
 	_bar = VBoxContainer.new()
 	_bar.position = Vector2(float(pos[0]), float(pos[1]))
 	_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -65,6 +68,9 @@ func _ready() -> void:
 	MapUi.style_button(_objective, int(cfg["objective_size_px"]))
 	_objective.pressed.connect(_on_objective_pressed)
 	add_child(_objective)
+	_goal = _label(int(cfg["objective_size_px"]), "text")
+	MapType.style_label(_goal, "text", int(cfg["objective_size_px"]))
+	_goal.text = HudLogic.goal_text()
 	_leave = _label(int(cfg["objective_size_px"]), "text")
 	MapType.style_label(_leave, "text", int(cfg["objective_size_px"]))
 	_leave.visible = false
@@ -134,6 +140,17 @@ func _relayout() -> void:
 	_obj_plate.position = Vector2(0.0, _bar_plate.size.y)
 	_obj_plate.size = Vector2(_objective.position.x + osz.x + pad, osz.y + pad)
 	var inset := _obj_plate.position.y + _obj_plate.size.y
+	# The run's goal, under the strip while no fort has been taken; its room is in the inset only then
+	var goal_on := HudLogic.goal_shown(model.hud)
+	_goal.visible = goal_on
+	_goal_plate.visible = goal_on
+	if goal_on:
+		var gsz := _goal.get_combined_minimum_size()
+		_goal.position = Vector2(_bar.position.x, inset + float(MapLogic.cfg()["clarity"]["goal_gap_px"]))
+		_goal.size = gsz
+		_goal_plate.position = Vector2(0.0, _goal.position.y)
+		_goal_plate.size = Vector2(_goal.position.x + gsz.x + pad, gsz.y + pad)
+		inset = _goal_plate.position.y + _goal_plate.size.y
 	# The leave line's room is always kept under the strip, shown or not: toggling the line (a hold
 	# starting or ending, a tithe warning) never changes the inset, so no refit and no chip jump.
 	var lsz := _leave.get_combined_minimum_size()
@@ -168,10 +185,21 @@ func bar_bottom() -> float:
 	return _bar_plate.size.y
 
 
+## The right edge (screen px) of the HUD's plates at the top left: the bar, the strip, the goal and the
+## leave line. The card may rise above `top_inset` only where this stays clear of it.
+func plates_right() -> float:
+	_relayout()
+	var r := maxf(_bar_plate.size.x, _obj_plate.size.x)
+	if _goal_plate.visible:
+		r = maxf(r, _goal_plate.size.x)
+	return maxf(r, _leave_rect.size.x)
+
+
 ## The objective strip's plate (screen px): the default fit keeps the forts and Vei off it.
 func strip_rect() -> Rect2:
 	_relayout()
-	return Rect2(_obj_plate.position, _obj_plate.size)
+	var r := Rect2(_obj_plate.position, _obj_plate.size)
+	return r.merge(Rect2(_goal_plate.position, _goal_plate.size)) if _goal_plate.visible else r
 
 
 func _label(font_size: int, color_key: String) -> Label:
@@ -230,6 +258,7 @@ func _build_bar(items: Array) -> void:
 		_cells.append(box)
 		var parts := {"box": box, "name": _bar_label(box), "rate": _bar_label(box), "stock": _bar_label(box), "cap": _bar_label(box)}
 		MapType.style_label(parts["name"])
+		_tip(parts["name"], HudLogic.tip(str(it["id"])))
 		MapType.style_rate(parts["rate"])
 		MapType.style_mass(parts["stock"], "text_dim", MapType.size_of("size_stock"))
 		MapType.style_label(parts["cap"], "text", MapType.size_of("size_stock"))
@@ -249,17 +278,20 @@ func _build_bar(items: Array) -> void:
 	var odds_name := _bar_label(status)
 	MapType.style_label(odds_name)
 	odds_name.text = str(cfg["cards"]["vei_odds_label"])
+	_tip(odds_name, HudLogic.tip("odds"))
 	_odds = _bar_label(status)
 	MapType.style_mass(_odds)
 	# the ▲/▼ is the backlog's sign, labelled as her strain: the odds are mostly time and can climb on a ▼
 	var strain_name := _bar_label(status)
 	MapType.style_label(strain_name)
 	strain_name.text = str(cfg["strain_label"])
+	_tip(strain_name, HudLogic.tip("strain"))
 	_sign = _bar_label(status)
 	MapType.style_mass(_sign)
 	var drain_name := _bar_label(status)
 	MapType.style_label(drain_name)
-	drain_name.text = "DRAIN"
+	drain_name.text = str(cfg["drain_label"])
+	_tip(drain_name, HudLogic.tip("drain"))
 	_drain = _bar_label(status)
 	MapType.style_mass(_drain)
 	_tithe = _bar_label(status)  # Vei's tithe telegraph; hidden while it has nothing to say
@@ -267,6 +299,13 @@ func _build_bar(items: Array) -> void:
 	_tithe.visible = false
 	_speed_tag = _bar_label(status)
 	MapType.style_label(_speed_tag, "select")
+
+
+## A hover line on a bar word (a Control that ignores the mouse shows no tooltip, so it passes it on).
+func _tip(l: Label, text: String) -> void:
+	if text != "":
+		l.tooltip_text = text
+		l.mouse_filter = Control.MOUSE_FILTER_PASS
 
 
 func _bar_label(parent: Node) -> Label:

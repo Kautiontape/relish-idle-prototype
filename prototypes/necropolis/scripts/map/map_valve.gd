@@ -32,6 +32,7 @@ var _bone: Label  # the bone line: the pits-first stall's lever, or "below the b
 var _over_rate: Label  # on WAR's feed line: "+3.1/s"
 var _over_text: Label  # "overflows to Vei"
 var _payoff: VBoxContainer  # the payoff, the panel's last block: two rows reserved (the cost may wrap)
+var _explain: Label  # "WORK staffs your town · WAR garrisons your forts · FLOOD clogs Vei's queue", in the payoff's place
 var _payoff_w := 0.0  # the payoff's inner width: the panel's, less its padding
 var _payoff_key := ""  # the parts' kinds and texts and the row width the Labels were last built for
 var _payoff_parts: Array = []  # the parts shown, [{kind, text}]: the differential and odds, then the costs
@@ -55,7 +56,7 @@ func _ready() -> void:
 	var tri_h := ValveLogic.height(_side)
 	_origin = Vector2(pad, pad)
 	_grab = Rect2(_origin - Vector2(pad, pad), Vector2(_side + pad * 2.0, tri_h + pad * 2.0))
-	var rows_x := _origin.x + _side + inner
+	var rows_x := _origin.x + _side + float(btn[0]) * 0.5 + inner  # clear of the FLOOD button under the corner
 	var rows_w := float(c["valve_rows_w_px"])
 	var w := rows_x + rows_w + inner
 	_corner_buttons(btn, cgap, tri_h)
@@ -69,6 +70,18 @@ func _ready() -> void:
 	add_child(_payoff)
 	_payoff.position = Vector2(inner, top)
 	_payoff_w = w - inner * 2.0
+	# the one-line explanation of the three streams takes the payoff's reserved rows while no fort has been
+	# taken and no drag is paying off; always the panel's hover tooltip
+	_explain = Label.new()
+	_explain.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_explain.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_explain.text = str(cfg["clarity"]["valve_line"])
+	MapType.style_label(_explain, "text")
+	_explain.position = Vector2(inner, top)
+	_explain.custom_minimum_size.x = _payoff_w
+	_explain.size = Vector2(_payoff_w, 0.0)
+	add_child(_explain)
+	tooltip_text = str(cfg["clarity"]["valve_tip"])
 	var line_h := MapType.rate_font().get_height(MapType.size_of("size_rate"))
 	_place(cfg, w, top + line_h * 2.0 + float(c["valve_payoff_row_gap_px"]) + inner)
 	refresh(true)
@@ -103,6 +116,7 @@ func _corner_buttons(btn: Array, cgap: float, tri_h: float) -> void:
 		b.size = size
 		MapUi.style_button(b, int(MapLogic.cfg()["font_label"]))
 		b.pressed.connect(_snap.bind(k))
+		b.tooltip_text = HudLogic.tip(k)
 		add_child(b)
 
 
@@ -126,6 +140,8 @@ func _build_rows(c: Dictionary, x: float, inner: float) -> VBoxContainer:
 		box.add_child(top)
 		var parts := {"name": _label(top, "text_dim"), "pct": Label.new(), "rate": Label.new(), "feed": null}
 		(parts["name"] as Label).custom_minimum_size.x = float(c["valve_name_w_px"])
+		(parts["name"] as Label).tooltip_text = HudLogic.tip(k)  # the stream's word, in the glossary's meaning
+		(parts["name"] as Label).mouse_filter = Control.MOUSE_FILTER_PASS
 		MapType.style_mass(parts["pct"])
 		(parts["pct"] as Label).custom_minimum_size.x = float(c["valve_pct_w_px"])
 		MapType.style_rate(parts["rate"])
@@ -193,7 +209,8 @@ func refresh(force := false) -> void:
 	var payoff := " | ".join(PackedStringArray(pay_parts.map(func(q): return q["text"])))
 	var over := ValveLogic.overflow_parts(ValveLogic.war_overflow(model.hud, proj, _dragging))
 	var bone := _bone_text(shown)
-	var sig := "%s|%s|%s|%s|%s|%s|%s" % [str(ValveLogic.percents(shown)), str(proj["split"]), str(proj["workers_steady"]), str(proj["war_supports"]), str(payoff), str(over), bone]
+	var explain_on := HudLogic.goal_shown(model.hud) and pay_parts.is_empty()
+	var sig := "%s|%s|%s|%s|%s|%s|%s|%s" % [str(ValveLogic.percents(shown)), str(proj["split"]), str(proj["workers_steady"]), str(proj["war_supports"]), str(payoff), str(over), bone, str(explain_on)]
 	var cur_sig := str(model.hud.get("valve", {})) + (str(model.rev) if payoff != "" else "")
 	if not force and sig + cur_sig == _sig:
 		return
@@ -212,6 +229,7 @@ func refresh(force := false) -> void:
 	_supports.text = sup
 	_supports.visible = sup != ""
 	_bone.text = bone
+	_explain.visible = explain_on
 	_payoff_rows(pay_parts)
 	queue_redraw()
 

@@ -15,6 +15,17 @@ static func _table(name: String) -> Dictionary:
 	return _c().get(name, {})
 
 
+## Where a card taller than `room` ends its visible area: the bottom of the last block (`bottoms`,
+## each block's bottom edge in the card's frame) that fits, so no line is cut at the fold; `room`
+## itself when no block fits.
+static func snap_bottom(bottoms: Array, room: float) -> float:
+	var best := -1.0
+	for b in bottoms:
+		if float(b) <= room and float(b) > best:
+			best = float(b)
+	return best if best > 0.0 else room
+
+
 ## "m:ss" from seconds, ceiling so "0:00 left" never shows while time remains.
 static func fmt_clock(s: float) -> String:
 	var n := maxi(ceili(s), 0)

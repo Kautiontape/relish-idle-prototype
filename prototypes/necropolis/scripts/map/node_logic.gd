@@ -288,6 +288,23 @@ static func name_tag(f: Dictionary) -> Dictionary:
 	return {}
 
 
+## A label's plate in screen px around its anchor, as MapNodeLayer.draw_label draws it: the text of
+## width `w` starting at x, its baseline `dy` below the anchor, `size` px tall.
+static func label_plate(x: float, w: float, size: int, dy: float) -> Rect2:
+	var pad := _n("plate_pad_px")
+	return Rect2(x - pad, dy - size * _n("plate_ascent"), w + pad * 2.0, size * _n("plate_height"))
+
+
+## The plates a fort's labels cover, in screen px around the label anchor (the fort's position plus
+## r + label_off_px down): its name (baseline `size`), and, when `tag_w` >= 0, its tag line under it
+## (baseline `size` + label_line_px). Both are centred. The lane callouts keep clear of them.
+static func fort_label_rects(name_w: float, tag_w: float, size: int) -> Array:
+	var out: Array = [label_plate(-name_w * 0.5, name_w, size, float(size))]
+	if tag_w >= 0.0:
+		out.append(label_plate(-tag_w * 0.5, tag_w, size, float(size) + _n("label_line_px")))
+	return out
+
+
 ## Fort name labels: shown at mid and near zoom; at far zoom only forts of label_far_min_tier+.
 static func fort_label_shown(zoom_tier: String, tier: int) -> bool:
 	if zoom_tier == "far":

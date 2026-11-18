@@ -55,12 +55,21 @@ func glow_ring(c: Vector2, r: float, col: Color, w: float, glow: float, cap: flo
 
 
 func glow_poly(pts: PackedVector2Array, col: Color, w: float, glow: float, cap: float, core := LineGlow.NO_CORE) -> void:
-	for l in NodeLogic.capped_layers(col, w, glow, cap, core):
-		draw_polyline(pts, l[1], l[0])
+	glow_poly_on(self, pts, col, w, glow, cap, core)
 
 
 func diamond(p: Vector2, s: float, col: Color) -> void:
-	draw_colored_polygon(PackedVector2Array([p + Vector2(0, -s), p + Vector2(s, 0), p + Vector2(0, s), p + Vector2(-s, 0)]), col)
+	diamond_on(self, p, s, col)
+
+
+## glow_poly and diamond on any CanvasItem, so a legend can draw the map's own glyphs.
+static func glow_poly_on(ci: CanvasItem, pts: PackedVector2Array, col: Color, w: float, glow: float, cap: float, core := LineGlow.NO_CORE) -> void:
+	for l in NodeLogic.capped_layers(col, w, glow, cap, core):
+		ci.draw_polyline(pts, l[1], l[0])
+
+
+static func diamond_on(ci: CanvasItem, p: Vector2, s: float, col: Color) -> void:
+	ci.draw_colored_polygon(PackedVector2Array([p + Vector2(0, -s), p + Vector2(s, 0), p + Vector2(0, s), p + Vector2(-s, 0)]), col)
 
 
 # --- the shared unit glyphs (GlyphLogic), world px -----------------------------------------
@@ -106,8 +115,7 @@ static func draw_label(ci: CanvasItem, zoom: float, anchor: Vector2, s: String, 
 		x = -w * 0.5
 	elif align == ALIGN_RIGHT:
 		x = -w
-	var pad := float(n["plate_pad_px"])
-	plate(ci, Rect2(x - pad, dy - size * float(n["plate_ascent"]), w + pad * 2.0, size * float(n["plate_height"])), NodeLogic.label_plate_color())
+	plate(ci, NodeLogic.label_plate(x, w, size, dy), NodeLogic.label_plate_color())
 	var sh := float(n["label_shadow_px"])
 	ci.draw_string(font, Vector2(x + sh, dy + sh), s, HORIZONTAL_ALIGNMENT_LEFT, -1, size,
 		Palette.c("ground", float(MapLogic.cfg()["label_shadow_alpha"])))

@@ -21,6 +21,7 @@ func run() -> int:
 	_comes(t)
 	_parity(t)
 	_sidebar_src(t)
+	_snap(t)
 	_contrast(t)
 	_real(t)
 	return t.failures
@@ -534,6 +535,21 @@ func _parity(t: TestUtil) -> void:
 
 ## map_sidebar.gd names autoloads, so it is read as text: DESCEND checks who comes in before it dives, and a
 ## "Descend anyway" dialog (its own, so a confirmed BEGIN still dives to Vei) dives to the fort.
+## A card taller than its room ends its visible area on a block boundary, never mid-line (C2 item 2).
+func _snap(t: TestUtil) -> void:
+	var bottoms: Array = [30.0, 52.0, 96.0, 140.0, 200.0, 262.0, 300.0]
+	t.ok(CardLogic.snap_bottom(bottoms, 150.0) == 140.0, "the area ends at the last block that fits (140)")
+	t.ok(CardLogic.snap_bottom(bottoms, 140.0) == 140.0, "a block that exactly fits stays")
+	t.ok(CardLogic.snap_bottom(bottoms, 262.1) == 262.0, "never past the room")
+	t.ok(CardLogic.snap_bottom(bottoms, 10.0) == 10.0, "no block fits: the room itself")
+	t.ok(CardLogic.snap_bottom([], 80.0) == 80.0, "an empty card keeps the room")
+	t.ok(CardLogic.snap_bottom([300.0, 30.0, 140.0], 150.0) == 140.0, "the order of the list does not matter")
+	var cards: Dictionary = TestUtil.load_json("res://configs/map_view.json")["cards"]
+	t.ok(str(cards.get("scroll_cue", "")) != "", "the scroll-for-more cue's words are config")
+	var src := FileAccess.get_file_as_string("res://scripts/map/map_sidebar.gd")
+	t.ok(src.contains("CardLogic.snap_bottom(") and src.contains("_cue"), "the sidebar fits its scroll to block boundaries and shows a cue")
+
+
 func _sidebar_src(t: TestUtil) -> void:
 	var src := FileAccess.get_file_as_string("res://scripts/map/map_sidebar.gd")
 	var a := src.find('"descend":')

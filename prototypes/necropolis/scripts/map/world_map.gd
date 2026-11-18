@@ -147,6 +147,10 @@ func _build_ui() -> void:
 	valve.model = model
 	valve.toast.connect(hud.show_toast)
 	layer.add_child(valve)
+	var legend := MapLegend.new()  # the fort rings' key, just above the valve
+	legend.model = model
+	legend.valve = valve
+	layer.add_child(legend)
 	chip = MapRelishChip.new()
 	chip.model = model
 	chip.hud = hud
@@ -156,6 +160,7 @@ func _build_ui() -> void:
 	layer.add_child(chip)
 	sidebar = MapSidebar.new()
 	sidebar.model = model
+	sidebar.hud = hud
 	sidebar.dive.connect(_dive)
 	sidebar.toast.connect(hud.show_toast)
 	layer.add_child(sidebar)
