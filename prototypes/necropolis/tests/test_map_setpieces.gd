@@ -47,7 +47,7 @@ func _after_away(t: TestUtil) -> void:
 	var ev := src.substr(src.find("func on_event("), src.find("func _after_away(") - src.find("func on_event("))
 	t.ok(ev.contains("\"away_report\":") and ev.contains("_after_away()"), "the away_report branch calls the resync")
 	var a0 := src.find("func _after_away(")
-	var aa := src.substr(a0, src.find("\nfunc ", a0 + 5) - a0)
+	var aa := src.substr(a0, src.find("\n\n\n", a0) - a0)
 	t.ok(aa.contains("SetpieceLogic.after_away(") and aa.contains("model.refresh(true)") and not aa.contains("_add(SetpieceLogic.FLIP") and not aa.contains("for "), "the resync re-reads the views and replays no flip set pieces")
 
 
