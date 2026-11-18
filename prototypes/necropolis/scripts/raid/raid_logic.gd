@@ -416,6 +416,33 @@ static func push_line(living: int, exit_word: String, hops: int, at_risk: Dictio
 	return " · ".join(parts)
 
 
+## T4: the raid's goal line. A dungeon: break its warden to take the fort. A held fort: clear the
+## counter-garrison (the last living falls and pays loot).
+static func goal_line(fort_name: String, warden_name: String, held: bool) -> String:
+	if held:
+		return "YOUR FORT · clear its counter-garrison for loot"
+	return "GOAL · break %s to take %s" % [warden_name.to_upper(), fort_name.to_upper()]
+
+
+## T4: where the warden is. `route_len` is the hops from the spawn's room to the warden's room plus one (the
+## rooms on the shortest route), `hops_left` the hops from Relish's room to the warden's, `compass` the word
+## of the next step ("" drops it). An off-route detour (more hops left than the route has) reads as room 1.
+static func route_line(route_len: int, hops_left: int, compass_word: String) -> String:
+	if hops_left <= 0:
+		return "you are in the warden's room"
+	var room := clampi(route_len - hops_left, 1, maxi(1, route_len))
+	return "room %d of %d · the warden is %d room%s%s" % [room, route_len, hops_left, "" if hops_left == 1 else "s",
+		"" if compass_word == "" else " " + compass_word]
+
+
+## T4: she has no undead with her, no loose essence, nothing carried and no corpse pile left to stir:
+## nothing can be raised here.
+const NO_ARMY_LINE := "NO UNDEAD WITH YOU AND NOTHING TO RAISE · retreat, then send WAR here or bring big undead"
+
+static func no_army(allies_alive: int, loose_motes: int, carried: int, piles_left: int) -> bool:
+	return allies_alive == 0 and loose_motes == 0 and carried == 0 and piles_left == 0
+
+
 ## The run's shape: "3 of 7 rooms seen" (rooms Relish has stood in, of the layout's rooms). Seen, not
 ## cleared: a room can be crossed with the living still in it. Never below 1 once she is in one.
 static func rooms_phrase(seen: int, total: int) -> String:

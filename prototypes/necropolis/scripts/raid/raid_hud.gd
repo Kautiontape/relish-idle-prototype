@@ -31,6 +31,10 @@ var _warden_block: Control = null   # dungeon only: the awake warden's break met
 var _pointers: Node2D = null        # dungeon only: the pointer to the nearest floor loot
 var _push: PushLine = null          # dungeon only: the push-or-retreat line under the RETREAT button
 var _push_t := 1.0
+var _goal_block: RaidGoalBlock = null   # T4, dungeon only: the goal / route / how-to-break rows while no warden block shows
+var _goal_t := 1.0
+var _route_len := -1                # hops from the spawn's room to the warden's room, plus one (-1: not measured yet)
+var _hops_left := -1                # hops from Relish's room to the warden's (kept through a doorway band)
 var _risk := {}                     # the UNBANKED counts, for the push line
 var exit_pos := Vector2.INF         # the nearest exit's inner point (the Pointers' EXIT chevron)
 var _banner_top := 70.0
@@ -143,6 +147,18 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		_warden_block.offset_right = 340.0
 		_warden_block.offset_top = 10.0
 		_warden_block.offset_bottom = 72.0
+		# T4: the goal block, in the same spot while no warden block shows (before the wake, after it falls, a held raid)
+		_goal_block = RaidGoalBlock.new()
+		_goal_block.visible = false
+		_goal_block.plate_alpha = float(_goal_cfg(p_raid).get("plate_alpha", 0.62))
+		add_child(_goal_block)
+		_goal_block.set_anchors_preset(Control.PRESET_CENTER_TOP)
+		_goal_block.anchor_left = 0.5
+		_goal_block.anchor_right = 0.5
+		_goal_block.offset_left = -340.0
+		_goal_block.offset_right = 340.0
+		_goal_block.offset_top = 10.0
+		_goal_block.offset_bottom = 10.0
 
 	if not boss_mode:   # there is no retreat from the Vei fight
 		_exit_btn = ExitButton.new()
@@ -221,6 +237,10 @@ func _process(_delta: float) -> void:
 	if _warden_block != null:
 		# the banner steps down under the warden's block while it shows
 		var top := _banner_top + ((14.0 + (_warden_block as WardenBlock).extra_h) if _warden_block.visible else 0.0)
+		if _goal_block != null:
+			_tick_goal(_delta_real())
+			if _goal_block.visible:   # the same step down under the goal block, once it is taller than the warden's base block
+				top = _banner_top + 14.0 + maxf(0.0, _goal_block.height - 62.0)
 		if _banner.offset_top != top:
 			_banner.offset_top = top
 			_fit_banner_plate()
@@ -349,6 +369,112 @@ func _delta_real() -> float:
 	return get_process_delta_time() / maxf(0.05, Engine.time_scale)
 
 
+static func _goal_cfg(r: Node) -> Dictionary:
+	return r.rcfg().get("hud", {}).get("goal", {})
+
+
+## T4: the awake warden the WardenBlock shows (null while dormant, dead or absent).
+func _awake_warden() -> RaidWarden:
+	if raid.warden_run == null:
+		return null
+	var w = raid.warden_run.warden
+	if w == null or not is_instance_valid(w) or not w.alive or not w.awake:
+		return null
+	return w
+
+
+## T4: the goal block shows while no WardenBlock does and the run lives; its rows are rebuilt four times a
+## second (and set only when they change).
+func _tick_goal(dt: float) -> void:
+	_goal_t += dt
+	if _goal_t >= 0.25:
+		_goal_t = 0.0
+		_update_goal()
+	_goal_block.visible = _goal_block.height > 0.0 and not raid._ended and _awake_warden() == null
+
+
+## The rows: the goal line, then (warden alive) the route and how to break it, or (warden down) the chest;
+## a held raid keeps only its goal. Plus the no-army row when nothing can be raised.
+func _update_goal() -> void:
+	var g := _goal_cfg(raid)
+	var gpx := int(g.get("goal_px", 17))
+	var rpx := int(g.get("route_px", 14))
+	var xpx := int(g.get("row_px", 13))
+	var wr: RaidWardenRun = raid.warden_run
+	var fort_name: String = raid.fort_name()
+	var rows: Array = []
+	var held: bool = raid.held
+	var w = wr.warden if wr != null else null
+	var alive: bool = w != null and is_instance_valid(w) and w.alive
+	if held:
+		rows.append({"text": RaidLogic.goal_line(fort_name, "", true), "px": gpx, "key": "vei"})
+	elif alive:
+		var sp: Dictionary = w.spec
+		rows.append({"text": RaidLogic.goal_line(fort_name, str(sp.get("name", "")), false), "px": gpx, "key": "vei"})
+		rows.append({"text": _route_text(), "px": rpx, "key": "text"})
+		for r in break_rows(raid, sp):
+			rows.append({"text": r, "px": xpx, "key": "text_dim"})
+	elif wr != null and wr.chest != null:
+		rows.append({"text": RaidLogic.goal_line(fort_name, wr.warden_name, false), "px": gpx, "key": "vei"})
+		rows.append({"text": "open the chest to take the fort", "px": rpx, "key": "text"})
+	if not rows.is_empty() and _no_army():
+		rows.append({"text": RaidLogic.NO_ARMY_LINE, "px": xpx, "key": "danger"})
+	_goal_block.set_rows(rows)
+
+
+## The break line, the takes line (when something multiplies a blow) and the counter line for a warden's spec.
+static func break_rows(raid: Node, sp: Dictionary) -> Array:
+	var rows: Array = [WardenLogic.break_line(sp, int(raid.rcfg().get("wardens", {}).get("meter_pips", 12)))]
+	var tk := WardenLogic.takes_line(sp)
+	if tk != "":
+		rows.append(tk)
+	var stat := str((sp.get("weak_point", {}) as Dictionary).get("stat", ""))
+	var vals: Array = []
+	for a in raid.allies:
+		if is_instance_valid(a) and a.alive and a.role == "party":
+			vals.append(RaidLogic.unit_stat(a, stat))
+	rows.append(WardenLogic.counter_line(sp, vals))
+	return rows
+
+
+## "room 2 of 4 · the warden is 2 rooms NE": the route's length from the spawn's room, the hops left from
+## Relish's room (kept through a doorway band) and the compass word of the first step of the walk to the warden.
+func _route_text() -> String:
+	var lay: Dictionary = raid.layout
+	var rel: RaidRelish = raid.relish
+	var wroom := int(lay.get("warden_room", -1))
+	if rel == null or lay.is_empty() or wroom < 0 or not lay.has("room_hops"):
+		return ""
+	var hops: Array = lay["room_hops"]
+	if _route_len < 0:
+		var sr := RaidLogic.room_of(lay, lay.get("spawn", rel.global_position))
+		if sr >= 0:
+			_route_len = int((hops[sr] as Array)[wroom]) + 1
+	var rf := RaidLogic.room_of(lay, rel.global_position)
+	if rf >= 0:
+		_hops_left = int((hops[rf] as Array)[wroom])
+	if _route_len < 0 or _hops_left < 0:
+		return ""
+	var goal: Vector2 = ((lay["rooms"] as Array)[wroom] as Rect2).get_center()
+	var step := LayoutLogic.waypoint(lay, rel.global_position, goal, rel.radius)
+	return RaidLogic.route_line(_route_len, _hops_left, RaidLogic.compass(step - rel.global_position))
+
+
+## Nothing to raise with: no undead alive, no loose or carried essence, no unstirred corpse pile.
+func _no_army() -> bool:
+	var alive := 0
+	for a in raid.allies:
+		if is_instance_valid(a) and a.alive:
+			alive += 1
+	var carried: int = raid.carried_count()
+	var loose := maxi(0, raid.get_tree().get_node_count_in_group("raid_essence") - carried)
+	var piles := 0
+	for o in raid.get_tree().get_nodes_in_group("raid_piles"):
+		if is_instance_valid(o) and not o._stirred and o._shrink < 0.0:
+			piles += 1
+	return RaidLogic.no_army(alive, loose, carried, piles)
+
+
 ## The push-or-retreat line, 4 times a second and on the frame UNBANKED changes: the living left,
 ## the nearest exit by walking distance (the compass word of the first step of the route to it,
 ## LayoutLogic.waypoint: the doorway to take, so it never points through a wall; and how many rooms
@@ -390,6 +516,9 @@ func _push_room() -> float:
 	if _warden_block != null and _warden_block.visible:
 		var block_right := _warden_block.global_position.x + _warden_block.size.x
 		room = minf(room, _push.global_position.x + _push.size.x - block_right - 12.0)
+	if _goal_block != null and _goal_block.visible:
+		var goal_right := _goal_block.global_position.x + _goal_block.size.x
+		room = minf(room, _push.global_position.x + _push.size.x - goal_right - 12.0)
 	return maxf(160.0, room)
 
 
@@ -816,6 +945,8 @@ class WardenBlock:
 	var _t := 0.0
 	var extra_h := 0.0   # the Huntsman's third row (what a catch costs) and a pack's row make the block taller
 	var _key3 := -1
+	var _rows_t := 1.0
+	var break_rows: Array = []   # T4: the break / takes / counter lines (RaidHud.break_rows), drawn under the existing rows
 
 	func _warden() -> RaidWarden:
 		if raid == null or raid.warden_run == null:
@@ -831,10 +962,20 @@ class WardenBlock:
 		if show != visible:
 			visible = show
 			_key = -1
+			_rows_t = 1.0
 		if not show:
 			return
 		_t += d / maxf(0.05, Engine.time_scale)
-		var eh := (20.0 if w is RaidHuntsman else 0.0) + (20.0 if w.spec.has("pack") else 0.0)
+		# T4: how it breaks, as rows at the bottom (4 times a second: the counter row follows the party)
+		_rows_t += d / maxf(0.05, Engine.time_scale)
+		if _rows_t >= 0.25:
+			_rows_t = 0.0
+			var nr := RaidHud.break_rows(raid, w.spec)
+			if nr != break_rows:
+				break_rows = nr
+				_key = -1
+		var eh := (20.0 if w is RaidHuntsman else 0.0) + (20.0 if w.spec.has("pack") else 0.0) \
+			+ (20.0 * break_rows.size() + 6.0 if not break_rows.is_empty() else 0.0)
 		if eh != extra_h:
 			extra_h = eh
 			offset_bottom = offset_top + 62.0 + eh
@@ -998,6 +1139,11 @@ class WardenBlock:
 			if pp.essence_burned > 0:
 				_text(x9 + 12.0, y, "burned %d essence" % pp.essence_burned, 13, "danger")
 		_pack_row(w, x0, y + (44.0 if hw != null else 22.0))
+		# the new rows sit under the last of the existing ones (the Huntsman's catch row, a pack's row)
+		var ry := y + 22.0 * ((1.0 if hw != null else 0.0) + (1.0 if w.spec.has("pack") else 0.0))
+		for r in break_rows:
+			ry += 20.0
+			_text(x0, ry, str(r), 13, "text_dim")
 
 
 ## Screen-space pointers over the world (a Node2D: it takes no input). The loot pointer: a faint
@@ -1013,6 +1159,7 @@ class Pointers:
 	var _loot: Node2D = null
 	var _chev := PackedVector2Array([Vector2.ZERO, Vector2.ZERO, Vector2.ZERO])
 	var _ep := Vector2.INF      # the off-screen exit's screen point (INF: no EXIT chevron)
+	var _wp := Vector2.INF      # the off-screen warden's screen point (INF: no WARDEN chevron)
 	var _sp := Vector2.INF      # the nearest pickup's screen point (INF: none)
 	var _from := Vector2.INF    # the HUD's "N on the floor" anchor
 
@@ -1035,11 +1182,18 @@ class Pointers:
 			ep = xf * hud.exit_pos
 			if inner.has_point(ep):
 				ep = Vector2.INF   # on screen: its lips and sigil already say where it is
+		var wp := Vector2.INF   # T4: the warden (dormant or awake) while it is off screen
+		var wd = raid.warden_run.warden if raid.warden_run != null else null
+		if wd != null and is_instance_valid(wd) and wd.alive:
+			wp = xf * (wd as Node2D).global_position
+			if inner.has_point(wp):
+				wp = Vector2.INF
 		var sp := Vector2.INF
 		if _loot != null and is_instance_valid(_loot) and _loot.is_in_group("raid_pickups"):
 			sp = xf * _loot.global_position
 		var from := hud.floor_anchor() if sp != Vector2.INF else Vector2.INF
-		if ep != _ep or sp != _sp or from != _from:
+		if ep != _ep or sp != _sp or from != _from or wp != _wp:
+			_wp = wp
 			_ep = ep
 			_sp = sp
 			_from = from
@@ -1079,7 +1233,9 @@ class Pointers:
 		var view := get_viewport_rect().size
 		if _ep != Vector2.INF:
 			_edge(_ep, view, Palette.c("relish"), "EXIT")
-		if _sp == Vector2.INF:
+		if _wp != Vector2.INF:
+			_edge(_wp, view, Palette.c("vei"), "WARDEN")
+		if _sp ==Vector2.INF:
 			return
 		if Rect2(Vector2.ZERO, view).grow(-30.0).has_point(_sp):
 			if _from != Vector2.INF:

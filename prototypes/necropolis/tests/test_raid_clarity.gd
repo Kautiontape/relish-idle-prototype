@@ -11,7 +11,76 @@ func run() -> int:
 	_warden_presence_tests(t)
 	_legend_tests(t)
 	_hint_cue_tests(t)
+	_goal_tests(t)
 	return t.failures
+
+
+## T4: the goal line, the route line, how the warden breaks (break / takes / counter lines from the spec the game
+## builds) and the no-army row. Words live in RaidLogic / WardenLogic; the HUD's wiring is checked by source text.
+func _goal_tests(t: TestUtil) -> void:
+	t.suite("raid_goal")
+	t.ok(RaidLogic.goal_line("Old Sluice", "The Bellringer", false) == "GOAL · break THE BELLRINGER to take OLD SLUICE", "goal line, a dungeon")
+	t.ok(RaidLogic.goal_line("Old Sluice", "The Bellringer", true) == "YOUR FORT · clear its counter-garrison for loot", "goal line, a held fort")
+	t.ok(RaidLogic.route_line(3, 2, "NE") == "room 1 of 3 · the warden is 2 rooms NE", "route: room 1 of 3, 2 rooms NE")
+	t.ok(RaidLogic.route_line(3, 1, "E") == "room 2 of 3 · the warden is 1 room E", "route: room 2 of 3, 1 room E")
+	t.ok(RaidLogic.route_line(3, 0, "") == "you are in the warden's room", "route: in the warden's room")
+	t.ok(RaidLogic.route_line(3, 5, "S").begins_with("room 1 of 3 · the warden is 5 rooms S"), "route: off the route (more hops left than the route) clamps to room 1")
+	t.ok(RaidLogic.route_line(3, 2, "") == "room 1 of 3 · the warden is 2 rooms", "route: no compass word drops it")
+	t.ok(RaidLogic.no_army(0, 0, 0, 0), "no army: all four zero")
+	t.ok(not RaidLogic.no_army(1, 0, 0, 0) and not RaidLogic.no_army(0, 1, 0, 0) and not RaidLogic.no_army(0, 0, 1, 0) and not RaidLogic.no_army(0, 0, 0, 1),
+		"no army: any one of undead, loose motes, carried or piles left says no")
+	t.ok(RaidLogic.NO_ARMY_LINE == "NO UNDEAD WITH YOU AND NOTHING TO RAISE · retreat, then send WAR here or bring big undead", "the no-army line, word for word")
+	var cfg: Dictionary = TestUtil.load_json("res://configs/raid.json")
+	var pips := int(cfg["wardens"]["meter_pips"])
+	var verbs := {"bellringer": "muffles its slams", "huntsman": "intercepts its lunge", "shieldwall": "flanks it from behind", "pyre_priest": "snuffs an acolyte in one blow"}
+	for tier in [1, 3]:
+		for a in ["bellringer", "huntsman", "shieldwall", "pyre_priest"]:
+			var sp := RaidLogic.warden_spec({"id": "x", "tier": tier, "archetype": a}, cfg)
+			var ac: Dictionary = cfg["wardens"]["archetypes"][a]
+			var tag := "%s t%d" % [a, tier]
+			t.ok(WardenLogic.break_line(sp, pips).contains("%d pips" % pips), "%s: the break line holds the config's %d pips" % [tag, pips])
+			var tk := WardenLogic.takes_line(sp)
+			var want: Array = []
+			match a:
+				"huntsman":
+					want.append(WardenLogic._num(float(ac["weak_point"]["stun_dmg_mult"])))
+				"shieldwall":
+					want.append(WardenLogic._num(float(ac["attack"]["front_mult"])))
+					want.append(WardenLogic._num(float(ac["attack"]["back_mult"])))
+				"pyre_priest":
+					want.append(WardenLogic._num(float(ac["attack"]["ward_mult"])))
+			var has_pack := sp.has("pack")
+			t.ok(has_pack == (tier >= int(ac["pack"]["min_tier"]) and int(ac["pack"]["size_by_tier"][str(tier)]) > 0), "%s: the spec has a pack only from its min_tier" % tag)
+			var pk_part := "×%s while its %s stand" % [WardenLogic._num(float(ac["pack"]["ward_mult"])), str(ac["pack"]["name"])]
+			t.ok(tk.contains(pk_part) == has_pack, "%s: the takes line names the pack only where the spec has one" % tag)
+			var all_in := true
+			for m in want:
+				all_in = all_in and tk.contains("×" + str(m))
+			t.ok(all_in and (want.is_empty() and not has_pack) == (tk == ""), "%s: the takes line holds the config's multipliers %s: '%s'" % [tag, str(want), tk])
+			t.ok(tk == "" or tk.begins_with("TAKES "), "%s: the takes line starts TAKES" % tag)
+			var wp: Dictionary = ac["weak_point"]
+			var thr := int(wp["threshold"])
+			var base := "COUNTER · a big undead with %s %d+ %s" % [str(wp["stat"]), thr, verbs[a]]
+			t.ok(WardenLogic.counter_line(sp, []) == base + " · you have none: raise more undead", "%s: the counter line, no bigs" % tag)
+			t.ok(WardenLogic.counter_line(sp, [thr - 1, 0]) == base + " · none in your party", "%s: the counter line, none meets it" % tag)
+			t.ok(WardenLogic.counter_line(sp, [thr, thr + 3, thr - 1]) == base + " · 2 in your party", "%s: the counter line, 2 of 3 meet it" % tag)
+	var hud_src := FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd")
+	var build_src := _func_src(hud_src, "func build(")
+	t.ok(RegEx.create_from_string("if not boss_mode:\\s*_warden_block = WardenBlock\\.new\\(\\)").search(build_src) != null
+		and build_src.contains("RaidGoalBlock.new()") and build_src.find("RaidGoalBlock.new()") > build_src.find("_warden_block = WardenBlock.new()")
+		and build_src.find("RaidGoalBlock.new()") < build_src.find("if not boss_mode:   # there is no retreat"),
+		"the HUD builds the RaidGoalBlock only inside the not-boss branch that builds the WardenBlock")
+	for call in ["RaidLogic.goal_line(", "RaidLogic.route_line(", "WardenLogic.break_line(", "WardenLogic.takes_line(", "WardenLogic.counter_line(", "RaidLogic.no_army(", "RaidLogic.NO_ARMY_LINE"]:
+		t.ok(hud_src.contains(call), "the HUD takes its words from %s" % call)
+	t.ok(hud_src.contains("RaidHud.break_rows(raid, w.spec)"), "the WardenBlock takes its extra rows from break_rows")
+	t.ok(hud_src.contains("\"WARDEN\")") and hud_src.contains("_edge(_wp, view, Palette.c(\"vei\"), \"WARDEN\")"), "the Pointers class draws a WARDEN edge chevron")
+	var gb := FileAccess.get_file_as_string("res://scripts/raid/raid_goal_block.gd")
+	t.ok(gb.contains("class_name RaidGoalBlock") and not gb.contains("ConfigDb") and not gb.contains("Game."), "the goal block names no autoload")
+	var gcfg: Dictionary = cfg.get("hud", {}).get("goal", {})
+	var gok := gcfg.has("_doc")
+	for k in ["goal_px", "route_px", "row_px", "plate_alpha"]:
+		gok = gok and (gcfg.get(k) is float or gcfg.get(k) is int) and float(gcfg[k]) > 0.0
+	t.ok(gok, "hud.goal is documented, with goal_px, route_px, row_px, plate_alpha all > 0")
 
 
 ## T2: the hint line's words, the two onboarding cues and the ESSENCE row's meaning. Words and rules live in

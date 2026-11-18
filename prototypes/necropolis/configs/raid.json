@@ -70,6 +70,13 @@
       "plate_alpha": 0.86,
       "chip_w": 140,
       "chip_h": 44
+    },
+    "goal": {
+      "_doc": "The goal block (top centre, where the warden's block sits, before the wake and after the warden falls; a held raid keeps it the whole run): the goal line (goal_px), the route line (route_px) and the rows under them (row_px), on a ground plate at plate_alpha. The words are RaidLogic.goal_line / route_line and WardenLogic.break_line / takes_line / counter_line.",
+      "goal_px": 17,
+      "route_px": 14,
+      "row_px": 13,
+      "plate_alpha": 0.62
     }
   },
   "trace_notch": {
