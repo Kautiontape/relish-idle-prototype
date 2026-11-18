@@ -7,6 +7,7 @@ signal finished(result: Dictionary)
 
 const HudScript := preload("res://scripts/town/town_hud.gd")
 const ViewScript := preload("res://scripts/town/town_view.gd")
+const StripScript := preload("res://scripts/town/town_away_strip.gd")
 const PANELS := [
 	["Build", preload("res://scripts/town/panel_build.gd")],
 	["Jobs", preload("res://scripts/town/panel_jobs.gd")],
@@ -64,6 +65,17 @@ var _frame := 0
 var _walkers_n := 0
 var _grow_label: Label
 var _goal: Label  # the first goal in town (TownGuide.goal), top-left of the town view; hidden once met
+## The welcome-back replay (TownReplay): the goal plate and the away strip stack in `_plates`. `_replayed` is the
+## last away report replayed this session (a static, so a second visit doesn't replay it; never saved);
+## `_away_check` asks the next fetch to look (setup's first, and each away_report). `_replay_lots` are the lots
+## still to flash, `_replay_left` the seconds to the next one (-1 = none due).
+## `--town-away=<seconds>` (debug builds) runs a real reporting catch-up of that gap right after setup.
+static var _replayed := 0
+var _away_check := true
+var _plates: VBoxContainer
+var _strip: PanelContainer
+var _replay_lots: Array = []
+var _replay_left := -1.0
 var _grow_log: Array = []  # [{t, building_id, lot_id}] of what the autoplayer built
 var _grown_s := 0.0
 
@@ -339,6 +351,7 @@ func _build_ui() -> void:
 	_view.suggestion_dismissed.connect(build.on_suggestion_dismissed)
 	_view.sfx.connect(_on_sfx)
 	_build_goal()
+	_strip.acted.connect(_on_strip_acted)
 	var crypt: Control = _panels[4]
 	crypt.hold_started.connect(_play.bind("raise_hold"))
 	crypt.raise_started.connect(_on_raise_started)
@@ -403,6 +416,8 @@ func _process(delta: float) -> void:
 		_play("beat")
 	if not _later.is_empty():
 		(_later.pop_front() as Node).bind(_last_views)
+	if _replay_left >= 0.0:
+		_replay_step(delta)
 	_since_fetch += delta
 	if _dirty:
 		_fetch()
@@ -421,6 +436,9 @@ func _fetch(spread := false) -> void:
 	_tier = String(views["town"].get("tier", ""))
 	_last_views = views
 	_update_goal(views)
+	if _away_check:
+		_away_check = false
+		_check_replay(views)
 	var now := _bound.filter(_binds_now)
 	if spread:
 		_later = TownModel.merge_pending(_later, now)  # merged: a fetch before the queue drains drops nothing
@@ -471,18 +489,76 @@ func _fetch_views() -> Dictionary:
 
 
 ## The first-goal plate: one line in `text` on a ground plate edged in `select`, at guide.goal's x/y in the
-## town view, under the lot card (so an open card is never covered). Hidden until a goal is due.
+## town view, under the lot card (so an open card is never covered). Hidden until a goal is due. The welcome-back
+## strip stacks under it in the same column.
 func _build_goal() -> void:
-	var g: Dictionary = ConfigDb.v("town", "view", {}).get("guide", {}).get("goal", {})
+	var vcfg: Dictionary = ConfigDb.v("town", "view", {})
+	var g: Dictionary = vcfg.get("guide", {}).get("goal", {})
+	_plates = VBoxContainer.new()
+	_plates.add_theme_constant_override("separation", int(vcfg.get("replay", {}).get("gap_px", 6.0)))
+	_plates.position = Vector2(float(g.get("x_px", 12.0)), float(g.get("y_px", 8.0)))
+	_plates.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_view.add_child(_plates)
+	_view.move_child(_plates, _view.card.get_index())
 	_goal = TownUI.label("", maxi(int(g.get("px", 14)), TownUI.MIN_TEXT), "text")
 	var sb := TownUI.panel_box()
 	sb.border_color = Palette.c("select")
 	_goal.add_theme_stylebox_override("normal", sb)
-	_goal.position = Vector2(float(g.get("x_px", 12.0)), float(g.get("y_px", 8.0)))
+	_goal.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	_goal.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_goal.visible = false
-	_view.add_child(_goal)
-	_view.move_child(_goal, _view.card.get_index())
+	_plates.add_child(_goal)
+	_strip = StripScript.new()
+	_strip.setup(vcfg.get("replay", {}))
+	_strip.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	_plates.add_child(_strip)
+
+
+## The welcome-back replay, when the away report is due one (TownReplay.due): the strip, then each finished build's
+## lot flashing in the report's order, replay.first_beats then flash_beats apart. Marks the report replayed.
+func _check_replay(views: Dictionary) -> void:
+	if _demo != "":
+		return
+	var rep: Dictionary = Game.state.view_away()
+	if not TownReplay.due(rep, _replayed):
+		return
+	_replayed = TownReplay.key(rep)
+	var rcfg: Dictionary = ConfigDb.v("town", "view", {}).get("replay", {})
+	_strip.show_report(TownReplay.title(rep, rcfg), TownReplay.lines(rep, rcfg))
+	_plates.reset_size()
+	_replay_lots = TownReplay.finished_lots(rep, views.get("town", {}), ConfigDb.data.get("buildings_view", {}),
+		ConfigDb.v("economy", "idle", {}).get("report", {}))
+	_replay_left = _beats_s(float(rcfg.get("first_beats", 1.0)))
+	if _log_set:
+		print("TOWNSET replay lots=%s frame=%d" % [str(_replay_lots), _frame])
+
+
+## `beats` of Pulse's tempo, in seconds.
+func _beats_s(beats: float) -> float:
+	return maxf(beats * Pulse.tempo_ms * 0.001, 0.0)
+
+
+func _replay_step(delta: float) -> void:
+	_replay_left -= delta
+	if _replay_left > 0.0:
+		return
+	if _replay_lots.is_empty():
+		_replay_left = -1.0
+		_strip.flashes_done()
+		return
+	_view.flash_lot(String(_replay_lots.pop_front()))
+	_replay_left = _beats_s(float(ConfigDb.v("town", "view", {}).get("replay", {}).get("flash_beats", 1.0)))
+
+
+## A strip line's button: the Crypt tab (the slab), the Build tab (the queue), or back to the realm (a raid line).
+func _on_strip_acted(act: String) -> void:
+	match act:
+		"crypt":
+			_select_tab(4)
+		"build":
+			_select_tab(0)
+		"realm":
+			_on_return()
 
 
 ## Sets the goal line from the fetched views; the label is touched only when the text changes.
@@ -494,6 +570,7 @@ func _update_goal(views: Dictionary) -> void:
 		_goal.text = text
 		_goal.visible = text != ""
 		_goal.reset_size()
+		_plates.reset_size()
 
 
 ## The forts as the crypt's Siege… chooser and the first goal (TownGuide) need them:
@@ -510,8 +587,10 @@ func _forts(realm: Dictionary) -> Array:
 func _on_game_event(ev: Dictionary) -> void:
 	if String(ev.get("type", "")) == "away_report":
 		# a catch-up's events went to the away report, not to the scenes: away_report is the cue to re-read every
-		# view (the catch-up ruling, STATE-API §6), so the next frame fetches and binds everything at once
+		# view (the catch-up ruling, STATE-API §6), so the next frame fetches and binds everything at once; that fetch
+		# also looks for the welcome-back replay
 		_dirty = true
+		_away_check = true
 	for n in _bound:
 		if n.has_method("on_game_event"):
 			n.on_game_event(ev)
@@ -572,6 +651,21 @@ func _debug_set_pieces() -> void:
 	if place.size() == 2:
 		_log_set = true
 		get_tree().create_timer(float(spec.get("place_delay_s", 0.0))).timeout.connect(_debug_place.bind(place[0], place[1]))
+	# `--town-enqueue=inn:lot-13,bakery:lot-08`: the real cmd_queue_build (where --town-queue seeds only the stand-in)
+	for pair in _debug_arg("town-enqueue").split(",", false):
+		var bl := pair.split(":")
+		if bl.size() == 2:
+			var r: Dictionary = Game.state.cmd_queue_build(bl[0], bl[1])
+			print("TOWNSET enqueue %s -> %s ok=%s %s" % [bl[0], bl[1], str(r.get("ok", false)), str(r.get("reason", ""))])
+			_dirty = true
+	# `--town-away=<seconds>`: a real open-game gap of that length (GameState.tick's reporting catch-up), so its
+	# away_report reaches this scene as it would after a sleep: the welcome-back replay's driver
+	var away := _debug_arg("town-away")
+	if away.is_valid_float() and float(away) > 0.0:
+		_log_set = true
+		var s: GameState = Game.state
+		s.tick(float(away) * s.time_scale, s.max_substeps_per_frame())
+		print("TOWNSET away %s s, catching up=%s frame=%d" % [away, str(s.view_catchup().get("active", false)), _frame])
 
 
 ## A building with no foreman, other than the crypt, for the demo raise's walk-out.
