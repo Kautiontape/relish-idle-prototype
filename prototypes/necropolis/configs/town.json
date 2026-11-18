@@ -527,6 +527,7 @@
         "living_first": "too few living buy at the Market: more housing or an Inn"
       },
       "queued_ok": "Queued {label} on {lot}: {when}.",
+      "slots": "{used} of {max} slots",
       "queued_now": "it starts now",
       "queued_never": "it can't be afforded at today's income yet (see the queue)",
       "unqueued": "Removed from the queue.",

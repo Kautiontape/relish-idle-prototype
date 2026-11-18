@@ -1148,6 +1148,26 @@ static func entry_reason(e: Dictionary, catalog: Dictionary, st: Dictionary, bvi
 	return reason_text(reason, row, st, bview, vcfg)
 
 
+## Whether the real queue's list is full, so no Queue button can add to it: P2's `queue_list_max` (the whole list's
+## cap) when the view has it. Whether one more slot-holding entry fits (`queue_slots` against `queue_max`) depends on
+## the entry, since a gated one holds no slot: the command's queue_full refusal says that, never a count of ours.
+## TODO(P2 merge): drop the fallback, today's rule that every entry counts toward queue_max, once api_version 13 lands.
+static func queue_list_full(town: Dictionary) -> bool:
+	var n := (town.get("queue", []) as Array).size()
+	if town.has("queue_list_max"):
+		return n >= int(town["queue_list_max"])
+	return town.has("queue_max") and n >= int(town["queue_max"])
+
+
+## "Queue: 3 of 8 slots": the slot-holding entries (P2's `queue_slots`) against `queue_max`; "" when the view has
+## neither. TODO(P2 merge): the fallback counts every entry, today's rule.
+static func queue_slots_text(town: Dictionary, vcfg: Dictionary) -> String:
+	if not town.has("queue_max"):
+		return ""
+	var used := int(town.get("queue_slots", (town.get("queue", []) as Array).size()))
+	return fmt(String((vcfg.get("queue_text", {}) as Dictionary).get("slots", "")), {"used": used, "max": int(town["queue_max"])})
+
+
 ## cmd_reorder_queue's order for moving entry `index` by `delta` (±1) in a queue of `n`: `order[k]` is the old index
 ## at position k. Out of range: the identity.
 static func swap_order(n: int, index: int, delta: int) -> Array:

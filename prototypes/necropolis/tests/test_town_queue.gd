@@ -21,7 +21,27 @@ func run() -> int:
 	_foreman_menu()
 	_away_label()
 	_catchup()
+	_p2_counts()
 	return t.failures
+
+
+## P2's queue fields when present (queue_slots, queue_list_max), today's count as the fallback (TODO(P2 merge)).
+func _p2_counts() -> void:
+	var rows := [{"status": "skipped_gate"}, {"status": "next"}, {"status": "queued"}]
+	var p2 := {"queue": rows, "queue_max": 2, "queue_slots": 2, "queue_list_max": 4}
+	t.ok(not BuildSort.queue_list_full(p2), "P2: 3 rows of a 4-row list: not full, whatever the slots say (a gated add holds none)")
+	p2["queue"] = rows + [{"status": "skipped_gate"}]
+	t.ok(BuildSort.queue_list_full(p2), "P2: the list at queue_list_max is full")
+	t.ok(BuildSort.queue_slots_text(p2, vcfg) == "2 of 2 slots", "P2: the title counts slot-holding rows (%s)" % BuildSort.queue_slots_text(p2, vcfg))
+	var old := {"queue": rows, "queue_max": 3}
+	t.ok(BuildSort.queue_list_full(old) and BuildSort.queue_slots_text(old, vcfg) == "3 of 3 slots",
+		"today (no P2 fields): every row counts toward queue_max")
+	t.ok(not BuildSort.queue_list_full({"queue": rows}) and BuildSort.queue_slots_text({"queue": rows}, vcfg) == "",
+		"no queue_max in the view: never full by our count, no slots text")
+	var s := _state("day1")
+	var town := s.view_town()
+	t.ok(town.has("queue_max") and BuildSort.queue_slots_text(town, vcfg) == "0 of %d slots" % int(town["queue_max"]),
+		"the live view: '%s'" % BuildSort.queue_slots_text(town, vcfg))
 
 
 ## C-c: away_report makes the shell re-read every view; a catching_up refusal reads as a wait in every reason map.

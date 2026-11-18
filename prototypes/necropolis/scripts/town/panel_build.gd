@@ -930,16 +930,20 @@ func _queue_entries() -> Array:
 	return TownStandins.queue_entries(_views.get("town", {}), _q.entries)
 
 
-## Only the stand-in counts its own length; the real queue's count rule is economy's (gated entries may not count,
-## P2), so its Queue buttons stay on and a full queue answers with its `queue_full` refusal.
+## The real queue: full only when its list is (BuildSort.queue_list_full, P2's queue_list_max); whether a slot is
+## free for one more depends on the entry, so the command's queue_full refusal says it. The stand-in counts its own.
 func _queue_full() -> bool:
 	if not TownStandins.queue_is_standin(_views.get("town", {})):
-		return false
+		return BuildSort.queue_list_full(_views.get("town", {}))
 	return _queue_entries().size() >= _q.max_len
 
 
 func _update_queue() -> void:
 	var entries := _queue_entries()
+	var slots := BuildSort.queue_slots_text(_views.get("town", {}), _vcfg)
+	var heading := String(_vcfg.get("queue_text", {}).get("title", "")) + ("  (" + slots + ")" if slots != "" else "")
+	if _q_title.text != heading:
+		_q_title.text = heading
 	_q_empty.visible = entries.is_empty()
 	while _q_pool.size() < entries.size():
 		_q_pool.append(_make_q_row(_q_pool.size()))
