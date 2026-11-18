@@ -140,8 +140,7 @@ func _build_rows(c: Dictionary, x: float, inner: float) -> VBoxContainer:
 		box.add_child(top)
 		var parts := {"name": _label(top, "text_dim"), "pct": Label.new(), "rate": Label.new(), "feed": null}
 		(parts["name"] as Label).custom_minimum_size.x = float(c["valve_name_w_px"])
-		(parts["name"] as Label).tooltip_text = HudLogic.tip(k)  # the stream's word, in the glossary's meaning
-		(parts["name"] as Label).mouse_filter = Control.MOUSE_FILTER_PASS
+		HudLogic.apply_tip(parts["name"], k)  # the stream's word, in the glossary's meaning (and the hover passes through)
 		MapType.style_mass(parts["pct"])
 		(parts["pct"] as Label).custom_minimum_size.x = float(c["valve_pct_w_px"])
 		MapType.style_rate(parts["rate"])

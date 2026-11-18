@@ -27,6 +27,59 @@ func run() -> int:
 	return t.failures
 
 
+## The hover lines on the real nodes. MapValve compiles headless, so it is built as the scene builds it
+## (model set, then _ready) and its buttons and name labels are read. map_hud.gd names the Game autoload
+## and does not compile here: its bar words go through HudLogic.apply_tip, tested on real Labels and
+## Buttons, and the scene's calls to it are pinned as text (one per word).
+func _tips_on_nodes(t: TestUtil) -> void:
+	t.suite("map_hud-tips-on-nodes")
+	var s := GameState.new(TestUtil.configs())
+	s.debug_enabled = true
+	t.ok(s.cmd_debug_load_fixture("midgame_2flips")["ok"], "fixture loads")
+	var m := MapModel.new(s)
+	m.refresh(true)
+	var v := MapValve.new()
+	v.model = m
+	v._ready()  # not in a tree: the scene's own build, run by hand
+	t.ok(v.tooltip_text == HudLogic.tip("mint") and v.mouse_filter == Control.MOUSE_FILTER_STOP, "the valve panel carries the mint line and takes the hover")
+	var buttons := {}
+	for c in v.get_children():
+		if c is Button:
+			buttons[(c as Button).text] = c
+	for k in ValveLogic.KEYS:
+		var b: Button = buttons.get(ValveLogic.NAMES[k])
+		t.ok(b != null, "the valve has a %s button" % k)
+		if b == null:
+			continue
+		t.ok(b.tooltip_text == HudLogic.tip(k) and b.tooltip_text != "", "the %s button carries the %s tip" % [k, k])
+		t.ok(b.mouse_filter != Control.MOUSE_FILTER_IGNORE, "the %s button takes the hover" % k)
+		var nm: Label = v._rows[k]["name"]
+		t.ok(nm.tooltip_text == HudLogic.tip(k), "the %s name label carries the %s tip" % [k, k])
+		t.ok(nm.mouse_filter == Control.MOUSE_FILTER_PASS, "the %s name label passes the hover (not IGNORE)" % k)
+	v.free()
+	# the helper the bar's words use, on real nodes
+	for node in [Label.new(), Button.new()]:
+		node.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		for id in ["mint", "odds", "strain", "drain"]:
+			HudLogic.apply_tip(node, id)
+			t.ok(node.tooltip_text == HudLogic.tip(id) and node.tooltip_text != "" and node.mouse_filter == Control.MOUSE_FILTER_PASS, "apply_tip(%s, %s): the glossary line, hover passed on" % [node.get_class(), id])
+		var plain: Control = node.duplicate()
+		plain.tooltip_text = ""
+		plain.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		HudLogic.apply_tip(plain, "nothing")
+		t.ok(plain.tooltip_text == "" and plain.mouse_filter == Control.MOUSE_FILTER_IGNORE, "%s: an unknown word leaves the node as it was" % node.get_class())
+		plain.free()
+		node.free()
+	# map_hud.gd's calls, pinned as text: the stream words by their item id (MINT among them), then the three status words
+	var hud_src := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
+	t.ok(HudLogic.LABELS.has("mint"), "MINT is a bar item, so the item call carries its tip")
+	t.ok(hud_src.contains("HudLogic.apply_tip(parts[\"name\"], str(it[\"id\"]))"), "map_hud.gd tips each stream word by its item id (MINT, BONE, ...)")
+	for id in ["odds", "strain", "drain"]:
+		t.ok(hud_src.contains("HudLogic.apply_tip(%s_name, \"%s\")" % [id, id]), "map_hud.gd tips the %s word with HudLogic.apply_tip" % id)
+	var valve_src := FileAccess.get_file_as_string("res://scripts/map/map_valve.gd")
+	t.ok(not valve_src.contains("valve_tip") and not MapLogic.cfg()["clarity"].has("valve_tip"), "no valve_tip: the valve's line is the mint tip")
+
+
 ## C2: the run's goal shows until a fort is taken; the jargon words have config tooltips; nothing
 ## on the map says "drown Vei".
 func _clarity(t: TestUtil) -> void:
@@ -46,8 +99,7 @@ func _clarity(t: TestUtil) -> void:
 	var war_line := "WAR sends undead to your forts, spread by distance, with Relish's fort drawing 3× its share. FLOOD sends them into Vei's queue, which raises your odds against her."
 	t.ok(HudLogic.tip("mint") == mint_line, "the mint tip is the glossary's line verbatim")
 	t.ok(not MapLogic.cfg()["clarity"].has("valve_tip"), "the mint line lives under clarity.tips.mint only")
-	var valve_src := FileAccess.get_file_as_string("res://scripts/map/map_valve.gd")
-	t.ok(valve_src.contains("tooltip_text = HudLogic.tip(\"mint\")") and not valve_src.contains("valve_tip"), "the valve's tooltip is the mint line (HudLogic.tip(\"mint\"))")
+	_tips_on_nodes(t)
 	t.ok(HudLogic.tip("war") == war_line and HudLogic.tip("flood") == war_line, "the WAR and FLOOD tips are the glossary's full line verbatim")
 	t.ok(HudLogic.tip("strain") == "How backed up Vei's queue is. ▲ means it's growing (FLOOD is clogging it); ▼ means she's working it down.", "the STRAIN tip is the glossary's line verbatim")
 	t.ok(HudLogic.tip("drain") == "How long until Vei's queue empties at this rate. ∞ means it isn't emptying.", "the DRAIN tip is the glossary's line verbatim")

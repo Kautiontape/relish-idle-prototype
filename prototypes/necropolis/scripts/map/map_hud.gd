@@ -258,7 +258,7 @@ func _build_bar(items: Array) -> void:
 		_cells.append(box)
 		var parts := {"box": box, "name": _bar_label(box), "rate": _bar_label(box), "stock": _bar_label(box), "cap": _bar_label(box)}
 		MapType.style_label(parts["name"])
-		_tip(parts["name"], HudLogic.tip(str(it["id"])))
+		HudLogic.apply_tip(parts["name"], str(it["id"]))
 		MapType.style_rate(parts["rate"])
 		MapType.style_mass(parts["stock"], "text_dim", MapType.size_of("size_stock"))
 		MapType.style_label(parts["cap"], "text", MapType.size_of("size_stock"))
@@ -278,20 +278,20 @@ func _build_bar(items: Array) -> void:
 	var odds_name := _bar_label(status)
 	MapType.style_label(odds_name)
 	odds_name.text = str(cfg["cards"]["vei_odds_label"])
-	_tip(odds_name, HudLogic.tip("odds"))
+	HudLogic.apply_tip(odds_name, "odds")
 	_odds = _bar_label(status)
 	MapType.style_mass(_odds)
 	# the ▲/▼ is the backlog's sign, labelled as her strain: the odds are mostly time and can climb on a ▼
 	var strain_name := _bar_label(status)
 	MapType.style_label(strain_name)
 	strain_name.text = str(cfg["strain_label"])
-	_tip(strain_name, HudLogic.tip("strain"))
+	HudLogic.apply_tip(strain_name, "strain")
 	_sign = _bar_label(status)
 	MapType.style_mass(_sign)
 	var drain_name := _bar_label(status)
 	MapType.style_label(drain_name)
 	drain_name.text = str(cfg["drain_label"])
-	_tip(drain_name, HudLogic.tip("drain"))
+	HudLogic.apply_tip(drain_name, "drain")
 	_drain = _bar_label(status)
 	MapType.style_mass(_drain)
 	_tithe = _bar_label(status)  # Vei's tithe telegraph; hidden while it has nothing to say
@@ -299,13 +299,6 @@ func _build_bar(items: Array) -> void:
 	_tithe.visible = false
 	_speed_tag = _bar_label(status)
 	MapType.style_label(_speed_tag, "select")
-
-
-## A hover line on a bar word (a Control that ignores the mouse shows no tooltip, so it passes it on).
-func _tip(l: Label, text: String) -> void:
-	if text != "":
-		l.tooltip_text = text
-		l.mouse_filter = Control.MOUSE_FILTER_PASS
 
 
 func _bar_label(parent: Node) -> Label:

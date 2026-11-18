@@ -234,7 +234,11 @@ func _chip_winners(t: TestUtil, w: float) -> void:
 	var near := func(a: Rect2, b: Rect2) -> bool:
 		return a.position.is_equal_approx(b.position) and a.size.is_equal_approx(b.size)
 	# (i) clear space: exactly the default place, with and without Relish's token out of the way
-	var alone: Dictionary = _chip_items(["sable-hold"], w)[11]
+	var alone: Dictionary = {}
+	for it in _chip_items(["sable-hold"], w):
+		if it["id"] == "sable-hold":
+			alone = it
+	t.ok(not alone.is_empty(), "sable-hold is among the fort items")
 	var base_a := IdleLogic.chip_rect(alone["pos"], float(alone["r"]), 1.0, false, w)
 	var lay_a := IdleLogic.chip_layout(_chip_items(["sable-hold"], w), 1.0, false, Vector2.ZERO, 0.0)
 	t.ok(near.call(lay_a["sable-hold"], base_a), "a clear held fort gets exactly its default place")
@@ -249,6 +253,7 @@ func _chip_winners(t: TestUtil, w: float) -> void:
 		var base := IdleLogic.chip_rect(ash["pos"], float(ash["r"]), z, false, w)
 		var want := Rect2(base.position + Vector2(base.size.x * float(case[1]), 0.0), base.size)
 		t.ok(fr.has(case[1]) and near.call(lay["ashgate"], want), "zoom %.2f: Ashgate's chip is its default slid right by %.2f of its width, got dx/w %.4f dy %.4f" % [z, case[1], (lay["ashgate"].position.x - base.position.x) / base.size.x, lay["ashgate"].position.y - base.position.y])
+		t.ok(not near.call(lay["ashgate"], base), "zoom %.2f: Ashgate's default place really was blocked (the slide is not the default)" % z)
 		var base_s := IdleLogic.chip_rect(slu["pos"], float(slu["r"]), z, true, w)
 		t.ok(near.call(lay["old-sluice"], base_s), "zoom %.2f: Old Sluice (nothing crowds it, but its tag line) keeps its default" % z)
 	# (iii) never above the ring or beside it: every chip's top is under its own name (and tag) plate

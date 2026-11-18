@@ -153,6 +153,15 @@ static func tip(id: String) -> String:
 	return str(MapLogic.cfg().get("clarity", {}).get("tips", {}).get(id, ""))
 
 
+## The hover line `id` on a Label or Button: its tooltip is tip(id) and it passes the mouse on (a Control
+## that ignores the mouse shows no tooltip). A word with no line is left as it was.
+static func apply_tip(c: Control, id: String) -> void:
+	var text := tip(id)
+	if text != "":
+		c.tooltip_text = text
+		c.mouse_filter = Control.MOUSE_FILTER_PASS
+
+
 ## A screen rect (the open card) in a world-anchored layer's frame, world x zoom (MapCallouts'):
 ## screen - viewport / 2 + camera position x zoom.
 static func screen_to_zoomed(r: Rect2, cam_pos: Vector2, zoom: float, viewport: Vector2) -> Rect2:
