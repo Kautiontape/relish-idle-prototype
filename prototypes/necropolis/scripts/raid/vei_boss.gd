@@ -333,7 +333,7 @@ func _on_front_cleared(i: int) -> void:
 	lanes_node.on_cleared(i)
 	RaidFx.ring(fx_root, lanes[i]["b"], Palette.c("undead"), 70.0, 0.6, 3.0)
 	var n := VeiFronts.fronts_met(p1["fronts"])
-	hud.show_banner(RaidLogic.word_fmt(vwords(), "banner_front", [String(lanes[i]["id"]).to_upper(), n, VeiFronts.required(vcfg())]),
+	hud.show_banner(RaidLogic.word_fmt(vwords(), "banner_front", [front_label(String(lanes[i]["id"])), n, VeiFronts.required(vcfg())]),
 		2.0, "undead")
 	if _standalone:
 		print("BOSS_FRONT cleared=%s t=%.1f" % [lanes[i]["id"], float(p1["t"])])
@@ -888,6 +888,11 @@ func _emit(won: bool) -> void:
 
 
 # --------------------------------------------------------------------- HUD ---
+## Front `id`'s upper-cased name (vei_loss.front_names, BossLogic.front_label): the lane labels and the banner.
+func front_label(id: String) -> String:
+	return BossLogic.front_label(id, rcfg().get("vei_loss", {}))
+
+
 ## The guards tag (BossLogic.pressure_tag), rebuilt only when `pressure` changes: it is set once, in `_begin_break`
 ## (the pool it comes from is the seed's and never moves), so the per-frame HUD read costs one compare.
 func _pressure_tag() -> String:

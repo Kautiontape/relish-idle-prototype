@@ -40,6 +40,8 @@ const WORDS := [
 	"vei_loss.killed_by_label", "vei_loss.killed_by.weave", "vei_loss.killed_by.living", "vei_loss.killed_by.other",
 	"vei_loss.break_label", "vei_loss.break_text", "vei_loss.fronts_label", "vei_loss.fronts_text", "vei_loss.held_clause",
 	"vei_loss.pressure_label", "vei_loss.pressure_text", "vei_loss.reserve", "vei_loss.tag",
+	"vei_loss.join_and", "vei_loss.join_comma", "vei_loss.front_names.giants", "vei_loss.front_names.swarm",
+	"vei_loss.front_names.carvers", "vei_loss.front_names.raw", "wardens.words.join_and", "wardens.words.join_comma",
 	"wardens.last_chance", "wardens.last_chance_loose", "wardens.meter_label",
 	"wardens.words.plate_head", "wardens.words.plate_foot", "wardens.words.wake_banner", "wardens.words.exposed_banner",
 	"wardens.words.beaten_banner", "wardens.words.pack_broke_banner", "wardens.words.pack_horn", "wardens.words.pack_warded",

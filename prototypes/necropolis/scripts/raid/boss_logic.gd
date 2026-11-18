@@ -472,6 +472,12 @@ static func loss_banner(reason: String, words: Dictionary) -> String:
 	return str((words.get("banner", {}) as Dictionary).get(reason, words.get("banner_unknown", "")))
 
 
+## A front's name on the lane label and the BREAK THROUGH banner: raid.json vei_loss.front_names (the loss card's
+## names), upper-cased; the id upper-cased where there is none. One rename moves all three places.
+static func front_label(id: String, words: Dictionary) -> String:
+	return str((words.get("front_names", {}) as Dictionary).get(id, id)).to_upper()
+
+
 ## The pressure the break's guards came with (VeiFronts.pressure_mult) as the short HUD tag, "· guards ×2.3";
 ## "" at or below `pressure_min` (a pool under pool_free changes nothing, so it says nothing).
 static func pressure_tag(pressure: float, words: Dictionary) -> String:

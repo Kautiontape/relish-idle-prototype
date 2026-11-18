@@ -403,10 +403,16 @@ static func held_empty_clear_s(held: bool, boss: bool, living_spawned: int, cfg:
 
 
 ## The word `key` of the raid.json block `words`, formatted with `args` (an Array, one per placeholder). A word
-## that is missing or blank (raid.json failed to parse) stays blank instead of throwing on its `%`.
+## that is missing or blank (raid.json failed to parse) stays blank instead of throwing on its `%`; so does one
+## whose placeholders do not match `args` (an edited word that lost or gained a `%d`): counted as the `%`s that are
+## not part of a `%%`, no regex per call.
 static func word_fmt(words: Dictionary, key: String, args: Array) -> String:
 	var w := str(words.get(key, ""))
-	return w % args if w.contains("%") else w
+	if not w.contains("%"):
+		return w
+	if w.count("%") - 2 * w.count("%%") != args.size():
+		return ""
+	return w % args
 
 
 ## `words` here and in the held_* helpers below is raid.json's `held` block (the words live there).
@@ -1064,7 +1070,9 @@ static func wrap_each(lines: PackedStringArray, font: Font, px: int, max_w: floa
 		if got.size() > 1 and l.contains(" "):
 			for g in got:
 				if not g.contains(" "):
-					got = wrap_balanced(l, font, px, max_w)
+					got = PackedStringArray()
+					for b in wrap_balanced(l, font, px, max_w):
+						got.append(b.trim_suffix(" ·"))   # the rebalanced lines too: "·" counts as a word there and can end a line
 					break
 		out.append_array(got)
 	return out

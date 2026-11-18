@@ -461,7 +461,7 @@ class Labels:
 		elif have >= need:
 			status = str(vw.get("lane_met", ""))
 			skey = "undead"
-		return PackedStringArray([String(ln.lanes[i]["id"]).to_upper(),
+		return PackedStringArray([ln.boss.front_label(String(ln.lanes[i]["id"])),
 			RaidLogic.word_fmt(vw, "lane_have", [floori(have + 0.0001), ceili(need - 0.0001)]), status, skey])
 
 	func _draw() -> void:

@@ -187,8 +187,9 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		_warden_block.set_anchors_preset(Control.PRESET_CENTER_TOP)
 		_warden_block.anchor_left = 0.5
 		_warden_block.anchor_right = 0.5
-		_warden_block.offset_left = -340.0
-		_warden_block.offset_right = 340.0
+		var half_w := float(raid.rcfg().get("hud", {}).get("warden_block_w", 680.0)) * 0.5   # hud.warden_block_w: both top blocks' width
+		_warden_block.offset_left = -half_w
+		_warden_block.offset_right = half_w
 		_warden_block.offset_top = 10.0
 		_warden_block.offset_bottom = 72.0
 		# T4: the goal block, in the same spot while no warden block shows (before the wake, after it falls, a held raid)
@@ -199,8 +200,8 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		_goal_block.set_anchors_preset(Control.PRESET_CENTER_TOP)
 		_goal_block.anchor_left = 0.5
 		_goal_block.anchor_right = 0.5
-		_goal_block.offset_left = -340.0
-		_goal_block.offset_right = 340.0
+		_goal_block.offset_left = -half_w
+		_goal_block.offset_right = half_w
 		_goal_block.offset_top = 10.0
 		_goal_block.offset_bottom = 10.0
 

@@ -62,11 +62,11 @@ func _draw() -> void:
 	var f := ThemeDB.fallback_font
 	var a := _alpha()
 	var dc := _dc
-	var w := float(dc.get("card_w", 0.0))
-	var pad := float(dc.get("card_pad", 0.0))
-	var lw := float(dc.get("label_w", 0.0))
+	var w := float(dc.get("card_w", 560.0))   # geometry falls back to the shipped numbers (the words keep their blank fallback)
+	var pad := float(dc.get("card_pad", 22.0))
+	var lw := float(dc.get("label_w", 120.0))
 	var vw := w - pad * 2.0 - lw
-	var vpx := int(dc.get("value_px", 0))
+	var vpx := int(dc.get("value_px", 18))
 	var heights: Array = []   # a long value wraps to a second line: its row grows (never clipped)
 	var total := 0.0
 	for r in rows:
@@ -77,8 +77,8 @@ func _draw() -> void:
 	var h := pad * 2.0 + 44.0 + total + 30.0
 	var vs := get_viewport_rect().size
 	var o := (vs - Vector2(w, h)) * 0.5
-	draw_rect(Rect2(Vector2.ZERO, vs), Palette.c("ground", float(dc.get("backdrop_a", 0.0)) * a))
-	draw_rect(Rect2(o, Vector2(w, h)), Palette.c("ground", float(dc.get("plate_a", 0.0)) * a))
+	draw_rect(Rect2(Vector2.ZERO, vs), Palette.c("ground", float(dc.get("backdrop_a", 0.8)) * a))
+	draw_rect(Rect2(o, Vector2(w, h)), Palette.c("ground", float(dc.get("plate_a", 0.96)) * a))
 	draw_rect(Rect2(o, Vector2(w, h)), Palette.c("vei", 0.8 * a), false, 2.0)
 	var x := o.x + pad
 	var y := o.y + pad + 22.0
@@ -86,8 +86,8 @@ func _draw() -> void:
 	y += 40.0
 	for i in rows.size():
 		var r: Dictionary = rows[i]
-		draw_string(f, Vector2(x, y), str(r["label"]), HORIZONTAL_ALIGNMENT_LEFT, lw - 8.0, int(dc.get("label_px", 0)), Palette.c("text_dim", a))
+		draw_string(f, Vector2(x, y), str(r["label"]), HORIZONTAL_ALIGNMENT_LEFT, lw - 8.0, int(dc.get("label_px", 14)), Palette.c("text_dim", a))
 		draw_multiline_string(f, Vector2(x + lw, y), str(r["text"]), HORIZONTAL_ALIGNMENT_LEFT, vw, vpx, -1, Palette.c(str(r["key"]), a))
 		y += float(heights[i])
 	if can_skip():
-		draw_string(f, Vector2(x, y + 4.0), _foot, HORIZONTAL_ALIGNMENT_LEFT, -1, int(dc.get("foot_px", 0)), Palette.c("text_dim", a))
+		draw_string(f, Vector2(x, y + 4.0), _foot, HORIZONTAL_ALIGNMENT_LEFT, -1, int(dc.get("foot_px", 14)), Palette.c("text_dim", a))

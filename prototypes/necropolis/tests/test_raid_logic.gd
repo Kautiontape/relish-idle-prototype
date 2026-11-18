@@ -153,6 +153,7 @@ func run() -> int:
 	_first_pile_tests(t, cfg)
 	_ghost_ring_tests(t)
 	_unbanked_tests(t)
+	_word_fmt_tests(t)
 
 	# --- population sanity ---------------------------------------------------
 	t.suite("raid_population")
@@ -1568,6 +1569,34 @@ func _unbanked_tests(t: TestUtil) -> void:
 	var b := RaidLogic.loot_counts(banked)
 	t.ok(int(b["relics"]) == 1 and int(b["husks"]) == 1 and int(b["remnants"]) == 1 and int(b["essence"]) == 3 and int(b["total"]) == 6, "loot_counts reads a banked snapshot")
 	t.ok(int(RaidLogic.loot_counts({})["total"]) == 0, "loot_counts of nothing is zero")
+
+
+## RaidLogic.word_fmt blanks a word whose placeholders do not match its arguments (an edited word that lost or gained
+## a `%d`), where `%` would throw; and wrap_each never leaves a hanging " ·" on a line.
+func _word_fmt_tests(t: TestUtil) -> void:
+	t.suite("raid_word_fmt")
+	var w := {"one": "%d of %d", "pct": "%d%% stays", "none": "no placeholder", "lone": "banks 100% of your loot", "blank": "", "str": "%s x%d"}
+	t.ok(RaidLogic.word_fmt(w, "one", [3, 5]) == "3 of 5", "a word with its two placeholders formats")
+	t.ok(RaidLogic.word_fmt(w, "one", [3]) == "" and RaidLogic.word_fmt(w, "one", [3, 5, 7]) == "", "too few or too many arguments blank the word instead of throwing")
+	t.ok(RaidLogic.word_fmt(w, "pct", [35]) == "35% stays", "a %% word with one %d formats: " + RaidLogic.word_fmt(w, "pct", [35]))
+	t.ok(RaidLogic.word_fmt(w, "pct", []) == "" and RaidLogic.word_fmt(w, "pct", [1, 2]) == "", "a %% word still blanks on a count mismatch")
+	t.ok(RaidLogic.word_fmt(w, "none", []) == "no placeholder" and RaidLogic.word_fmt(w, "none", [1]) == "no placeholder", "a word with no % returns as it is, whatever the arguments")
+	t.ok(RaidLogic.word_fmt(w, "lone", []) == "", "a bare % read with no arguments blanks (an edited word that gained a stray %)")
+	t.ok(RaidLogic.word_fmt(w, "blank", [1]) == "" and RaidLogic.word_fmt(w, "missing", [1]) == "", "a blank or missing word stays blank")
+	t.ok(RaidLogic.word_fmt(w, "str", ["a", 2]) == "a x2", "mixed specifiers format")
+	var f := ThemeDB.fallback_font
+	var bad := []
+	for tx in ["alpha beta gamma · delta epsilon · zeta", "one two · three four five six seven · eight", "aa bb cc dd ee ff · gg hh ii jj kk ll mm",
+			"revives Relish in place, at most once per dungeon · and more words here"]:
+		for wd in range(40, 400, 3):
+			for l in RaidLogic.wrap_each(PackedStringArray([tx]), f, 14, float(wd)):
+				if l.ends_with(" ·"):
+					bad.append("%d px: %s" % [wd, l])
+	t.ok(bad.is_empty(), "no wrapped line, rebalanced or not, ends in a hanging ' ·': %s" % [bad.slice(0, 3)])
+	var raw_hang := false
+	for l in RaidLogic.wrap_balanced("alpha beta gamma · delta epsilon · zeta", f, 14, 73.0):
+		raw_hang = raw_hang or l.ends_with(" ·")
+	t.ok(raw_hang, "the case is real: wrap_balanced itself can end a line in ' ·' (the trim is wrap_each's)")
 
 
 # ----------------------------------------------------------- room-graph routing ----
