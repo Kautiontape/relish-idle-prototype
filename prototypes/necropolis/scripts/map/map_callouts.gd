@@ -28,6 +28,7 @@ var _label_key: Array = []  # the fort labels' rects, kept until HudLogic.label_
 var _label_cache: Array = []
 var _capped := false  # a valve drag is on: only callouts.drag_max_count show
 var _shown: Array = []  # [{plate, leader_from, leader_to, head, rate, tail, base}] in screen px
+var _vei_hidden := false  # the won map's END: no callout for a lane with Vei at an end (set_vei_hidden, as MapRoutes)
 
 
 func _process(_delta: float) -> void:
@@ -53,6 +54,15 @@ func _process(_delta: float) -> void:
 	scale = Vector2.ONE / z
 	_layout(z)
 	queue_redraw()
+
+
+## Victory's END (MapSetpieces): no callout for a lane with Vei at either end from now on, the same
+## lanes the routes stop drawing (LaneStyle.without_vei), so no "why" plate points at a hidden lane.
+func set_vei_hidden(on: bool) -> void:
+	if on == _vei_hidden:
+		return
+	_vei_hidden = on
+	_rev = -2
 
 
 ## What the card's occupancy depends on: [] while it is closed, else its screen rect and the
@@ -159,7 +169,7 @@ func _layout(z: float) -> void:
 	var off: Array = cfg["offset_px"]
 	var names := _names()
 	var rows: Array = []
-	for r in HudLogic.callout_items(model.lanes, int(cfg["collapse_min"])):
+	for r in HudLogic.callout_items(LaneStyle.without_vei(model.lanes, _vei_hidden), int(cfg["collapse_min"])):
 		if model.has_node(str(r["from"])) and (bool(r.get("group", false)) or model.has_node(str(r["to"]))):
 			rows.append(r)
 	var items: Array = []

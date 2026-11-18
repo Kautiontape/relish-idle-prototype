@@ -736,7 +736,7 @@ func _victory(t: TestUtil, c: Dictionary) -> void:
 	var lay_txt := FileAccess.get_file_as_string("%s/map_setpieces.gd" % MAP_DIR)
 	var v0 := lay_txt.find("func _victory_tick(")
 	var vt := lay_txt.substr(v0, lay_txt.find("\n\n\n", v0) - v0)
-	t.ok(vt.contains("SetpieceLogic.END") and vt.contains("hud.hide_victory()") and vt.contains("routes.set_victory(\"\")") and vt.contains("routes.set_vei_hidden(true)"), "END hides the headline, leaves victory styling and hides Vei's lanes")
+	t.ok(vt.contains("SetpieceLogic.END") and vt.contains("hud.hide_victory()") and vt.contains("routes.set_victory(\"\")") and vt.contains("routes.set_vei_hidden(true)") and vt.contains("callouts.set_vei_hidden(true)"), "END hides the headline, leaves victory styling and hides Vei's lanes and their callouts")
 	t.ok(FileAccess.get_file_as_string("%s/map_hud.gd" % MAP_DIR).contains("func hide_victory()"), "the HUD can hide the headline")
 	t.ok(str(MapLogic.cfg()["victory_text"]) == "VEI HAS DROWNED IN THE DEAD\nYou beat Vei: the game is won." and not FileAccess.get_file_as_string("%s/map_hud.gd" % MAP_DIR).contains("DROWNED"), "the headline's words are the config's")
 	t.ok(SetpieceLogic.victory_u(-1.0) == float(c["victory_u_floor"]) and SetpieceLogic.victory_u(0.9) == 0.9, "a dark lane lights at the floor; a bright one keeps its u")

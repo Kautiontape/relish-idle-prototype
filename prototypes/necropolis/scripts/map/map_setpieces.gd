@@ -656,6 +656,8 @@ func _victory_tick(t: float, rm: bool, settle := false) -> bool:
 		hud.hide_victory()
 		routes.set_victory("")
 		routes.set_vei_hidden(true)
+		if callouts != null:
+			callouts.set_vei_hidden(true)  # their "why" plates go with the lanes
 		return true
 	routes.set_victory(ph)
 	if ph == SetpieceLogic.STOP:

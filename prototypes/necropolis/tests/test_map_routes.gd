@@ -340,6 +340,15 @@ func _phantom(t: TestUtil) -> void:
 	t.ok(LaneStyle.without_vei(mix, false).size() == 4, "before END every row stays")
 	var rsrc := FileAccess.get_file_as_string("res://scripts/map/map_routes.gd")
 	t.ok(rsrc.contains("LaneStyle.without_vei(LaneStyle.plan_rows(model.lanes), _vei_hidden)"), "the routes drop Vei's lanes from the plan once hidden")
+	# the lane callouts follow the routes: no "why" plate for a hidden lane
+	var why := [_row("flood", "covington", "vei", 3.0), _row("living", "vei", "ashgate", 2.0), _row("war", "covington", "ashgate", 1.0)]
+	for r in why:
+		r["why"] = "valve"
+	var shown := HudLogic.callout_items(LaneStyle.without_vei(why, true), 0)
+	t.ok(HudLogic.callout_items(LaneStyle.without_vei(why, false), 0).size() == 3 and shown.size() == 1 and str(shown[0]["from"]) == "covington" and str(shown[0]["to"]) == "ashgate",
+		"END's callouts: only the realm's lanes keep a why plate (%d of 3)" % shown.size())
+	var csrc := FileAccess.get_file_as_string("res://scripts/map/map_callouts.gd")
+	t.ok(csrc.contains("HudLogic.callout_items(LaneStyle.without_vei(model.lanes, _vei_hidden)") and csrc.contains("func set_vei_hidden(on: bool)"), "the callouts drop Vei's lanes once hidden, as the routes do")
 
 
 func _curves(t: TestUtil) -> void:
