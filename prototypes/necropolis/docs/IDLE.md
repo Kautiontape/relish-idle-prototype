@@ -682,12 +682,33 @@ same profile with the game closed.
   - How long a full queue lasts while closed (ruling 3) is measured in BALANCE §5's P2 re-measure (88e18a6):
     pure_idle's 8 finish 1.96 h into its close, and past 16 entries `max_len` isn't the limit. `queue.max_len` stays
     8 (the run's manager, 2026-11-18).
+  - **The slots go in list order** (Phase I P3, A14's amendment, the run's manager's ruling 1 of 2026-11-18): the
+    first `queue.max_len` entries no gate holds get them (a `next` row holds one until it starts), and any later one
+    waits as `skipped_gate` `wait_slot` ("when a queue slot came free"), holding nothing. So parking gated entries
+    can't open more than 8 active builds, and a new entry that would wait for a slot is refused (`queue_full`).
+- **The Grow stance** (Phase I P3, Q-b: the run's manager's ruling of 2026-11-18, option (a); MECHANICS §4.5,
+  STATE-API §10 A17): what keeps a closed game growing once the queue's buildable entries have started. On in a new
+  game, and from the player's first finished build it upgrades what stands, one construction at a time, right after
+  the queue's processing, whenever no queue head waits on funds; never a relic level, never an empty lot. Catch-up
+  starts each upgrade when live play would (its clip, §4). Why: the list's spare room holds only gated entries, so a
+  pure_idle queue of at most 8 buildable entries finished 3.69 h into a 168 h close (cff0ecc), against 48–72 h of
+  growth; with Grow and BALANCE §7's depth (P3), pure_idle's last build was 52.8 h in on the step (7cb0899's configs)
+  and is 50.0 h in on the ramp that replaced it (town_only's 48.2 h; BALANCE §7, qb_probe at this file's commit).
 - **Processing**, every core step, right after the tier check:
   - The queue is processed in order.
   - An entry blocked by an **unmet gate** (blueprint, tier, a building, a locked lot, relics) is flagged
     `skipped_gate` and **skipped**: it holds nothing and starts at its own place once play or time
     clears the gate (the run's manager, 2026-11-14: such entries are accepted, not refused).
   - A head blocked only by **affordability** holds the queue, which saves toward it.
+  - **"Never stalls"** (Phase I P3, ruling 3 of 2026-11-18 and its hold timeout, option (iv); STATE-API §10 A15): a
+    head that no income can pay (its `affordable_in_s` −1.0: its store's net is 0 or below) doesn't hold the queue
+    for good. It is skipped like a gate (`skipped_gate` with its `no_gold` / `no_bone`, holding nothing and no slot)
+    at once when that store's producer has no staffed hands (no staffed Bone Mill for bone, no staffed stall for
+    gold), and after `queue.never_hold_s` (600 s) of reading −1.0 in a row when it has some. A staffed mill fed by
+    convoys reads dry between them, and every wet step restarts the count (the longest dry run measured in the
+    new-game Pit-then-Mill town is 60 s), so it still holds. A mill whose pits eat every body (pits-first, E2b-2)
+    reads dry for good: after 10 min the entries behind it start, and the head keeps its line ("the pits are eating
+    every body. Raise WAR"). A head that reads ≥ 0 again holds again.
 - `cmd_queue_build` rejects with `cost_exceeds_cap` when a cost is above the current store cap, and
   names the building that raises that cap (the Market for gold, the Bone Mill for bone, the Reliquary
   for relics).
@@ -722,29 +743,40 @@ a **"While you were away"** panel. It is ordered **gains, then ready actions, th
     up to the minute, so a wait under one never reads "0 m"), or, when it never will at the current income,
     "House can't be afforded at the current income of 0/s bone: move it down, or build a Bone Mill": the
     store, its net rate now, and what raises it (`idle.report.afford_raise`: a Market for gold, a Bone Mill
-    for bone). A head short of relics, which have no idle income, gets Shawn's words with no rate (W, the
+    for bone; from Phase I P3's housekeeping, while a new one is under construction at level 0,
+    `afford_raise_building`'s "wait for the Bone Mill to finish"). A head short of relics, which have no idle income, gets Shawn's words with no rate (W, the
     run's manager): "Crypt level 2 needs relics: raid a fort", with ", or move it down" under the rule below
     (`afford_relics_last_fmt` only: W2 removed `afford_relics_fmt`, the move-down form, from the config,
     `REPORT_KEYS` and `report_config_problem`, since nothing can choose it). No head reaches that form: the
     queue's walk gates a relic shortfall (`no_relics`, a `skipped_gate` entry) before any head waits on funds,
     and a gated entry holds nothing. W2's relics wall (below) is what shows it. `kind` `queue`, `target`
     `queue`, so the map can dive to the queue. The
-    queue never skips its head (Shawn's rule: it never stalls or jumps), so this is how the player learns
-    to move a stuck head. The line never names itself or a move that can't help (F1, the run's manager):
+    queue never skips a head that will be afforded (Shawn's rule: it never stalls or jumps), so this is how the
+    player learns to move a stuck head. Phase I P3 (ruling 3, §5's "never stalls"): a head that no income can pay
+    is skipped at once when its producer has no staffed hands, or after `queue.never_hold_s` when it has some, and
+    the entries behind it start; it keeps the same line without the move down (it is passed already), and only
+    the first such entry on a store gets one (a House, then a Well, with no mill: the House's line, since the
+    Well's would repeat it). So with no mill, the move-down forms below come only from a head still inside its
+    hold, which needs its producer staffed (pre_vei's gold, its upkeep over its income: "Inn level 2 can't be
+    afforded at the current income of −0.47/s gold: move it down, or build a Market"). The line never names itself
+    or a move that can't help (F1, the run's manager):
     - **moving it down can't help** (F2): "move it down" is offered only when some other entry could start
       if the stuck one weren't ahead of it, which the report reads off the queue's walk less the stuck entry
       (`BuildRules.queue_walk` on a copy): a row that isn't `skipped_gate` (a gated entry passes the head
       anyway) and has `affordable_in_s` >= 0 (affordable now, or later at the current income). With nothing behind
       it, or only entries stuck on the same store (a House, then a Well: both need bone), or only gated ones, the
       line drops it: "House can't be afforded at the current income of 0/s bone: build a Bone Mill". With a Bone
-      Mill behind it (level 1 is 60 gold, no bone) the move helps: "House can't be afforded at the current income
-      of 0/s bone: move it down, or build a Bone Mill";
+      Mill behind it (level 1 is 60 gold, no bone) the move helped before P3: "House can't be afforded at the
+      current income of 0/s bone: move it down, or build a Bone Mill". Since P3 the House is skipped and the Mill
+      starts on its own;
     - **its store's own producer** (`idle.report.afford_producer`: the Market for gold, the Bone Mill for
       bone; an upgrade counts): what raises the store would be the entry itself, so the line says a fact
       instead, true today (only a mill makes bone, only a Market gold, and a raid gives neither: loot.json
       has relics and no gold or bone): "Bone Mill level 2 can't be afforded at the current income of 0/s bone,
       and nothing else makes bone: move it down", without ": move it down" when moving it down can't help (the same rule). The
-      bone fact holds until P4 makes rot a source of bone.
+      bone fact holds until P4 makes rot a source of bone. Since P3 an unstaffed mill's level is skipped, so it
+      reads the form without the move down; the move-down form needs a staffed mill short of bodies and not
+      pits-first, which the workforce's rot rules out, so only `_report_afford_words` renders it.
     - **the pits eating every body** (E4, the run's manager's A1 day-1 ruling): never on bone while the mill is
       starved `pits_first` (the head row's `starved`), the mill exists and a new one wouldn't help, so the line names
       the bone short and the lever, ahead of the producer form: "Well can't be afforded, 7 bone short at the
@@ -858,7 +890,7 @@ dismissed) and the `away_report` event.
 | dead air: active minutes in which nothing has positive projected value | < 10% |
 | continuous play (open all day, always acting), in calendar time to Vei-ready | **10–30% sooner** than sessions. Being present is never pointless, and idle still wins. The throttles are loot recovery and the relic cap. At 69542f2 (E4 step 9, the win odds, mostly time-based with the backlog term capped; BALANCE §5's `odds` row), unchanged through 553a66f, 4384a17 and b475eb3: continuous day 4.8291 against sessions' 6.0001, **19.5% sooner** (was 44.9% with the odds the strain), and no profile's odds reach 0.6 before day 4.24. At c15f874, after 4f8b493's ready-vat hand moved the sim (BALANCE §5's calibration list): continuous 4.8358 against 6.0001, **19.4% sooner**. Two trees, so two numbers. At 88e18a6 (Phase I P2's queue rule and fill; BALANCE §5's P2 re-measure) sessions reads day 6.1667, one session later, and a player who parks gated builds reads 5.1667; continuous isn't re-run until P3's batch, so there is no "sooner" at 88e18a6 |
 | pure idle from a fresh start (never raids) | never Vei-ready (relics gate the endgame), but a full queue and a supported setup keep growing for about 2–3 days. **Missed at c15f874** (BALANCE §5's calibration list): pure_idle's one queue runs dry 1.9 h into its close, and town_only's bot jams its queue on gated entries at 8.0 h; with a fill that skips them, town_only's relic-free content lasts to day 1.46. **Still missed at 88e18a6**, after P2's queue rule and fill (BALANCE §5's P2 re-measure): pure_idle's 8 builds finish 1.96 h into its close (3.11 h if it parks gated builds; 3.86 h at `max_len` 16), and town_only's jam is gone but its last relic-free build is at day 1.41. The limit is relic-free content depth, not `max_len` (ruled 2026-11-18: 8 stays; depth is P3's) |
-| after an 8 h night away with a sensible setup | the report shows backlog ▲ and at least one thing to do. From E4 step 3 the backlog line ends with Vei's odds before and after ("· odds 0.02 → 0.11" on sessions' first night), and one night never takes them near 1. Since E4 step 9 they are the win odds (MECHANICS §3.5): sessions' first night reads 0.06 at its close and 0.16 on its load, its sixth 0.57 → 0.61 |
+| after an 8 h night away with a sensible setup | the report shows backlog ▲ and at least one thing to do. From E4 step 3 the backlog line ends with Vei's odds before and after ("· odds 0.02 → 0.11" on sessions' first night; from the V-I1 round it is labelled "Vei's queue" and the odds are whole percents, "· your odds 2% → 11%"), and one night never takes them near 1. Since E4 step 9 they are the win odds (MECHANICS §3.5): sessions' first night reads 0.06 at its close and 0.16 on its load, its sixth 0.57 → 0.61. Those are the readiness: since Phase I P3's odds split the line shows the first-attempt odds, on the readiness and the backups at the away's start and now (MECHANICS §3.5), and the bot's night records still read the readiness |
 | away 24 h with the default setup | at least half the held forts lost |
 | away 24 h with a prepared setup (WAR support, siege on the likely targets, weak forts raided before leaving) | at most a quarter lost; Covington never |
 | the first session | GAMEPLAY §6's opening holds: the first dungeon, flip and big undead, and a queue set before leaving |
@@ -1126,7 +1158,9 @@ The profiles:
   fits. It writes a `day_end` row at each boundary and runs until Vei-ready or 8 days.
 - **Vei-ready** in every profile is BALANCE §1's: odds ≥ 0.6 (`VEI_READY_ODDS`) and `fronts_required` fronts met, at
   Vei's node (E4 step 3 added the odds gate; at `K` 12000 the odds were near 1 from the first night, so it never bound).
-  Since E4 step 9 the odds are the win odds (`view_vei.odds`, mostly the game's age; MECHANICS §3.5), not the strain.
+  Since E4 step 9 the odds are the win odds (mostly the game's age; MECHANICS §3.5), not the strain. Since Phase I
+  P3's odds split the gate reads them as `view_vei.readiness`; `view_vei.odds` is now the first-attempt estimate on
+  them and the backups, which the bot doesn't read.
   - **The fronts are read at her full pool** (`_full_met`: each front's have against need_base + need_per_pool ×
     pool_cap, the need `_big_want` reads), at the look and again on arrival (E4 step 2, the manager's ruling R2 at the
     readout stop). Before R2 they were read at the pool she had then, and both profiles' readies fell inside a tithe

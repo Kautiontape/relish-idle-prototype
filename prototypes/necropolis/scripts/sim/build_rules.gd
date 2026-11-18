@@ -371,8 +371,10 @@ static func queue_list_max(gs: GameState) -> int:
 
 
 ## The walk's rows that hold a slot toward queue_max: every one that isn't `skipped_gate` (Phase I P2, ruling 1). A
-## gated entry holds nothing (no funds, no lot) and no slot; an entry whose gate clears takes a slot again, so the
-## count can pass queue_max then (nothing is evicted: cmd_queue_build only refuses a new one).
+## gated entry holds nothing (no funds, no lot) and no slot. Phase I P3 (A14's amendment, the run's manager's ruling 1
+## of 2026-11-18 03:10, its stateless form accepted): the walk gives the slots to the first queue_max entries no gate
+## holds, in list order (a `next` row holds one until it starts); any later one is `skipped_gate` `wait_slot`. So the
+## count never passes queue_max, and parking can't open more active entries than that.
 static func queue_slots(rows: Array) -> int:
 	var n := 0
 	for r in rows:
@@ -470,7 +472,10 @@ static func queue_levels(gs: GameState, entries: Array) -> Array:
 ## entry that isn't gated is the head: `next` when the gold and bone cover it, and the copy pays and takes
 ## its lot as the start would, so the walk goes on to the next head; else `waiting_funds` (no_gold,
 ## no_bone) and every later entry that isn't gated is `queued`. An upgrade behind an entry for its lot that
-## hasn't started shows that entry's gate (none: queued).
+## hasn't started shows that entry's gate (none: queued). Phase I P3: past the first queue_max entries that aren't
+## gated, an entry is `skipped_gate` `wait_slot` (A14's amendment; queue_slots), and a head that no income can ever pay
+## (head_never: ruling 3, "never stalls") is `skipped_gate` with its no_gold or no_bone, so it holds nothing and the
+## walk goes on to the next head (never_row).
 ## R2 (the E2b-2 vision review; the run's manager): the same walk times each entry's funds, its
 ## `affordable_in_s` (_afford_at): the entries that aren't gated start in queue order, each when the stocks,
 ## grown at queue_net's rates held fixed (each up to its cap) and less what the entries ahead paid at their own
@@ -499,6 +504,10 @@ static func queue_walk(gs: GameState, entries: Array, timed := true) -> Dictiona
 	var tl := {"clock": 0.0, "fund": {"gold": gold, "bone": bone, "relics": float(relics)}, "net": queue_net(gs),
 		"cap": {"gold": gs.town_sim.gold_cap(), "bone": gs.town_sim.bone_cap(), "relics": float(gs._cap_of("relics"))}, "starved": {}} if timed else {}
 	var waits: Array = []
+	var slots := 0  # Phase I P3 (A14's amendment): the rows so far that hold a slot (every one that isn't skipped_gate)
+	var slot_max := queue_max(gs)
+	var head_tl := {}  # Phase I P3 (ruling 3): the net and the caps the never-check reads, built once, on first use
+	var drys: Array = []  # ruling 3's hold timeout: per row, the store a head short of funds reads −1.0 on ("" else)
 	for i in entries.size():
 		var e: Dictionary = entries[i]
 		var lot_id: String = e["lot_id"]
@@ -507,18 +516,26 @@ static func queue_walk(gs: GameState, entries: Array, timed := true) -> Dictiona
 		var level: int = levels[i]
 		var cost := construction_cost(gs, bid, level)
 		var why := _queue_gate(gs, e, level, cost, lots, pending, relics)
+		if why == "" and slots >= slot_max:
+			why = "wait_slot"  # A14's amendment: past the first max_len entries that aren't gated, an entry waits for a slot
 		var status := "skipped_gate"
+		var dry := ""
 		if why == "":
 			if stopped or (up and pending.has(lot_id)):
 				status = "queued"
-			elif gold < float(cost["gold"]):
-				status = "waiting_funds"
-				why = "no_gold"
-			elif bone < float(cost["bone"]):
-				status = "waiting_funds"
-				why = "no_bone"
+			elif gold < float(cost["gold"]) or bone < float(cost["bone"]):
+				# ruling 3 ("never stalls"): a head no income can pay (head_dry: _afford_at's −1.0 at the walk's stocks)
+				# holds nothing, like a gate, with its store's reason, when its producer has no staffed hands or it has read
+				# dry for queue.never_hold_s (head_never); else it waits on funds and holds the queue
+				dry = head_dry(gs, cost, gold, bone, relics, head_tl)
+				var never := dry if head_never(gs, e, dry) else ""
+				why = "no_" + never if never != "" else ("no_gold" if gold < float(cost["gold"]) else "no_bone")
+				status = "skipped_gate" if never != "" else "waiting_funds"
 			else:
 				status = "next"
+		drys.append(dry)
+		if status != "skipped_gate":
+			slots += 1
 		if status == "next":
 			gold -= float(cost["gold"])
 			bone -= float(cost["bone"])
@@ -537,7 +554,7 @@ static func queue_walk(gs: GameState, entries: Array, timed := true) -> Dictiona
 			"status": status, "reason": why, "waited_on": str(e.get("waited_on", ""))}
 		# v11 (E4, the A1 day-1 ruling): what a head waiting on funds is short of at the walk's stocks (0 otherwise)
 		var short := {"gold": 0.0, "bone": 0.0}
-		if status == "waiting_funds":
+		if status == "waiting_funds" or never_row(row):
 			short = {"gold": maxf(0.0, float(cost["gold"]) - gold), "bone": maxf(0.0, float(cost["bone"]) - bone)}
 		row["short"] = short
 		row["starved"] = ""
@@ -551,12 +568,76 @@ static func queue_walk(gs: GameState, entries: Array, timed := true) -> Dictiona
 			# bone, the mills' (TownSim.mill_starved, the A1 day-1 ruling: "pits_first", "raise_war"); gold, the stalls'
 			# (TownSim.trade_starved, E4 step 10: "living_first", "raise_living"). A timed wait reads "", whatever the
 			# town-wide flags say: it will be afforded at the current income, so no lever is its blocker
-			if status == "waiting_funds" and float(at[0]) < 0.0:
+			if (status == "waiting_funds" or never_row(row)) and float(at[0]) < 0.0:
 				var starved := str({"bone": gs.town_sim.mill_starved, "gold": gs.town_sim.trade_starved}.get(str(at[1]), ""))
 				row["starved"] = starved
 				row["lever"] = gs.starved_lever(starved)
 		rows.append(row)
-	return {"rows": rows, "start": start, "waits": waits}
+	return {"rows": rows, "start": start, "waits": waits, "dry": drys}
+
+
+## Phase I P3, ruling 3 (the run's manager, 2026-11-18: the spine's "never stalls"): the store ("gold", "bone") a head
+## short of funds reads no path to now, "" when it has one: _afford_at's −1.0 on a timeline at the walk's stocks
+## (`gold`, `bone`, `relics`: what the entries started ahead of it left), clock 0, nothing starved, `holds` false (so
+## it starves nothing). Up to the head the timed walk's own timeline is exactly those stocks, so its row reads −1.0
+## too. `cache` holds queue_net and the caps across one walk's calls (an empty Dictionary the walk owns).
+static func head_dry(gs: GameState, cost: Dictionary, gold: float, bone: float, relics: int, cache: Dictionary) -> String:
+	if cache.is_empty():
+		cache["net"] = queue_net(gs)
+		cache["cap"] = {"gold": gs.town_sim.gold_cap(), "bone": gs.town_sim.bone_cap(), "relics": float(gs._cap_of("relics"))}
+	var tl := {"clock": 0.0, "fund": {"gold": gold, "bone": bone, "relics": float(relics)}, "net": cache["net"],
+		"cap": cache["cap"], "starved": {}}
+	var at := _afford_at(gs, cost, tl, false)
+	return "" if float(at[0]) >= 0.0 else str(at[1])
+
+
+## Phase I P3, ruling 3: whether a head reading dry on `dry` (head_dry, "" for none) is skipped, holding nothing:
+## - at once when that store's producer has no staffed hands (producer_idle: no staffed mill for bone, no staffed
+##   stall for gold), the state the view's lever names;
+## - else (the hold timeout, the run's manager's option (iv) of 2026-11-18) once entry `e` has read dry for
+##   economy.json queue.never_hold_s in a row (its `never_since`, which process_queue keeps; held_out). The last step's
+##   rates alone would flicker: a staffed mill fed by convoys mills nothing between them (the pits take bodies first),
+##   so its net reads 0 for some steps and 0.2/s for the next, and each wet step resets the count. A mill whose pits
+##   eat every body (pits_first, E2b-2's order kept) reads dry for good, so after the hold the entries behind it start.
+## Staffing and never_since are state, so the untimed walk (the core step's processing) and the timed one (the views)
+## read the same status.
+static func head_never(gs: GameState, e: Dictionary, dry: String) -> bool:
+	return dry != "" and (producer_idle(gs, dry) or held_out(gs, e))
+
+
+## Ruling 3's hold timeout: whether entry `e` has read dry for queue.never_hold_s or longer at gs.t (its never_since,
+## the game time process_queue first saw it dry; absent or −1 while it isn't).
+static func held_out(gs: GameState, e: Dictionary) -> bool:
+	var since := float(e.get("never_since", -1.0))
+	return since >= 0.0 and gs.t - since >= gs._req_f("economy.queue.never_hold_s")
+
+
+## Ruling 3's hold timeout: the seconds from gs.t until entry `e`, a head reading dry with its producer staffed, is
+## skipped by held_out (queue.never_hold_s from now when its count hasn't started). Catchup.build_start_s clips at it.
+static func hold_left_s(gs: GameState, e: Dictionary) -> float:
+	var since := float(e.get("never_since", -1.0))
+	var hold := gs._req_f("economy.queue.never_hold_s")
+	return maxf(0.0, (since if since >= 0.0 else gs.t) + hold - gs.t)
+
+
+## The job that makes each idle-income store (the fact idle.report.afford_raise_self states: only the Market's stalls
+## make gold, only the Bone Mill's milling bone). Relics have none.
+const PRODUCER_JOB := {"gold": "stall", "bone": "mill"}
+
+
+## Phase I P3, ruling 3: whether `store`'s producer has no staffed hands now (TownSim.staffing: no such building, none
+## staffed, or all unpaid). A store with no producer (relics) is idle.
+static func producer_idle(gs: GameState, store: String) -> bool:
+	var job := str(PRODUCER_JOB.get(store, ""))
+	var jobs: Dictionary = gs.town_sim.staffing.get("jobs", {})
+	return job == "" or float((jobs.get(job, {}) as Dictionary).get("staffed", 0.0)) <= 0.0
+
+
+## Phase I P3, ruling 3: a walk row skipped because no income can ever pay it (head_never): `skipped_gate` with a
+## funds reason, which no gate has. It holds nothing; its `affordable_in_s` is −1.0, and its `starved` and `lever`
+## read as a waiting head's would.
+static func never_row(row: Dictionary) -> bool:
+	return str(row["status"]) == "skipped_gate" and (str(row["reason"]) == "no_gold" or str(row["reason"]) == "no_bone")
 
 
 ## R2: the net rates the queue's times hold fixed (STATE-API §5.9, MECHANICS §4.4): each capped store's income
@@ -701,10 +782,11 @@ static func upkeep_short(gs: GameState, building_id: String, lots: Dictionary) -
 ## {building_id, lot_id, level, upgrade, waited_on}`. Every entry that stays and was skipped or waited on
 ## funds keeps that reason as its waited_on, and one queued behind the head that waits on funds takes the
 ## head's (no_gold, no_bone): the funds hold it now. A start its command refuses (it never should: the walk
-## checks what they check) keeps its entry and stops this step's starts.
-static func process_queue(gs: GameState) -> void:
+## checks what they check) keeps its entry and stops this step's starts. Returns the reason of the head left waiting
+## on funds (no_gold, no_bone), "" when none (Phase I P3: the Grow stance acts only then; grow_step).
+static func process_queue(gs: GameState) -> String:
 	if gs.build_queue.is_empty():
-		return
+		return ""
 	var w := queue_walk(gs, gs.build_queue, false)  # the statuses only: the times are the views'
 	var gone := {}
 	for i in w["start"]:
@@ -731,8 +813,115 @@ static func process_queue(gs: GameState) -> void:
 			e["waited_on"] = str(w["rows"][i]["reason"])
 		elif st == "queued" and held != "":
 			e["waited_on"] = held  # the head's funds hold it now, whatever gate held it before
+		# Phase I P3 (ruling 3's hold timeout): a head that read dry (head_dry) keeps the time it first did; any other
+		# reading, a time >= 0 or not a head, clears it, so a head that comes back holds again
+		if str(w["dry"][i]) != "":
+			if float(e.get("never_since", -1.0)) < 0.0:
+				e["never_since"] = gs.t
+		else:
+			e.erase("never_since")
 		keep.append(e)
 	gs.build_queue = keep
+	return held
+
+
+## Phase I P3 (Q-b, option (a): the run's manager's ruling of 2026-11-18; economy.json stance.grow): the Grow stance's
+## pick, read from the state as it stands. Its candidates are the standing buildings (lot order) whose building is in
+## stance.grow.order, that are working (not constructing, unpaid or Thrift-idled), whose lot has no queue entry (the
+## player's plan for it, parked or not), and whose next level is within max_level, passes the upgrade's tier gate,
+## costs no relics and fits under every cap now (over_cap: re-read as the caps rise). Each is timed as a lone queue head
+## at today's stocks (_afford_at at queue_net, clock 0, as head_dry); one no income can pay (−1.0) is passed over, so
+## Grow never stalls on it. The pick is the soonest, ties (several affordable now) in `order`, then lot order.
+## The upkeep test (the run's manager's ruling 1 on handoff 5): a level with a gold price is passed over while the gold
+## income can't pay the working buildings' gold upkeep plus what the level adds (TownSim.income_pays, the one margin
+## held_by_income and the queue's upkeep gate read, at gold_income() and gold_due() from state). A level adds no upkeep
+## (buildings.json's upkeep is per building), so this reads "the town's gold net is above 0": Grow never spends the gold
+## stock a town short on its bill lives on, which would bring its shed (pre_vei) sooner. A building that earns gold (stall
+## jobs) is exempt, as in held_by_income: its level is the income.
+## {} when there is none; else {lot_id, building_id, level, cost, in_s, oi}.
+static func grow_target(gs: GameState) -> Dictionary:
+	var ts := gs.town_sim
+	var order: Array = gs._grow_order
+	var queued := {}
+	for e in gs.build_queue:
+		queued[str(e["lot_id"])] = true
+	var pays := ts.income_pays(ts.gold_income(), ts.gold_due())
+	var tl0 := {}
+	var best := {}
+	for lot_id in built_lots(gs):
+		var b: Dictionary = ts.buildings[lot_id]
+		var bid := str(b["building_id"])
+		var oi := order.find(bid)
+		var st := str(b["state"])
+		if oi < 0 or queued.has(lot_id) or st == "constructing" or st == "unpaid" or st == "thrift":
+			continue
+		var level := int(b["level"]) + 1
+		if level > int(buildings_cfg(gs).get(bid, {}).get("max_level", 1)):
+			continue
+		var cost := construction_cost(gs, bid, level)
+		if int(cost["relics"]) > 0 or over_cap(gs, cost) != "":
+			continue
+		if not pays and float(cost["gold"]) > 0.0 and not ts.earns_gold(bid):
+			continue
+		if req_reason(gs, {"tier": req_of(gs, bid)["tier"], "blueprint": "", "building": ""}) != "":
+			continue
+		if tl0.is_empty():
+			tl0 = {"net": queue_net(gs), "cap": {"gold": ts.gold_cap(), "bone": ts.bone_cap(), "relics": float(gs._cap_of("relics"))}}
+		var tl := {"clock": 0.0, "fund": {"gold": ts.gold, "bone": ts.bone, "relics": float(gs.relics)}, "net": tl0["net"],
+			"cap": tl0["cap"], "starved": {}}
+		var in_s := float(_afford_at(gs, cost, tl, false)[0])
+		if in_s < 0.0:
+			continue
+		if best.is_empty() or in_s < float(best["in_s"]) or (in_s == float(best["in_s"]) and oi < int(best["oi"])):
+			best = {"lot_id": lot_id, "building_id": bid, "level": level, "cost": cost, "in_s": in_s, "oi": oi}
+	return best
+
+
+## Phase I P3 (Q-b, option (a)): the Grow stance's step, in the core step right after process_queue (`held`: its
+## return, the reason of a queue head left waiting on funds). While Grow acts, no head waits on funds (so it never
+## takes funds the player's queue is saving) and fewer than economy.json stance.grow.max_active constructions are under
+## way (anyone's: so it never starts a burst that pulls the producers' hands onto building sites), it starts
+## grow_target's upgrade when the stocks cover it now, through cmd_upgrade's own path (`bump` false, as the queue's
+## starts), and picks again on the stocks that left while the cap has room. A pick it can't afford yet holds nothing:
+## the stocks grow, and Catchup.next_event_s clips at its time (grow_start_s), so catch-up starts it when live play
+## would; a construction finishing, which frees the cap, is a clip already.
+static func grow_step(gs: GameState, held: String) -> void:
+	if held != "" or not gs._stance_acting.has("grow"):
+		return
+	var cap := int(gs._req_f("economy.stance.grow.max_active"))
+	while constructions(gs) < cap:
+		var tg := grow_target(gs)
+		if tg.is_empty() or float(tg["in_s"]) > 0.0:
+			return
+		var r := upgrade(gs, str(tg["lot_id"]), false)
+		if not r["ok"]:
+			push_warning("BuildRules: Grow's %s on %s was refused (%s)" % [tg["building_id"], tg["lot_id"], r["reason"]])
+			return
+		gs._emit({"type": "grow_started", "building_id": str(tg["building_id"]), "lot_id": str(tg["lot_id"]),
+			"level": int(r["level"])})
+
+
+## The constructions under way (first builds and upgrades), anyone's: Grow's cap (stance.grow.max_active) counts them.
+static func constructions(gs: GameState) -> int:
+	var n := 0
+	for lot_id in gs.town_sim.buildings:
+		if str(gs.town_sim.buildings[lot_id]["state"]) == "constructing":
+			n += 1
+	return n
+
+
+## Phase I P3: the seconds until Grow's pick is affordable (grow_target's in_s, plus Catchup.HOLD_EPS_S so the step
+## that ends there has the stocks over its cost), INF when Grow doesn't act, a queue head waits on funds (the last
+## processing's, gs._queue_held), its cap is full or there is no pick. Catchup.next_event_s clips at it.
+static func grow_start_s(gs: GameState) -> float:
+	if gs._queue_held != "" or not gs._stance_acting.has("grow"):
+		return INF
+	if constructions(gs) >= int(gs._req_f("economy.stance.grow.max_active")):
+		return INF
+	var tg := grow_target(gs)
+	if tg.is_empty():
+		return INF
+	return float(tg["in_s"]) + Catchup.HOLD_EPS_S
 
 
 ## §4.3 cmd_queue_build: appends a build (or, with building_id "", an upgrade of the building on or queued
@@ -741,8 +930,8 @@ static func process_queue(gs: GameState) -> void:
 ## is under construction there; queued entries don't claim lots), lot_too_small; an upgrade's empty_lot (nothing
 ## there or queued) and max_level (the level it would build); cost_exceeds_cap (a gold, bone or relic cost
 ## over that store's cap now; `store` names it and `cap_building` the building that raises it); then queue_full
-## again for an entry that would hold a slot (not skipped_gate on the walk with it appended) while queue_slots
-## already holds queue_max (Phase I P2, ruling 1: a gated entry holds no slot). Gates
+## again for an entry that would hold a slot while queue_slots already holds queue_max (Phase I P2, ruling 1: a gated
+## entry holds no slot; P3: the walk with it appended reads it `wait_slot`). Gates
 ## time or play can clear (the tier, a blueprint, a building, a locked lot, relics, a construction under
 ## way, an unpaid spell) are accepted and show as skipped_gate. Affordability never refuses. R2: the new
 ## entry's affordable_in_s, its row's from the walk (−1.0 on a refusal: no entry), warns at queue time.
@@ -785,10 +974,11 @@ static func queue_build(gs: GameState, building_id: String, lot_id: String) -> D
 				out["cap_level"] = cap_level(gs, store, float(cost[store]))
 	var rows: Array = []
 	if why == "":
-		# the slot rule (Phase I P2): appending changes no row ahead of it (the walk runs in order), so the rows ahead
-		# are today's and the last is the new entry's
+		# the slot rule (Phase I P2; P3's A14 amendment): appending changes no row ahead of it (the walk runs in order),
+		# so the rows ahead are today's and the last is the new entry's. An entry no gate holds while the slots are full
+		# walks as wait_slot; a new one is refused instead (a gated one is accepted: it holds no slot)
 		rows = queue_walk(gs, q + [entry])["rows"]
-		if rows.back()["status"] != "skipped_gate" and queue_slots(rows.slice(0, rows.size() - 1)) >= queue_max(gs):
+		if str(rows.back()["reason"]) == "wait_slot":
 			why = "queue_full"
 	if why != "":
 		out["reason"] = why

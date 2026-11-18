@@ -23,9 +23,9 @@
   "body_store": { "cap": 200.0 },
   "gold": { "cap": 6500.0 },
   "bone": { "cap": 200.0 },
-  "save": { "_doc": "Phase I P2 (Q-d): the level sanity cap on load (SaveIO._town_problem; STATE-API 9.1). A building's level or build_level above level_sanity_mult x the highest max_level any building has in buildings.json (2 x 8 = 16 today) makes the save corrupt; at or under it, a level above its own building's max_level is clamped (the level cut rule, SaveIO.clamp_levels). The bound follows the ladder: no config has written a level past its own highest max_level, so 2x leaves room for a cut to half the ladder's top and refuses a level no ladder this size could have written (the review's 1e9). Read REQUIRED.", "level_sanity_mult": 2 },
-  "queue": { "_doc": "The build queue (IDLE 5, STATE-API 4.3; Phase I P2, the run's manager's ruling 1 of 2026-11-17 22:40). max_len: the entries that hold a slot. A gated entry (skipped_gate, any reason) holds no resources and no slot, so it never keeps a relic-free build out; it stays in the list (the player's intent, and its chip is the visible wall). The whole list, gated entries and all, caps at max_len x list_mult. Both read REQUIRED.", "max_len": 8, "list_mult": 2 },
-  "relic_trickle": {"_doc": "E4 step 9, the run's manager's rulings on step 9 (3) (2026-11-17 12:45 and 14:24; MECHANICS 2, the relics row): one relic per period_s of game time while no raidable fort remains, read as every fort at or below the highest tier ever flipped being held (GameState.relic_trickle_paying), paid into the relic store (lost at its cap). For a player walled at a tier. Read REQUIRED by GameState.", "period_s": 43200.0},
+  "save": { "_doc": "The level sanity cap on load (SaveIO.level_sanity_cap, SaveIO._town_problem; STATE-API 9.1). A building's level or build_level above level_sanity_max makes the save corrupt (the review's 1e9); at or under it, a level above its own building's max_level is clamped (the level cut rule, SaveIO.clamp_levels). Phase I P3 (the P2 review's items 1-2): a fixed number, independent of today's ladders (P2's was 2 x the highest max_level), so a later config that cuts a ladder by more than half leaves old saves loadable; 64 is far above any max_level the configs have had. Read REQUIRED (no fallback).", "level_sanity_max": 64 },
+  "queue": { "_doc": "The build queue (IDLE 5, STATE-API 4.3; Phase I P2, the run's manager's ruling 1 of 2026-11-17 22:40). max_len: the entries that hold a slot. A gated entry (skipped_gate, any reason) holds no resources and no slot, so it never keeps a relic-free build out; it stays in the list (the player's intent, and its chip is the visible wall). The whole list, gated entries and all, caps at max_len x list_mult. Both read REQUIRED. never_hold_s (Phase I P3, ruling 3's hold timeout, the run's manager's option (iv) of 2026-11-18): a head that no income can pay (affordable_in_s -1.0 at the walk's stocks) is skipped at once when its store's producer has no staffed hands; when it has some, the head holds the queue until it has read -1.0 for this many seconds in a row (its entry's never_since), then is skipped the same way. A convoy gap is shorter, and any step it reads >= 0 resets the count. REQUIRED.", "max_len": 8, "list_mult": 2, "never_hold_s": 600 },
+  "relic_trickle": {"_doc": "E4 step 9, the run's manager's rulings on step 9 (3) (2026-11-17 12:45 and 14:24; MECHANICS 2, the relics row): one relic per period_s of game time while it pays, paid into the relic store (lost at its cap). Phase I P3 (R-b, the brief's 'a condition a held fort can meet, such as holding any fort for 24 h'): it pays while some fort's hold has lasted hold_s unbroken (RealmSim's held_for_s; GameState.relic_trickle_paying). E4's 'every fort at or below the highest tier ever flipped held' never paid in any profile. Both read REQUIRED by GameState.", "period_s": 43200.0, "hold_s": 86400.0},
   "idle": {
     "gap_s": 30.0, "catchup_max_s": 604800.0, "catchup_dt_max_s": 10.0, "catchup_max_steps": 4320,
     "catchup_dt_long_s": 15.0, "catchup_dt_long_after_s": 43200.0,
@@ -34,8 +34,8 @@
     "catchup_gate_tol": 0.01, "catchup_gate_tally_floor": { "gold": 6.0, "bone": 1.0 },
     "report": {
       "streams": ["backlog", "mint", "workers", "bodies", "gold", "bone", "living"],
-      "stream_labels": { "backlog": "backlog", "mint": "mint", "workers": "workers", "bodies": "bodies", "gold": "gold", "bone": "bone", "living": "living" },
-      "stream_fmt": "{label} {rate} · {total}", "backlog_fmt": "{label} {arrow} {rate} · {total} · odds {odds_from} → {odds_to}",
+      "stream_labels": { "backlog": "Vei's queue", "mint": "mint", "workers": "workers", "bodies": "bodies", "gold": "gold", "bone": "bone", "living": "living" },
+      "stream_fmt": "{label} {rate} · {total}", "backlog_fmt": "{label} {arrow} {rate} · {total} · your odds {odds_from} → {odds_to}",
       "arrow_up": "▲", "arrow_down": "▼", "arrow_flat": "■",
       "plus": "+", "minus": "−", "rate_unit": "/s", "thousands": ",", "rate_sig_digits": 2, "rate_max_decimals": 3,
       "builds_one_fmt": "{n} build finished: {names}", "builds_fmt": "{n} builds finished: {names}", "list_sep": " · ",
@@ -48,7 +48,8 @@
         "needs_building": "when the building it needs was built", "no_relics": "when the relics came in",
         "no_gold": "when the gold came in", "no_bone": "when the bone came in", "lot_taken": "when its lot came free",
         "empty_lot": "when its lot came free", "under_construction": "when its lot came free", "unpaid": "when it was back at work",
-        "cost_exceeds_cap": "when its cap rose", "upkeep": "when the gold income could pay its upkeep"
+        "cost_exceeds_cap": "when its cap rose", "upkeep": "when the gold income could pay its upkeep",
+        "wait_slot": "when a queue slot came free"
       },
       "refilled_fmt": "{fort} refilled", "raid_fmt": "{fort} refilled: raid it",
       "husk_one_fmt": "{n} husk: raise at the slab", "husks_fmt": "{n} husks: raise at the slab",
@@ -70,6 +71,7 @@
       "afford_living_falling_last_fmt": "{name} can't be afforded at the current income of {rate} gold: the living buy less than the stalls can sell. Build housing or an Inn",
       "afford_stores": { "gold": "gold", "bone": "bone", "relics": "relics" },
       "afford_raise": { "gold": "build a Market", "bone": "build a Bone Mill" },
+      "afford_raise_building": { "gold": "wait for the Market to finish", "bone": "wait for the Bone Mill to finish" },
       "afford_producer": { "gold": "market", "bone": "bone_mill" },
       "afford_raise_self": { "gold": "nothing else makes gold", "bone": "nothing else makes bone" },
       "afford_starved_fmt": "{name} can't be afforded, {short} bone short at the current income of {rate} bone: the pits are eating every body. Raise WAR, or move it down",
@@ -95,7 +97,14 @@
   "stance": {
     "base_slots": 2, "hold_s": 20.0,
     "top_job": { "vigil": "tend", "harvest": "haul", "hearth": "stall" }, "priority": ["vigil", "harvest", "hearth"],
-    "harvest_bodies_frac": 0.3, "hearth_morale": 0.5, "thrift_upkeep": 0.05, "thrift_spares_from": "war_mill"
+    "harvest_bodies_frac": 0.3, "hearth_morale": 0.5, "thrift_upkeep": 0.05, "thrift_spares_from": "war_mill",
+    "slot_free": ["grow"],
+    "grow": {
+      "_doc": "The Grow stance (Phase I P3, Q-b: the run's manager's ruling of 2026-11-18, option (a); Shawn: 'we can play with conditional stances if we feel there is an imbalance'). Its condition: a build or upgrade has finished since the new game (the town's levels total more than opening.buildings'). While it acts, at each core step's queue processing, when no queue head waits on funds and fewer than max_active constructions (anyone's) are under way, it starts an upgrade of a standing building: of the buildings in `order` that are working, have no queue entry for their lot, and whose next level passes the upgrade's tier gate, costs no relics and fits under every cap now, the one affordable soonest at today's income, ties (several affordable now) in `order` and then lot order. It waits (holding nothing) until that one is affordable, and passes over one no income can pay, and (the upkeep test, the run's manager's ruling 1 on P3's handoff 5) one with a gold price while the gold income can't pay the working buildings' gold upkeep (TownSim.income_pays, held_by_income's margin), unless its building earns gold (the Market). It never builds on an empty lot, never spends relics and never takes funds from the player's queue. default_on: a new game starts with it on (it takes no stance slot: slot_free). REQUIRED.",
+      "default_on": true,
+      "max_active": 1,
+      "order": ["bone_mill", "market", "raising_pit", "charnel_house", "house", "stables", "graveyard", "inn", "well", "bakery"]
+    }
   },
   "job": {
     "default_ladder": ["build", "haul", "pit", "stall", "mill", "forge", "tend"],

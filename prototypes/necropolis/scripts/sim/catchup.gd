@@ -32,6 +32,9 @@ extends RefCounted
 ## A clip event this close to now is now: the step isn't shortened for it (the convergence harness's
 ## threshold, kept so its tables are unchanged).
 const CLIP_MIN_S := 1e-6
+## Phase I P3 (ruling 3's hold timeout): build_start_s's clip lands this far past a held head's hold end, so the float
+## sum of the step's start and its length is at or past it (BuildRules.held_out's >=) and the skip isn't a step late.
+const HOLD_EPS_S := 1e-6
 
 var active := false
 var report := true  ## events go to `events`, not the queue
@@ -209,6 +212,7 @@ static func next_event_s(gs: GameState) -> float:
 			e = minf(e, stock / -net)
 	if not gs.build_queue.is_empty():
 		e = minf(e, build_start_s(gs))
+	e = minf(e, BuildRules.grow_start_s(gs))  # (Phase I P3) the Grow stance's pick becoming affordable
 	var r := gs.realm
 	var ti: Dictionary = r.tithe
 	if bool(ti.get("started", false)):
@@ -297,27 +301,40 @@ static func simulacrum_out_s(gs: GameState) -> float:
 ## is affordable_in_s's, BuildRules.queue_net (the income before the cap's clip, less the upkeep), so the two
 ## never drift: below the cap it is the HUD's in − out exactly; at a full store, where that clips to 0, an
 ## entry ahead that spent the store this step has brought the income back.
+## Phase I P3 (ruling 3): a head with no path to its funds is skipped with the same no_gold or no_bone
+## (BuildRules.head_never: a dry store whose producer has no staffed hands, or one that has read dry for
+## queue.never_hold_s), so the first such entry may be one that never starts: it is passed over here too, and the
+## head is the first that isn't. A dry head still held returns the seconds to its hold's end (BuildRules.hold_left_s,
+## plus HOLD_EPS_S so the float sum lands past it): the entries behind it may start then.
 static func build_start_s(gs: GameState) -> float:
 	var q: Array = gs.build_queue
-	var head := -1
+	var levels: Array = []
+	var ts := gs.town_sim
+	var nets := {}
 	for i in q.size():
 		var w := str(q[i].get("waited_on", ""))
-		if w == "no_gold" or w == "no_bone":
-			head = i
-			break
-	if head < 0:
-		return INF
-	var e: Dictionary = q[head]
-	var level: int = BuildRules.queue_levels(gs, q)[head]
-	var cost := BuildRules.construction_cost(gs, str(e["building_id"]), level)
-	var ts := gs.town_sim
-	var nets := BuildRules.queue_net(gs)
-	var at := 0.0
-	for k in ["gold", "bone"]:
-		var lack := float(cost[k]) - (ts.gold if k == "gold" else ts.bone)
-		if lack > 0.0:
-			var net := float(nets[k])
-			if not (net > 0.0):
-				return INF
-			at = maxf(at, lack / net)
-	return at
+		if w != "no_gold" and w != "no_bone":
+			continue
+		if levels.is_empty():
+			levels = BuildRules.queue_levels(gs, q)
+			nets = BuildRules.queue_net(gs)
+		var e: Dictionary = q[i]
+		var cost := BuildRules.construction_cost(gs, str(e["building_id"]), int(levels[i]))
+		var at := 0.0
+		var dry := ""
+		for k in ["gold", "bone"]:
+			var lack := float(cost[k]) - (ts.gold if k == "gold" else ts.bone)
+			if lack > 0.0:
+				var net := float(nets[k])
+				if not (net > 0.0):
+					at = INF
+					dry = k
+					break
+				at = maxf(at, lack / net)
+		if at < INF:
+			return at
+		# a head whose dry store's producer is staffed holds the queue until its hold timeout runs out (BuildRules.
+		# head_never, held_out): the step ends just past that, so the walk that skips it runs when a live one would
+		if not BuildRules.head_never(gs, e, dry):
+			return BuildRules.hold_left_s(gs, e) + HOLD_EPS_S
+	return INF

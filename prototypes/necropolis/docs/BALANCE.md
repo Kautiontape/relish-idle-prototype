@@ -28,7 +28,7 @@ configs are the truth. When tuning moves a number, update this file in the same 
 | first warden beaten (fort flipped) | under 10 min |
 | first tithe wave | about 12–15 min (after the first flip) |
 | town reaches Village / Town / City | about 20 min / 1 h / 2 h |
-| Vei-ready (odds ≥ 0.6 and 3 of 4 fronts met at her full pool, IDLE §8) | **2.5–3.5 h** |
+| Vei-ready (readiness ≥ 0.6 and 3 of 4 fronts met at her full pool, IDLE §8; the readiness was `view_vei.odds` until Phase I P3's odds split) | **2.5–3.5 h** |
 | idle | see IDLE.md §7: most growth happens while away |
 
 ## 2. Lever-ablation targets ("the economies feed each other")
@@ -80,13 +80,24 @@ there, the fronts met and the backlog at the end (with relics, buildings and lev
   holding the 3 t1 forts, with 6 t2–t3 forts unheld. Sessions held 24 h closed from day 1's end pays 0 (its highest tier
   is already 3). While it pays it is 2 relics a day by construction, against sessions' 93 raid relics in 8 days (about
   12 a day). A finding for the manager, not tuned
-- **(b) The dead's buildings without bone prices** (`autoplay_ablation_bone`). The spine's §4 row reads "bone-priced
-  buildings removed costs 15%+". The table above has no such row: the lever is §7's "bone buys the dead's buildings". It is
-  built as a config variant on fresh GameStates (`Autoplayer.cfgs("no_bone_prices")`): the bone price is 0 in `cost` and in
-  every `level_costs` entry of §7's list (the raising pit, charnel house, bone mill, stables, graveyard, embalmer and
-  forge), with their gold and relic prices unchanged. "Removed" is read as the rows above read it: the lever is taken out,
-  not replaced by a gold price. The Market keeps its bone price (a living building bought with bone), and so do the Crypt's
-  levels.
+- **(b) The bone-priced buildings removed** (`autoplay_ablation_bone`; rebuilt in Phase I P3, R-d). The spine's §4 row
+  reads "bone-priced buildings removed costs 15%+". The table above has no such row: the lever is §7's "bone buys the
+  dead's buildings". It is built as a config variant on fresh GameStates (`Autoplayer.cfgs("no_bone_buildings")`), over
+  §7's list (the raising pit, charnel house, bone mill, stables, graveyard, embalmer and forge):
+  - none of them levels (`max_level` 1; every level of theirs costs bone);
+  - none with a bone price can be built: their blueprint is one no fort drops, so each reads `needs_blueprint`, and the
+    bot doesn't park a gate no clear can lift (`Autoplayer._droppable`; every shipped blueprint drops, so no other
+    profile changes);
+  - the start's pit and charnel house stay at level 1, and the Bone Mill (60 gold, no bone) can still be built. Bone
+    still buys the living's buildings (the Market's levels, the House's) and the Crypt's levels.
+
+  "Removed" is read as the rows above read it: the lever is taken out, not replaced by a gold price. **Until P3 the
+  variant set those bone prices to 0** (`no_bone_prices`). A price of 0 removes a brake, so that variant could only speed
+  the game up: 0.83 days (14%) sooner at c15f874, and 0.17 days (3%) sooner at 4ddc25c (Vei-ready 5.0001 against
+  sessions' 5.1667; 156 levels against 126 at day 8). The rebuilt variant at 4ddc25c's tree with P3's harness (one
+  seed, 8 days): **never Vei-ready**, 10 buildings and 26 levels against sessions' 24 and 126 (79% fewer levels), 2 of 3
+  fronts met, the backlog 98% short. Without new pits the mint stays one pit's, so this reads the dead's buildings as a
+  whole (the pits' mint growth with them), not bone's price alone. The lever is defined and far over 15%.
 - **The sensitivity pass** (`autoplay_sensitivity`; §8): the sessions profile at the frozen bot's death rates
   (`opts.deaths` `"frozen"`) instead of the typical human's.
 - The table's other rows (the valve, a static valve schedule, Relish's tide, circle quality, defending, the ladder and
@@ -234,8 +245,9 @@ E2a added is here with its value.
 | `vei.backups` `revive_hp_frac`, `iframes_s`, `shove_px`, `shove_recover_s`, `ready_trance` | 1.0, 3 s, 180 px, 3 s, false | a revive in the Vei fight is at full hp but does not ready the trance; V1 (1+1) 65%, V2 (0+0) 15% at score 70 |
 | `K`, `S_vei` | 36 000 000, 8.0 | `K` E4 step 3: ×3000 for the live backlog (sessions about 5.6M at day 1, 61M at day 5, 140M at day 8; continuous 204M), so sessions reaches odds 0.6 at about day 4.7, continuous at about day 3.4 (28% sooner; at d6ad1b7 sessions crosses 0.6 at about day 5.4, between its looks, and continuous at 3.48), and night 1 takes the odds from 0.02 to 0.11, not 0.98 to 0.998. Was 12000 (the audit's ×4.8 canon), sized for the 18k knife edge below. The fixtures' and the demo seed's backlogs were scaled by the same 3000 so their odds stay put. `S_vei` unchanged. **Since E4 step 9, `K` sizes her strain** (`backlog / (backlog + K)`), which her tithe period, reship and need read; the odds a player reads are the win odds of the row below, so these day figures are the strain's (they are E4 step 3's, at d6ad1b7) |
 | `odds.time_weight`, `odds.time_s`, `odds.backlog_cap` (realm.json) | 0.7, 345 600 (4 days), 0.8 | **E4 step 9, the odds lever** (the run's manager's 2026-11-17 13:44 ruling, option B; MECHANICS §3.5): the win odds are `time_weight · t / (t + time_s) + (1 − time_weight) · min(backlog_cap, strain)`. They drive what the player reads, the boss seed and Vei-ready, and nothing in the fight; K's strain still drives her pressure, so steps 5–8's hold calibration (α 0.85, the band, the need bins, away_risk) doesn't move. **One sizing pass**, from the ruling's start (T 4 days, w 0.7), sized on each profile's logged looks (time, backlog, fronts met at her full pool) from one run with no Vei trip: nothing in the sim reads the win odds, so one trajectory prices every (w, T, cap) up to its Vei-ready; time_weight 0 reproduces 6.0000 and 3.3034 at the look. Measured at the sized values with the profiles (one seed, 8 days, at 69542f2; unchanged through b475eb3, and 4.8358, 19.4% sooner, at c15f874 after 4f8b493's ready-vat hand: §5's calibration list): **sessions Vei-ready day 6.0001** (518 406.5 s, as before: fronts first met at its day-5.17 look, odds 0.56 there and 0.6096 at day 6's first look), **continuous day 4.8291** (417 231 s), **19.5% sooner** (was 44.9%; inside IDLE §8's 10–30% and the ruling's 35%, so no re-size and no 4-remnant trim). The cap binds neither (their strains at ready are 0.632 and 0.735) but floors any profile's 0.6 at day 4.24 (29% sooner than day 6) whatever its backlog: x = (0.6 − 0.3 · cap) / 0.7, t ≥ T · x / (1 − x). On paper, cap 0.7 would put continuous at 5.05, T 3.5 days at 4.38, w 0.6 at 4.49. **What binds sessions** (the step 9 review's item 7; sessions' rows at 0b2a9ec): the odds, at session-start looks. Its rows meet all three fronts from the day-5.33 look (the full-pool look log at 69542f2's code had them from 5.17), with the odds at 0.5618 (5.17) and 0.5724 (5.33). The next look is day 6.0's, after day 5's night, at 0.6096. So any (w, T, cap) whose 0.6 falls in that night reads day 6.0, which is why the rows above sit at 6.0000. A change to the fronts moves it only if it puts them past day 6.0. A change to the odds moves it only if it brings 0.6 forward to day 5.33 or earlier (T 3 days does: 5.1696), or pushes it past day 6.0. The cap floors any profile at day 4.24 (the review read the fronts as binding; the rows don't). Sessions' nights: odds 0.06 → 0.14 12 h after night 1's close (0.16 on its load), 0.57 → 0.60 on night 6; one night never takes them near 1. time_weight 0 with backlog_cap 1 gives the strain bit for bit (the revert proof). **The ▲/▼** is the backlog's sign, not the odds': the map labels it as the strain ("strain ▲", never right after the percent; the step 9 review's item 4, ruled 2026-11-17 16:40). **Phase I, recorded, not fixed:** the map valve's "odds in 10 min" stops moving with a drag once the projected strain passes `backlog_cap` 0.8, since min(cap, strain) is flat there and only the window's time moves it |
+| `odds.backups_mid`, `odds.backups_scale` (realm.json) | 5.57, 1.24 | **Refit at P3's re-grade** (Left item 3 of P3 handoff 8): least squares on P3's faithful grade at sessions' 5.1667 Vei-ready (the next row's last entry; readiness 0.6053): 1+6 won 9/20, 1+4 5/20, 1+2 1/20, 0+0 0/20, and the fit reads 0.46, 0.23, 0.07, 0.01 (within 2 points each). The odds a player reads at sessions' Vei-ready (1 + 6) go from 0.29 to 0.46. **The form's ceiling, recorded:** continuous's seed-1 Vei-ready (day 5.0518) holds 1 + 10, and on the same seed 1 + 10 wins 16/20 (80%) against the fit's 0.60. `first_odds` never passes the readiness (0.6053 here), so a profile with ten or more backups reads about 20 points low whatever the fit. Lifting that is a change to the odds split's form, which is the manager's to make. The old fit, 7.15 and 1.76, is the provisional one below. **Phase I P3, the odds split** (the run's manager's ruling on P1's vision check (a); MECHANICS §3.5, STATE-API §10 A16): the row above is now the **readiness**, and the odds a player reads are `readiness / (1 + exp(−(backups − backups_mid) / backups_scale))`, backups = min(phylactery charges, `max_per_dungeon`) + clones ready. **Provisional:** fit by least squares on the logit to P1's faithful grade at sessions' Vei-ready (6dc16a2, score 65, readiness 0.6118): 1+8 won 9/20, 1+4 3/20, 1+2 1/20, 0+0 0/20; the fit reads 0.453, 0.139, 0.053, 0.010 (within the brief's ±10 points, and two). Refit at P3's re-grade, with the clones per profile at Vei-ready. Before the split the player read 0.61 at Vei-ready against a 45% first attempt. `backups_mid` −1e9 is the readiness bit for bit (the revert proof) |
 | `vei.fronts.giants.need_base`, `carvers.need_base`; `carvers.need_per_pool` | 2, 2; 0.012 | E4 step 2's sizing (try 1; were 14 and 18): with giants' `need_per_pool` 0.02, giants needs 14 at Vei's full pool of 600. Giants' 14 sits above the best t1 skeleton's wits (9), so one t1 skeleton never fills it (the manager's ruling 4 at step 2); it takes two or three. **Carvers' `need_per_pool` 0.02 → 0.012 (9.2 at a full pool) is the one re-size of the R2 ruling**, when the bot's Vei-ready moved to the full pool (IDLE §8). Less 3 × `q` (about 6.7) carvers' want is about 2.5 beef, so one t1 big with beef 3 meets it: carvers needs a keeper, not a composition. **At d6ad1b7, Vei-ready at her full pool (3 of 4 and odds ≥ 0.6), with the in-wave readout (the pool she has then, at the look) beside it:** sessions **day 6.0001** (518 406.5 s; in-wave 518 400 s, the same look), continuous day 3.4837 (in-wave 3.4836), 42% sooner and outside the 10–30% band, ablation_keep never (giants 0). Both are **odds-bound**: sessions meets all three fronts at a full pool from day 5.0 (giants 19/14, swarm 24.1/24, carvers 13.7/9.2), but its odds are 0.5967 at day 5's last look (5.347) and 0.6356 at day 6's first, so it lands 6.5 s past day 6. At ready, sessions brings giants 14/14 (a wraith and a skeleton, wits 7 each), swarm 31.4/24, carvers 13.7/9.2 (one beef-7 zombie), raw 15.7/58. **Before R2** (carvers 0.02, the fronts at the pool she had then, at 5b86232): sessions day 5.34, continuous day 4.38 (18% sooner), both inside a tithe wave's dip; at a full pool neither had 3 of 4 in 8 days |
-| The fight grade at Vei-ready (E4 step 3) | 20 seeds | The demo seed with the boss bot at score 70 (`--boss-autoplay=70`, `--boss-seed` 1–20), at d6ad1b7. **At sessions' Vei-ready** (`--boss-cfg` needs giving the demo sessions' have/need on arrival: giants 1.00, swarm 1.31, carvers 1.49, raw 0.27) **with its backups** (1 phylactery charge and 4 clones; vats best case): **19/20 won (95%)**. With the demo's 1 + 1 backups at the same ratios: 12/20 (60%). The demo as shipped (its fronts at 2.40, 1.87 and 4.09 of need, 1 + 1): 10/20 (50%). Before E4 (the old config, 1 + 1): 13/20 (65%). These step 3 and step 9 grades set only the fronts' needs: the break still ran on the demo seed's pool 380 and q 2.6 (ferry 3.43), not sessions' pool 600 and q 2.238 (ferry 5.35), so they understate how easy her break is; the E4 step 10 (b) re-grade at the end of this row corrects them. Every fight clears giants, swarm and carvers in phase 1 (20.0 s at sessions' ratios: giants at exactly its need takes `phase1.ref_s`). **Re-graded at E4 step 9** (the run's manager's 01:50 ruling (d) and 12:45 item 5: score 50, 1 + 2 backups), at 69542f2. Sessions' have/need at its day-6 Vei-ready, at her full pool: giants 1.07, swarm 1.29, carvers 1.49, raw 0.27 (`--boss-cfg` with need_per_pool 0 and need_base the demo's have ÷ that ratio). **The first attempt wins 3/20 (15%)**: every fight clears the three fronts and reaches the break (phase 1 in 18.7 s on average), then 17 end unmade, with 3.70 Relish deaths on average. That is far under the 85% line, so Vei's phase-2 pressure is not raised and vei.json is unchanged. The demo as shipped, unchanged, still grades 10/20 at score 70 with 1 + 1. **Re-graded at E4 step 10 (b), the faithful grade, a known miss** (the run's manager's 2026-11-17 18:00 and 18:59 rulings; at c15f874, seeds 1–20, wins of 20 at scores 60 / 65 / 70; the aim is 40–60% at score 65). Sessions at its day-6.0001 Vei-ready holds 1 phylactery charge and 8 clones, at pool 600, q 2.238 and backlog 63.8M, with fronts at 1.29 / 1.33 / 1.27 / 0.275 of need and a party of 4 bigs at power 0 (two skeletons, a wraith, a zombie). The faithful grade puts that party, pool, q and backlog in the demo seed of a scratch vei.json, with the needs as shipped and no overrides; its fronts reproduce sessions' haves exactly. The setup is in `RUN/reports/economy/wip/tools22/` (`mk_faithful.py`, `grade.sh`, `gsum.py`). **1 + 8: 19 / 20 / 20; 1 + 2: 17 / 20 / 19; 0 + 0 at score 65: 9/20**, so the first attempt is already inside the aim with no backups at all. With the demo party in place of hers (the needs, pool, q and backlog matched): 1 + 2 17 / 19 / 20, 1 + 4 19 / 20 / 20, 1 + 8 20 / 20 / 20. The cause: the full pool's ferry (5.35 against the demo's 3.43) drops more anchor motes (`anchors.motes_per_ferry`, 3.21 a second against 2.06), so more raised allies soak her hits, and her break kills about 0.008 a second against the demo's 0.039. **No single phase-2 number fixes it:** 1 + 8 needs about 10 deaths a fight to land in 40–60%, and the demo is lost at its 3rd death, so every lever that adds deaths or time spends the demo's lives first. The one-lever sweep (sessions at score 65 with 1 + 8, the demo party matched as above except the 0.38 row, which is faithful; the demo as shipped at score 70 with 1 + 1): shipped 20 / 10; `guards.unit.dmg` 17.6 (×2) 17 / 0; 26.4 (×3) 15 / 0; `weaves.dmg` 30 20 / 12; `break_beats` 30 20 / 1; `ferry_beat_scale` 0.38 15 (5 timeouts) / 5; 0.40 4 (15 timeouts) / 3; 0.45 0 (19 timeouts) / 0. Sessions reaches the band only near `ferry_beat_scale` 0.39–0.40, and only through the bot's 600 s timeouts (the break never comes), with the demo at about 3/20. vei.json is unchanged. **Phase I:** break pressure that scales with her pool, a code change in VeiFronts and vei_boss: the guards' rate or the weave cadence on `living_pool`, or the anchor motes taken off the pool's ferry term. The target is 40–60% at score 65 for sessions' first attempt, with the demo at 6/20 or better. **Phase I P1, pool-scaled break pressure: in band** (at 6dc16a2; the faithful grade, seeds 1–20, run 8 fights at a time as two grades of 4 at once; cac5a17's baseline ran 4 at a time, and the demo's 20 result lines match it, so the concurrency moves no outcome). The break's guards now come at `guards.rate_per_uncleared` and `cap` × the `vei.pressure` multiplier (the row above: 2.3 at her full pool, 1 at the demo's 380). The extra guards strip the raised allies that soak her lethal hits, so a full pool makes the break harder. Sessions' Vei-ready, re-read at cac5a17 (`ve_probe.gd`), is c15f874's: day 6.0001, pool 600, q 2.238, backlog 63 807 877, odds 0.6118, 1 + 8 and the same four bigs, so `mk_faithful.py` stands. **1 + 8 wins 5 / 9 / 14 at scores 60 / 65 / 70 (45% at 65). At score 65: 1 + 4 3/20, 1 + 2 1/20, 0 + 0 0/20 (was 9/20).** Every loss is a death, and no row has a timeout (each fight ends broken or unmade). At 1 + 8 and score 65 the median fight has 10 deaths (2 to 10, mean 8.40; the nine wins took 2, 4, 5, 6, 8, 8, 8, 8 and 9) and spends 8 clones, and no fight has fewer than 2 deaths, so every one spends a clone after the phylactery. At score 70 the median is 7.5 deaths (3 to 10). **The demo as shipped (score 70, 1 + 1) is 10/20 at 6dc16a2, and its 20 `BOSS_AUTOPLAY` lines are identical to cac5a17's** (2.30 deaths, 1 to 3). Baseline at cac5a17 (no pressure): 1 + 8 at 65 20/20, 1.10 deaths. The screen that sized it (on cac5a17's faithful tree, `--boss-cfg` setting the guards' rate and cap to m × 1.0/s and m × 12, 1 + 8 at 65): m 2.0 13/20, 2.4 9/20, 2.6 7/20, 3.0 6/20, 2.8 5 of the 15 seeds run. Shape (b), the anchor motes cut to `motes_per_ferry` 0.41: 0 of 14, every fight unmade at 10 deaths (her allies starve; no timeouts). Weave cadence on the pool was not needed. **The method:** `RUN/reports/economy/wip/tools22/`, as above, plus `gs.py <out> <tag>...` (wins, the median and range of deaths, median clones spent, the end reasons; `grade1.sh` now keeps the `BOSS_CFG` echo lines, so a mistyped override path shows) |
+| The fight grade at Vei-ready (E4 step 3) | 20 seeds | The demo seed with the boss bot at score 70 (`--boss-autoplay=70`, `--boss-seed` 1–20), at d6ad1b7. **At sessions' Vei-ready** (`--boss-cfg` needs giving the demo sessions' have/need on arrival: giants 1.00, swarm 1.31, carvers 1.49, raw 0.27) **with its backups** (1 phylactery charge and 4 clones; vats best case): **19/20 won (95%)**. With the demo's 1 + 1 backups at the same ratios: 12/20 (60%). The demo as shipped (its fronts at 2.40, 1.87 and 4.09 of need, 1 + 1): 10/20 (50%). Before E4 (the old config, 1 + 1): 13/20 (65%). These step 3 and step 9 grades set only the fronts' needs: the break still ran on the demo seed's pool 380 and q 2.6 (ferry 3.43), not sessions' pool 600 and q 2.238 (ferry 5.35), so they understate how easy her break is; the E4 step 10 (b) re-grade at the end of this row corrects them. Every fight clears giants, swarm and carvers in phase 1 (20.0 s at sessions' ratios: giants at exactly its need takes `phase1.ref_s`). **Re-graded at E4 step 9** (the run's manager's 01:50 ruling (d) and 12:45 item 5: score 50, 1 + 2 backups), at 69542f2. Sessions' have/need at its day-6 Vei-ready, at her full pool: giants 1.07, swarm 1.29, carvers 1.49, raw 0.27 (`--boss-cfg` with need_per_pool 0 and need_base the demo's have ÷ that ratio). **The first attempt wins 3/20 (15%)**: every fight clears the three fronts and reaches the break (phase 1 in 18.7 s on average), then 17 end unmade, with 3.70 Relish deaths on average. That is far under the 85% line, so Vei's phase-2 pressure is not raised and vei.json is unchanged. The demo as shipped, unchanged, still grades 10/20 at score 70 with 1 + 1. **Re-graded at E4 step 10 (b), the faithful grade, a known miss** (the run's manager's 2026-11-17 18:00 and 18:59 rulings; at c15f874, seeds 1–20, wins of 20 at scores 60 / 65 / 70; the aim is 40–60% at score 65). Sessions at its day-6.0001 Vei-ready holds 1 phylactery charge and 8 clones, at pool 600, q 2.238 and backlog 63.8M, with fronts at 1.29 / 1.33 / 1.27 / 0.275 of need and a party of 4 bigs at power 0 (two skeletons, a wraith, a zombie). The faithful grade puts that party, pool, q and backlog in the demo seed of a scratch vei.json, with the needs as shipped and no overrides; its fronts reproduce sessions' haves exactly. The setup is in `RUN/reports/economy/wip/tools22/` (`mk_faithful.py`, `grade.sh`, `gsum.py`). **1 + 8: 19 / 20 / 20; 1 + 2: 17 / 20 / 19; 0 + 0 at score 65: 9/20**, so the first attempt is already inside the aim with no backups at all. With the demo party in place of hers (the needs, pool, q and backlog matched): 1 + 2 17 / 19 / 20, 1 + 4 19 / 20 / 20, 1 + 8 20 / 20 / 20. The cause: the full pool's ferry (5.35 against the demo's 3.43) drops more anchor motes (`anchors.motes_per_ferry`, 3.21 a second against 2.06), so more raised allies soak her hits, and her break kills about 0.008 a second against the demo's 0.039. **No single phase-2 number fixes it:** 1 + 8 needs about 10 deaths a fight to land in 40–60%, and the demo is lost at its 3rd death, so every lever that adds deaths or time spends the demo's lives first. The one-lever sweep (sessions at score 65 with 1 + 8, the demo party matched as above except the 0.38 row, which is faithful; the demo as shipped at score 70 with 1 + 1): shipped 20 / 10; `guards.unit.dmg` 17.6 (×2) 17 / 0; 26.4 (×3) 15 / 0; `weaves.dmg` 30 20 / 12; `break_beats` 30 20 / 1; `ferry_beat_scale` 0.38 15 (5 timeouts) / 5; 0.40 4 (15 timeouts) / 3; 0.45 0 (19 timeouts) / 0. Sessions reaches the band only near `ferry_beat_scale` 0.39–0.40, and only through the bot's 600 s timeouts (the break never comes), with the demo at about 3/20. vei.json is unchanged. **Phase I:** break pressure that scales with her pool, a code change in VeiFronts and vei_boss: the guards' rate or the weave cadence on `living_pool`, or the anchor motes taken off the pool's ferry term. The target is 40–60% at score 65 for sessions' first attempt, with the demo at 6/20 or better. **Phase I P1, pool-scaled break pressure: in band** (at 6dc16a2; the faithful grade, seeds 1–20, run 8 fights at a time as two grades of 4 at once; cac5a17's baseline ran 4 at a time, and the demo's 20 result lines match it, so the concurrency moves no outcome). The break's guards now come at `guards.rate_per_uncleared` and `cap` × the `vei.pressure` multiplier (the row above: 2.3 at her full pool, 1 at the demo's 380). The extra guards strip the raised allies that soak her lethal hits, so a full pool makes the break harder. Sessions' Vei-ready, re-read at cac5a17 (`ve_probe.gd`), is c15f874's: day 6.0001, pool 600, q 2.238, backlog 63 807 877, odds 0.6118, 1 + 8 and the same four bigs, so `mk_faithful.py` stands. **1 + 8 wins 5 / 9 / 14 at scores 60 / 65 / 70 (45% at 65). At score 65: 1 + 4 3/20, 1 + 2 1/20, 0 + 0 0/20 (was 9/20).** Every loss is a death, and no row has a timeout (each fight ends broken or unmade). At 1 + 8 and score 65 the median fight has 10 deaths (2 to 10, mean 8.40; the nine wins took 2, 4, 5, 6, 8, 8, 8, 8 and 9) and spends 8 clones, and no fight has fewer than 2 deaths, so every one spends a clone after the phylactery. At score 70 the median is 7.5 deaths (3 to 10). **The demo as shipped (score 70, 1 + 1) is 10/20 at 6dc16a2, and its 20 `BOSS_AUTOPLAY` lines are identical to cac5a17's** (2.30 deaths, 1 to 3). Baseline at cac5a17 (no pressure): 1 + 8 at 65 20/20, 1.10 deaths. The screen that sized it (on cac5a17's faithful tree, `--boss-cfg` setting the guards' rate and cap to m × 1.0/s and m × 12, 1 + 8 at 65): m 2.0 13/20, 2.4 9/20, 2.6 7/20, 3.0 6/20, 2.8 5 of the 15 seeds run. Shape (b), the anchor motes cut to `motes_per_ferry` 0.41: 0 of 14, every fight unmade at 10 deaths (her allies starve; no timeouts). Weave cadence on the pool was not needed. **The method:** `RUN/reports/economy/wip/tools22/`, as above, plus `gs.py <out> <tag>...` (wins, the median and range of deaths, median clones spent, the end reasons; `grade1.sh` now keeps the `BOSS_CFG` echo lines, so a mistyped override path shows). **Phase I P3, the faithful re-grade (ruling 4 on P3's brief): in band, vei.json unchanged** (at 180121f, seeds 1–20 at score 65, 4 at a time). The seed is the one the game builds at sessions' Vei-ready (seed 1, day 5.1667: `StateRuns.boss_seed_v2` taken at her node, `vr_probe2.gd`, written by `mk_faithful2.py`): party 5, pool 600, q 2.221, backlog 85.04M, readiness 0.6053, giants 22.0/14.0, swarm 42.5/24.0, carvers 14.7/9.2, raw 21.3/58.0. The fronts' needs stay as shipped (P3's fronts (b) record, §5's calibration rows). **Its own 1 + 6 wins 9/20 (45%)** with 6.70 deaths on average; 1 + 4 5/20, 1 + 2 1/20, 0 + 0 0/20. **The demo as shipped (score 70, 1 + 1) is still 10/20** (2.30 deaths). No row has a timeout or a script error. Logs and summary: `RUN/reports/economy/wip/tools-p3/grade-180121f/` |
 | `economy.craft.husk` `bone`, `remnants` | 500, 3 | **GUESS** (lever (b), the sizing stop's ruling 2: slow and costly; `cmd_craft_husk`). **Re-priced 2026-11-17** (were 300, 6; the vision review of E4 M1, item 6: make it a real bone sink, the bone binding and the remnants a light raid-side gate; the run's manager's 11:39 ruling 3). About 600 bone, the review's figure, is never payable in sessions: at 600 it sits at its 550 bone cap from day 1 to day 7 (0 crafts in 8 days, Vei-ready 7.0001, 70 levels; the step 6 stop's probe at 3379877). 500 is 91% of that store, so while sessions' cap is 550 (to day 4) it crafts at most one a session; at day 8's 2 250 cap it crafts two in a session, twice. 3 or 4 remnants gave identical sessions runs in the stop's probe (at 3379877, with the old retake reset), where the bone binds. **With the kept yield the remnants bind for continuous:** 500 / 4 puts it at day 3.5991 (40.0% sooner) against 3.3035 at 500 / 3, because 3 remnants leave it enough to raise a 4-big party by 17.5 h, which flips 5 forts within the hour (sessions at 500 / 4 not re-measured). Measured with the retake's kept yield (MECHANICS §5.3), one seed, 8 days: sessions crafts 12 (6 by day 4; 11 at 300, 6) and is Vei-ready on day 6.0001 (518 406.5 s, as at 300, 6), 116 levels; continuous crafts 9, all by day 2.4, and is Vei-ready on day 3.3035, **44.9% sooner** (past IDLE §8's 10–30% and the ruling's 38% report line; reported, not tuned; with E4 step 9's win odds, the `odds` row, the same run is ready on day 4.8291, 19.5% sooner); ablation_keep crafts 8 and is never ready (fronts 1 of 3). A new game's 200 bone cap is under it until the Bone Mill raises the cap. Sized with the needs above so sessions reaches Vei-ready on day 5–6. The history below is from E4 step 2 (5b86232, d6ad1b7), at 300, 6 except the one 500-bone trial named: the price paced it little then: bone sat at its cap, so a 500-bone trial made the same 13 crafts in sessions (and never reached Vei-ready); the bot's conditions pace it (a short front, room in the crypt, a keeper-grade fill, the queue's head not waiting on bone), and the remnants it grinds bind. Crafts over 8 days: at 5b86232 sessions 13 (7 by day 4), continuous 9 by day 4.4, ablation_keep 14; at d6ad1b7 (carvers 9.2) sessions 12 (5 by day 4), continuous 10 by day 3.48, ablation_keep 14 |
 | `vei.fronts.swarm.per_backlog`, `raw.per_backlog` | 5e-7, 2.5e-7 | E4 step 3 (the manager's ruling: mass alone clears exactly one front, swarm). Swarm is met by mass at about 48M (odds 0.57). Raw's backlog term stays under its need through 8 days of every profile (60% of 58 at ablation_keep's 139M, 88% at continuous's 204M), so raw needs power from bigs. It brings about a quarter of raw's need at sessions' day-5 backlog. Past the 8-day horizon mass alone would clear raw; a saturating term (on the odds) would close that, as a follow-up. Were 0.0006 and 0.0012 |
 
@@ -374,7 +386,7 @@ bot with its queue logged at each session end; `QW_SKIP=1` swaps in a fill that 
 | **pure_idle:** at least one build or level per 6 h for 48–72 h, then a plateau with the chip | 6 builds in the first 6 h of its 7-day close, the last 1.9 h in, then none for 166 h | **Missed, structural.** One setup is one queue (`queue.max_len` 8), and nothing refills it while away. Its 8 are 6 early builds, done in under 2 h at their prices, and the Chapel and the Walls, which keep their slots gated (`lot_locked` at Hamlet, then `no_relics`). The queue's length against the early prices decides this one, not the jam below |
 | **town_only:** a plateau at 2–3 days, then "needs relics" | the last build at 8.0 h (28 860 s, the 08:00 session); stores full from day 1's end (16 250 gold, 550 bone); 12 buildings and 19 levels at day 8; the relics wall from the first load (4 h) | **Missed: the bot's queue jams** (below). From 8.0 h its 8 entries are all gated: the Chapel, Walls and Forge (`no_relics`), the Embalmer (`needs_blueprint`), the Ossuary (`needs_tier`), and the Reliquary and the lot-17/18 pits (`lot_locked`). Relic-free levels that fit the caps stay unqueued (the Mill and the Market at L4, a House at L2, a Pit at L3). With the gate-skipping fill it makes 50 builds against 15, takes every listed relic-free level (L5; L6 and up cost a relic), and its last build is at day 1.46, in the night after day 1. The relic-free content alone lasts about 1.5 days, short of 2–3 |
 | **next affordable**, as gaps between queue starts: S0 (the first 30 min) 10–40 min, S1 (to day 1) 1–3 h, S2 (days 2–5) 4–10 h | sessions: S0 14 min; S1 median 34 min (max 1.5 h, 16 starts); S2 median 26 min (max 39 h, 46 starts) | **S0 met; S1 and S2 missed** (E3 read 14 and 7 min). Starts bunch inside the sessions. The S2 max of 39 h is the jam on days 2.4–4.0: at day 3.0 all 8 entries are gated (the Reliquary, the Chapel's L3, and the lot-21/22 pits at L1, L2 and L3) |
-| **idle workers** at or below 3 after the first hour | 10 (`worker.idle_cap`) in every profile; every slot staffed at every row after 1 h | The wrong metric (§7, trial G3): idle sits at the cap whenever the inflow outruns the slots, and the rest musters to WAR. Slot growth instead: sessions 18 at 1 h, 144 at day 8; continuous 180 at day 4.84; town_only 30; pure_idle 18. The digest has no muster rate |
+| **idle workers** at or below 3 after the first hour | 10 (`worker.idle_cap`) in every profile; every slot staffed at every row after 1 h | The wrong metric (§7, trial G3): idle sits at the cap whenever the inflow outruns the slots, and the rest musters to WAR. Slot growth instead: sessions 18 at 1 h, 144 at day 8; continuous 180 at day 4.84; town_only 30; pure_idle 18. The digest had no muster rate; since Phase I P3 (Q-h) its `workers.muster_per_day` replaces `idle_max_after_1h`: per day of live time the mean muster, the WORK stream and the muster's share of it (numbers at P3's batch) |
 | **build value while away** at least 70% (sessions) | 79.4%; the backlog's share 96.3% | **Met** (E3: 49%). once_per_session reads 48.5%, bank_bigs 63.1% |
 | **mint swing** under 10% (`mint.in`'s (max − min) / max over a day of live time, sampled every 10 s) | sessions 35–75% a day (75, 65, 51, 35, 36, 49, 39, 41); continuous 41–95% | **Missed; recorded, not tuned.** The metric counts a day's growth as swing, but a town that doesn't change swings too: town_only (no build after 8.0 h) reads 32.2% every day from day 2, and static (its 4 start buildings, no mill) 26.6%. Both sit inside the pits' feed bonus (`pit.bonus` 0.6: (1.6 − 1) / 1.6 = 37.5%; the first day of static, first30 and pure_idle reads exactly 37.5%). So it isn't the mill (pits get first call, and static has none). That the feed itself cycles is an inference, not probed |
 | **a clone or phylactery charge** before the first t2 and t3 raids | sessions and continuous raid t2 at 0.04 h (Vespers) and t3 at 0.09 h (Hollow Redoubt) with neither; the Chapel is a Village building (Village at 0.8 h, the first Chapel at 3.7 h, the first clone at 4.1 h). once_per_session: t2 at 4.0 h with neither, t3 at 8.0 h with a clone | **Missed, structural** for a bot that raids t2 and t3 in its first session; recorded, not tuned. No death went unmade: sessions' 14 are 8 phylactery and 6 clone |
@@ -415,7 +427,7 @@ old-sluice at 14 569 s).
   the workers. Gold sits at its cap. At 8b1e808 the same day-2 town has 6 Raising Pits at L2 (24 pit slots), every
   slot staffed, the mill running and the Embalmer built, and its queue still parks gated builds (the lot-21/22 pits,
   `lot_locked`; the Chapel's L2, `no_relics`). The old fill queued a gated build ahead, and it started when its gate
-  cleared while away: the Chapel at 3.73 h, against 7.52 h now. The P2 fill issues no command for it until a look finds
+  cleared while away: the Chapel at 3.73 h at c15f874 (not measured at 8b1e808), against 7.52 h now. The P2 fill issues no command for it until a look finds
   it ungated, and by then other builds are queued ahead. (This reading compares the two queues and towns; the runs
   weren't traced build by build.)
 - **The parking player** (`QH_PARK=1`, at 88e18a6). Sessions reaches Vei-ready at **day 5.1667**, with **1 + 10**
@@ -443,6 +455,135 @@ old-sluice at 14 569 s).
     shipped fill (none in the stall), and 0.95–3.55 h with parking.
   - **Ruled** (the run's manager, 2026-11-18): `max_len` stays 8; 16 would buy about 2 h. The 48–72 h pure_idle target
     is a relic-free content-depth question, and it goes to P3 with these numbers. P2 adds no depth.
+
+**Phase I P3's calibration rows** (measured on 4ddc25c's tree with P3's harness, one seed unless a second is named;
+P3's batch re-reads every row).
+- **R-a, relics 6–12 a day and 25 by day 5–8: recorded, not tuned** (the run's manager, 2026-11-18).
+  - Sessions banks 14, 11, 4, 7, 15, 23, 6 and 16 relics (96 in 8 days, 25 on day 2), and the trickle pays 13 more
+    (about 2 a day from day 2).
+  - By source (`reports/economy/wip/tools-p3/rel_probe.gd`, each loot joined to its raid):
+    - day 1: 13 from the seven first clears (t1 3, t2 2, t3 8), and 1 from 6 held re-raids;
+    - day 2: 9 from three t2 flips, and 2 from 13 held re-raids;
+    - days 3–4: held re-raids only, 4 and 7 (12 and 17 raids);
+    - days 5–8: re-flips of t3 forts Vei retook (7, 16, 0 and 11), and 5–8 a day from held re-raids.
+  - So the steady part (held re-raids plus the trickle) is **4–9 a day**, and the spikes are flips: **day 1's 13–16**
+    (both seeds, every variant below) and the t3/t4 push near Vei-ready.
+  - The bot's relics are `balance_standins.json`'s `mean_loot` (the resolver opens the chest at yield 0). Cutting it
+    moves neither spike:
+    - t2/t3 −1, and t2 −1 with t3 −2: day 1 stays 13–14 and 25 still lands on day 2 (seed 1). The bot flips t4 sooner,
+      so day 5 reads 28–41.
+    - Every tier halved: day 1 stays 12–16 and 25 lands on day 3–4 (seeds 1 and 2).
+    - Vei-ready doesn't move with the cuts (5.17 at −1/−2, 5.33 halved), so relics don't bind sessions.
+  - A real change would be `loot.json`'s chest relics, which dungeon-i's raid code reads, so it stays. For the balance
+    pass: day 1's 13–16 and the steady 4–9 a day, against the spine's 6–12.
+- **R-c, the mint swing under 10% a day: the cause named, not tuned.** It's the body store's cadence, not a change in
+  the town.
+  - Probed in a new game left alone, 2 h in, at 1 s ticks (`reports/economy/wip/tools-p3/mint_saw_probe.gd`):
+    - a convoy lands about 4 bodies every 21 s (17–22 s);
+    - the one pit burns them in about 10 s (`pit.burn_per_s` 0.6 against rot's 0.175 in);
+    - it then sits at the rot-only feed (`trough_feed` 0.292) until the next load.
+  - So mint.in saws between 9.4 and 12.8 mass/s: pit.bonus × (1 − trough) / (1 + pit.bonus) = **26.6%**, static's day
+    reading at c15f874 to the decimal. The mean doesn't move. The day's (max − min) / max reads that saw on every day of
+    every profile: sessions 36–49% a day at 4ddc25c.
+  - The digest's new `mint_swing_win` reads the swing of the day's 600 s window means, so the saw averages out and the
+    day's drift stays: town_only **2–4% a day** from day 2, sessions 4–18% a day (its growth).
+  - A sim fix would be a steady pit draw: the pits burn at the store's mean inflow rather than each landed load. It keeps
+    the mean mint and removes the saw. That's a MECHANICS change the catch-up reads (I1 bounds the bodies), so P3 doesn't
+    make it.
+- **R-d, a defined bone lever:** §2 (b), rebuilt. Never Vei-ready, and 79% fewer levels at day 8.
+- **V-b, seeded wave jitter: not shipped** (the run's manager's ruling on P3 handoff 7, option (c); the patch is kept as
+  `reports/economy/wip/tools-p3/vb-jitter.patch`).
+  - Measured at a = 0.15 with "safe" read at the jitter's top, over 20 seeds: away_risk_real's prepared_72h lost
+    **0 of 20** absences (0 of 120 forts), and midgame_prepared 0 of 20 (0 of 40).
+  - The cause: the prepared setups leave at the WAR the bot already plays (0.80 and 0.75), and every held fort reads
+    safe even at the top draw (the smallest base margins are 1.91 and 0.47 mass/s), so no draw within ±15% breaks one.
+  - Shipped, it would turn most held forts' word "thin" with the loss still 0. margin_truth would go vacuous: its only
+    safe samples, midgame_2flips' Ashgate, read thin under the jitter.
+  - **The target is replaced.** "A prepared away loses 10–25%" came from a vision check, not from Shawn. His words are
+    "you should be able to lose all but the home town if you're away and it's not properly tuned to be supported"
+    (vision.md, 2026-11-13). Two checks replace it, both in the batch: **a prepared away loses 0 forts**, and **an
+    unprepared away loses some**.
+  - At 4ddc25c: prepared, 0 of 20. Unprepared: midgame_default loses 1 of 2 (Old Sluice retaken), and default_72h loses
+    0 of 6 (it leaves at the WAR the bot plays).
+- **Fronts (b), "the fronts bind again": missed, recorded (option (a)); the needs ship as they were.**
+  - The target (the run's manager, 2026-11-18): sessions' Vei-ready at about day 6.0 and continuous 10–30% sooner, by
+    raising `vei.json`'s front needs alone (not `odds.time_s` or the 0.7 weight), in at most three probe rounds.
+  - Two rounds at 180121f's tree (this table's sim; the text-only commit after it doesn't move it). Round 1 (one seed),
+    then round 2 on seeds 1–4 in both modes. Tools: `reports/economy/wip/tools-p3/vr_probe2.gd` (the boss seed taken
+    at her node the moment Vei-ready is set; the old `vr_probe.gd` printed the day-8 end state), `vr_probe3.gd` and
+    `sweep.py`; logs in `vr1/` and `vr2/`.
+  - **Today the readiness clock sets Vei-ready, not a front.** Sessions reads 5.1667, 5.3333, 5.0 and 5.1667 on seeds
+    1–4, continuous 5.0518, 5.1594, 5.0331 and 5.1018: 2%, 3%, −1% and 1% sooner.
+  - **No front's have runs ahead in continuous.** At the same hour the two modes' backlogs are within 8%, and which
+    one leads changes with the seed. At day 5.0: 80.1M against 80.9M, 78.5M against 72.5M, 82.3M against 87.0M, and
+    78.8M against 79.7M (continuous against sessions). Giants and carvers lead in neither mode across the seeds. At E4
+    step 3 continuous's backlog ran ahead (204M against 140M at day 8), which is where the odds row's 19.5% above came
+    from; at 180121f it doesn't.
+  - So continuous's only edge is *when* it looks. It can reach her at any hour, and sessions only at a session's start.
+    A front that both modes clear at about the same time gives a lead only when it clears in the night's gap, after
+    sessions' last look of day 5 (5.347) and before its next (6.0).
+  - **Swarm and raw** follow the backlog, and their needs don't move the bot. Only giants' and carvers' wants steer the
+    slab fill and the keepers (`Autoplayer._big_want`). At swarm 45 on seed 1 the bot raised the same 18 bigs as at the
+    shipped needs, up to Vei-ready. So one never-ready trace per seed and mode gives Vei-ready at any swarm or raw need
+    (`sweep.py`). Continuous / sessions (how much sooner):
+
+    | swarm need at pool 600 (need_base) | seed 1 | seed 2 | seed 3 | seed 4 | seeds ≥10% sooner |
+    |---|---|---|---|---|---|
+    | 24 (12), shipped | 5.05 / 5.17 (+2%) | 5.16 / 5.33 (+3%) | 5.03 / 5.00 (−1%) | 5.10 / 5.17 (+1%) | 0 of 4 |
+    | 42 (30) | 5.13 / 5.17 (+1%) | 5.17 / 6.00 (+14%) | 5.03 / 5.00 (−1%) | 5.18 / 5.17 (−0%) | 1 of 4 |
+    | 45 (33) | 5.35 / 6.00 (+11%) | 5.50 / 6.00 (+8%) | 5.26 / 5.17 (−2%) | 5.44 / 5.17 (−5%) | 1 of 4 |
+    | 48 (36) | 5.58 / 6.00 (+7%) | 5.72 / 6.00 (+5%) | 5.26 / 6.00 (+12%) | 5.66 / 5.17 (−10%) | 1 of 4 |
+    | 51 (39) | 5.84 / 6.00 (+3%) | 5.94 / 6.00 (+1%) | 5.26 / 6.00 (+12%) | 5.66 / 6.00 (+6%) | 1 of 4 |
+    | 54 (42) | 6.14 / 6.17 (+0%) | 6.17 / 6.00 (−3%) | 5.26 / 6.00 (+12%) | 5.66 / 6.33 (+11%) | 2 of 4 |
+
+    Swarm 51 puts sessions at 6.0 on every seed, but continuous is only 1–12% sooner. At every need from 41 to 57 at
+    most two seeds reach 10%, and every row but 51 has a seed where continuous is later. Swarm's per-seed spread (presence bigs
+    in the party at the look: ±3, a quarter of a day of backlog) is wider than the night's window. Raw has the same
+    shape. The real run at swarm 45 on seed 1 confirms the sweep: sessions 6.0001 (the walk to her node), continuous
+    5.3547 (as swept; 10.8% sooner).
+  - **Giants and carvers** move the bot, and not monotonically (round 1, seed 1; re-run at 180121f with the fixed probe,
+    the same to the digit). Every need ×1.15: sessions never (giants stuck at 11 of 16.1), continuous 5.0196. ×1.3:
+    sessions 5.0066, continuous never. The cause is the keepers' rule (`KEEP_SHARE` 0.25, `_keepers`). A big stays home
+    on giants only if its wits are at least a quarter of giants' want, so raising the need raises the bar. At ×1.15
+    (bar 4.03) the later wits bigs (2, 2, 3 and 4) raided and were lost, and nothing closed the 5-point gap. At ×1.3
+    (bar 4.55) a wits-7 hulk arrived and cleared it. The want also steers the slab fill (`_slab_fill`), so the paths
+    split at the first raise after the change: sessions at 24–28 h, continuous at 101 h. What a need does is a step on
+    which husks and remnants a path draws, not a slope.
+  - **The best case, and its cost.** Swarm 45 gives seed 1 11% and seed 2 8%, but seeds 3 and 4 come out later in
+    continuous. It also breaks the demo seed (pool 380, backlog 55.35M), which reads swarm 27.7 against a need of 40.6
+    (19.6 today). That's 2 fronts of 4 met where its doc says "3 of 4, raw short", and the demo floor (6/20) rests on
+    it.
+  - **What it needs:** a lever outside the needs, something continuous play builds faster than sessions does (for
+    example the fronts reading what raids bring home, or the backlog running ahead again). That's a product question
+    for the milestone, not a P3 tune. The faithful grade uses sessions' 5.1667 seed (seed 1, captured at her node: 1
+    phylactery and 6 clones, readiness 0.6053, pool 600, backlog 85.04M).
+
+**Phase I P3's batch, at f957849** (the 15 profiles on `git archive f957849`, one seed, with the parking fill and the
+skip-fill ablation row; `reports/economy/wip/tools-p3/pbatch.sh`; digest `b-f957849-digest.txt`, logs `b-f957849/`).
+Its sim is 4ddc25c's: f957849 moves only readouts and text, and every row but the new fields reads as 4ddc25c's batch
+did (ablation_bone is 180121f's rebuilt variant). The targets are the phase-i-draft §4 table's.
+
+| target | measured | verdict |
+|---|---|---|
+| **pure_idle grows 48–72 h** | its last build is 49.8 h into the 7-day close that starts at 0:20 (50.1 h of game time); builds per 6 h 21, 7, 5, 4, 4, 2, 2, 2, 1, then none | **Met** (the ramp, 4ddc25c; Grow on) |
+| **town_only plateaus at 2–3 days** | the last build at 48.19 h, 2.01 days (4ddc25c's `qb_probe`, the same sim; the batch's `builds_per_6h` reads only its longest close, the night) | **Met**, 0.19 h inside |
+| **next affordable**, the gaps between queue starts: S0 10–40 min, S1 1–3 h, S2 4–10 h | sessions: S0 median 11 min (max 22 min, 2 starts); S1 median 19 min (max 1.9 h, 52 starts); S2 median 1.6 h (max 6.3 h, 52 starts) | **S0 met; S1 and S2 missed**, the cause the c15f874 table's row above names: starts bunch inside the sessions |
+| **away build value** 70% or more | sessions 87.2% (the backlog's share 96.1%) | **Met** |
+| **mint swing** under 10% a day | `mint_swing_win` (the 600 s window means): sessions 79, 6.6, 6.6, 18, 8.7, 4.6, 4.4 and 5.4%; town_only 73, 19, 2.5, 1.8, 3.0, 2.1, 3.0 and 4.2%. The raw reading is 23–95% | **Recorded with its cause (R-c, above).** The windows remove the convoy saw (26.6%); what's left is a day's growth (day 1's opening, sessions' day 4). A steady town reads 2–4% |
+| **relics** 6–12 a day | sessions 14, 11, 4, 7, 15, 23, 6 and 16 (96), with the trickle 13 more | **Recorded (R-a, above):** day 1's first clears and the t3/t4 re-flips, a steady 4–9 |
+| **first Vei attempt** 40–60% | the faithful grade at sessions' 5.1667 seed, its own 1 + 6: 9/20 (45%). The odds it reads, 0.46 (refit) | **Met** |
+| **continuous** 10–30% sooner than sessions | 5.0518 against 5.1667: 2.2% | **Missed, recorded (fronts (b), above):** no front runs ahead in continuous, so the needs can't make the lead |
+| **a prepared away loses 0 forts** (replaces "loses 10–25%", V-b) | away_risk_real prepared_72h 0 of 6, midgame_prepared 0 of 2; away_risk prepared (24 h) 0 of 6 | **Met** |
+| **an unprepared away loses some** | midgame_default 1 of 2 (Old Sluice); away_risk default (24 h) 1 of 6 (Chime Fort); default_72h 0 of 6 (it leaves at the WAR the bot plays); the WAR cuts 6 of 6 and 2 of 2 | **Met** |
+| **ablation_held** costs 20–25% | 83 levels against 126 at day 8 (34%), and never Vei-ready; 12 raid relics, with the trickle 13 more (R-b) | **Missed, recorded:** the relic wall shrinks with R-b's trickle (77% before) but holds. The trickle's 2 a day stands against sessions' 12 |
+| **clones at Vei-ready per profile** (P1's vision check (b)), graded at each count on sessions' seed (score 65) | continuous 1 + 10: 16/20 against odds 0.59; sensitivity 1 + 10 (day 5.1667): 16/20 against 0.60; sessions and static (day 5.3334) 1 + 6: 9/20 against 0.46; ablation_skip_fill 1 + 4: 5/20 against 0.23; once_per_session 1 + 2: 1/20 against 0.07 | **Within ten points except at 1 + 10**, which reads 20 points low (the form's ceiling, the odds row above). The grades hold sessions' party, pool and backlog and change only the backups |
+| **the I1 check** (sessions_open, under parking) | the known 3 FAIL (I1 day 1, day 2, the commands; first divergence at 86 400 s, a `craft_husk`) | **As before, no new FAIL** |
+| **R-b's trickle** | sessions 13 paid (a fort held a day) | **Met** |
+| catchup_accuracy, margin_truth (slow) | 16 PASS / 0 FAIL; 34 PASS / 0 FAIL | **Pass** |
+
+The husk price (housekeeping): `economy.craft.husk` costs 500 bone against a new game's 200 bone cap. So the craft waits
+until Bone Mill levels lift the cap past 500 (the ramp's caps 300, 700, …). Not changed: no P3 row calls for it. Bone
+binds the town's levels (the ramp), not the crypt, and relics don't bind sessions (R-a).
 
 ## 6. Known balance risks
 - **The knife edge** (systems review S5). Odds of 0.6 need a backlog of about 18,000 raw. Vei's undead
@@ -533,9 +674,12 @@ in §5; E4 tunes the numbers):**
   the Chapel of Vats its own, 2, 4, 6, 6, 6), with relic costs that never fall with level; the
   charnel house's `body_cap` table runs on to 8 entries (+50 a level, 350 at L8);
 - the bone cap grows with the ladder: the Bone Mill's `bone_cap` is a table per level, 100, 150, 350, 700,
-  1 250, 2 050, 3 400, 8 400 (caps 300 to 8 600). The rule (§5, Store caps): each level's cap covers 1.2 ×
+  1 250, 2 050, 3 400, 8 400 (caps 300 to 8 600). **Phase I P3's depth** (below; the ramp, shipped after the step)
+  scales the dead's buildings' bone ×2.0 at L3, ×3.0 at L4 and ×4.6 from L5, and puts the mill's cap a level ahead:
+  100, 500, 1 450, 3 940, 6 470, 10 150, 16 360, 39 360 (caps 300, 700, 1 650, 4 140, 6 670, 10 350, 16 560,
+  39 560). The rule (§5, Store caps): each level's cap covers 1.2 ×
   the mill's and the Market's next level, rounded up to 50, and the top level's every bone cost (the
-  Forge's L8, 8 575); `tests/test_build_ladder.gd` checks that every price fits a cap reachable by its
+  Forge's L8, 39 445 under the ramp); `tests/test_build_ladder.gd` checks that every price fits a cap reachable by its
   building's tier. The Market's `gold_cap` stays 3 250 a level (32 500 at L8). G4 ran on town's branch
   before the store caps (8f73c36 has no gold or bone cap), so its 8 h says nothing about a capped
   ladder; with the linear 100 a level the climb stops at mill L4 (cap 600) and every price above it is
@@ -548,6 +692,81 @@ in §5; E4 tunes the numbers):**
   E3's `pure_idle` and `town_only` profiles (target: 2–3 days, then "needs relics"). L6+ relic costs
   are untested without raids.
 - Rent is dropped.
+
+**Phase I P3's depth (Q-b; the run's manager's ruling of 2026-11-18: the Grow stance, then one depth pass sized on
+pure_idle and town_only together for 48–72 h).** Shipped from 7cb0899 to 7c4a8f8 as the step below; **the ramp
+replaced it** (the last paragraph of this section: the run's manager's ruling 1 on handoff 6). The step: one
+multiplier, 3.5, on the **bone** price of every level from L3
+of the dead's buildings (raising pit, charnel house, Market, Bone Mill, Forge, graveyard, Stables, Embalmer, Chapel of
+Vats, the Crypt), relic levels included so the curve never falls from L5 to L6, and on the Bone Mill's bone cap from
+its L2 (the cap at a level is (200 + table) × 3.5, so each still covers 1.2 × the mill's and the Market's next level and
+the Forge's L8, 30 010, fits L8's 30 100). Left alone: every level 2 (the S0 spine: the mill's, the Market's and the
+pit's L2 are its first buys), every gold price (gold isn't the binder: it sits at its cap in every profile), and the
+living's buildings (House, Well, Bakery, Inn: bought with gold, and the House's handover rule above keeps its steps
+at 2.5× or less and its L4 and L5 under a new game's 200 bone cap). Gold scaling was ruled out too: the Chapel's L8
+at 3.5 × 9 450 gold is over the Market's L8 cap (32 500). Sized with `wip/tools-p3/qb_probe.gd` (`QB_COSTMULT`, the
+whole level costs from L3 of every relic-free level, the cap from L2; 65a4990's tree plus
+`wip/tools-p3/grow-step1.patch`, the step-1 rule, and the `max_active` cap, which moved nothing): the last build of
+pure_idle's 168 h close and of town_only's 8 days, both ending with every relic-free level built:
+
+| multiplier | pure_idle | town_only |
+|---|---|---|
+| none, Grow off (shipped before P3) | 3.69 h (14 builds) | 33.9 h (50) |
+| 1, Grow on | 22.6 h (50) | 20.7 h (50) |
+| 2.0 | 35.9 h | 35.4 h |
+| 2.5 | 42.9 h | 42.5 h |
+| 3.0 | 49.9 h | 49.8 h |
+| 3.5 | 56.8 h | 56.4 h |
+
+The time is linear in the multiplier (about 14 h per unit), and town_only tracks pure_idle within half an hour: with
+Grow on, both are bone-bound on the same relic-free ceiling (12 buildings, every one at L5, the Stables at L3). Bone
+only on every L3+ level of every building gave the same 56.8 h / 56.4 h at 3.5. **The step as shipped at 7cb0899** (the dead's bone only,
+the living's buildings left alone; measured with the same probe on 7cb0899's configs, no overrides): pure_idle's
+last build 52.8 h into its close (50 builds, 36 of them Grow's), town_only's at 54.2 h (day 2.26; 50 builds, 16
+Grow's); next-affordable gaps S1 median 28 / 20 min, S2 median 1.8 / 1.8 h. sessions (raiding) reaches the City tier
+with 123 builds in 8 days (27 Grow's, the last at 69.1 h), still building at the close; its S0 gaps are unchanged
+(median 700 s, max 1 300 s), S1 median 16 min, S2 median 1.9 h. These are probe readings on one seed; P3's batch
+measures every profile. The step from L2
+to L3 is now steep on the dead's buildings (the pit's 305 to 1 575 bone, ×5.2, against ×1.5 before), a side effect
+of leaving L2 alone.
+
+**The ×4.4 ramp, probed and not taken (for the V-I2 vision check).** The run's manager's ruling on handoff 4 (4): replace
+the step with a ramp over L3 to L5 if one re-probe keeps pure_idle and town_only in 48–72 h with the S0 gaps
+unchanged, else keep the step. The one candidate, fixed before the run so as not to lose depth: 65a4990's bone on the
+same buildings ×2.0 at L3, ×3.0 at L4 and ×4.4 from L5 (relic levels too; about the step's total over L3–L5 for
+pure_idle's buildings), the mill's cap a level ahead (L2 ×2.0, L3 ×3.0, L4 up ×4.4: 500, 1 450, 3 760, 6 180, 9 700,
+15 640, 37 640), so the pit's ladder reads 305, 900, 2 160, 5 060 (×3.0, ×2.4, ×2.3 a step). qb_probe on 7cb0899 with
+that `buildings.json` (`wip/tools-p3/ramp.py`; digests `qb-{pi,to,se}-ramp-7cb0899.txt`): pure_idle's last build 49.2 h
+(the step 52.8 h), **town_only's 47.4 h (the step 54.2 h): 0.6 h under the band**, so the step stays. S0 was unchanged
+(first30: 3 starts, median 96.5 s, max 1 449.5 s; sessions 700 / 1 300 s, both as the step), and the ramp evened the
+middle: town_only's S1 longest gap 2.1 h against the step's 3.6 h. A top a little steeper (about ×4.6) would likely pass;
+per the ruling it wasn't iterated. sessions reached the City with 122 builds either way.
+
+**The ramp, shipped (×2.0 L3, ×3.0 L4, ×4.6 from L5; the run's manager's ruling 1 on handoff 6, after the 08:17
+ruling).** The ×4.4 ramp above with its top at ×4.6: 65a4990's bone on the same buildings, relic levels too, and the
+mill's cap a level ahead (§5's ladder bullet: caps 300, 700, 1 650, 4 140, 6 670, 10 350, 16 560, 39 560, each
+covering 1.20–1.24 × the mill's and the Market's next level; the Forge's L8, 39 445, fits). The pit's ladder reads 305,
+900, 2 160, 5 290. Every L2, every gold price and the living's buildings are unchanged, as in the step. Built with
+`wip/tools-p3/ramp.py <scratchpad with b-old.json> <out> ramp 4.6` (`step` reproduces 7cb0899's file, a self-check).
+qb_probe, one seed, on 7c4a8f8's code with this file (digests `qb-{pi,to,se}-ramp46-7c4a8f8.txt`; pure_idle and
+town_only re-read line for line on this commit's tree), against the step on the same code (`qb-*-cfg-7c4a8f8.txt`):
+
+| reading | the step (×3.5, shipped to 7c4a8f8) | the ramp (shipped) |
+|---|---|---|
+| pure_idle last build | 52.84 h | **50.03 h** |
+| town_only last build | 54.24 h | **48.19 h** (0.19 h inside the band) |
+| S0, pure_idle / town_only (qb) | 1 start, 100 s | 1 start, 100 s |
+| S0, sessions (qb) | median 700 s, max 1 300 s | 700 / 1 300 s |
+| S0, first30 (autoplay_first30) | 3 starts, median 96.5 s, max 1 449.5 s (at 7cb0899) | 3, 96.5 s, 1 449.5 s |
+| town_only's longest S1 gap | 13 017 s (3.6 h) | 7 422 s (2.1 h) |
+| pure_idle's longest S1 gap | 8 206 s | 5 655 s |
+| sessions | 191.05 h, 127 builds, City | 188.94 h, 122 builds, City |
+
+Both profiles land in 48–72 h, S0 is unchanged, and the ramp evens town_only's middle. **town_only's 48.19 h sits only
+0.19 h inside the band**, so a later cost change can push it out. **The rule for that (the run's manager's ruling 1 on
+handoff 6):** if any later P3 change or the balance pass drops either profile below 48 h, raise the ramp's top step;
+don't go back to the ×5.2 step (the step's L2 → L3 cliff, the pit's 305 → 1 575 bone). These are probe readings on
+one seed; P3's batch measures every profile.
 
 ## 8. Balance stand-ins (E3-6a; `configs/balance_standins.json` v0)
 The autoplayer (E3-6b) can't run the dungeon headless. `tests/autoplay/standin_resolver.gd`

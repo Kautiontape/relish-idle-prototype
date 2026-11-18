@@ -10,6 +10,7 @@ signal command_issued
 
 var _vcfg: Dictionary = {}
 var _bcfg: Dictionary = {}
+var _bview: Dictionary = {}  # buildings_view.json: the labels Grow's trade line names its pick by
 var _views: Dictionary = {}
 ## The shell's cached staffing projection: project.call(order, extra := {}) -> the jobs array.
 var project: Callable
@@ -26,6 +27,7 @@ var _rows: Dictionary = {}  # stance id -> {toggle, chips, hold, proj, none, id}
 func _ready() -> void:
 	_vcfg = ConfigDb.v("town", "view", {})
 	_bcfg = ConfigDb.data.get("buildings", {})
+	_bview = ConfigDb.data.get("buildings_view", {})
 	_base = int(ConfigDb.data.get("economy", {}).get("stance", {}).get("base_slots", 2))
 	add_theme_constant_override("separation", 6)
 	_slots_label = TownUI.label("", 16)
@@ -100,7 +102,7 @@ func bind(views: Dictionary) -> void:
 		_update_row(_rows[id], s, units)
 		var job := TownBehaviour.stance_job(id, town, _vcfg)
 		var after := _project(TownBehaviour.to_top(ladder, job)) if job != "" else []
-		TownUI.set_parts(_rows[id]["trade"], TownBehaviour.stance_trade(id, views, before, after, _vcfg))
+		TownUI.set_parts(_rows[id]["trade"], TownBehaviour.stance_trade(id, views, before, after, _vcfg, _bview))
 
 
 ## The allocation for `order`, from the shell's one cached helper (set at setup, Covington.project_staffing).

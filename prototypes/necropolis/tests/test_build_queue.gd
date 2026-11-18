@@ -8,7 +8,8 @@ var t: TestUtil
 ## Builds and upgrades that fill a fixture's queue to queue.max_len (each tried in order; refusals skipped).
 const FILL := [["", "lot-02"], ["", "lot-04"], ["", "lot-04"], ["house", "lot-05"], ["well", "lot-06"], ["bakery", "lot-07"],
 	["bone_mill", "lot-08"], ["house", "lot-09"], ["well", "lot-10"], ["house", "lot-11"], ["well", "lot-12"], ["", "lot-03"],
-	["", "lot-03"], ["house", "lot-18"], ["well", "lot-19"], ["house", "lot-20"], ["", "lot-05"], ["", "lot-06"], ["", "lot-07"]]
+	["", "lot-03"], ["house", "lot-18"], ["well", "lot-19"], ["house", "lot-20"], ["", "lot-05"], ["", "lot-06"], ["", "lot-07"],
+	["", "lot-08"], ["well", "lot-21"]]  # (Phase I P3's depth: the Market's and the charnel house's L3 are over pre_vei's cap)
 
 
 func _mk(cfgs: Dictionary = {}) -> GameState:
@@ -102,12 +103,31 @@ func _slot_rule() -> void:
 	var over := s.cmd_queue_build("watchtower", "lot-08")
 	t.ok(over["reason"] == "queue_full" and _q(s).size() == lmax, "the list at %d: queue_full, even for a gated entry" % lmax)
 	t.ok(s.cmd_queue_build("nope", "lot-08")["reason"] == "queue_full", "with the list full, queue_full comes first, as before")
-	# the slots can pass queue_max when gates clear (no eviction): the town tier and the relics, and every Watchtower holds a slot
+	# Phase I P3 (A14's amendment): when gates clear, the slots go to the first max_len entries no gate holds, in list
+	# order, and the rest wait for a slot (wait_slot), holding nothing. Revert proof: with the walk's slot check taken
+	# out, the slots read 16 and no row reads wait_slot (these three asserts fail)
 	s.town_tier = "town"
 	s.relics = 12
+	_funds(s, 0.0, 190.0)  # bone covers each entry, so after a step (gold's net above 0) none is skipped on bone (ruling 3)
 	var v2 := s.view_town()
-	t.ok(v2["queue_slots"] > mx and (v2["queue"] as Array).size() == lmax, "the tier and relics there: the Watchtowers' gate clears and the slots read %d, over queue_max (nothing is evicted)" % v2["queue_slots"])
+	var vr: Array = v2["queue"]
+	var waits := _col(vr, "reason").count("wait_slot")
+	t.ok(v2["queue_slots"] == mx and vr.size() == lmax and waits == lmax - mx,
+		"the tier and relics there: every gate clears, %d entries hold the %d slots and %d wait for one (%s)" % [v2["queue_slots"], mx, waits, str(_col(vr, "reason"))])
+	var order_ok := true
+	for i in vr.size():
+		order_ok = order_ok and ((vr[i]["status"] != "skipped_gate") == (i < mx)) and ((vr[i]["reason"] == "wait_slot") == (i >= mx))
+	t.ok(order_ok, "in list order: the four Watchtowers ahead and the first four Houses hold them, the last four Houses and the four Watchtowers behind wait (wait_slot)")
 	t.ok(s.cmd_queue_build("house", "lot-09")["reason"] == "queue_full", "and a new entry is refused")
+	s.drain_events()
+	s.tick(s.substep_s())
+	var wo := s.build_queue.slice(mx).map(func(e): return str(e["waited_on"]))
+	t.ok(wo.count("wait_slot") == lmax - mx and s.view_town()["queue_slots"] <= mx,
+		"processing keeps each waiting entry's wait_slot as its waited_on, and the slots stay within %d: %s" % [mx, str(wo)])
+	var gone: bool = s.cmd_unqueue(0)["ok"] and s.cmd_unqueue(0)["ok"]
+	var v3: Array = s.view_town()["queue"]
+	t.ok(gone and v3[mx - 1]["status"] != "skipped_gate" and v3[mx]["reason"] == "wait_slot" and s.view_town()["queue_slots"] == mx,
+		"two entries ahead unqueued: the next waiting entries take their slots in list order (slot %d is %s, the one behind waits)" % [mx, v3[mx - 1]["status"]])
 	# a save keeps a list past queue_max: twelve entries, four gated
 	var p := _mk()
 	_funds(p, 0.0, 0.0)
@@ -127,11 +147,56 @@ func _slot_rule() -> void:
 	t.ok(cut.from_dict(d)["ok"] and cut.build_queue.size() == lmax, "a save with %d entries loads the first %d (the list's cap)" % [lmax + 1, cut.build_queue.size()])
 
 
+## Phase I P3, ruling 3 (the spine's "never stalls"): a head with no path to its funds (head_never: −1.0 and its store's
+## producer unstaffed) is skipped like a gate, holding nothing and no slot, so the entries behind it start; a head
+## whose producer is staffed still holds, even in the steps its net reads 0 (a convoy's gap). The timed and untimed
+## walks agree. Revert proofs: head_never returning "" (the Mill stays queued behind the Pit: 3 FAIL); producer_idle
+## always true (the Pit skips in the mill's dry steps: the hold check fails). P3's hold timeout (queue.never_hold_s):
+## each wet step resets the Pit's never_since, so a convoy gap never runs the hold out; revert proof: process_queue
+## not clearing never_since (the count runs from the first dry step and the Pit is skipped: the hold check fails).
+func _never_head() -> void:
+	t.suite("build_queue-never-head")
+	var s := _mk()
+	s.tick(s.substep_s())
+	_funds(s, 100.0, 30.0)
+	t.ok(s.cmd_queue_build("raising_pit", "lot-05")["ok"] and s.cmd_queue_build("bone_mill", "lot-06")["ok"], "(setup) a Raising Pit (150 bone), then a Bone Mill (no bone)")
+	var rows := _q(s)
+	t.ok(rows[0]["status"] == "skipped_gate" and rows[0]["reason"] == "no_bone" and float(rows[0]["affordable_in_s"]) == -1.0 and BuildRules.never_row(rows[0]),
+		"no mill: the Pit has no path to bone and is skipped on no_bone, −1.0: %s %s" % [rows[0]["status"], str(rows[0]["affordable_in_s"])])
+	t.ok(rows[1]["status"] == "next" and s.view_town()["queue_slots"] == 1, "the Mill behind it is next, and only it holds a slot")
+	var un: Array = BuildRules.queue_walk(s, s.build_queue, false)["rows"]
+	t.ok(_col(un, "status") == _col(rows, "status") and _col(un, "reason") == _col(rows, "reason"), "the untimed walk (the step's processing) reads the same: %s" % str(_col(un, "status")))
+	s.drain_events()
+	s.tick(s.substep_s())
+	var st := _started(s.drain_events())
+	t.ok(st.size() == 1 and st[0]["building_id"] == "bone_mill" and s.build_queue.size() == 1 and s.build_queue[0]["waited_on"] == "no_bone",
+		"the step starts the Mill past the Pit, which stays with waited_on no_bone: %s" % str(st.map(func(e): return e["building_id"])))
+	var held := 0
+	var dry := 0
+	var bad := 0
+	var span := 0.0  # P3's hold timeout: the longest the Pit read dry in a row (its never_since's age)
+	var hold := s._req_f("economy.queue.never_hold_s")
+	for i in 2400:
+		s.tick(s.substep_s())
+		if s.build_queue.is_empty():
+			break
+		if float((s.town_sim.staffing["jobs"]["mill"] as Dictionary)["staffed"]) > 0.0:
+			var r0: Dictionary = _q(s)[0]
+			held += 1
+			dry += 1 if float(BuildRules.queue_net(s)["bone"]) <= 0.0 else 0
+			bad += 1 if r0["status"] == "skipped_gate" else 0
+			span = maxf(span, s.t - float(s.build_queue[0].get("never_since", s.t)))
+	t.ok(held > 0 and dry > 0 and bad == 0 and span > 0.0 and span < hold,
+		"with the mill staffed the Pit holds the queue at every step (%d steps, %d of them with the mill's net at 0), never skipped (%d): the convoy gaps never trip the hold timeout (longest dry run %.1f s of %.0f)" % [
+		held, dry, bad, span, hold])
+
+
 func run() -> int:
 	t = TestUtil.new()
 	_refusals()
 	_accepts()
 	_slot_rule()
+	_never_head()
 	_view_shape()
 	_rule1_never_stalls()
 	_rule2_holds_nothing()
@@ -546,7 +611,7 @@ func _levels() -> void:
 func _view_matches_step() -> void:
 	t.suite("build_queue-view-step")
 	var s := _mk()
-	_funds(s, 100.0, 30.0)
+	_funds(s, 100.0, 190.0)  # P3: bone covers every entry, so the head waits on gold alone (a bone-short head with no mill is skipped: ruling 3)
 	s.town_sim.place_building("lot-08", "house", 2)
 	s.cmd_queue_build("house", "lot-05")  # 40: next
 	s.cmd_queue_build("", "lot-08")  # the house's level 3, 120: short by 60 after the house
@@ -794,8 +859,11 @@ func _afford_deadlock() -> void:
 	_funds(z, z.town_sim.gold, 0.0)
 	var r := z.cmd_queue_build("house", "lot-05")
 	var h: Dictionary = _q(z)[0]
-	t.ok(h["status"] == "waiting_funds" and h["reason"] == "no_bone" and h["affordable_in_s"] == -1.0 and r["affordable_in_s"] == -1.0,
-		"day1 with no bone and no mill: a House waits on bone at 0/s, −1.0 (the view and the extra): %s %s" % [str(h["affordable_in_s"]), str(r["affordable_in_s"])])
+	# Phase I P3 (ruling 3): no mill is no path to bone, so the House holds nothing: skipped_gate on its no_bone (it
+	# waited on funds before P3; revert proof: head_never returning "" puts it back at waiting_funds)
+	t.ok(h["status"] == "skipped_gate" and h["reason"] == "no_bone" and h["affordable_in_s"] == -1.0 and r["affordable_in_s"] == -1.0,
+		"day1 with no bone and no mill: a House can't be paid at 0/s bone, −1.0, and is skipped (the view and the extra): %s %s %s" % [
+		h["status"], str(h["affordable_in_s"]), str(r["affordable_in_s"])])
 
 
 ## The times: a gold-short entry with gold coming in reads (cost − stock) / net, the net view_rates (and the HUD)

@@ -238,6 +238,8 @@ const VIEWS := {
 		# api_version 12 (E4 step 9, ruling 3): the idle relic trickle
 		"highest_tier_flipped": I, "relic_trickle": {"paying": B, "next_s": F},
 		"sign": I, "drain_s": F, "odds": F, "won": B,
+		# api_version 14 (Phase I P3, the odds split): `odds` the first-attempt estimate, `readiness` the win odds it reads
+		"readiness": F, "backups": I,
 	},
 	"view_rates": {"rates": {"*": {"in": F, "out": F, "net": F, "unit": S}}},
 	"view_lanes": {"lanes": [{"id": S, "from": S, "to": S, "kind": S, "rate": F, "bias": F, "why": S}]},
@@ -288,6 +290,7 @@ const VIEWS := {
 		"slots": I, "used": I, "beat_id": I,
 		"stances": [{"id": S, "on": B, "suspended": B, "active": B, "fired_beat_id": I,
 			"hold_s_left": F, "projected": {"*": F}}],
+		"grow": {"building_id": S, "lot_id": S, "level": I, "in_s": F, "held": S, "busy": B},  # v14 (Phase I P3)
 	},
 	"view_inventory": {
 		"husks": [{"uid": S, "kind": S}],
@@ -308,7 +311,10 @@ const VIEWS := {
 	"view_vei": {
 		"backlog": F, "living_pool": F, "pool_cap": F, "diff": F, "diff_ema": F,
 		"sign": I, "drain_s": F, "odds": F, "digest_q": F,
-		"strain": F,  # api_version 12 (E4 step 9, option B): backlog / (backlog + K); `odds` is the win odds
+		"strain": F,  # api_version 12 (E4 step 9, option B): backlog / (backlog + K)
+		# api_version 14 (Phase I P3, the odds split): `odds` the first-attempt estimate (GameState.first_odds), `readiness`
+		# the win odds it reads (GameState.win_odds), `backups` the count it reads (GameState.vei_backups)
+		"readiness": F, "backups": I,
 		"fronts": [{"id": S, "need": F, "have": F, "cleared": B, "assigned": [S], "counted": [S]}],
 		"fronts_required": I, "fronts_met": I,
 		# next_target, next_s: api_version 11 (E4 step 5, B1 (ii)): the telegraph
@@ -354,6 +360,8 @@ const EVENTS := {
 	"counter_garrison_cleared": {"fort_id": S, "killed_mass": F},
 	# api_version 6 (E2b-2 T3.2, api-request #3): a queued build started; waited_on is what held it last
 	"queue_started": {"building_id": S, "lot_id": S, "level": I, "upgrade": B, "waited_on": S},
+	# api_version 14 (Phase I P3, Q-b): the Grow stance started an upgrade (BuildRules.grow_step)
+	"grow_started": {"building_id": S, "lot_id": S, "level": I},
 	"tithe_warning": {"wave_id": I, "fort_id": S, "eta_s": F, "surge": F},
 	"tithe_wave": {"wave_id": I, "fort_id": S, "surge": F, "duration_s": F, "relish_here": B, "siege_block": F},
 	"stance_fired": {"stance_id": S, "active": B, "beat_id": I},

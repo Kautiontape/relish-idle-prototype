@@ -1483,9 +1483,10 @@ func _run_checkpoint_api() -> void:
 		f["have"] = 0.0
 	# E4 step 3: the fixture's backlog is 3000x the parent's (18000 -> 54M, as realm.json K), so it is scaled back
 	bs["backlog"] = float(bs["backlog"]) / 3000.0
-	# E4 step 9 (option B): the seed's odds are the win odds (view_vei's); the parent's were the strain, set back here
-	t.ok(float(bs["odds"]) == float(m.view_vei()["odds"]) and float(bs["odds"]) != m.realm.strain(),
-		"pre_vei's boss seed carries view_vei's win odds (%.4f), not the strain (%.4f)" % [float(bs["odds"]), m.realm.strain()])
+	# E4 step 9 (option B): the seed's odds are the win odds (view_vei's readiness since Phase I P3's odds split, not its
+	# first-attempt odds); the parent's were the strain, set back here
+	t.ok(float(bs["odds"]) == float(m.view_vei()["readiness"]) and float(bs["odds"]) != m.realm.strain(),
+		"pre_vei's boss seed carries view_vei's readiness (%.4f), not the strain (%.4f)" % [float(bs["odds"]), m.realm.strain()])
 	bs["odds"] = m.realm.strain()
 	t.ok(ones and JSON.stringify(bs).sha256_text() == parent_sha,
 		"pre_vei's boss seed: filled_slots 1 on each of its 4 party entries, and otherwise the parent's (35ceaa1), but for its live fronts' need and have (E3-5)")

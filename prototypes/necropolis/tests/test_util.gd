@@ -27,5 +27,15 @@ static func load_json(path: String) -> Dictionary:
 	return parsed if parsed is Dictionary else {}
 
 
+## The configs the unit suites build on: res://configs with the Grow stance's default off (Phase I P3), so a new game
+## in a suite that tests another feature (an upgrade, the queue's walk, a contract's success path) isn't changed by
+## Grow's starts. test_grow turns it on; the autoplay profiles and the game run the shipped default (shipped_configs).
 static func configs() -> Dictionary:
+	var c := GameState.load_configs("res://configs")
+	c["economy"]["stance"]["grow"]["default_on"] = false
+	return c
+
+
+## res://configs as shipped (the Grow stance on in a new game): the autoplayer's and test_grow's default check.
+static func shipped_configs() -> Dictionary:
 	return GameState.load_configs("res://configs")

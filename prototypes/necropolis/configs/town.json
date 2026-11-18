@@ -328,18 +328,19 @@
     },
     "job_labels": {"haul": "Haul", "mill": "Mill", "stall": "Stall", "forge": "Forge", "pit": "Pit", "tend": "Tend", "build": "Build"},
     "job_site_text": {"build": "construction sites", "none": "no building yet"},
-    "stance_labels": {"vigil": "Vigil", "harvest": "Harvest", "thrift": "Thrift", "muster": "Muster", "hearth": "Hearth"},
+    "stance_labels": {"vigil": "Vigil", "harvest": "Harvest", "thrift": "Thrift", "muster": "Muster", "hearth": "Hearth", "grow": "Grow"},
     "stance_rules": {
       "vigil": "While Relish is away or dead, tend jumps to the top of the ladder.",
       "harvest": "While bodies are under 30% of the cap, haul jumps to the top.",
       "thrift": "Buildings over a gold upkeep threshold idle when gold income is below upkeep.",
       "muster": "Idle workers muster to WAR at once (no idle cap).",
-      "hearth": "Stalls and the inn jump to the top while morale is under 0.5."
+      "hearth": "Stalls and the inn jump to the top while morale is under 0.5.",
+      "grow": "After your first build, upgrades what stands, one at a time, whenever your queue isn't saving for something and your gold income pays the upkeep. Never spends relics. Takes no slot."
     },
     "stance_jobs": {"vigil": ["tend"], "harvest": ["haul"], "thrift": "idled", "muster": ["idle"], "hearth": ["stall"]},
     "stance_trade": {
       "vigil": {"when": "relish_away"}, "harvest": {"when": "bodies_under"}, "thrift": {"when": "gold_under_upkeep"},
-      "muster": {"when": "idle"}, "hearth": {"when": "morale_under"}
+      "muster": {"when": "idle"}, "hearth": {"when": "morale_under"}, "grow": {"when": "first_build"}
     },
     "behaviour": {
       "summary": "{total} workers, {idle} idle",
@@ -378,6 +379,13 @@
       "now_morale_live": "morale {v}",
       "now_gold": "gold in {in} vs upkeep {out}",
       "now_idle": "{n} idle at the crypt",
+      "now_grow_wait": "no build finished yet",
+      "now_grow": "your first build is done",
+      "trade_grow": "upgrades {name} to level {level} in {eta}",
+      "trade_grow_now": "upgrades {name} to level {level} now",
+      "trade_grow_held": "{name} level {level} waits: your queue is saving for its next build",
+      "trade_grow_busy": "{name} level {level} waits for the build under way",
+      "trade_grow_none": "nothing it can upgrade now",
       "refusals": {
         "unknown_job": "no such job", "duplicate_job": "a job is listed twice", "missing_job": "a job is missing from the order",
         "unknown_lot": "no such lot", "empty_lot": "nothing is built there", "no_jobs": "that building has no job slots",

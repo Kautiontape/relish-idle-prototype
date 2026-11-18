@@ -748,7 +748,11 @@ func _gap_events() -> void:
 ## values are printed, not asserted. The feed saws with the convoy's loads (fresh's mint 9.4 to 12.8 a cycle), so
 ## one instant compares two phases: fresh at 12 h read 36.2% apart on a minted total 0.0015% apart and 600 s means
 ## 0.05% apart, and before the claim it passed at 12 h on its phase (0.84%) and read 36% apart 600 s later.
-static func accuracy(c: Dictionary, js: String, seconds: float, tol: float, window_s := 0.0) -> Dictionary:
+## `windowed` (Phase I P3) is the list the window judges, WINDOWED unless a case passes its own: only the 12 h
+## pre_vei Grow-on case (catchup_accuracy._grow_on) adds bone_net, where Grow levels the Bone Mill and its
+## convoy-fed bone net saws. Every other start keeps WINDOWED, so its bone_net is still judged at the endpoint.
+## `window.saw` holds each windowed rate's saw ({cycle_s, cycle_s_cu, swing}; _window_means), for the window's premise.
+static func accuracy(c: Dictionary, js: String, seconds: float, tol: float, window_s := 0.0, windowed: Array = WINDOWED) -> Dictionary:
 	var dir := "user://test_catchup_acc_%d" % OS.get_process_id()
 	DirAccess.make_dir_recursive_absolute(dir)
 	var src := GameState.new(c)
@@ -769,71 +773,175 @@ static func accuracy(c: Dictionary, js: String, seconds: float, tol: float, wind
 	live.cmd_load("acc")
 	live.drain_events()
 	live.tick(seconds)
-	var out := compare(cu, cu.catchup_events(), live, live.drain_events(), tol, WINDOWED if window_s > 0.0 else [])
+	var cu_evs := cu.catchup_events()
+	var live_evs := live.drain_events()
+	var out := compare(cu, cu_evs, live, live_evs, tol, windowed if window_s > 0.0 else [])
+	out["grow_started"] = [grow_starts(cu_evs), grow_starts(live_evs)]  # (Phase I P3) caught up, live
+	out["t0"] = src.t
+	out["grow_bound_s"] = grow_bound_s(cu)
 	if window_s > 0.0:
 		var conv = load("res://tests/slow/convergence.gd")
-		var ma := _window_means(cu, window_s)
-		var mb := _window_means(live, window_s)
+		var ma := _window_means(cu, window_s, windowed)
+		var mb := _window_means(live, window_s, windowed)
 		var rfl := 0.01 * maxf(1.0, float(mb["mint"]))
 		var w := 0.0
 		var wparts: Array = []
-		for k in WINDOWED:
+		var saw := {}
+		var sparts: Array = []
+		for k in windowed:
 			var e := absf(float(ma[k]) - float(mb[k])) / maxf(absf(float(mb[k])), rfl)
 			w = maxf(w, e)
 			wparts.append("%s %s" % [k, conv._pct(e)])
+			saw[k] = {"cycle_s": float(mb["_saw"][k][0]), "swing": float(mb["_saw"][k][1]), "cycle_s_cu": float(ma["_saw"][k][0])}
+			if k != "mint" and not WINDOWED.has(k):
+				sparts.append("; the live %s's saw %s, a cycle of %.1f s (caught up %.1f s)" % [k, conv._pct(float(saw[k]["swing"])),
+					float(saw[k]["cycle_s"]), float(saw[k]["cycle_s_cu"])])
 		out["window"] = {"s": window_s, "worst": w, "cycle_s": float(mb["_cycle_s"]), "swing": float(mb["_swing"]),
-			"cycle_s_cu": float(ma["_cycle_s"])}
+			"cycle_s_cu": float(ma["_cycle_s"]), "saw": saw}
 		out["worst"] = maxf(float(out["worst"]), w)
 		out["ok"] = bool(out["ok"]) and w <= tol
-		out["lines"] = str(out["lines"]) + "; %s over the next %.0f s live (asserted; the endpoint's are printed above): %s; the live mint's saw %s over the window, a cycle of %.1f s (caught up %.1f s)" % [
-			"/".join(PackedStringArray(WINDOWED)), window_s, ", ".join(PackedStringArray(wparts)), conv._pct(float(mb["_swing"])),
-			float(mb["_cycle_s"]), float(ma["_cycle_s"])]
+		out["lines"] = str(out["lines"]) + "; %s over the next %.0f s live (asserted; the endpoint's are printed above): %s; the live mint's saw %s over the window, a cycle of %.1f s (caught up %.1f s)%s" % [
+			"/".join(PackedStringArray(windowed)), window_s, ", ".join(PackedStringArray(wparts)), conv._pct(float(mb["_swing"])),
+			float(mb["_cycle_s"]), float(ma["_cycle_s"]), "".join(PackedStringArray(sparts))]
 	DirAccess.remove_absolute(dir + "/acc.json")
 	DirAccess.remove_absolute(dir)
 	return out
 
 
-## The rates the pits' feed drives (accuracy()'s window).
+## The rates the pits' feed drives (accuracy()'s window, unless a case passes its own list).
 const WINDOWED := ["mint", "war", "flood", "worker_in"]
 
 
-## Each WINDOWED rate's mean over `window_s` more of live play at 0.5 s.
-static func _window_means(s: GameState, window_s: float) -> Dictionary:
+## Phase I P3 (the run's manager's ruling 1 on handoff 4: Grow acts during catch-up, so the accuracy, I1, away and
+## determinism checks run a Grow-on case): the Grow stance's starts in `evs`, in order, as [building_id, lot_id, level, t].
+static func grow_starts(evs: Array) -> Array:
+	var out: Array = []
+	for e in evs:
+		if e["type"] == "grow_started":
+			out.append([str(e["building_id"]), str(e["lot_id"]), int(e["level"]), float(e["t"])])
+	return out
+
+
+## "" when `a`'s Grow starts (grow_starts; the caught-up or closed run's) are `b`'s (the live run's) upgrades in the same
+## order, each started within max(`step_bound_s`, `tol` × its wait in `b`) of `b`'s, the wait counted from `b`'s previous
+## start (from `t0`, the runs' start, for the first); else what differs. From the same stocks, catch-up starts one within
+## a substep of live play (its clip at grow_start_s; test_grow's _catchup_on_time, with its revert proof). Over a long
+## run two things move it: Grow arms at a stance beat, which catch-up reads at its step as every stance (IDLE §4: hold_s
+## at least the longest step), so `step_bound_s` is compare()'s outcomes' bound (grow_bound_s; the I1 case's Market L2
+## here: 8.5 s at 10 s steps); and the two runs' stocks drift apart within idle.catchup_tol, so the moment they cover a
+## price drifts with them, by up to `tol` of the wait (pre_vei's pit L2 here: 4.7 s on a 2 434 s wait, its steps 1.7 s).
+static func grow_same(a: Array, b: Array, tol: float, t0: float, step_bound_s: float) -> String:
+	if a.size() != b.size():
+		return "%d starts against %d" % [a.size(), b.size()]
+	var prev := t0
+	for i in a.size():
+		if a[i].slice(0, 3) != b[i].slice(0, 3):
+			return "start %d: %s against %s" % [i, str(a[i]), str(b[i])]
+		var bound := maxf(step_bound_s, tol * (float(b[i][3]) - prev))
+		if absf(float(a[i][3]) - float(b[i][3])) > bound:
+			return "start %d (%s %s L%d) at %.3f against %.3f s, over %.2f s apart" % [i, a[i][0], a[i][1], a[i][2], a[i][3], b[i][3], bound]
+		prev = float(b[i][3])
+	return ""
+
+
+## compare()'s outcomes' time bound for the caught-up run `cu`: convergence.gd's TIME_BOUND_STEPS × its longest step
+## (its dt or dt_long).
+static func grow_bound_s(cu: GameState) -> float:
+	var conv = load("res://tests/slow/convergence.gd")
+	return float(conv.TIME_BOUND_STEPS) * maxf(cu._catchup.dt, cu._catchup.dt_long)
+
+
+## The worst |Δt| of two runs' matched Grow starts (grow_starts), for the report.
+static func grow_worst_dt(a: Array, b: Array) -> float:
+	var w := 0.0
+	for i in mini(a.size(), b.size()):
+		w = maxf(w, absf(float(a[i][3]) - float(b[i][3])))
+	return w
+
+
+## A save JSON (convergence.start_json's) with the Grow stance turned on: a fixture's save predates v14, so it loads with
+## Grow off (§9.1), and a Grow-on case turns it on as a player would.
+static func grow_on_json(js: String) -> String:
+	var d: Dictionary = JSON.parse_string(js)
+	if not (d["stances"]["on"] as Array).has("grow"):
+		(d["stances"]["on"] as Array).append("grow")
+	return JSON.stringify(d)
+
+
+## pre_vei's gold net is negative (0.60 g/s of income against a 1.07 g/s bill: its one Market at L2 against City-tier
+## upkeep, a fixture artifact), so Grow's upkeep test (the run's manager's ruling 1 on handoff 5; BuildRules.grow_target)
+## passes over every pick there and Grow starts nothing until the town sheds. The pre_vei Grow-on cases run `c` with
+## economy.json market.price doubled: 1.20 g/s of income, a net of +0.13 g/s, so Grow spends the stock on the living's
+## levels as it did before the test. A copy; `c` is unchanged.
+static func grow_price(c: Dictionary) -> Dictionary:
+	var g: Dictionary = c.duplicate(true)
+	g["economy"]["market"]["price"] = float(g["economy"]["market"]["price"]) * 2.0
+	return g
+
+
+## The Grow-on I1 script: the default I1's valve and House (whose finish arms Grow), the bone store filled to its cap
+## so Grow has picks: the Market's L2 at once, then the House's levels on gold waits, on a smooth income. (A Bone Mill
+## first, the shipped path, has picks too, but its convoy-fed mill saws bone_net 37.5% and the mint 16.8% at a 30 min
+## endpoint, which the I1 compare reads unwindowed.)
+static func grow_script(s: GameState) -> void:
+	s.cmd_set_valve(0.5, 0.35, 0.15)
+	s.cmd_build("house", "lot-05")
+	s.cmd_debug_grant({"bone": s.town_sim.bone_cap() - s.town_sim.bone})
+
+
+## Each rate in `keys` (accuracy()'s `windowed`; the mint is always sampled) has its mean over `window_s` more of live
+## play at 0.5 s; `_saw` holds each one's [cycle_s, swing] (_saw), `_cycle_s` and `_swing` the mint's.
+static func _window_means(s: GameState, window_s: float, keys: Array = WINDOWED) -> Dictionary:
 	var sum := {}
-	for k in WINDOWED:
+	var vals := {}
+	var ks: Array = keys.duplicate()
+	if not ks.has("mint"):
+		ks.append("mint")
+	for k in ks:
 		sum[k] = 0.0
+		vals[k] = []
 	var n := maxi(1, int(round(window_s / 0.5)))
-	var mint: Array[float] = []
 	for i in n:
 		s.tick(0.5)
 		var r := _rates(s)
-		mint.append(float(r["mint"]))
-		for k in WINDOWED:
+		for k in ks:
 			sum[k] = float(sum[k]) + float(r[k])
-	for k in WINDOWED:
+			(vals[k] as Array).append(float(r[k]))
+	var saw := {}
+	for k in ks:
 		sum[k] = float(sum[k]) / n
-	# the mint's saw over the window (E4 review item 4): `_cycle_s` the window over its upward crossings of the window's
-	# mean (a crossing counts once it has been under the mean by a quarter of the swing, so substep jitter doesn't),
-	# INF with none; `_swing` (max − min) ÷ the mean. A mean over the window is off by at most about swing × cycle ÷
-	# window of the mean, so the window must hold many cycles
-	var mu := float(sum["mint"])
+		saw[k] = _saw(vals[k], float(sum[k]), window_s)
+	sum["_saw"] = saw
+	sum["_cycle_s"] = float(saw["mint"][0])
+	sum["_swing"] = float(saw["mint"][1])
+	return sum
+
+
+## A rate's saw over the window (E4 review item 4; Phase I P3 for each windowed rate, not the mint alone), as
+## [cycle_s, swing]: cycle_s the window over its upward crossings of the window's mean `mu`, INF with none; swing
+## (max − min) ÷ the mean. A mean over the window is off by at most about swing × cycle ÷ window of the mean, so the
+## window must hold many cycles. A crossing is a Schmitt trigger's (so substep jitter doesn't count): armed under the
+## mean by a quarter of the low side (mu − min), counted over it by a quarter of the high side (max − mu). Phase I P3: a
+## pulse train sits at its floor with short spikes (the 12 h Grow-on pre_vei on the ramp: the mint 79.1 with spikes to
+## 118.4 around 88.8, bone_net 0 with pulses of 0.6 around 0.15, each 30 s bucket's mean flat), and its floor is above
+## the old arm line (the mean less a quarter of the whole swing), which counted none: INF.
+static func _saw(vals: Array, mu: float, window_s: float) -> Array:
 	var lo := INF
 	var hi := -INF
-	for v in mint:
-		lo = minf(lo, v)
-		hi = maxf(hi, v)
-	var band := 0.25 * (hi - lo)
+	for v in vals:
+		lo = minf(lo, float(v))
+		hi = maxf(hi, float(v))
+	var arm := mu - 0.25 * (mu - lo)
+	var fire := mu + 0.25 * (hi - mu)
 	var ups := 0
 	var armed := false
-	for v in mint:
-		if v < mu - band:
+	for v in vals:
+		if float(v) < arm:
 			armed = true
-		elif armed and v >= mu:
+		elif armed and float(v) > fire:
 			ups += 1
 			armed = false
-	sum["_cycle_s"] = window_s / ups if ups > 0 else INF
-	sum["_swing"] = (hi - lo) / maxf(absf(mu), 1e-9)
-	return sum
+	return [window_s / ups if ups > 0 else INF, (hi - lo) / maxf(absf(mu), 1e-9)]
 
 
 ## Two runs of the same span compared (accuracy(), the I1 helper; also returns `late`, the time-bound misses,
@@ -945,6 +1053,24 @@ func _accuracy_2h() -> void:
 		print("  [catchup] %s, 2 h caught up vs live: %s" % [st, r["lines"]])
 		t.ok(r["ok"], "%s: 2 h caught up against 2 h live at 0.5 s: within %s, held forts ±1, Covington identical, the same outcomes, both ledgers balanced: %s" % [
 			st, conv._pct(tol), r["lines"]])
+	# Phase I P3 (the run's manager's ruling 1 on handoff 4): a Grow-on case. pre_vei with Grow turned on (its save loads
+	# with it off): 17 Grow starts at this tree (the mill's and the charnel's L2 at once, then the living's
+	# levels and the Inn's and the pit's on waits), so the catch-up's clip at each pick's time (grow_start_s) is exercised;
+	# each start within the outcomes' bound or tol of its wait (grow_same). pre_vei's feed saws (catchup_accuracy: 36.6% on an
+	# 8.5 s cycle), so its mint and split are judged on their 600 s means, as there: unwindowed, its 2 h endpoint passed on its
+	# phase and read the mint 44.9% apart with the Grow clip reverted, while every Grow start stayed within 1.3 s. The clip's
+	# revert proof is the I1 case below (and test_grow's). At market.price ×2 (grow_price: pre_vei's own net is negative,
+	# so Grow's upkeep test would hold every pick), over 7 000 s, not 2 h: with the doubled price Grow's last levels wait
+	# on bone, and at 7 200 s the window ends 28 s after the second pit's L2 spent the bone store (305), where the stock,
+	# 4 bone, reads that start's 1.3 s drift × 0.40 bone/s as 8% (0.32 bone). At 7 000 s the store is about 236 bone.
+	var rg := accuracy(grow_price(c), grow_on_json(conv.start_json("pre_vei")), 7000.0, tol, 600.0)
+	var gs2: Array = rg["grow_started"]
+	var gd := grow_same(gs2[0], gs2[1], tol, float(rg["t0"]), float(rg["grow_bound_s"]))
+	print("  [catchup] pre_vei with Grow on, 7 000 s caught up vs live: %s; Grow started %d caught up, %d live, the worst %.3f s apart" % [rg["lines"],
+		(gs2[0] as Array).size(), (gs2[1] as Array).size(), grow_worst_dt(gs2[0], gs2[1])])
+	t.ok(rg["ok"] and (gs2[1] as Array).size() >= 10 and gd == "",
+		"pre_vei with Grow on: 7 000 s caught up against live within %s, the same outcomes, and the same %d Grow starts in order, each within the outcomes' bound or %s of its wait (%s): %s" % [
+		conv._pct(tol), (gs2[1] as Array).size(), conv._pct(tol), gd if gd != "" else "the worst %.3f s" % grow_worst_dt(gs2[0], gs2[1]), rg["lines"]])
 
 
 ## The outcomes' time bound on several retakes (the run's manager: the slow suites only ever met Old Sluice's):
@@ -1106,6 +1232,9 @@ static func i1(c: Dictionary, start: String, script: Callable, seconds: float, f
 		open.tick(frame_dt, cap)
 		evs.append_array(open.drain_events())
 	var out := compare(closed, closed.catchup_events(), open, evs, tol)
+	out["grow_started"] = [grow_starts(closed.catchup_events()), grow_starts(evs)]  # (Phase I P3) closed, open
+	out["t0"] = s.t
+	out["grow_bound_s"] = grow_bound_s(closed)
 	out["open_t"] = open.t
 	out["closed_t"] = closed.t
 	out["owners"] = [{}, {}]  # each run's village owners by id (closed, open)
@@ -1133,6 +1262,18 @@ func _i1() -> void:
 	print("  [catchup] I1, a new game's session left 30 min, closed vs open: %s" % r["lines"])
 	t.ok(r["ok"] and float(r["open_t"]) == float(r["closed_t"]), "I1: closed for 30 min equals open for 30 min within %.0f%%, the same outcomes: %s" % [
 		tol * 100.0, r["lines"]])
+	# Phase I P3 (the run's manager's ruling 1 on handoff 4): a new game with Grow on by default (grow_script: the House's
+	# finish arms it, the bone store full), left 30 min at 10 s steps: Grow's starts on gold waits inside it, each within
+	# the outcomes' bound or tol of its wait (grow_same). Revert proof: Catchup.next_event_s without its grow_start_s clip,
+	# 1 FAIL here (the House's L3 started 23 s after live's, at a step's end, over the 20 s bound)
+	var cg := cfgs({"economy.idle.catchup_max_steps": 180, "economy.stance.grow.default_on": true})
+	var rg := i1(cg, "new", grow_script, 1800.0, 0.25, tol)
+	var gs2: Array = rg["grow_started"]
+	var gd := grow_same(gs2[0], gs2[1], tol, float(rg["t0"]), float(rg["grow_bound_s"]))
+	print("  [catchup] I1 with Grow on, 30 min closed vs open: %s; Grow started %s closed, %s open" % [rg["lines"], str(gs2[0]), str(gs2[1])])
+	t.ok(rg["ok"] and float(rg["open_t"]) == float(rg["closed_t"]) and (gs2[1] as Array).size() >= 2 and gd == "",
+		"I1 with Grow on: closed for 30 min equals open within %.0f%%, and the same %d Grow starts, each within the outcomes' bound or %s of its wait (%s): %s" % [
+		tol * 100.0, (gs2[1] as Array).size(), "%.0f%%" % (tol * 100.0), gd if gd != "" else "the worst %.3f s" % grow_worst_dt(gs2[0], gs2[1]), rg["lines"]])
 
 
 ## I1's field (E4): a catch-up's village owners read the field as live play does, the step's in-flight
@@ -1158,6 +1299,16 @@ func _determinism() -> void:
 	var b := _away(c, s, "det", 3600)
 	t.ok(a.to_dict() == b.to_dict() and a.catchup_events() == b.catchup_events() and a.rng.state == b.rng.state,
 		"the same save and 3600 s away: the same to_dict(), events and RNG twice")
+	# Phase I P3 (the run's manager's ruling 1 on handoff 4): with Grow on, pre_vei (Grow turned on before the save), whose
+	# hour away holds over a dozen Grow starts (at market.price ×2: grow_price)
+	var cp := grow_price(c)
+	var sg := _start(cp, "pre_vei")
+	sg.cmd_set_stance("grow", true)
+	var ga := _away(cp, sg, "detg", 3600)
+	var gb := _away(cp, sg, "detg", 3600)
+	var ng := grow_starts(ga.catchup_events()).size()
+	t.ok(ga.to_dict() == gb.to_dict() and ga.catchup_events() == gb.catchup_events() and ga.rng.state == gb.rng.state and ng >= 5,
+		"with Grow on: the same save and 3600 s away, %d Grow starts in it: the same to_dict(), events and RNG twice" % ng)
 
 
 ## IDLE §4: stance.hold_s must be at least catch-up's longest step in config, the larger of

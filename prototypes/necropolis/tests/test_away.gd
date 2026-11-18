@@ -39,6 +39,7 @@ func run() -> int:
 	t.suite("away")
 	DirAccess.make_dir_recursive_absolute(_dir)
 	_checkpoint_load()
+	_checkpoint_revive()
 	_checkpoint_chunked()
 	_end_exceptions()
 	_no_checkpoint()
@@ -50,8 +51,166 @@ func run() -> int:
 	_walk_home_arrival()
 	_arrival_same_step()
 	_report()
+	_never_head_line()
+	_starved_hold()
+	_grow_report()
 	_cleanup()
 	return t.failures
+
+
+## Phase I P3 (the run's manager's ruling 1 on handoff 4: Grow acts during catch-up, so the away checks run a Grow-on
+## case): pre_vei with Grow turned on (its save loads with it off), loaded 2 h on. Grow starts over a dozen upgrades in
+## the catch-up; the report's build-finished line is every building_done of it in order, Grow's among them, with
+## `lots` (api-request #19) the lots in the names' order, and every Grow start that finished inside the window is on it at
+## its level. At market.price ×2: pre_vei's own gold net is negative (0.60 against 1.07 g/s), so Grow's upkeep test would
+## pass over every pick (test_catchup.grow_price).
+func _grow_report() -> void:
+	var c := cfgs()
+	c["economy"]["market"]["price"] = float(c["economy"]["market"]["price"]) * 2.0
+	var s := _mk(c)
+	s.cmd_debug_load_fixture("pre_vei")
+	t.ok(s.cmd_set_stance("grow", true)["ok"], "(setup) Grow on in pre_vei")
+	s.drain_events()
+	var n := _away(c, s, "grow", 7200)
+	var evs := n.catchup_events()
+	var done_lots: Array = []
+	var done_at := {}  # "lot/level" -> true for each building_done
+	for e in evs:
+		if e["type"] == "building_done":
+			done_lots.append(str(e["lot_id"]))
+			done_at["%s/%d" % [e["lot_id"], int(e["level"])]] = true
+	var grows := 0
+	var grow_done := 0
+	for e in evs:
+		if e["type"] == "grow_started":
+			grows += 1
+			if done_at.has("%s/%d" % [e["lot_id"], int(e["level"])]):
+				grow_done += 1
+	var rep := n.view_away()
+	var line: Dictionary = {}
+	for l in rep["gains"]:
+		if l["kind"] == "build" and l.has("lots"):
+			line = l
+	var count := int(str(line.get("text", "0")).get_slice(" ", 0)) if not line.is_empty() else 0
+	print("  [away] pre_vei with Grow on, 2 h away: %d Grow starts, %d of them finished; builds line: %s; ready: %s" % [grows, grow_done,
+		str(line.get("text", "")), str(rep["ready"].map(func(l): return l["text"]))])
+	t.ok(grows >= 10 and grow_done >= 10 and not line.is_empty() and line["lots"] == done_lots and count == done_lots.size(),
+		"with Grow on: the report's build-finished line holds every finish of the catch-up in order (%d), Grow's %d among them, its lots in the names' order" % [
+		done_lots.size(), grow_done])
+
+
+## Phase I P3, ruling 3's hold timeout (the run's manager's option (iv) of 2026-11-18; STATE-API §10 A14): a staffed
+## mill starved of input. midgame_2flips as shipped: its mill staffed, its pits eating every body (pits_first: rot
+## 0.29 bodies/s against the pits' 0.6, no haul), bone at 50, the mill's level 2 (190 bone) queued and a House (which
+## 50 bone pays) behind it, stepped until the head first reads dry (its never_since set), then saved. The head reads
+## −1.0 with its producer staffed, so it holds the queue for queue.never_hold_s, then is skipped like the unstaffed
+## case: loaded 1, 4, 8 and 24 h on, the House started at never_since + the hold, and the mill's level 2 stays skipped
+## with A1's pits_first line (afford_starved_last_fmt; no move down, it is passed). The start is the same caught up in
+## one go, in chunks and live (within a substep: Catchup.build_start_s clips at the hold's end). Revert proofs:
+## head_never without held_out (nothing starts in 24 h); build_start_s without the hold clip (the one-go start
+## lands on the next 10 s step after the hold's end, so the live check fails).
+func _starved_hold() -> void:
+	var c := TestUtil.configs()
+	var rep: Dictionary = c["economy"]["idle"]["report"]
+	var hold := float(c["economy"]["queue"]["never_hold_s"])
+	var s := _mk(c)
+	s.cmd_debug_load_fixture("midgame_2flips")
+	s.tick(0.5)
+	var mill := ""
+	for lot_id in s.town_sim.buildings:
+		if str(s.town_sim.buildings[lot_id]["building_id"]) == "bone_mill":
+			mill = str(lot_id)
+	s.town_sim.bone = 50.0
+	t.ok(mill != "" and s.cmd_queue_build("", mill)["ok"] and s.cmd_queue_build("house", str(BuildRules.free_lots(s, 1)[0]))["ok"],
+		"(setup) midgame_2flips: the mill's level 2 on 50 bone, a House behind it")
+	for i in 120:
+		if s.build_queue[0].has("never_since"):
+			break
+		s.tick(s.substep_s())
+	var since := float(s.build_queue[0].get("never_since", -1.0))
+	var r0: Dictionary = s.view_town()["queue"][0]
+	t.ok(since >= 0.0 and r0["status"] == "waiting_funds" and r0["starved"] == "pits_first" and float((s.town_sim.staffing["jobs"]["mill"] as Dictionary)["staffed"]) > 0.0,
+		"(setup) the mill staffed, its pits first: the head reads dry and holds, never_since %.1f" % since)
+	s.drain_events()
+	var starts := {}
+	for away in [3600, 14400, 28800, 86400]:
+		var n := _away(c, s, "hold", away)
+		var st: Array = n.catchup_events().filter(func(e): return e["type"] == "queue_started")
+		var rows: Array = n.view_town()["queue"]
+		var row: Dictionary = rows[0] if rows.size() == 1 else {}
+		var at := float(st[0]["t"]) if st.size() == 1 else -1.0
+		starts[away] = at
+		var want := str(rep["afford_starved_last_fmt"]).format({"name": StateViews._building_name(n, rep, "bone_mill", int(row.get("level", 0))),
+			"short": StateViews._fmt_count(rep, ceilf(float((row.get("short", {"bone": 0.0}) as Dictionary)["bone"]))), "rate": StateViews._fmt_rate(rep, 0.0)})
+		var l := _find(n.view_away(), "ready", "queue")
+		print("  [away] the starved mill, %d h: the House at hold + %.6f s; ready %s" % [away / 3600, at - since - hold, str(l.get("text", ""))])
+		t.ok(st.size() == 1 and st[0]["building_id"] == "house" and at >= since + hold and at <= since + hold + s.substep_s()
+			and BuildRules.never_row(row) and row["building_id"] == "bone_mill" and row["starved"] == "pits_first" and l == {"text": want, "kind": "queue", "target": "queue"},
+			"%d h away: the House started at the hold's end (%.3f s after never_since), the mill's level 2 is skipped with the pits_first line: %s" % [
+			away / 3600, at - since, str(l.get("text", ""))])
+	var ch := _away(c, s, "hold", 3600, true)
+	var frames := 0
+	while ch.catching_up() and frames < 5000:
+		ch.tick(1.0 / 60.0, ch.max_substeps_per_frame())
+		frames += 1
+	var cst: Array = ch.catchup_events().filter(func(e): return e["type"] == "queue_started")
+	var live := _away(c, s, "hold", 0)
+	var lt := -1.0
+	for i in int((hold + 30.0) / live.substep_s()):
+		live.tick(live.substep_s())
+		var ls: Array = live.drain_events().filter(func(e): return e["type"] == "queue_started")
+		if not ls.is_empty():
+			lt = float(ls[0]["t"])
+			break
+	var one := float(starts[3600])
+	t.ok(cst.size() == 1 and absf(float(cst[0]["t"]) - one) <= 1e-6 and lt >= 0.0 and absf(lt - one) <= live.substep_s(),
+		"the hold counts the same caught up in one go (%.6f), in chunks (%.6f) and live (%.6f), within a substep" % [
+		one - since, (float(cst[0]["t"]) if cst.size() == 1 else -1.0) - since, lt - since])
+
+
+## Phase I P3, ruling 3: a head with no path to its funds is skipped (BuildRules.head_never), and the away report still
+## names it with its store's rate and lever, the never form without the move down: "Raising Pit can't be afforded at the
+## current income of 0/s bone: build a Bone Mill". Revert proof: without away_report's never_row branch, no queue line.
+func _never_head_line() -> void:
+	var c := TestUtil.configs()
+	var s := _mk(c)
+	s.cmd_new_game(1)
+	s.tick(s.substep_s())
+	s.town_sim.gold = 100.0
+	s.town_sim.bone = 30.0
+	t.ok(s.cmd_queue_build("raising_pit", "lot-05")["ok"], "(setup) a Raising Pit queued with no mill")
+	var n := _away(c, s, "never_head", 3600)
+	var rep: Dictionary = c["economy"]["idle"]["report"]
+	var want := str(rep["afford_never_last_fmt"]).format({"name": "Raising Pit", "store": str(rep["afford_stores"]["bone"]),
+		"rate": "0/s", "raise": str(rep["afford_raise"]["bone"])})
+	var texts: Array = (n.view_away()["ready"] as Array).map(func(l): return str(l["text"]))
+	t.ok(n.build_queue.size() == 1 and BuildRules.never_row(n.view_town()["queue"][0]) and texts.has(want),
+		"after 1 h away the Pit is still skipped, and the report reads \"%s\": %s" % [want, str(texts)])
+	# Phase I P3's housekeeping: with a Bone Mill under construction (level 0) the lever is afford_raise_building's,
+	# not "build a Bone Mill" (one is started). Revert proof: without afford_text's _producer_constructing branch the
+	# line reads afford_raise's words and this fails
+	var m := _mk(c)
+	m.cmd_new_game(1)
+	m.tick(m.substep_s())
+	m.town_sim.gold = 100.0
+	m.town_sim.bone = 30.0
+	t.ok(m.cmd_queue_build("bone_mill", "lot-06")["ok"] and m.cmd_queue_build("raising_pit", "lot-05")["ok"],
+		"(setup) a Bone Mill (gold only), then a Raising Pit")
+	for i in 30:
+		m.tick(m.substep_s())
+	var mill_lot: Dictionary = m.town_sim.buildings.get("lot-06", {})
+	var prow := {}
+	for r in m.view_town()["queue"]:
+		if str(r["building_id"]) == "raising_pit":
+			prow = r
+	t.ok(str(mill_lot.get("state", "")) == "constructing" and int(mill_lot.get("level", -1)) == 0 and not prow.is_empty()
+		and float(prow["affordable_in_s"]) < 0.0,
+		"(setup) the Mill is under construction at level 0 and the Pit can't be afforded: %s, %s" % [str(mill_lot), str(prow)])
+	var line := StateViews.afford_text(m, rep, prow, "bone", BuildRules.queue_net(m), false)
+	var want_b := str(rep["afford_never_last_fmt"]).format({"name": "Raising Pit", "store": str(rep["afford_stores"]["bone"]),
+		"rate": "0/s", "raise": str(rep["afford_raise_building"]["bone"])})
+	t.ok(line == want_b and not line.contains(str(rep["afford_raise"]["bone"])),
+		"a Bone Mill under construction: \"%s\" (want \"%s\")" % [line, want_b])
 
 
 # ------------------------------------------------------------------------------ helpers ----
@@ -197,6 +356,45 @@ func _checkpoint_load() -> void:
 		and not m.catchup_events().any(func(e): return e["type"] == "loot_banked"),
 		"300 s away: loot_banked is queued at the save's t (before the catch-up), not collected: %s" % str(_types(q)))
 	t.ok(m.t == float(m.get_meta("saved_t")) + 300.0 and m.view_relish()["state"] == "at_fort", "then the catch-up ran its 300 s with Relish at_fort")
+
+
+## api-request #20 (dungeon-i; Phase I P3): the checkpoint carries the run's phylactery revives. A raid opened with 2
+## charges checkpoints LOOT_B with one revive; the save's pending_retreat carries revived_in_place 1, and the load's end
+## of the run spends that charge (1 left), as the live retreat with the revive does. Out of bounds (−1, above the
+## seed's min(charges, max_per_dungeon)) is `invalid`; a checkpoint with none saves as before (no key); a save whose
+## count is above its charges is corrupt. Revert proof: end_open passing 0 revives (the charge comes back: 2 left).
+func _checkpoint_revive() -> void:
+	var c := cfgs()
+	var s := _mk(c)
+	s.cmd_new_game(1)
+	s.tick(2.0)
+	s.cmd_debug_set_state({"relish_at": "old-sluice"})
+	s.cmd_debug_grant({"big_undead": 2})
+	var bus: Array = s.view_big_undead()["big_undead"]
+	s.cmd_set_party([bus[0]["uid"], bus[1]["uid"]])
+	s._phylactery_charges = 2
+	var b := s.cmd_begin_dungeon("old-sluice")
+	var sd: Dictionary = b.get("seed", {}) if b.has("seed") and b["seed"] is Dictionary else s.view_dungeon_seed("old-sluice")
+	var cap := StateRuns.revive_cap(sd)
+	t.ok(b["ok"] and cap >= 1, "(setup) a raid at Old Sluice with 2 charges (revive cap %d)" % cap)
+	var run_id := int(s.run["run_id"])
+	t.ok(s.cmd_run_checkpoint(run_id, LOOT_B, "retreated", -1)["reason"] == "invalid" and s.cmd_run_checkpoint(run_id, LOOT_B, "retreated", cap + 1)["reason"] == "invalid",
+		"a revive count below 0 or above the seed's cap (%d) is invalid" % cap)
+	t.ok(s.cmd_run_checkpoint(run_id, LOOT_B)["ok"] and not (s.to_dict()["pending_retreat"] as Dictionary).has("revived_in_place"),
+		"a checkpoint with no revive saves pending_retreat as before (no revived_in_place)")
+	t.ok(s.cmd_run_checkpoint(run_id, LOOT_B, "retreated", 1)["ok"], "a checkpoint with one revive")
+	var d := s.to_dict()
+	t.ok(int((d["pending_retreat"] as Dictionary).get("revived_in_place", 0)) == 1, "the save's pending_retreat carries it: %s" % str(d["pending_retreat"]))
+	var n := _away(c, s, "cp_rev", 0)
+	t.ok(n.run.is_empty() and n._phylactery_charges == 1, "the load's end of the run spends the charge: %d of 2 left" % n._phylactery_charges)
+	var ref := _mk(c)
+	ref.from_dict(JSON.parse_string(JSON.stringify(d)))
+	var live := StateRuns.end_result({"run_id": run_id, "seed_rev": int(d["pending_retreat"]["seed_rev"]), "fort_id": "old-sluice"}, LOOT_B, "retreated", 1)
+	t.ok(ref._phylactery_charges == 1 and int(live["revived_in_place"]) == 1, "from_dict ends it the same way, the result carrying the revive")
+	var bad: Dictionary = JSON.parse_string(JSON.stringify(d))
+	bad["pending_retreat"]["revived_in_place"] = 3
+	var cr := _mk(c)
+	t.ok(not cr.from_dict(bad)["ok"], "a pending_retreat with more revives (3) than the save's charges (2) is corrupt")
 
 
 ## A raid with one checkpoint of `loot` (and `outcome`), its t in meta "saved_t" once saved by _away.
@@ -644,18 +842,27 @@ func _report_sections(c: Dictionary, n: GameState, q: GameState) -> void:
 	print("  [away] the 12 h report: %s" % JSON.stringify(rep))
 	t.ok(rep["shown"] and rep["away_s"] == 43200.0 and rep["capped"] == false, "shown, away_s 43200, not capped")
 	var streams: Array = c["economy"]["idle"]["report"]["streams"]
-	var heads: Array = rep["gains"].slice(0, streams.size()).map(func(l): return str(l["text"]).split(" ")[0])
-	t.ok(heads == streams and rep["gains"].slice(0, streams.size()).all(func(l): return l["kind"] == "stream" and l["target"] == ""),
-		"the gains open with the %d streams, in order: %s" % [streams.size(), str(heads)])
-	t.ok(str(rep["gains"][0]["text"]).begins_with("backlog ▲ +") or str(rep["gains"][0]["text"]).begins_with("backlog ▼ −"), "the backlog carries its arrow: %s" % rep["gains"][0]["text"])
-	# E4 step 3: "away: +N, odds A → B", the odds now as view_vei reads them, and rising with the backlog
+	var labels: Dictionary = c["economy"]["idle"]["report"]["stream_labels"]
+	var lines: Array = rep["gains"].slice(0, streams.size()).map(func(l): return str(l["text"]))
+	var heads_ok := lines.size() == streams.size()
+	for i in mini(lines.size(), streams.size()):
+		heads_ok = heads_ok and str(lines[i]).begins_with(str(labels[streams[i]]) + " ")
+	t.ok(heads_ok and rep["gains"].slice(0, streams.size()).all(func(l): return l["kind"] == "stream" and l["target"] == ""),
+		"the gains open with the %d streams' labels, in order: %s" % [streams.size(), str(lines)])
+	# the V-I1 round (map-i): the backlog line is labelled with the glossary's word, as STRAIN's tooltip says it
+	var bl_head := str(labels["backlog"])
+	t.ok(bl_head == "Vei's queue", "the backlog stream reads as Vei's queue: %s" % bl_head)
+	t.ok(str(rep["gains"][0]["text"]).begins_with(bl_head + " ▲ +") or str(rep["gains"][0]["text"]).begins_with(bl_head + " ▼ −"), "the backlog carries its arrow: %s" % rep["gains"][0]["text"])
+	# E4 step 3: "away: +N, odds A → B", the odds now as view_vei reads them, and rising with the backlog; as whole
+	# percents like the top bar's YOUR ODDS since the V-I1 round ("your odds 5% → 8%")
 	var bl_line := str(rep["gains"][0]["text"])
-	var odds_tail := bl_line.get_slice(" · odds ", 1)
-	var o_from := float(odds_tail.get_slice(" → ", 0))
-	var o_to := float(odds_tail.get_slice(" → ", 1))
-	t.ok(bl_line.contains(" · odds ") and odds_tail.get_slice(" → ", 1) == "%.2f" % float(n.view_vei()["odds"])
-		and (o_to >= o_from if bl_line.begins_with("backlog ▲") else o_to <= o_from),
-		"the backlog line ends with Vei's odds before and after, the after one view_vei's: %s" % bl_line)
+	var odds_tail := bl_line.get_slice(" · your odds ", 1)
+	var o_from := int(odds_tail.get_slice(" → ", 0).trim_suffix("%"))
+	var o_to := int(odds_tail.get_slice(" → ", 1).trim_suffix("%"))
+	t.ok(bl_line.contains(" · your odds ") and odds_tail.get_slice(" → ", 1) == StateViews.odds_pct(float(n.view_vei()["odds"]))
+		and odds_tail.get_slice(" → ", 1) == "%d%%" % roundi(float(n.view_vei()["odds"]) * 100.0)
+		and (o_to >= o_from if bl_line.begins_with(bl_head + " ▲") else o_to <= o_from),
+		"the backlog line ends with Vei's odds before and after in percent, the after one view_vei's: %s" % bl_line)
 	t.ok(_find(rep, "gains", "refilled") == {"text": "Ashgate refilled", "kind": "refilled", "target": ""}, "gains: Ashgate refilled")
 	t.ok(_find(rep, "ready", "raid") == {"text": "Ashgate refilled: raid it", "kind": "raid", "target": "ashgate"}, "ready: Ashgate refilled: raid it")
 	t.ok(_find(rep, "ready", "slab") == {"text": "2 husks: raise at the slab", "kind": "slab", "target": "slab"}, "ready: 2 husks: raise at the slab")
@@ -693,6 +900,17 @@ func _report_sections(c: Dictionary, n: GameState, q: GameState) -> void:
 		and str(got_lines.back()).ends_with(" m after you left, when the gold came in"),
 		"each queued start with when and why (the Inn at once, the Bakery once the gold came in): %s" % str(got_lines))
 	t.ok(not _find(qr, "gains", "build", "2 builds finished").is_empty(), "the builds finished: %s" % str(qr["gains"].filter(func(l): return l["kind"] == "build").map(func(l): return l["text"])))
+	# api-request #19 (town-i; Phase I P3): the finished line's `lots`, each building_done's lot in the names' order;
+	# no other line has the key. Revert proof: without away_report's `lots`, the first check fails
+	var fin := _find(qr, "gains", "build", "2 builds finished")
+	var rp: Dictionary = c["economy"]["idle"]["report"]
+	var dones: Array = q.catchup_events().filter(func(e): return e["type"] == "building_done")
+	var done_lots: Array = dones.map(func(e): return str(e["lot_id"]))
+	var names := PackedStringArray(dones.map(func(e): return StateViews._building_name(q, rp, str(e["building_id"]), int(e["level"]))))
+	t.ok(fin.get("lots", []) == done_lots and done_lots.size() == 2 and str(fin.get("text", "")).contains(str(rp["list_sep"]).join(names)),
+		"#19: the finished line's lots %s, in the order of its names %s: %s" % [str(fin.get("lots", [])), str(names), str(fin.get("text", ""))])
+	var others: Array = (qr["gains"] + qr["ready"] + qr["losses"]).filter(func(l): return l.has("lots") and l != fin)
+	t.ok(others.is_empty(), "#19: no other line carries lots: %s" % str(others))
 
 
 static func _commas(n: int) -> String:
@@ -720,12 +938,16 @@ func _report_consistency(s: GameState, n: GameState) -> void:
 		"bodies": float(lb["held"]["bodies"]) - float(la["held"]["bodies"]),
 		"gold": n.town_sim.gold - s.town_sim.gold, "bone": n.town_sim.bone - s.town_sim.bone, "living": n.town_sim.living - s.town_sim.living,
 	}
+	var labels: Dictionary = cfgs()["economy"]["idle"]["report"]["stream_labels"]
 	var bad: Array = []
 	for l in rep["gains"]:
 		if l["kind"] != "stream":
 			continue
-		var id := str(l["text"]).split(" ")[0]
-		var nums := _numbers(str(l["text"]).get_slice(" · odds ", 0))  # the backlog line's odds tail is checked above
+		var id := ""  # the stream whose label (economy.json idle.report.stream_labels) opens the line
+		for sid in labels:
+			if str(l["text"]).begins_with(str(labels[sid]) + " "):
+				id = str(sid)
+		var nums := _numbers(str(l["text"]).get_slice(" · your odds ", 0))  # the backlog line's odds tail is checked above
 		var total := float(want[id])
 		var rate := total / 43200.0
 		var ok := nums.size() == 2 and absf(nums[1] - total) <= 0.5 and absf(nums[0] - rate) <= maxf(0.05 * absf(rate), 0.0005)
@@ -736,23 +958,35 @@ func _report_consistency(s: GameState, n: GameState) -> void:
 
 
 ## Tokens: every token with a digit in every line of the reports here parses under the map's rule (a rate
-## or a mass), so nothing is glued to a word.
+## or a mass), so nothing is glued to a word. The backlog line's odds are whole percents (the V-I1 round), which the
+## map draws as text, as the valve's payoff line does ("percentages stay out of the rate face"): a percent token is
+## allowed after " · your odds " only.
 func _report_tokens(reps: Array) -> void:
 	var rate := RegEx.new()
 	rate.compile(RATE_RE)
 	var mass := RegEx.new()
 	mass.compile(MASS_RE)
+	var pct := RegEx.create_from_string("^\\d{1,3}%$")
 	var bad: Array = []
 	var n := 0
+	var n_pct := 0
 	for rep in reps:
 		for pair in _lines(rep):
-			for tok in str(pair[1]["text"]).split(" ", false):
+			var text := str(pair[1]["text"])
+			var odds_at := text.find(" · your odds ")
+			var at := 0
+			for tok in text.split(" ", false):
+				var pos := text.find(tok, at)
+				at = pos + tok.length()
 				if RegEx.create_from_string("\\d").search(tok) == null:
 					continue
 				n += 1
-				if rate.search(tok) == null and mass.search(tok) == null:
-					bad.append("'%s' in '%s'" % [tok, pair[1]["text"]])
-	t.ok(bad.is_empty() and n > 20, "%d number tokens, each a rate or a mass under the map's patterns%s" % [n, "" if bad.is_empty() else ": " + str(bad)])
+				if odds_at >= 0 and pos > odds_at and pct.search(tok) != null:
+					n_pct += 1
+				elif rate.search(tok) == null and mass.search(tok) == null:
+					bad.append("'%s' in '%s'" % [tok, text])
+	t.ok(bad.is_empty() and n > 20 and n_pct > 0, "%d number tokens, each a rate or a mass under the map's patterns, or one of %d odds percents%s" % [
+		n, n_pct, "" if bad.is_empty() else ": " + str(bad)])
 
 
 ## Shown (IDLE §7, STATE-API §5.19): a reporting catch-up's report is shown; cmd_dismiss_away sets shown false
@@ -908,7 +1142,9 @@ func _report_filled(reps: Array) -> void:
 		"overflow_fmt": func(x: String): return x.begins_with("Gold filled up, ") and x.ends_with(" not stored: queue more, or raid for relics"),
 		"afford_never_fmt": func(x: String): return x.contains(" can't be afforded at the current income of ") and x.contains(": move it down, or build a "),
 		"afford_never_last_fmt": func(x: String): return x.contains(" can't be afforded at the current income of ") and x.contains(": build a ") and not x.contains("move it down"),
-		"afford_never_self_fmt": func(x: String): return x.contains(" can't be afforded at the current income of ") and x.ends_with(", and nothing else makes bone: move it down"),
+		# Phase I P3 (ruling 3): afford_never_self_fmt (a Bone Mill level at −1.0 with a move down) needs a head held
+		# with its mill staffed and not pits_first, so a staffed mill with no bodies at all: the workforce's rot always
+		# brings some, so no state the walk reaches gives it. _report_afford_words renders it through afford_text
 		"afford_never_self_last_fmt": func(x: String): return x.contains(" can't be afforded at the current income of ") and x.ends_with(", and nothing else makes bone"),
 		"afford_starved_fmt": func(x: String): return x.contains(" bone short at the current income of ") and x.ends_with(": the pits are eating every body. Raise WAR, or move it down"),
 		"afford_starved_last_fmt": func(x: String): return x.contains(" bone short at the current income of ") and x.ends_with(": the pits are eating every body. Raise WAR"),
@@ -1084,7 +1320,7 @@ func _report_words() -> void:
 	var c := cfgs()
 	var rep: Dictionary = c["economy"]["idle"]["report"]
 	var words: Dictionary = rep["waited_on"]
-	t.ok(words.size() == 13, "idle.report.waited_on has 13 reasons, upkeep (E4 step 4's gate) the 13th (%d: %s)" % [words.size(), str(words.keys())])
+	t.ok(words.size() == 14 and words.has("wait_slot"), "idle.report.waited_on has 14 reasons, upkeep (E4 step 4's gate) the 13th, wait_slot (Phase I P3, A14's amendment) the 14th (%d: %s)" % [words.size(), str(words.keys())])
 	var bad: Array = []
 	for w in words:
 		var why := StateViews._why_started(rep, str(w))
@@ -1205,52 +1441,62 @@ func _stores_start(c: Dictionary, gold: float, bone: float, queue := []) -> Game
 ## R2 (the E2b-2 vision review's item 3; IDLE §7, STATE-API §5.19): the review's "come back and nothing happened"
 ## night. day1 with no bone and no mill, a House and a Well behind it, loaded 8 h on: nothing started, and the House,
 ## the head, can never be afforded at the current income, so `ready` says so with bone's net rate and what raises it:
-## "House can't be afforded at the current income of 0/s bone: build a Bone Mill" (kind queue, target queue; F2: the Well
-## needs bone too, so moving the House down helps nothing), the queue's own −1.0 and the net view_rates shows. No
-## "Queue empty".
+## "House can't be afforded at the current income of 0/s bone: build a Bone Mill" (kind queue, target queue), the
+## queue's own −1.0 and the net view_rates shows. No "Queue empty". Phase I P3 (ruling 3): with no mill both are
+## skipped on no_bone (BuildRules.never_row: the Well needs bone too), holding nothing, and only the first on a store
+## gets the line (the Well's would repeat it); no move down (a skipped entry is passed already).
 func _report_deadlock(c: Dictionary) -> GameState:
 	var n := _away(c, _deadlock_start(c), "deadlock", 28800)
 	var rep := n.view_away()
 	var rows: Array = n.view_town()["queue"]
 	var words: Array = rep["gains"].filter(func(l): return l["kind"] == "build" and str(l["text"]).contains(" started ")).map(func(l): return l["text"])
-	t.ok(rows.size() == 2 and rows[0]["building_id"] == "house" and rows[0]["status"] == "waiting_funds" and rows[0]["reason"] == "no_bone"
-		and rows[0]["affordable_in_s"] == -1.0 and words.is_empty(), "(setup) 8 h on, nothing started: the House waits on bone at −1.0, the Well behind it: %s" % str(words))
+	t.ok(rows.size() == 2 and rows[0]["building_id"] == "house" and BuildRules.never_row(rows[0]) and rows[0]["reason"] == "no_bone"
+		and rows[0]["affordable_in_s"] == -1.0 and BuildRules.never_row(rows[1]) and words.is_empty(),
+		"(setup) 8 h on, nothing started: the House and the Well behind it are skipped on bone at −1.0: %s %s" % [str(rows.map(func(r): return r["status"])), str(words)])
 	var net := float(n.view_rates()["rates"]["bone"]["net"])
-	# F2: the Well behind it costs bone too (10), so moving the House down only makes the Well an equally stuck head
 	var want := "House can't be afforded at the current income of %s bone: build a Bone Mill" % StateViews._fmt_rate(c["economy"]["idle"]["report"], net)
-	var l := _find(rep, "ready", "queue")
+	var qs: Array = (rep["ready"] as Array).filter(func(l): return l["kind"] == "queue")
 	print("  [away] the deadlocked night's ready: %s" % JSON.stringify(rep["ready"]))
-	t.ok(l == {"text": want, "kind": "queue", "target": "queue"} and net == 0.0 and _find(rep, "ready", "queue", "Queue empty").is_empty()
-		and not str(l["text"]).contains("move it down"),
-		"ready: the House can't be afforded, with bone's net (0/s) and what raises it; the Well behind it is stuck on bone too, so no \"move it down\": %s" % str(l))
+	t.ok(qs == [{"text": want, "kind": "queue", "target": "queue"}] and net == 0.0,
+		"ready: one queue line, the House's, with bone's net (0/s) and what raises it, no \"move it down\" and no Queue empty: %s" % str(qs))
 	return n
 
 
 ## F2 (the phase review): "move it down" only when some other entry could start if the stuck head weren't ahead of
 ## it (StateViews._move_down_helps: the queue's walk less the head, a row that isn't skipped_gate with
-## affordable_in_s >= 0). day1 with no bone and no Mill, a House (40 g, 10 b) and then (a) a Bone Mill (level 1 is
-## 60 g, 0 b since F1: it can start): "House can't be afforded at the current income of 0/s bone: move it down, or
-## build a Bone Mill"; (b) the Crypt's level 2 (gated: no relics): no entry could take its place, so no move down.
+## affordable_in_s >= 0). Phase I P3 (ruling 3): only a head that holds the queue can be moved down, one whose
+## producer is staffed and whose hold (queue.never_hold_s) hasn't run out; a head with no mill is skipped (and its
+## line is _report_deadlock's). So the case is gold's: pre_vei, its four stalls staffed and its full upkeep over its
+## income (net −0.47/s, trade_starved ""), gold set to 290 and the bone at its cap, the Inn's level 2 (300 gold) at the
+## head, loaded 5 min on (inside the hold), then (a) the Well's level 2 (60 gold: an upgrade, so the upkeep gate
+## passes it), which could start: "Inn level 2 can't be afforded at the current income of −0.47/s gold: move it down,
+## or build a Market"; (b) the Crypt's level 2 (gated: no relics): no entry could take its place, so no move down.
 func _report_move_down(c: Dictionary) -> Array:
 	var rep: Dictionary = c["economy"]["idle"]["report"]
 	var out: Array = []
-	for cs in [["a Bone Mill behind it, which can start", [["house", "lot-05"], ["bone_mill", "lot-06"]], true],
-			["only a gated entry behind it", [["house", "lot-05"], ["", "lot-01"]], false]]:
-		var s := _stores_start(c, -1.0, 0.0, cs[1])
-		var n := _away(c, s, "move_down", 600)
+	for cs in [["the Well's level 2 behind it, which can start", "lot-07", true], ["only a gated entry behind it", "lot-01", false]]:
+		var s := _mk(c)
+		s.cmd_debug_load_fixture("pre_vei")
+		s.tick(0.5)
+		s.town_sim.gold = 290.0
+		s.town_sim.bone = s.town_sim.bone_cap()
+		s.relics = 0
+		t.ok(s.cmd_queue_build("", "lot-15")["ok"] and s.cmd_queue_build("", cs[1])["ok"], "(setup) the Inn's level 2, then the upgrade on %s" % cs[1])
+		s.drain_events()
+		var n := _away(c, s, "move_down", 300)
 		var rows: Array = n.view_town()["queue"]
 		var head: Dictionary = rows[0] if not rows.is_empty() else {}
 		var behind: Dictionary = rows[1] if rows.size() > 1 else {}
-		t.ok(rows.size() == 2 and head.get("building_id", "") == "house" and head.get("status", "") == "waiting_funds"
-			and head.get("affordable_in_s", 0.0) == -1.0 and (behind.get("status", "") == "skipped_gate") != cs[2],
-			"(setup) %s: the House waits on bone at −1.0, the entry behind it is %s" % [cs[0], str(behind.get("status", ""))])
-		var net := float(n.view_rates()["rates"]["bone"]["net"])
-		var want := "House can't be afforded at the current income of %s bone: %sbuild a Bone Mill" % [StateViews._fmt_rate(rep, net),
+		var gnet := float(BuildRules.queue_net(n)["gold"])
+		t.ok(rows.size() == 2 and head.get("building_id", "") == "inn" and head.get("status", "") == "waiting_funds" and head.get("reason", "") == "no_gold"
+			and head.get("affordable_in_s", 0.0) == -1.0 and head.get("starved", "x") == "" and (behind.get("status", "") == "skipped_gate") != cs[2] and gnet < 0.0,
+			"(setup) %s: the Inn holds on gold at −1.0 (net %.3f/s, stalls staffed), the entry behind it is %s" % [cs[0], gnet, str(behind.get("status", ""))])
+		var want := "Inn level 2 can't be afforded at the current income of %s gold: %sbuild a Market" % [StateViews._fmt_rate(rep, gnet),
 			"move it down, or " if cs[2] else ""]
 		var r := n.view_away()
 		var l := _find(r, "ready", "queue")
 		print("  [away] move it down, %s: %s" % [cs[0], str(l.get("text", ""))])
-		t.ok(l == {"text": want, "kind": "queue", "target": "queue"} and net == 0.0 and str(l["text"]).contains("move it down") == cs[2],
+		t.ok(l == {"text": want, "kind": "queue", "target": "queue"} and str(l["text"]).contains("move it down") == cs[2],
 			"ready: %s, \"move it down\" %s: %s" % [cs[0], "offered" if cs[2] else "not offered", str(l)])
 		out.append(r)
 	return out
@@ -1258,7 +1504,7 @@ func _report_move_down(c: Dictionary) -> Array:
 
 ## F1 (the run's manager): with nothing queued behind the head, "move it down" can't help, so the line drops it
 ## (idle.report.afford_never_last_fmt): day1 with no bone and no mill, a House alone, loaded 10 min on: "House can't
-## be afforded at the current income of 0/s bone: build a Bone Mill".
+## be afforded at the current income of 0/s bone: build a Bone Mill". Phase I P3 (ruling 3): with no mill it is skipped.
 func _report_never_last(c: Dictionary) -> GameState:
 	var s := _mk(c)
 	s.cmd_debug_load_fixture("day1")
@@ -1268,8 +1514,8 @@ func _report_never_last(c: Dictionary) -> GameState:
 	s.drain_events()
 	var n := _away(c, s, "never_last", 600)
 	var rows: Array = n.view_town()["queue"]
-	t.ok(rows.size() == 1 and rows[0]["status"] == "waiting_funds" and rows[0]["affordable_in_s"] == -1.0,
-		"(setup) 10 min on, the House waits on bone at −1.0, nothing behind it: %s" % str(rows.map(func(r): return r["status"])))
+	t.ok(rows.size() == 1 and BuildRules.never_row(rows[0]) and rows[0]["affordable_in_s"] == -1.0,
+		"(setup) 10 min on, the House is skipped on bone at −1.0, nothing behind it: %s" % str(rows.map(func(r): return r["status"])))
 	var rep: Dictionary = c["economy"]["idle"]["report"]
 	var want := "House can't be afforded at the current income of %s bone: build a Bone Mill" % StateViews._fmt_rate(rep, float(n.view_rates()["rates"]["bone"]["net"]))
 	var l := _find(n.view_away(), "ready", "queue")
@@ -1288,7 +1534,10 @@ func _report_never_last(c: Dictionary) -> GameState:
 ## none). E4 (the run's manager's A1 day-1 ruling): with the mill staffed, midgame_2flips' pits eat every body (its
 ## starved pits_first), so the line names the bone short and the lever instead, ahead of F1's fact (afford_starved_fmt:
 ## "Bone Mill level 2 can't be afforded, 140 bone short at the current income of 0/s bone: the pits are eating every
-## body. Raise WAR, or move it down"); a new mill wouldn't help, so neither form says to build one.
+## body. Raise WAR, or move it down"); a new mill wouldn't help, so neither form says to build one. Phase I P3 (ruling
+## 3): unstaffed, the mill's level is skipped at once (no move down; the House behind it starts), so its line is
+## afford_never_self_last_fmt with or without the House; staffed, it holds inside queue.never_hold_s, so these load
+## 5 min on (_starved_hold has the same state past the hold).
 func _report_self(c: Dictionary) -> Array:
 	var rep: Dictionary = c["economy"]["idle"]["report"]
 	var out: Array = []
@@ -1314,16 +1563,18 @@ func _report_self_one(c: Dictionary, rep: Dictionary, staffed: bool) -> Array:
 		if behind:
 			t.ok(s.cmd_queue_build("house", str(BuildRules.free_lots(s, 1)[0]))["ok"], "(setup) a House queued behind it")
 		s.drain_events()
-		var n := _away(c, s, "self", 600)
+		var n := _away(c, s, "self", 300)
 		var rows: Array = n.view_town()["queue"]
 		var row: Dictionary = rows[0] if not rows.is_empty() else {}
-		t.ok(rows.size() == (2 if behind else 1) and row.get("building_id", "") == "bone_mill" and row.get("reason", "") == "no_bone"
+		var held: bool = row.get("status", "") == "waiting_funds"
+		t.ok(rows.size() == (2 if behind and staffed else 1) and row.get("building_id", "") == "bone_mill" and row.get("reason", "") == "no_bone"
+			and held == staffed and BuildRules.never_row(row) != staffed
 			and row.get("affordable_in_s", 0.0) == -1.0 and absf(float(n.view_rates()["rates"]["bone"]["net"])) <= BuildRules.NET_EPS,
-			"(setup) 10 min on, the mill's level %d waits on bone at −1.0, bone at 0/s%s" % [int(row.get("level", 0)), ", a House behind it" if behind else ""])
+			"(setup) 5 min on, the mill's level %d %s on bone at −1.0, bone at 0/s%s" % [int(row.get("level", 0)), "holds" if staffed else "is skipped",
+			(", a House behind it" if staffed else ", the House behind it started") if behind else ""])
 		var name := StateViews._building_name(n, rep, "bone_mill", int(row.get("level", 0)))
 		t.ok(str(row.get("starved", "")) == ("pits_first" if staffed else ""), "(setup) the head's starved: %s" % str(row.get("starved", "")))
-		var want := "%s can't be afforded at the current income of %s bone, and nothing else makes bone%s" % [name,
-			StateViews._fmt_rate(rep, 0.0), ": move it down" if behind else ""]
+		var want := "%s can't be afforded at the current income of %s bone, and nothing else makes bone" % [name, StateViews._fmt_rate(rep, 0.0)]
 		if staffed:
 			want = str(rep["afford_starved_fmt" if behind else "afford_starved_last_fmt"]).format({"name": name,
 				"short": StateViews._fmt_count(rep, ceilf(float(row["short"]["bone"]))), "rate": StateViews._fmt_rate(rep, 0.0)})
@@ -1333,7 +1584,7 @@ func _report_self_one(c: Dictionary, rep: Dictionary, staffed: bool) -> Array:
 		t.ok(l == {"text": want, "kind": "queue", "target": "queue"} and not str(l["text"]).substr(name.length()).contains(StateViews._building_name(n, rep, "bone_mill", 1)),
 			"ready: the mill stuck on bone never says to build a Bone Mill, and says what is true%s%s: %s" % [
 			" (the pits eat every body: raise WAR)" if staffed else " (unstaffed: nothing else makes bone)",
-			" (with \"move it down\": a House is behind it)" if behind else " (nothing behind it: no move down)", str(l)])
+			(" (with \"move it down\": a House is behind it)" if staffed else " (skipped: no move down)") if behind else " (nothing behind it: no move down)", str(l)])
 		out.append(r)
 	return out
 
@@ -1424,7 +1675,9 @@ func _report_upkeep(c: Dictionary) -> Dictionary:
 ## queue, no rate, no "move it down"), with the stores full or not, and never the raid prompt (which a non-empty queue
 ## never had). (a) relic-gated only, stores full; (b) the same, not full; (c) an entry that waits on gold with a finite
 ## time, plus a gated one: the town is still building, no wall; (d) an empty queue with full stores: the raid prompt as
-## before, no wall; (e) a House stuck at −1.0 on bone ahead of the gated entry: both lines, the head's first.
+## before, no wall; (e) a House stuck at −1.0 on bone ahead of the gated entry: both lines, the head's first. Phase I
+## P3 (ruling 3): with no mill the House is skipped (it holds nothing), and in (f) so is the Well behind it (it needs
+## bone too), whose line would repeat the House's: still two lines, the House's and the wall.
 func _report_wall(c: Dictionary) -> Array:
 	var rep: Dictionary = c["economy"]["idle"]["report"]
 	var wall := {"text": "Crypt level 2 needs relics: raid a fort", "kind": "queue", "target": "queue"}

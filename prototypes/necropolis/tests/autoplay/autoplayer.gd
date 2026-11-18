@@ -35,6 +35,8 @@ const FIRST30_S := 1800
 const FRAME_DT := 0.5  # one substep a frame call: the frame path's cadence changes cost, never results (STATE-API §3)
 const OPEN_ROW_S := 1800.0  # an `open` row every 30 min of sim in open profiles
 const FINE_S := 10.0  # the mint and bodies_net sample (live time only)
+const MINT_WIN_S := 600.0  # (Phase I P3, R-c) mint_swing_win's window: the convoy saw (about 21 s) averages out in it
+const MINT_WIN_MIN := 30  # a window counts once it holds this many samples (half of it live)
 const ACT_S := 60.0  # while it waits in a session the bot looks at the town this often
 const PROBE_S := 43200  # Vei's odds this long into each night (a probe load; the run itself loads once)
 const PARTY_MAX := 3  # the largest standard party: raid.json autopilot.party_profiles "4", three bigs
@@ -42,6 +44,7 @@ const HELD_RAID_YIELD := 0.5  # raid a held fort once its yield_mult is back to 
 const STANCES := ["vigil", "harvest"]
 const BANK_FRONTS := ["giants", "carvers"]  # bank_bigs: the fronts only the bigs fill (no backlog term; carvers' q aside)
 const VEI_READY_ODDS := 0.6  # BALANCE §1's Vei-ready: odds >= 0.6 and fronts_required fronts met (E4 step 3: the odds gate)
+# (since Phase I P3's odds split the gate reads view_vei's readiness, the old formula, not its first-attempt odds)
 const KEEP_SHARE := 0.25  # keep_fronts: a keeper brings at least this share of what the bigs must bring to its front
 const RAID_ROOM := 2  # keep_fronts: keepers leave the crypt room for this many raiders (two raiders reach t3)
 const SLOT := "ap"
@@ -103,6 +106,11 @@ var _banking := false  # bank_bigs' latch: set at the first look that finds gian
 var keep_fronts := true  # E4 step 2: good front bigs stay home (_keepers) and the rest raid; off = the E3 policy
 var _keep: Array = []  # keep_fronts: the keepers' uids at the last look (_place); _raid leaves them home
 var park_relics := true  # Phase I P2 (_fill): keep one no_relics entry parked in the queue (the wall's chip); off = skip every gated item
+## Phase I P3 (the run's manager's ruling 2 of 2026-11-18 03:10): players park gated builds, since it costs nothing, so the
+## bot does too. On (the default), _fill's spare list room takes the priority list's next items that land skipped_gate on a
+## gate time or play clears (_park, PARK_GATES); off is P2's skip fill, the ablation_skip_fill profile's row.
+var park_gated := true
+const PARK_GATES := ["needs_tier", "no_relics", "lot_locked", "needs_blueprint", "needs_building"]
 var _crypt_up := false  # the crypt-level latch (_fill): set at the first look that keeps a big, or finds the crypt full while a husk waits
 var crypt_up_t := -1.0  # when _crypt_up set (s.t), -1 never; it never clears, so it can't churn (the E4 review's item 5)
 ## The keepers' churn (the E4 review's item 5, a report): looks whose keepers changed, keepers dropped while still held
@@ -136,6 +144,9 @@ var unpaid: Array = []
 var tiers: Array = []
 var clears: Array = []
 var closes: Array = []
+## Phase I P3 (R-b's sizing): the relics the idle trickle paid (GameState.trickle_paid, summed over every state a load
+## replaces) and the longest unbroken hold seen (a fort's held_for_s, at each close's save and load and at the summary)
+var trickle := {"paid": 0, "longest_hold_s": 0.0}
 var raids: Array = []
 var fronts_daily: Array = []
 var input_limited: Array = []
@@ -147,9 +158,14 @@ var results := {"validated": 0, "invalid": 0, "applied": 0, "refused": 0, "error
 var ledger_max := 0.0
 var vei_ready_t := -1.0
 var vei_ready_wave_t := -1.0  # the old readout beside it (the sizing stop's ruling R2): fronts at her pool then, at the look
+var vei_at_ready := {}  # (Phase I P3, the brief's (b)) the backups and the readout at vei_ready_t, at her node
 var first :={"vat": -1.0, "chapel": -1.0, "clone": -1.0, "wall_queue": -1.0, "wall_report": -1.0, "full_raid": -1.0,
 	"bone_wait_seen": -1.0, "bone_wait_event": -1.0, "lots_full": -1.0}
 var _fine_day := {}
+var _fine_win := {}  # (Phase I P3, R-c) day -> {MINT_WIN_S bucket: [mint sum, samples]}: mint_swing_win
+## Q-h (Phase I P3): the muster rate per day of live time, at each FINE_S sample: {n, muster_sum, work_sum} (GameState's
+## split: the muster TownSim took from the WORK stream, and that stream), for summary's workers.muster_per_day
+var _muster_day := {}
 var _win := {}
 var _next_fine := 0.0
 var _next_open_row := 0.0
@@ -170,19 +186,24 @@ func _init(p: String, cfgs_in: Dictionary, save_dir := "") -> void:
 
 # ------------------------------------------------------------------------------------------- configs ---
 ## The shipped configs with the field at 8 x 6 and its pre-warm off (test_catchup.gd's cfgs(), the harness convention),
-## and a variant: "no_bone_prices" is ablation (b), the dead's buildings at 0 bone (cost and every level_costs entry;
-## their gold prices unchanged).
+## and a variant: "no_bone_buildings" is ablation (b) (Phase I P3, R-d: the spine's "bone-priced buildings removed"),
+## what bone buys among the dead's buildings taken out: a dead's building with a bone price can't be built (its
+## blueprint never drops, so it reads needs_blueprint), and none of them levels (max_level 1: every level of theirs
+## costs bone). The start's pit and charnel house stay at level 1; the Bone Mill (60 gold, no bone) can still be built.
+## E3's variant set those prices to 0, which can only speed the game up (BALANCE §2 (b)).
 static func cfgs(variant := "") -> Dictionary:
-	var out := TestUtil.configs()
+	var out := TestUtil.shipped_configs()  # (Phase I P3) the shipped default: the bots get Grow because it is on
 	out["realm"]["field"]["w"] = 8
 	out["realm"]["field"]["h"] = 6
 	out["economy"]["sim"]["prewarm_ticks"] = 0
-	if variant == "no_bone_prices":
+	if variant == "no_bone_buildings":
 		for id in DEAD_BUILDINGS:
 			var b: Dictionary = out["buildings"][id]
-			(b["cost"] as Dictionary)["bone"] = 0.0
-			for lc in b.get("level_costs", []):
-				(lc as Dictionary)["bone"] = 0.0
+			b["max_level"] = 1
+			if float((b["cost"] as Dictionary).get("bone", 0.0)) > 0.0:
+				var req: Dictionary = (b.get("requires", {}) as Dictionary).duplicate()
+				req["blueprint"] = "removed"
+				b["requires"] = req
 	return out
 
 
@@ -799,8 +820,8 @@ func _foreman_lot(tn: Dictionary) -> String:
 		elif str(b["building_id"]) == "bone_mill" and mill == "":
 			mill = str(b["lot_id"])
 	var q: Array = tn["queue"]
-	var h := _head(q)
-	var bone_binds := h >= 0 and str(q[h]["status"]) == "waiting_funds" and str(q[h]["reason"]) == "no_bone"
+	var h := _funds_head(q)
+	var bone_binds := h >= 0 and str(q[h]["reason"]) == "no_bone"
 	return mill if bone_binds and mill != "" else market
 
 
@@ -851,7 +872,7 @@ func _husk_kind(ignore_room: bool) -> String:
 	var bu := s.view_big_undead()
 	var tn := s.view_town()
 	var q: Array = tn["queue"]
-	var h := _head(q)
+	var h := _head(q, true)
 	if h >= 0 and float(tn["bone"]) - float(hc["cost"]["bone"]) < float(q[h]["cost"]["bone"]):
 		return ""
 	var short := _short_fronts(bu)
@@ -972,12 +993,60 @@ func _fill() -> void:
 		n += 1 if counts else 0
 		parked = parked or park
 		plan[lot] = [str(it[0]), lv]
+	if park_gated:
+		_park(walk, plan, list_max - m)
 
 
-## The first entry that isn't skipped_gate (the one the queue saves toward), or -1.
-static func _head(q: Array) -> int:
+## Phase I P3, ruling 2 (the parking fill): after the skip fill, up to `room` (the list's spare places, queue_list_max)
+## of `walk`'s next items whose walk row, read with the item appended (no command), is skipped_gate on one of
+## PARK_GATES: each starts when its tier rises, its relics come or its lot opens, as a real player queues what they
+## want. Gated entries hold no slot (A14), so this never keeps a relic-free build out, and the slot rule (A14's
+## amendment) keeps the active queue at queue.max_len however many park. `plan` is _fill's lot plan (updated).
+## The queue-hours probe's QH_PARK=1 bot (Phase I P2, wip/tools-p2/qh_bot.gd), made the default.
+func _park(walk: Array, plan: Dictionary, room: int) -> void:
+	for it in walk:
+		if room <= 0:
+			return
+		var lot: String = it[1]
+		var lv: int = it[2]
+		var cur: Array = plan.get(lot, ["", 0])
+		if (str(cur[0]) != "" and str(cur[0]) != str(it[0])) or int(cur[1]) != lv - 1:
+			continue
+		var row: Dictionary = BuildRules.queue_walk(s, s.build_queue + [{"building_id": str(it[0]), "lot_id": lot,
+			"upgrade": lv > 1, "waited_on": ""}], false)["rows"].back()
+		if not (str(row["status"]) == "skipped_gate" and PARK_GATES.has(str(row["reason"]))):
+			continue
+		if str(row["reason"]) == "needs_blueprint" and not _droppable(BuildRules.req_of(s, str(it[0]))["blueprint"]):
+			continue  # (Phase I P3) a gate no clear can lift isn't parked: ablation_bone's removed buildings
+		if bool(_cmd("queue", [str(it[0]) if lv == 1 else "", lot])["ok"]):
+			plan[lot] = [str(it[0]), lv]
+			room -= 1
+
+
+## Whether some fort's first clear drops blueprint `bp` (loot.json first_clear_blueprint_by_tier). Every shipped
+## building's blueprint does; ablation_bone's "removed" doesn't (cfgs("no_bone_buildings")).
+func _droppable(bp: String) -> bool:
+	var by_tier: Dictionary = c.get("loot", {}).get("first_clear_blueprint_by_tier", {})
+	for k in by_tier:
+		if (by_tier[k] as Array).has(bp):
+			return true
+	return false
+
+
+## The first entry that isn't skipped_gate (the one the queue saves toward), or -1. `never`: a never row (Phase I P3,
+## ruling 3: skipped because no income can pay it) counts too, for the bot's own savings (the craft keeps its bone).
+static func _head(q: Array, never := false) -> int:
 	for i in q.size():
-		if str(q[i]["status"]) != "skipped_gate":
+		if str(q[i]["status"]) != "skipped_gate" or (never and BuildRules.never_row(q[i])):
+			return i
+	return -1
+
+
+## The first entry short of funds: a head waiting on them, or one skipped because no income can pay it (Phase I P3,
+## ruling 3: BuildRules.never_row, which the queue passes over but a player still reads as the store that binds), or -1.
+static func _funds_head(q: Array) -> int:
+	for i in q.size():
+		if str(q[i]["status"]) == "waiting_funds" or BuildRules.never_row(q[i]):
 			return i
 	return -1
 
@@ -1018,8 +1087,8 @@ func _observe() -> void:
 		first["clone"] = s.t
 	var tn := s.view_town()
 	var q: Array = tn["queue"]
-	var h := _head(q)
-	if h >= 0 and str(q[h]["status"]) == "waiting_funds":
+	var h := _funds_head(q)
+	if h >= 0:
 		var why := str(q[h]["reason"])
 		if why == "no_bone" and first["bone_wait_seen"] < 0.0:
 			first["bone_wait_seen"] = s.t
@@ -1240,7 +1309,7 @@ func _vei_check(end_t: float) -> void:
 	if vei_ready_t >= 0.0:
 		return
 	var v := s.view_vei()
-	if float(v["odds"]) < VEI_READY_ODDS or str(s.view_relish()["state"]) != "home":
+	if float(v["readiness"]) < VEI_READY_ODDS or str(s.view_relish()["state"]) != "home":
 		return
 	if vei_ready_wave_t < 0.0 and int(v["fronts_met"]) >= int(v["fronts_required"]):
 		vei_ready_wave_t = s.t
@@ -1250,8 +1319,13 @@ func _vei_check(end_t: float) -> void:
 		return
 	_tick_until(func(): return str(s.view_relish()["state"]) == "at_vei", end_t)
 	var v2 := s.view_vei()
-	if bool(v2["can_begin"]) and _full_met(v2) >= int(v2["fronts_required"]) and float(v2["odds"]) >= VEI_READY_ODDS:
+	if bool(v2["can_begin"]) and _full_met(v2) >= int(v2["fronts_required"]) and float(v2["readiness"]) >= VEI_READY_ODDS:
 		vei_ready_t = s.t
+		var bk := s.view_backups()
+		vei_at_ready = {"t": s.t, "phylactery": int(bk["phylactery_charges"]), "clones_ready": int(bk["clones_ready"]),
+			"vats": (bk["vats"] as Array).size(), "backups": int(v2["backups"]), "odds": _r(float(v2["odds"])),
+			"readiness": _r(float(v2["readiness"])), "pool": _r(float(v2["living_pool"])), "backlog": _r(float(v2["backlog"])),
+			"q": _r(float(v2["digest_q"])), "fronts_met": _full_met(v2), "party": (s.view_party()["party"] as Array).size()}
 	_cmd("move", ["covington"])
 	_tick_until(func(): return str(s.view_relish()["state"]) == "home", end_t + 600.0)
 
@@ -1350,11 +1424,12 @@ func play_first30() -> void:
 
 ## The close: cmd_save at a whole second, a fresh GameState, cmd_load with clock_override `gap` s later (the real
 ## catch-up). A night's close also loads the save into a throwaway state PROBE_S on, for Vei's odds 12 h after closing.
+## The odds_* records are view_vei's readiness (Phase I P3's odds split: the series P2 measured, the old formula).
 func close(gap: int, night := false) -> Dictionary:
 	_tick_to(ceilf(s.t - 1e-9))
 	var t0 := s.t
 	var v0 := s.view_vei()
-	var rec := {"t": t0, "gap": gap, "night": night, "backlog_before": float(v0["backlog"]), "odds_close": float(v0["odds"]),
+	var rec := {"t": t0, "gap": gap, "night": night, "backlog_before": float(v0["backlog"]), "odds_close": float(v0["readiness"]),
 		"value_done_before": _value_done()}
 	s.clock_override = CLOCK0 + int(t0)
 	var sv := s.cmd_save(SLOT)
@@ -1366,14 +1441,17 @@ func close(gap: int, night := false) -> Dictionary:
 		p.clock_override = CLOCK0 + int(t0) + PROBE_S
 		if bool(p.cmd_load(SLOT)["ok"]):
 			var pv := p.view_vei()
-			rec["odds_12h"] = float(pv["odds"])
+			rec["odds_12h"] = float(pv["readiness"])
 			rec["backlog_12h"] = float(pv["backlog"])
 	var n := _fresh()
 	n.clock_override = CLOCK0 + int(t0) + gap
 	var lr := n.cmd_load(SLOT)
 	if not bool(lr["ok"]) or int(lr["away_s"]) != gap:
 		notes.append("t %.1f: cmd_load %s, away %s of %d" % [t0, str(lr["reason"]), str(lr["away_s"]), gap])
+	_note_hold()
+	trickle["paid"] = int(trickle["paid"]) + s.trickle_paid
 	s = n
+	_note_hold()
 	for e in s.catchup_events():
 		_on_event(e, "away")
 	for e in s.drain_events():
@@ -1385,11 +1463,18 @@ func close(gap: int, night := false) -> Dictionary:
 	_scan_away(ready)
 	var v1 := s.view_vei()
 	rec["backlog_after"] = float(v1["backlog"])
-	rec["odds_load"] = float(v1["odds"])
+	rec["odds_load"] = float(v1["readiness"])
 	rec["ready"] = ready
 	closes.append(rec)
 	_next_fine = s.t
 	return rec
+
+
+## The longest unbroken hold so far (R-b's sizing): the largest held_for_s of a held fort in `s` now.
+func _note_hold() -> void:
+	for f in s.realm.forts:
+		if RealmSim.is_held(f):
+			trickle["longest_hold_s"] = maxf(float(trickle["longest_hold_s"]), float(f.get("held_for_s", 0.0)))
 
 
 func _scan_away(ready: Array) -> void:
@@ -1810,6 +1895,10 @@ func _on_event(e: Dictionary, where: String) -> void:
 				"waited_on": str(e["waited_on"]), "gold": cost[0], "bone": cost[1], "relics": cost[2], "where": where})
 			if str(e["waited_on"]) == "no_bone" and first["bone_wait_event"] < 0.0:
 				first["bone_wait_event"] = t
+		"grow_started":  # (Phase I P3, Q-b) the Grow stance's start: a build the bot didn't queue, waited_on "grow"
+			var cost := _cost(str(e["building_id"]), int(e["level"]))
+			builds.append({"t": t, "b": str(e["building_id"]), "lot": str(e["lot_id"]), "level": int(e["level"]),
+				"waited_on": "grow", "gold": cost[0], "bone": cost[1], "relics": cost[2], "where": where})
 		"building_done":
 			var cost := _cost(str(e["building_id"]), int(e["level"]))
 			done.append({"t": t, "b": str(e["building_id"]), "lot": str(e["lot_id"]), "level": int(e["level"]),
@@ -1869,6 +1958,21 @@ static func _stat_out(d: Dictionary) -> Dictionary:
 		"bodies_net_min": _r(float(d["bodies_min"])), "bodies_net_max": _r(float(d["bodies_max"]))}
 
 
+## (Phase I P3, R-c) (max - min) / max over a day's MINT_WIN_S window means of mint.in (windows of MINT_WIN_MIN samples or
+## more); -1 with none.
+static func _win_swing(fw: Dictionary) -> float:
+	var lo := INF
+	var hi := -INF
+	for k in fw:
+		var e: Array = fw[k]
+		if int(e[1]) < MINT_WIN_MIN:
+			continue
+		var m := float(e[0]) / int(e[1])
+		lo = minf(lo, m)
+		hi = maxf(hi, m)
+	return _r((hi - lo) / hi) if hi > 0.0 else -1.0
+
+
 func _fine_sample() -> void:
 	var r: Dictionary = s.view_rates()["rates"]
 	var mint := float(r["mint"]["in"])
@@ -1878,6 +1982,32 @@ func _fine_sample() -> void:
 		_fine_day[d] = _stat0()
 	_stat_add(_fine_day[d], mint, bn)
 	_stat_add(_win, mint, bn)
+	var fw: Dictionary = _fine_win.get(d, {})
+	var e: Array = fw.get(int(s.t / MINT_WIN_S), [0.0, 0])
+	e[0] = float(e[0]) + mint
+	e[1] = int(e[1]) + 1
+	fw[int(s.t / MINT_WIN_S)] = e
+	_fine_win[d] = fw
+	if not _muster_day.has(d):
+		_muster_day[d] = {"n": 0, "muster_sum": 0.0, "work_sum": 0.0}
+	var md: Dictionary = _muster_day[d]
+	md["n"] = int(md["n"]) + 1
+	md["muster_sum"] = float(md["muster_sum"]) + float(s._split["muster"])
+	md["work_sum"] = float(md["work_sum"]) + float(s._split["work"])
+
+
+## Q-h (Phase I P3; BALANCE §5's "the wrong metric"): workers.muster_per_day from _muster_day: per day of live time the
+## mean muster (mass/s), the mean WORK stream and the muster's share of it (0 with no WORK). The idle count sits at
+## worker.idle_cap whenever the inflow outruns the slots, so the share of labour that streams on is the number.
+func _muster_out() -> Dictionary:
+	var out := {}
+	for d in _muster_day:
+		var md: Dictionary = _muster_day[d]
+		var n := maxi(1, int(md["n"]))
+		var wk := float(md["work_sum"])
+		out[d] = {"n": int(md["n"]), "muster_mean": _r(float(md["muster_sum"]) / n), "work_mean": _r(wk / n),
+			"muster_share": _r(float(md["muster_sum"]) / wk) if wk > 0.0 else 0.0}
+	return out
 
 
 static func _r(x: float) -> float:
@@ -1961,7 +2091,8 @@ func _row(kind: String) -> Dictionary:
 		"tier": str(tn["tier"]), "lots_free": free, "no_lot": no_lot, "buildings": nb, "levels": lv,
 		"queue_len": q.size(), "queue_head": head, "next_afford_s": _r(_next_afford(q)), "relics_wall": _queue_wall(q),
 		"mint": _r(float(rates["mint"]["in"])), "bodies_net": _r(float(rates["bodies"]["net"])), "window": _stat_out(_win),
-		"backlog": _r(float(v["backlog"])), "odds": _r(float(v["odds"])), "sign": int(v["sign"]), "digest_q": _r(float(v["digest_q"])),
+		"backlog": _r(float(v["backlog"])), "odds": _r(float(v["odds"])), "readiness": _r(float(v["readiness"])),
+		"backups": int(v["backups"]), "sign": int(v["sign"]), "digest_q": _r(float(v["digest_q"])),
 		"fronts": fronts, "fronts_met": int(v["fronts_met"]), "fronts_required": int(v["fronts_required"]),
 		"relics": int(inv["relics"]), "essence": int(inv["essence"]), "husks": (inv["husks"] as Array).size(),
 		"remnants": (inv["remnants"] as Array).size(), "big": _big_counts(s.view_big_undead()), "held": held,
@@ -2051,19 +2182,16 @@ func summary() -> Dictionary:
 		nas[k] = {"rows": p.size(), "projected_median_s": _r(_median(p)), "starts": g.size(), "gap_median_s": _r(_median(g)),
 			"gap_max_s": _r(g.max() if not g.is_empty() else -1.0)}
 	out["next_affordable"] = nas
-	# workers
-	var idle_max := 0.0
-	for r in rows:
-		if float(r["t"]) >= 3600.0:
-			idle_max = maxf(idle_max, float(r["workers_idle"]))
-	out["workers"] = {"idle_max_after_1h": _r(idle_max), "flat_runs": _flat_runs(t_end),
-		"basis": "rows: view_town jobs (staffed vs slots) and workers.idle; flat runs: over 30 min with no building finished (building_done, live and away)"}
+	# workers (Q-h, Phase I P3: the muster rate replaces idle_max_after_1h, which sat at worker.idle_cap by design)
+	out["workers"] = {"muster_per_day": _muster_out(), "flat_runs": _flat_runs(t_end),
+		"basis": "muster_per_day: GameState's split muster and work every 10 s of live time, the share muster / work; flat runs: over 30 min with no building finished (building_done, live and away)"}
 	out["lots"] = {"first_full_with_no_lot_t": first["lots_full"]}
 	out["stores"] = _stores()
 	var sw := {}
 	for d in _fine_day:
 		sw[d] = _stat_out(_fine_day[d])
-	out["mint_swing"] = {"per_day": sw, "basis": "view_rates mint.in and bodies.net every 10 s of live time"}
+		sw[d]["mint_swing_win"] = _win_swing(_fine_win.get(d, {}))
+	out["mint_swing"] = {"per_day": sw, "basis": "view_rates mint.in and bodies.net every 10 s of live time; mint_swing_win: (max - min) / max of the day's 600 s window means (windows with 30+ samples), so the convoy saw (R-c) averages out and the day's drift stays"}
 	out["growth_away"] = _growth_away()
 	out["builds_per_6h"] = _per_6h()
 	out["vei"] = {"ready_t": vei_ready_t, "ready_day": _r(vei_ready_t / DAY) if vei_ready_t >= 0.0 else -1.0,
@@ -2071,8 +2199,13 @@ func summary() -> Dictionary:
 		"ready_wave_day": _r(vei_ready_wave_t / DAY) if vei_ready_wave_t >= 0.0 else -1.0,
 		"basis": "ready: fronts at her full pool, at the look and on arrival; ready_wave: at the pool she has then, at the look only",
 		"fronts_daily": fronts_daily, "raised": raised, "crafted": crafted,
-		"keep_churn": keep_churn, "crypt_up_h": _r(crypt_up_t / 3600.0) if crypt_up_t >= 0.0 else -1.0}
+		"keep_churn": keep_churn, "crypt_up_h": _r(crypt_up_t / 3600.0) if crypt_up_t >= 0.0 else -1.0,
+		"at_ready": vei_at_ready}
 	out["relics"] = _relics()
+	_note_hold()
+	out["trickle"] = {"paid": int(trickle["paid"]) + s.trickle_paid, "longest_hold_h": _r(float(trickle["longest_hold_s"]) / 3600.0),
+		"hold_h": _r(float(c["economy"]["relic_trickle"]["hold_s"]) / 3600.0), "period_h": _r(float(c["economy"]["relic_trickle"]["period_s"]) / 3600.0),
+		"basis": "paid: GameState.trickle_paid summed over the states each load replaces; longest_hold_h: a held fort's held_for_s at each close's save and load and at the end"}
 	out["first_t2_raid"] = first_raid.get("t2", {})
 	out["first_t3_raid"] = first_raid.get("t3", {})
 	out["backups"] = {"first_vat_t": first["vat"], "first_chapel_t": first["chapel"], "first_clone_seen_t": first["clone"],
@@ -2271,6 +2404,7 @@ static func _bot(name: String, cfg: Dictionary, o := {}) -> Autoplayer:
 	b.reorder = not bool(o.get("static", false))
 	b.bank_bigs = bool(o.get("bank_bigs", false))
 	b.keep_fronts = not b.bank_bigs and not bool(o.get("raid_all", false))
+	b.park_gated = not bool(o.get("skip_fill", false))
 	b.print_rows = bool(o.get("print_rows", true))
 	return b
 
@@ -2335,7 +2469,9 @@ static func run_profile(name: String, t: TestUtil) -> int:
 		"ablation_keep":
 			_p_versus(t, name, cfg, {"raid_all": true}, cfg)
 		"ablation_bone":
-			_p_versus(t, name, cfgs("no_bone_prices"), {}, cfg)
+			_p_versus(t, name, cfgs("no_bone_buildings"), {}, cfg)
+		"ablation_skip_fill":
+			_p_versus(t, name, cfg, {"skip_fill": true}, cfg)
 		"sensitivity":
 			_p_versus(t, name, cfg, {"deaths": "frozen"}, cfg)
 		_:

@@ -196,7 +196,7 @@ values**.
 | bodies | mass | capped store (`body_store.cap`) | haul, worker rot × `worker.body_return`, dungeon hauls | pit burn, mill | net /s and a bar |
 | gold | gold | capped store (`gold.cap`, raised by the Market), floor 0 | market trade | upkeep, build costs; what the cap clips (`ledger().stores`) | net /s and a bar |
 | bone | bone | capped store (`bone.cap`, raised by the Bone Mill), floor 0 | mill | build costs, some upkeep; what the cap clips | net /s and a bar |
-| relics | count | capped stock (`relics.cap`, raised by the Reliquary) | dungeons, and from E4 step 9 the idle relic trickle: one per `economy.json` `relic_trickle.period_s` (12 h) of game time while every fort at or below the highest tier ever flipped is held (read at each step's start; the paying seconds accrue, and are kept while it doesn't pay), so a player walled at a tier still gets relics (the run's manager's rulings on step 9 (3)) | buildings, forge levels, phylactery, upgrades | count |
+| relics | count | capped stock (`relics.cap`, raised by the Reliquary) | dungeons, and from E4 step 9 the idle relic trickle: one per `economy.json` `relic_trickle.period_s` (12 h) of game time while some fort has been held `relic_trickle.hold_s` (24 h) without a break (Phase I P3, R-b; STATE-API §10 A18; until then: every fort at or below the highest tier ever flipped held, which never paid), read at each step's start; the paying seconds accrue, and are kept while it doesn't pay (the run's manager's rulings on step 9 (3)) | buildings, forge levels, phylactery, upgrades | count |
 | blueprints | set | unlocks | dungeons only (first clear guaranteed) | unlock building types | set |
 | essence | motes (int) | capped stock (`essence.cap`) | dungeons (carried out) | phylactery charges, simulacra | count |
 | husks, remnants | items with uids | stock | dungeons | slab | count |
@@ -717,6 +717,13 @@ corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
   strain (§3.4), so she still fights back harder as the queue clogs, not as the game ages. The odds a player reads
   therefore don't drive her pressure directly; the strain is in `view_vei.strain`, never shown as odds. Until E4
   step 9 the odds were the strain (`time_weight` 0 with `backlog_cap` 1 gives them back bit for bit).
+- **Readiness and the first-attempt odds** (Phase I P3, the run's manager's odds split; STATE-API §10 A16): the win
+  odds above are now the **readiness** (`view_vei.readiness`). The boss seed carries it, Vei-ready reads it (≥ 0.6)
+  and BALANCE's pacing rows measure it. The **odds** a player reads are the first-attempt estimate on it and the
+  backups: `readiness / (1 + exp(−(backups − odds.backups_mid) / odds.backups_scale))`, with backups = min(phylactery
+  charges, `phylactery.max_per_dungeon`) + clones ready. Since P1's pool-scaled break the backups decide a first
+  attempt (§6), so each clone raises the odds shown, and the readiness bounds what backups can buy. The fit is to the
+  faithful grade at Vei-ready (BALANCE §5); `backups_mid` −1e9 gives the readiness back bit for bit.
 - The EMA is saved (`readout.diff_ema`); the raw `diff` is not.
 - Vei's panel and the confrontation dialog show all three.
 - `RealmSim.readout()` stays for its old readers with the same keys. Its `capacity` is the most
@@ -1314,7 +1321,9 @@ upgrade refunds in full and changes nothing else.
 **The build queue** (IDLE §5, E2b-2 T3.2; `BuildRules.queue_walk`, STATE-API §4.3, §5.9). GameState keeps an
 ordered list of entries `{building_id, lot_id, upgrade, waited_on}`, saved. From Phase I P2 (IDLE §5's queue rule)
 `queue.max_len` (8) counts only the entries that hold a slot: a `skipped_gate` entry holds none, and the whole list
-caps at `queue.max_len` × `queue.list_mult` (16).
+caps at `queue.max_len` × `queue.list_mult` (16). Phase I P3 (A14's amendment, STATE-API §10): the walk gives the
+slots to the first `queue.max_len` entries no gate holds, in list order (a `next` row holds one until it starts); any
+later one is `skipped_gate` `wait_slot`, holding nothing, so the slots never pass `queue.max_len`.
 Everything else an entry shows is derived from today's state by one walk, which `view_town().queue`,
 `cmd_queue_build` and the core step's processing all run, so a status always says what the next
 processing does.
@@ -1326,7 +1335,7 @@ processing does.
   relic cost above that store's cap now; it names the store, the building that raises its cap, the first
   in `buildings.json` with that `*_cap` effect, and `cap_level`, the lowest level of that building whose
   cap covers the price: 1 when it isn't built yet, −1 when no level does). Affordability never refuses:
-  it holds the queue.
+  it holds the queue (unless no income can pay it: the walk below).
 - **What it accepts as a gate** (the run's manager, 2026-11-14: IDLE §5 over api-request #3's wording,
   since growth while away is Shawn's ask): `needs_tier`, `needs_blueprint`, `needs_building`,
   `lot_locked`, a relic shortfall (`no_relics`), and for an upgrade a construction under way on its lot
@@ -1357,6 +1366,13 @@ processing does.
   - the first entry that isn't gated is the head. When gold and bone cover it, it is `next`: the copy pays
     its cost and takes its lot as its start will, and the walk goes on to the next head. Otherwise it is
     `waiting_funds` (`no_gold`, `no_bone`) and every later entry that isn't gated is `queued`.
+  - Phase I P3 (ruling 3, "never stalls"; STATE-API §10 A15): a head short of funds that reads −1.0 at the walk's
+    stocks (`BuildRules.head_dry`: `_afford_at` on a timeline from those stocks at `queue_net`'s rates) is
+    `skipped_gate` with its `no_gold` / `no_bone` instead, holding nothing and no slot, and the walk goes on to the
+    next head: at once when that store's producer has no staffed hands (no staffed `mill` job for bone, no staffed
+    `stall` for gold), else once its entry's `never_since` is `queue.never_hold_s` (600 s) old. The core step's
+    processing sets `never_since` the first step a head reads dry and clears it at any step it doesn't, and
+    `Catchup.build_start_s` clips at the hold's end, so a catch-up skips it when live play does.
   - So several affordable entries can start in one step, in order, and build at once on the build job.
 - **The manager's four rules for gated entries:**
   1. **A gated entry never stalls the queue.** The head is the first entry that isn't gated. When a gate
@@ -1484,7 +1500,7 @@ finished against a copy without (STATE-API §5.10). The table is the design inte
   the staffing it previews.
 - **Stances:** named, pre-written behaviours the player toggles. Slots: `stance.base_slots` (2), plus
   the Guildhall, plus 1 while Relish is home; when they run short the newest are suspended (on, but no
-  effect) until a slot frees. Each shows its projected effect on net rates before you toggle it. None
+  effect) until a slot frees. Grow (Phase I P3) takes no slot (`stance.slot_free`) and is never suspended. Each shows its projected effect on net rates before you toggle it. None
   touches the valve (one controller per dial). Live from E3-1 (the run's manager's rulings for Shawn); the
   thresholds are `economy.json` `stance`, v0 (BALANCE §5, E4 calibrates).
 
@@ -1495,6 +1511,7 @@ finished against a copy without (STATE-API §5.10). The table is the design inte
 | Hearth | morale < `stance.hearth_morale` (0.5) | `stall` to the top |
 | Muster | idle workers: some stand idle, or the last step mustered some | the idle cap (`worker.idle_cap`) reads 0: every idle worker musters to WAR at once (without it the overflow above the cap musters to Vei's queue, §3.2) |
 | Thrift | the stalls' gold income < the gold upkeep owed | idles buildings over `stance.thrift_upkeep` (0.05) gold upkeep, in its order, until the income covers what is still paid |
+| Grow | a build or upgrade has finished since the new game (the finished levels total more than `opening.buildings`') | on in a new game (`stance.grow.default_on`), no slot. Right after the queue's processing, while no queue head waits on funds and fewer than `stance.grow.max_active` (1) constructions are under way: starts the upgrade, of a standing building in `stance.grow.order` whose lot has no queue entry and whose next level passes the tier gate, costs no relics and fits under every cap, that is affordable soonest at the queue's net income (ties in `order`, then lot order), once the stocks cover it; it passes over one no income can pay, and a gold-priced one while the gold income can't pay the upkeep (the Market's excepted). `grow_started`. Below |
 
 - **`active` is the condition alone, for every stance, on or off** (the run's manager). A stance acts only
   while it is on, not suspended and active; an off or suspended stance shows `active` and does nothing.
@@ -1554,6 +1571,27 @@ finished against a copy without (STATE-API §5.10). The table is the design inte
   staffing, against the same for the stances acting now: pure, no rev, no event.
 - Firings show in `view_stances()` with `fired_beat_id`. The town scene flashes the affected agents
   on its next visual beat (for every stance's change, on or off, since `active` is for every stance).
+- **Grow** (Phase I P3, Q-b: the run's manager's ruling of 2026-11-18, option (a); STATE-API §10 A17). Shawn's lever
+  for an idle imbalance ("we can play with conditional stances if we feel there is an imbalance"), for his never-raid
+  target: 2–3 days of real idle growth, then a visible wall. `BuildRules.grow_target` picks, `grow_step` starts,
+  `grow_start_s` is catch-up's clip.
+  - **Its own path, not the queue.** It starts an upgrade only when the stocks already cover it and no queue head waits
+    on funds, so it never takes what the player's queue is saving; a parked (gated) entry holds nothing and doesn't
+    stop it, and a lot with any queue entry is left to the player. A pick it can't afford yet holds nothing.
+  - **What it never does:** build on an empty lot (the lots are the player's plan), spend relics, start a level behind
+    the tier or over a cap (re-read as the caps rise), or start a burst: at most `max_active` (1) constructions under
+    way, anyone's, since builders sit at the ladder's top, 3 to a site.
+  - **It spends no gold a short town lives on** (the run's manager's ruling 1 on P3's handoff 5): a level with a gold
+    price is passed over while the gold income can't pay the working buildings' gold upkeep (`TownSim.income_pays` at
+    `gold_income()` and `gold_due()`, the margin `held_by_income` reads; a level adds no upkeep, which is per
+    building). A building that earns gold (the Market) is exempt: its level is the income. Without it, pre_vei's Grow
+    spent the stock on the living's levels and shed nine buildings 57 min in, against 2 h 8 min with Grow off.
+  - **The wall stays visible:** once every standing building is at its last relic-free level, Grow has no pick and the
+    queue's parked relic entries are what's left.
+  - **The step:** right after `process_queue` in the core step (§3 step 3), on the state the processing left; a step
+    starts as many as the cap allows, each picked on the stocks the last left. Catch-up clips at the pick's time
+    (`Catchup.next_event_s`), and a construction finishing (which frees the cap) is a clip already, so a catch-up
+    starts it within the live run's substep (`test_grow`).
 
 ### 4.6 The crypt slab: big undead
 - Only while Relish is home. The town scene's crypt view runs SlabLogic's live preview (ported from
