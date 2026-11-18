@@ -21,7 +21,7 @@ func _init() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	_plate = ColorRect.new()
 	_plate.color = Palette.c("ground", float(c["plate_alpha"]))
-	_plate.mouse_filter = Control.MOUSE_FILTER_STOP
+	_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE  # STOP only while active (see update)
 	_plate.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	add_child(_plate)
 	var centre := CenterContainer.new()
@@ -59,7 +59,11 @@ func _init() -> void:
 ## One frame: `view` is view_catchup() (or the demo's). The bar and line change only when the
 ## values do; the plate's alpha follows RouterLogic.catchup_alpha.
 func update(view: Dictionary, dt: float, reduced: bool) -> void:
+	var was := _active
 	_active = RouterLogic.catchup_swallows(bool(view.get("active", false)))
+	if _active != was:
+		# the plate eats clicks only while active, not through the fade
+		_plate.mouse_filter = Control.MOUSE_FILTER_STOP if _active else Control.MOUSE_FILTER_IGNORE
 	var c := RouterLogic.catchup_cfg()
 	_alpha = RouterLogic.catchup_alpha(_alpha, _active, dt, float(c["fade_s"]), reduced)
 	var shown := RouterLogic.catchup_shown(_alpha)
@@ -78,6 +82,11 @@ func update(view: Dictionary, dt: float, reduced: bool) -> void:
 ## True while input is being swallowed (the catch-up is running).
 func swallowing() -> bool:
 	return _active
+
+
+## True while the plate stops the mouse (exactly while swallowing, never during the fade).
+func plate_stops_mouse() -> bool:
+	return _plate.mouse_filter == Control.MOUSE_FILTER_STOP
 
 
 ## Every input event is taken while the catch-up runs: this node sits last under the router, so it
