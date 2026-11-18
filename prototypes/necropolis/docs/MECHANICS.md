@@ -1066,9 +1066,11 @@ mass; bodies, rot return, WORK and muster are mass.
     for the pits (store empty: `feed` < 1), the stalls (`living` · `market.shop_rate` under the staffed
     stalls' rate) and the forge (a level waiting for relics); only the mill's is reported on the buildings.
     From E4 step 10 (review-t7r1r2 §5) the stalls' is kept too (`TownSim.trade_starved` `"living_first"`, per step,
-    never saved) and read by a queue row short of gold, not by the Market's building row: a Market level adds
-    stalls, so while the living bind it sells nothing more, and the row's lever and the away report's line name
-    housing or an Inn (IDLE §7).
+    never saved) and read by a queue head that can never be afforded on gold, not by the Market's building row: a
+    Market level adds stalls, so while the living bind it sells nothing more, and the row's lever and the away
+    report's line name housing or an Inn (IDLE §7). A queue row reads a flag only when it is that row's blocker
+    (the E4 final review's item 5): the head waiting on funds at `affordable_in_s` −1, from the store it is never on;
+    a timed wait reads `""` (STATE-API §5.9).
   - **The bone cliff** (E4, the run's manager's A1 day-1 ruling). Under A1 (§3.2) the muster goes to Vei, so
     early bodies come from WAR's corpses at the forts and the workers' rot return. Below a WAR share of about 0.54
     a new game's pits eat every body (0.20 mass/s of rot return; the forts' corpses are cleared as they form) and
@@ -1082,7 +1084,7 @@ mass; bodies, rot return, WORK and muster are mass.
     It is a tipping point, not a per-fort inequality: at 0.40 the three nearest forts' WAR already beats their
     living's pull (k_destroy / q · L), so no closed form reads it off a state. The cliff stays because it is
     visible and one valve move fixes it (the ruling): the start valve is 0.25 / 0.60 / 0.15 (BALANCE §0); the
-    mill's row and a queue head short of bone read `starved` `"pits_first"` and `lever` `"raise_war"`, the head's
+    mill's row and a queue head never affordable on bone read `starved` `"pits_first"` and `lever` `"raise_war"`, the head's
     `short` names the bone, and the away report's head line says so (IDLE §7; STATE-API §5.9, §5.19);
     `view_hud.bone_war_share` is a new game's edge (`economy.json` `opening.bone_edge.war_share`, bracketed by
     test_day1_queues) for the valve readout. Pits-first and the yields are unchanged, and there is no mill floor.

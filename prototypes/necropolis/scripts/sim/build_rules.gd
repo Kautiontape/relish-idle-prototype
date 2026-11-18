@@ -516,26 +516,26 @@ static func queue_walk(gs: GameState, entries: Array, timed := true) -> Dictiona
 		var row := {"building_id": bid, "lot_id": lot_id, "upgrade": up, "level": level, "cost": cost,
 			"work": gs.town_sim.construction_work(bid, level),
 			"status": status, "reason": why, "waited_on": str(e.get("waited_on", ""))}
-		# v11 (E4, the A1 day-1 ruling): what a head waiting on funds is short of at the walk's stocks (0 otherwise),
-		# and, while it is short of bone, why the mills made less than they want (TownSim.mill_starved) and the lever
-		# that fixes it: a "never" on bone with the pits eating every body reads "pits_first", "raise_war"
+		# v11 (E4, the A1 day-1 ruling): what a head waiting on funds is short of at the walk's stocks (0 otherwise)
 		var short := {"gold": 0.0, "bone": 0.0}
 		if status == "waiting_funds":
 			short = {"gold": maxf(0.0, float(cost["gold"]) - gold), "bone": maxf(0.0, float(cost["bone"]) - bone)}
-		# E4 step 10 (review-t7r1r2 §5, the Market side): short of gold and not of bone, why the stalls sold less than
-		# they can (TownSim.trade_starved): "living_first", "raise_living"
-		var starved := ""
-		if float(short["bone"]) > 0.0:
-			starved = gs.town_sim.mill_starved
-		elif float(short["gold"]) > 0.0:
-			starved = gs.town_sim.trade_starved
 		row["short"] = short
-		row["starved"] = starved
-		row["lever"] = gs.starved_lever(starved)
+		row["starved"] = ""
+		row["lever"] = ""
 		if timed:
 			var at := _afford_at(gs, cost, tl, status != "skipped_gate")
 			waits.append(at[1])
 			row["affordable_in_s"] = float(at[0])
+			# the row's own reason (the E4 final review's item 5): only a head waiting on funds that can never be
+			# afforded (−1.0) reads why the store it is never on makes less than it could, and the lever that fixes it:
+			# bone, the mills' (TownSim.mill_starved, the A1 day-1 ruling: "pits_first", "raise_war"); gold, the stalls'
+			# (TownSim.trade_starved, E4 step 10: "living_first", "raise_living"). A timed wait reads "", whatever the
+			# town-wide flags say: it will be afforded at the current income, so no lever is its blocker
+			if status == "waiting_funds" and float(at[0]) < 0.0:
+				var starved := str({"bone": gs.town_sim.mill_starved, "gold": gs.town_sim.trade_starved}.get(str(at[1]), ""))
+				row["starved"] = starved
+				row["lever"] = gs.starved_lever(starved)
 		rows.append(row)
 	return {"rows": rows, "start": start, "waits": waits}
 

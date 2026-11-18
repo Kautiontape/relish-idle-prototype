@@ -408,9 +408,13 @@ from `BALANCE.md` §0.
     `flipped_count` (never reset), so it needs no save key of its own, and an old save reads its own history.
   - **The Market side of the input-limited lever** (E4 step 10, review-t7r1r2 §5; no version bump: new values in
     existing String keys, no shape change): `view_town.queue[].starved` reads `"living_first"` and `.lever`
-    `"raise_living"` on a row short of gold and not of bone while the living buy less than the stalls can sell
+    `"raise_living"` on a head never affordable on gold while the living buy less than the stalls can sell
     (§5.9). §5.19's never-on-gold line and the upkeep gate's line then name housing or an Inn, not a Market
     (`idle.report.afford_living_fmt`, `afford_living_last_fmt`, `afford_upkeep_living_fmt`).
+  - **A row's own reason** (the E4 close-out, the final review's item 5; no shape change): a queue row's
+    `starved` and `lever` are set only on the head waiting on funds at `affordable_in_s` −1.0, from the store it is
+    never on; a timed wait reads `""` (before, any row short of gold read the stalls' flag and any row short of bone
+    the mills').
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -1808,7 +1812,7 @@ in it: that is correct, not a mismatch.
 | `waited_on` | String | the last reason that kept it from starting (a gate, or `no_gold`/`no_bone`), `""` if it never waited; set when queued and by each step's processing, never by a view. An entry `queued` behind a head waiting on funds takes the head's `no_gold`/`no_bone`. Saved. `queue_started.waited_on` carries it (§6) |
 | `affordable_in_s` | float | v7 (R2): when its funds come at the current net rates, in sim seconds from now: `0.0` when the stocks cover it now, the seconds until they do, or `-1.0` when they never will at these rates. Set by the same walk as `status` (below), so the two never disagree: a `next` entry reads `0.0` and a `waiting_funds` head never does. Never saved; a view changes nothing |
 | `short` | Dictionary | v11 (the A1 day-1 ruling): `{gold, bone}`, what a `waiting_funds` head is short of at the walk's stocks (its cost less what is left once the `next` entries ahead are paid); `0.0` each for every other status. With `affordable_in_s` at `-1.0` it names what a "never" waits on |
-| `starved`, `lever` | String | v11 (the A1 day-1 ruling): while `short.bone` > 0, the mills' `starved` reason (as on the mill's building row) and its `lever`: a head that can never be afforded on bone while the pits eat every body reads `"pits_first"` and `"raise_war"`. From E4 step 10 (review-t7r1r2 §5, the Market side), while `short.gold` > 0 and `short.bone` is 0: the stalls' reason (`TownSim.trade_starved`), `"living_first"` when the living buy less than the staffed stalls can sell (living · `market.shop_rate` under staffed · `stall.rate`), with the lever `"raise_living"` (housing, or an Inn). `""` otherwise. Per step, never saved |
+| `starved`, `lever` | String | Why this row's store can't pay it, and the lever that fixes it. **The row's own reason** (the E4 close-out, the final review's item 5): only the head waiting on funds that can never be afforded (`affordable_in_s` −1.0) reads a reason, from the store it is never on (the one its away line names). A timed wait reads `""` whatever the town-wide flags say, since it will be afforded at the current income, and so does every other row. On bone (v11, the A1 day-1 ruling): the mills' `starved` reason (as on the mill's building row) and its `lever`, so a never on bone while the pits eat every body reads `"pits_first"` and `"raise_war"`. On gold (E4 step 10, review-t7r1r2 §5, the Market side): the stalls' reason (`TownSim.trade_starved`), `"living_first"` when the living buy less than the staffed stalls can sell (living · `market.shop_rate` under staffed · `stall.rate`), with the lever `"raise_living"` (housing, or an Inn). `""` otherwise. Per step, never saved |
 
 **`affordable_in_s`** (v7, R2; from the E2b-2 vision review's item 3, the run's manager's ruling for Shawn: the
 queue never stalls or jumps, so the player gets the data instead, and E3's autoplayer reads it too; MECHANICS

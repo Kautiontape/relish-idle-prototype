@@ -18,6 +18,12 @@ extends RefCounted
 ##   0.09 + 0.01), and after a 60 s load the line is afford_upkeep_living's.
 ## - (d) A new game's own step: 10 living against 2 stalls, 0.30 against 0.30, a tie: "".
 ## - (e) After a load trade_starved is "" until the first step (it is never saved).
+## - (f) A row's own reason (the E4 final review's item 5, handoff 23 ruling 4): only a head that can never be afforded
+##   (−1.0) reads the flag of the store it is never on. At 8 living (0.24 against the stalls' 0.30) trade_starved reads
+##   living_first while the House's level 2 is a timed wait on gold: its starved and lever read "". The bone side by the
+##   same rule: with a working Bone Mill and mill_starved set to pits_first by hand, a timed wait on bone reads "";
+##   with the mill gone, the never on bone reads pits_first and raise_war. Revert proof: on 2a9e596 both timed heads
+##   read the flag (gold short and not bone: trade_starved; bone short: mill_starved).
 
 var t := TestUtil.new()
 var _dir := "user://test_trade_starved_%d" % OS.get_process_id()
@@ -34,6 +40,7 @@ func run() -> int:
 	_stalls_bind(c)
 	_upkeep(c, rep)
 	_tie(c)
+	_timed(c)
 	_cleanup()
 	return t.failures
 
@@ -140,6 +147,40 @@ func _tie(c: Dictionary) -> void:
 	var s := _game(c)
 	s.tick(s.substep_s())
 	t.ok(s.town_sim.trade_starved == "", "(d) a new game's 10 living against 2 stalls, a tie: \"\" (living %.1f)" % s.town_sim.living)
+
+
+func _timed(c: Dictionary) -> void:
+	var s := _with_house(c)
+	s.town_sim.living = 8.0
+	s.town_sim.gold = 30.0
+	s.town_sim.bone = 30.0
+	t.ok(s.cmd_queue_build("", "lot-07")["ok"], "(setup) (f) the House's level 2 queued")
+	s.tick(s.substep_s())
+	var head: Dictionary = s.view_town()["queue"][0]
+	t.ok(s.town_sim.trade_starved == "living_first" and str(head["status"]) == "waiting_funds" and str(head["reason"]) == "no_gold"
+		and float(head["affordable_in_s"]) > 0.0, "(setup) (f) living_first, and the head is a timed wait on gold: %s" % JSON.stringify(head))
+	t.ok(str(head["starved"]) == "" and str(head["lever"]) == "", "(f) a timed wait on gold reads starved \"\" and lever \"\" under living_first")
+	# the bone side: a working mill makes bone, so a head short of bone only is a timed wait
+	var b := _with_house(c)
+	var mill_lot := str(BuildRules.free_lots(b, 1)[0])
+	t.ok(b.town_sim.place_building(mill_lot, "bone_mill", 1), "(setup) (f) a Bone Mill on %s" % mill_lot)
+	b.town_sim.gold = 500.0
+	b.town_sim.bone = 0.0
+	b.town_sim.bodies = 200.0
+	t.ok(b.cmd_queue_build("", "lot-07")["ok"], "(setup) (f) the House's level 2 queued")
+	for i in 4:
+		b.tick(b.substep_s())
+	b.town_sim.mill_starved = "pits_first"  # by hand: the rule is the row's, whatever the step left in the flag
+	var bh: Dictionary = b.view_town()["queue"][0]
+	t.ok(str(bh["status"]) == "waiting_funds" and str(bh["reason"]) == "no_bone" and float(bh["affordable_in_s"]) > 0.0,
+		"(setup) (f) the head is a timed wait on bone: %s" % JSON.stringify(bh))
+	t.ok(str(bh["starved"]) == "" and str(bh["lever"]) == "", "(f) a timed wait on bone reads starved \"\" and lever \"\" under pits_first")
+	t.ok(b.cmd_demolish(mill_lot)["ok"], "(setup) (f) the mill demolished")
+	b.tick(b.substep_s())
+	b.town_sim.mill_starved = "pits_first"
+	var nh: Dictionary = b.view_town()["queue"][0]
+	t.ok(str(nh["reason"]) == "no_bone" and float(nh["affordable_in_s"]) == -1.0 and str(nh["starved"]) == "pits_first"
+		and str(nh["lever"]) == "raise_war", "(f) with no mill the head is a never on bone and reads pits_first, raise_war: %s" % JSON.stringify(nh))
 
 
 func _cleanup() -> void:
