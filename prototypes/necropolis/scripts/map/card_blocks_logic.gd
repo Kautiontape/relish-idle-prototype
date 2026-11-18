@@ -119,7 +119,7 @@ static func vei_card(vei: Dictionary, desc: String, party: Array, names: Diction
 		vei_cfg: Dictionary = {}, bigs: Dictionary = {}) -> Dictionary:
 	var c := _c()
 	if bool(vei.get("won", false)):  # P7: a beaten Vei has no war to read (no queue, odds, fronts or party); her card's actions say she is beaten
-		return {"title": "Vei's Domain", "sub": str(c.get("vei_sub", "")), "desc": desc, "blocks": []}
+		return {"title": str(c.get("vei_title", "")), "sub": str(c.get("vei_sub", "")), "desc": desc, "blocks": []}
 	var st := HudLogic.status(readout)
 	var sign := int(st["sign"])
 	var blocks: Array = []
@@ -147,7 +147,7 @@ static func vei_card(vei: Dictionary, desc: String, party: Array, names: Diction
 		blocks.append({"kind": "assign", "id": "assign_%s" % m["uid"], "uid": str(m["uid"]), "name": str(m["name"]),
 			"sub": str(c.get("assign_sub_fmt", "%s %s")) % [m.get("kind", ""), m.get("role", "")],
 			"selected": str(m.get("front", "")), "options": options, "labels": labels})
-	return {"title": "Vei's Domain", "sub": str(c.get("vei_sub", "")), "desc": desc, "blocks": blocks}
+	return {"title": str(c.get("vei_title", "")), "sub": str(c.get("vei_sub", "")), "desc": desc, "blocks": blocks}
 
 
 ## A village's card: its owner in words and the migrants it sends to Covington.

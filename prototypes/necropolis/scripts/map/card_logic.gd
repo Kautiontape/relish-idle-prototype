@@ -245,6 +245,8 @@ static func queue_text(f: Dictionary, vei_cfg: Dictionary, bigs: Dictionary) -> 
 	var fc: Dictionary = vei_cfg.get("fronts", {}).get(str(f.get("id", "")), {})
 	if float(fc.get("per_backlog", 0.0)) <= 0.0 and float(fc.get("per_q", 0.0)) <= 0.0:
 		return ""
+	if not f.has("counted"):  # an old-shape row: nothing to take the units' part from, so the queue is only named (not all of `have`)
+		return str(_c().get("front_queue", ""))
 	var sum := 0.0
 	for u in f.get("counted", []):
 		var b: Dictionary = bigs.get(str(u), {})
