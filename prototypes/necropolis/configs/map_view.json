@@ -130,6 +130,7 @@
     "big_core_r_px": 2.0,
     "siege_arc_deg": -40.0,
     "siege_gap_px": 4.0,
+    "siege_relish_gap_px": 4.0,
     "siege_alpha_base": 0.6,
     "siege_alpha_wave": 0.4,
     "big_min_screen_px": 7.0,

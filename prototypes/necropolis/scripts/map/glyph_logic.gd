@@ -156,11 +156,33 @@ static func siege_radius(tier: int, zoom := 1.0) -> float:
 ## the name below and Relish's standing token above), siege_gap_px apart.
 static func siege_layout(centre: Vector2, tier: int, n: int, zoom := 1.0) -> PackedVector2Array:
 	var out := PackedVector2Array()
-	var r := siege_radius(tier, zoom)
-	var step := (big_extent(big_half(zoom)) * 2.0 + _g("siege_gap_px")) / maxf(r, 1.0)
-	var a0 := deg_to_rad(_g("siege_arc_deg")) - step * (n - 1) * 0.5
-	for i in maxi(n, 0):
-		out.append(centre + Vector2.from_angle(a0 + step * i) * r)
+	if n <= 0:
+		return out
+	var ext := big_extent(big_half(zoom))
+	var base := siege_radius(tier, zoom)
+	# Relish stands straight above the fort (map_nodes): her token's marks are screen-px, so huge in
+	# world px at the default fit, and the arc must clear them. The radius is the least one at which
+	# every diamond (edge) stands siege_relish_gap_px (screen) outside relish_clear of her, found by
+	# iterating, since the angular step shrinks as the radius grows.
+	var up := NodeLogic.outer_radius("fort", tier, 0.0) + float(NodeLogic.ncfg()["relish_gap_px"]) + float(NodeLogic.relish_radii(zoom)["halo"])
+	var need := relish_clear(zoom) + ext + _g("siege_relish_gap_px") / maxf(zoom, 0.001)
+	var r := base
+	for _k in 12:
+		var worst := base
+		var a0 := deg_to_rad(_g("siege_arc_deg")) - (ext * 2.0 + _g("siege_gap_px")) / maxf(r, 1.0) * (n - 1) * 0.5
+		for i in n:
+			var a := a0 + (ext * 2.0 + _g("siege_gap_px")) / maxf(r, 1.0) * i
+			var u := Vector2.from_angle(a)
+			var disc := need * need - up * up * u.x * u.x
+			if disc > 0.0:
+				worst = maxf(worst, -up * u.y + sqrt(disc))
+		if is_equal_approx(worst, r):
+			break
+		r = worst
+	var step := (ext * 2.0 + _g("siege_gap_px")) / maxf(r, 1.0)
+	var a1 := deg_to_rad(_g("siege_arc_deg")) - step * (n - 1) * 0.5
+	for i in n:
+		out.append(centre + Vector2.from_angle(a1 + step * i) * r)
 	return out
 
 

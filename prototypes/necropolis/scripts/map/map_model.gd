@@ -150,13 +150,14 @@ func _note_builds(town: Dictionary) -> void:
 ## and the sim refreshes the projections only while the catalog is being read (STATE-API §5.10), so
 ## the first read of a build comes back cold and the next one holds its value. `force` skips the clock.
 func read_projections(town: Dictionary, force := false) -> void:
-	if not SetpieceLogic.has_pending(town):
-		return
+	var fresh := SetpieceLogic.pending_new(town)
+	if fresh.is_empty():
+		return  # upgrades carry upgrade_projected in view_town(): no catalog read for them
 	var now := Time.get_ticks_msec() / 1000.0
 	if not force and now - _proj_read_s < float(MapLogic.cfg().get("projection_read_s", 4.0)):
 		return
 	_proj_read_s = now
-	SetpieceLogic.note_catalog(proj_store, SetpieceLogic.pending_new(town), state.view_catalog().get("buildings", []))
+	SetpieceLogic.note_catalog(proj_store, fresh, state.view_catalog().get("buildings", []))
 
 
 ## The store stalls view_town() reports: {mill: {starved, lever} of the Bone Mill row ("" each when it

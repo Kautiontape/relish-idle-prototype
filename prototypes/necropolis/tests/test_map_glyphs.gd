@@ -239,10 +239,8 @@ func _siege(t: TestUtil) -> void:
 					for j in range(i + 1, at.size()):
 						ok_apart = ok_apart and at[i].distance_to(at[j]) >= ext * 2.0
 					var rp := _standing(fort, tier, z)
-					# near: clear of her whole token, beat ring included; mid (her marks are screen-px, so
-					# huge in world px): clear of the token's core, the rings and glow pulse over the diamond
-					var keep := GlyphLogic.relish_clear(z) if z >= float(c["zoom_near_above"]) - float(c["zoom_hysteresis"]) else float(NodeLogic.relish_radii(z)["core"])
-					var d := at[i].distance_to(rp) - ext - keep
+					# clear of her whole token, beat ring and glow included, at every drawing zoom (mid too)
+					var d := at[i].distance_to(rp) - ext - GlyphLogic.relish_clear(z)
 					worst = minf(worst, d)
 					ok_relish = ok_relish and d >= 0.0
 					var row := GlyphLogic.party_layout(rp, 0.0, false, 4, z)
@@ -252,7 +250,7 @@ func _siege(t: TestUtil) -> void:
 	t.ok(ok_ring, "1..3 sieging big undead sit outside the redirect ring's halo, upper right of the fort, at mid and near zooms")
 	t.ok(ok_apart, "and clear of each other")
 	t.ok(ok_text, "and above the band the tithe text runs in (a screen-px line), at every drawing zoom")
-	t.ok(ok_relish, "and clear of Relish standing there (her whole token at near, its core at mid) and her party's row (closest %.1f px)" % worst)
+	t.ok(ok_relish, "and clear of Relish standing there (her whole token, beat ring and glow, at every drawing zoom) and her party's row (closest %.1f px)" % worst)
 	t.ok(GlyphLogic.siege_layout(fort, 1, 0).is_empty(), "no siege, no glyphs")
 	t.ok(GlyphLogic.siege_alpha(1.0) > GlyphLogic.siege_alpha(0.0) and GlyphLogic.siege_alpha(1.0) <= 1.0, "the siege pulses brighter on the beat, alpha <= 1")
 

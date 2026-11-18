@@ -124,7 +124,24 @@ func _builds(t: TestUtil) -> void:
 	var other := MapModel.new(s2)
 	other.refresh(true)
 	t.ok(MapModel.snap_game == str(other.hud.get("game_id", "")), "the snapshot belongs to the game being read")
+	# the catalog is read only for a NEW build: a queue of upgrades, or one under construction, needs none
+	var cs := CountingState.new(TestUtil.configs())
+	var cm := MapModel.new(cs)
+	cm.read_projections({"queue": [{"upgrade": true, "lot_id": "lot-05", "building_id": "house"}], "buildings": []}, true)
+	cm.read_projections({"queue": [], "buildings": [{"state": "constructing", "level": 1, "lot_id": "lot-05", "building_id": "house"}]}, true)
+	t.ok(cs.catalog_reads == 0, "an upgrade queued or under construction reads no catalog (%d reads)" % cs.catalog_reads)
+	cm.read_projections({"queue": [{"lot_id": "lot-08", "building_id": "house"}], "buildings": []}, true)
+	t.ok(cs.catalog_reads == 1, "a new build queued reads it once (%d reads)" % cs.catalog_reads)
 	MapModel.reset_statics()
+
+
+## A GameState that counts view_catalog() calls.
+class CountingState extends GameState:
+	var catalog_reads := 0
+
+	func view_catalog() -> Dictionary:
+		catalog_reads += 1
+		return super.view_catalog()
 
 
 func _lane_ok(l: Dictionary) -> bool:
