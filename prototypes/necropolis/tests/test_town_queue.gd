@@ -24,6 +24,7 @@ func run() -> int:
 	_spread_refresh()
 	_hud_idle_short()
 	_muster_words()
+	_review_m2()
 	_vat_costed()
 	_p2_counts()
 	return t.failures
@@ -167,6 +168,31 @@ func _muster_words() -> void:
 	var rv := {"hud": s.view_hud(), "town": s.view_town()}
 	t.ok(HudModel.muster_to(rv) == String(rv["town"]["workers"]["muster_to"]),
 		"day1: view_hud's split and view_town's workers name the same destination ('%s')" % HudModel.muster_to(rv))
+
+
+## The M2 review's should-fixes 1-3 (reports/review-town-i-m2.md): a queue row's click finds its entry in today's queue
+## before sending (the head may have started), one queue command per bind, and the refusal words in town.json.
+func _review_m2() -> void:
+	var a := {"building_id": "inn", "lot_id": "lot-13", "upgrade": false}
+	var b := {"building_id": "house", "lot_id": "lot-05", "upgrade": false}
+	var c := {"building_id": "market", "lot_id": "lot-07", "upgrade": true}
+	var shown := [a, b, c]
+	t.ok(BuildSort.live_index(shown, 2, [a, b, c]) == 2, "nothing moved: the same index")
+	t.ok(BuildSort.live_index(shown, 2, [b, c]) == 1 and BuildSort.live_index(shown, 1, [b, c]) == 0,
+		"the head started: each clicked entry is found one place up, not its old index's neighbour")
+	t.ok(BuildSort.live_index(shown, 0, [b, c]) == -1, "the entry clicked has left the queue: -1, nothing is sent")
+	var up2 := {"building_id": "market", "lot_id": "lot-07", "upgrade": true}
+	t.ok(BuildSort.live_index([c, up2], 1, [c, up2]) == 1 and BuildSort.live_index([c, up2], 1, [up2]) == -1,
+		"two upgrades of one lot: the same occurrence, or -1 once one has gone")
+	t.ok(BuildSort.live_index(shown, 5, [a]) == -1 and BuildSort.live_index(shown, -1, [a]) == -1, "an index out of range: -1")
+	var pb := FileAccess.get_file_as_string("res://scripts/town/panel_build.gd")
+	var mq := _body(pb, "_move_queue")
+	t.ok(mq.contains("BuildSort.live_index(") and mq.contains("cmd_unqueue(at)") and mq.contains("swap_order(live.size(), at, delta)"),
+		"unqueue and reorder send the live index")
+	t.ok(_body(pb, "_queue_real").contains("if _q_sent:") and _body(pb, "bind").contains("_q_sent = false"),
+		"a second queue click before the next bind is dropped")
+	t.ok(not pb.contains("Not queued: %s") and String(vcfg["queue_text"]["not_queued"]).contains("{why}"),
+		"'Not queued' comes from town.json queue_text.not_queued")
 
 
 ## Q-g, the vat toggle's preview against the real staffing, in the costed case: with no idle hands to cover it,

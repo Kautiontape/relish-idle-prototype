@@ -1179,6 +1179,30 @@ static func swap_order(n: int, index: int, delta: int) -> Array:
 	return order
 
 
+## The index in `live` (view_town().queue now) of the entry shown at `index` in `shown` (the queue the rows were
+## drawn from at the last bind), matched by building, lot and upgrade, and the same occurrence among equal entries
+## (two upgrades of one lot). -1 when it is no longer there (it started, or an earlier click took it): the click is
+## then dropped, never sent to whatever entry moved into its index (the M2 review's should-fix 1).
+static func live_index(shown: Array, index: int, live: Array) -> int:
+	if index < 0 or index >= shown.size():
+		return -1
+	var k := _queue_key(shown[index])
+	var nth := 0
+	for i in index:
+		if _queue_key(shown[i]) == k:
+			nth += 1
+	for i in live.size():
+		if _queue_key(live[i]) == k:
+			if nth == 0:
+				return i
+			nth -= 1
+	return -1
+
+
+static func _queue_key(e: Dictionary) -> String:
+	return "%s|%s|%s" % [String(e.get("building_id", "")), String(e.get("lot_id", "")), str(bool(e.get("upgrade", false)))]
+
+
 ## Whether queue entry `e` is held by a gate it waits out in its place (IDLE §5: a tier, a blueprint, a building,
 ## relics, a locked lot; queue_text.gate_wait), not skipped for good (lot_taken and the like).
 static func is_gate_wait(e: Dictionary, vcfg: Dictionary) -> bool:

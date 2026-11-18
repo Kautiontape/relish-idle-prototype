@@ -498,6 +498,8 @@
       "_doc": "The welcome-back replay (TownReplay, Q-f): once per away report in a session, each build that finished while you were away flashes in order, first_beats then flash_beats apart (Pulse beats), under a strip in the dock (over the tabs, clear of every lot) of the report's build and ready lines (at most max_lines). The strip hides hold_s after the last flash (0: until closed). acts: the button on a line with somewhere to go.",
       "title": "While you were away ({time})",
       "under_minute": "under a minute",
+      "hm": "{h} h {m} m",
+      "m": "{m} m",
       "close": "Close",
       "acts": {"crypt": "Crypt", "build": "Build", "realm": "To the realm"},
       "max_lines": 5,
@@ -515,6 +517,7 @@
       "starts_now": "{label} starts at once",
       "starts_in": "{label} starts in ~{t}",
       "never": "{label} can't be afforded at today's income",
+      "unknown": "{label} starts when it can be paid for",
       "gated": "the queue waits on gates ({label} first)",
       "full_in": "{id} full in ~{t}",
       "full_now": "{id} is full: more isn't kept",
@@ -532,6 +535,8 @@
     "queue_text": {
       "_doc": "The Build tab's queue (view_town().queue and its commands). A gated entry waits in its place (IDLE §5): gate_wait words its gate, `skipped` any other skip (lot_taken and the like). affordable_in_s (R2) sets the start: 0 now, > 0 a wait, -1 never at today's income (with the row's starved/lever, starved_why). queued_ok reports a queued entry's own affordable_in_s.",
       "title": "Queue: builds start on their own, in order, while you're away too",
+      "not_queued": "Not queued: {why}.",
+      "queue_moved": "The queue moved on (that entry started or changed place): nothing was sent. Look again.",
       "gate_wait": {
         "needs_tier": "queued: waits for {tier}",
         "lot_locked": "queued: waits for its lot to open at a higher tier",

@@ -40,6 +40,12 @@ func _queue() -> void:
 	town["queue"] = [{"building_id": "inn", "status": "skipped_gate", "reason": "needs_tier"}]
 	t.ok(TownForecast.queue_part({"town": town}, vcfg, bv).begins_with("the queue waits on gates (Inn"), "every entry gated: the queue waits on gates")
 	t.ok(TownForecast.queue_part({"town": {}}, vcfg, bv) == "", "no queue in the view: no queue part")
+	# the M2 review's should-fix 6: a row without affordable_in_s is unknown, not never
+	town["queue"] = [{"building_id": "house", "status": "waiting_funds"}]
+	t.ok(TownForecast.queue_part({"town": town}, vcfg, bv) == "House starts when it can be paid for",
+		"no affordable_in_s: unknown, not never ('%s')" % TownForecast.queue_part({"town": town}, vcfg, bv))
+	town["queue"] = [{"building_id": "house", "status": "next"}]
+	t.ok(TownForecast.queue_part({"town": town}, vcfg, bv) == "House starts at once", "a next head with no affordable_in_s still starts at once")
 
 
 func _stores() -> void:

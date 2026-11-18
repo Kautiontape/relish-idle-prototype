@@ -9,20 +9,22 @@ extends RefCounted
 ## templates the report's lines were made from, so its building names can be read back); `cfg` town.json view.replay.
 
 
-## The report's identity: its time and its lines (its rev moves every substep). 0 when there is none.
-static func key(rep: Dictionary) -> int:
+## The report's identity: the game (view_hud().game_id, so a new game starts the session's memory afresh; the M2
+## review's should-fix 5), its time and its lines (its rev moves every substep). A load brings its own report, a new
+## key, or none. 0 when there is no report.
+static func key(rep: Dictionary, game_id := "") -> int:
 	if (rep.get("gains", []) as Array).is_empty() and (rep.get("ready", []) as Array).is_empty() \
 			and (rep.get("losses", []) as Array).is_empty():
 		return 0
-	return [rep.get("away_s", 0.0), rep.get("capped", false), rep.get("gains", []), rep.get("ready", []),
+	return [game_id, rep.get("away_s", 0.0), rep.get("capped", false), rep.get("gains", []), rep.get("ready", []),
 		rep.get("losses", [])].hash()
 
 
 ## Whether `rep` is due its replay: there is one, it has a line for the town, and this session hasn't replayed it
 ## (`replayed`, the last key replayed). Shown or dismissed alike: acting on a line of the map's panel dismisses the
 ## report, and its "raise at the slab" and queue lines are exactly how a player comes here.
-static func due(rep: Dictionary, replayed: int) -> bool:
-	var k := key(rep)
+static func due(rep: Dictionary, replayed: int, game_id := "") -> bool:
+	var k := key(rep, game_id)
 	return k != 0 and k != replayed and not lines(rep, {}).is_empty()
 
 
@@ -64,7 +66,7 @@ static func duration(away_s: float, cfg: Dictionary) -> String:
 		return String(cfg.get("under_minute", ""))
 	var h := int(s / 3600.0)
 	var m := int(fmod(s, 3600.0) / 60.0)
-	return "%d h %d m" % [h, m] if h > 0 else "%d m" % m
+	return String(cfg.get("hm", "{h} h {m} m")).format({"h": h, "m": m}) if h > 0 else String(cfg.get("m", "{m} m")).format({"m": m})
 
 
 ## The names in the report's "builds finished" line, in its order ([] when no build finished): read back through
@@ -92,6 +94,10 @@ static func name_of(bid: String, level: int, bv: Dictionary, report: Dictionary)
 ## first, then one whose level is exactly the named one (the newest work), then the view's lot order. Two upgrades
 ## of one lot flash it twice, in order.
 static func finished_lots(rep: Dictionary, town: Dictionary, bv: Dictionary, report: Dictionary) -> Array:
+	# TODO(api-request #19): the build line's own `lots`, in its names' order, when the report carries them
+	for l in rep.get("gains", []):
+		if String(l.get("kind", "")) == "build" and l.get("lots") is Array and not (l["lots"] as Array).is_empty():
+			return (l["lots"] as Array).duplicate()
 	var out: Array = []
 	var used := {}
 	for nm in finished_names(rep, report):

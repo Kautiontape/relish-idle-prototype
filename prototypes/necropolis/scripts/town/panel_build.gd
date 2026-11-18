@@ -88,6 +88,7 @@ var _cap_building := ""
 var _tp: BuildSort.Throughput  # the build throughput, measured from the views between binds
 var _pin: PanelContainer
 var _pin_label: Label
+var _q_sent := false  # a queue command went out since the last bind (the double-click guard in _queue_real)
 var _scroll_q_s := 0.0  # debug --town-queue: seconds the tab keeps the Queue (its last section) in view
 
 
@@ -193,6 +194,7 @@ func _build_banner() -> void:
 # ------------------------------------------------------------------ bind ----
 func bind(views: Dictionary) -> void:
 	_views = views
+	_q_sent = false  # the queue command sent since the last bind is in these views: the next click may go
 	_st = BuildSort.stocks(views, _slab)
 	_ctx = BuildSort.queue_context(views, _bcfg, _vcfg)
 	if TownStandins.queue_is_standin(views.get("town", {})):
@@ -878,7 +880,7 @@ func _add_queue(e: Dictionary, row: Dictionary) -> bool:
 	elif r["reason"] == "cost_exceeds_cap":
 		_show_cap_refusal(e, r)
 	else:
-		_say("Not queued: %s." % _reason(String(r["reason"]), row))
+		_say(_not_queued(_reason(String(r["reason"]), row)))
 	_update_queue()
 	return bool(r["ok"])
 
@@ -887,6 +889,11 @@ func _add_queue(e: Dictionary, row: Dictionary) -> bool:
 ## Says when it starts from the entry's own `affordable_in_s` (R2); a cap refusal names the real `cap_building`
 ## and `cap_level`; `catching_up` reads as a wait (its reason text), like every refusal.
 func _queue_real(e: Dictionary, row: Dictionary) -> bool:
+	# one queue command per bind: a double click would queue twice, and its refusal (lot_taken) overwrite the line
+	# saying the first was queued (the M2 review's should-fix 2)
+	if _q_sent:
+		return false
+	_q_sent = true
 	var tt: Dictionary = _vcfg.get("queue_text", {})
 	var r: Dictionary = Game.state.cmd_queue_build(String(e["building_id"]), String(e["lot_id"]))
 	if bool(r.get("ok", false)):
@@ -904,7 +911,7 @@ func _queue_real(e: Dictionary, row: Dictionary) -> bool:
 		_show_cap_refusal(e, r)
 	else:
 		var rs := String(r.get("reason", ""))
-		_say(TownUI.refusal(rs, _reason(rs, row), "Not queued: %s." % _reason(rs, row)))
+		_say(TownUI.refusal(rs, _reason(rs, row), _not_queued(_reason(rs, row))))
 	command_issued.emit()
 	return bool(r.get("ok", false))
 
@@ -928,7 +935,12 @@ func _show_cap_refusal(e: Dictionary, r: Dictionary) -> void:
 	_cap_btn.visible = _cap_building != ""
 	_cap_btn.text = "Show " + _label(_cap_building)
 	_cap_box.visible = true
-	_say("Not queued: %s." % _reason("cost_exceeds_cap", {}))
+	_say(_not_queued(_reason("cost_exceeds_cap", {})))
+
+
+## "Not queued: <why>." (town.json queue_text.not_queued).
+func _not_queued(why: String) -> String:
+	return BuildSort.fmt(String(_vcfg.get("queue_text", {}).get("not_queued", "{why}")), {"why": why})
 
 
 func _queue_entries() -> Array:
@@ -986,11 +998,19 @@ func _update_queue() -> void:
 ## own when the view has none).
 func _move_queue(index: int, delta: int) -> void:
 	if not TownStandins.queue_is_standin(_views.get("town", {})):
+		# the rows are the last bind's queue: the entry clicked is looked up in today's before anything is sent (the
+		# head may have started since, shifting every index; the M2 review's should-fix 1)
+		var live: Array = Game.state.view_town().get("queue", [])
+		var at := BuildSort.live_index(_queue_entries(), index, live)
+		if at < 0 or (delta != 0 and (at + delta < 0 or at + delta >= live.size())):
+			_say(String(_vcfg.get("queue_text", {}).get("queue_moved", "")))
+			command_issued.emit()  # a fresh bind shows the queue as it is
+			return
 		var r: Dictionary
 		if delta == 0:
-			r = Game.state.cmd_unqueue(index)
+			r = Game.state.cmd_unqueue(at)
 		else:
-			r = Game.state.cmd_reorder_queue(BuildSort.swap_order(_queue_entries().size(), index, delta))
+			r = Game.state.cmd_reorder_queue(BuildSort.swap_order(live.size(), at, delta))
 		_report(r, String(_vcfg.get("queue_text", {}).get("unqueued", "")) if delta == 0 else "")
 		return
 	if delta == 0:
