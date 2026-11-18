@@ -138,7 +138,8 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
   `view_backups().death` reads it (a clone ready), nothing inside a catch-up does (no run is open during one: every
   run ends before it starts), so a step that contains the fill ends at exactly 1, as live play's would. A tended
   pre_vei vat fills 310 s into a 12 h catch-up at its 10 s steps against 300.5 s live, within one step
-  (`test_backups`). With no vat tended a 12 h catch-up from each fixture is bit-identical to 646f288's (state, events,
+  (`test_backups`). Since 4f8b493 a ready vat gives its tend hand back at the end of that step, so caught up the hand
+  returns up to one step late (§8's known gap, with its bound). With no vat tended a 12 h catch-up from each fixture is bit-identical to 646f288's (state, events,
   away report; `test_backups`).
 - **The foremen** (E3-3, MECHANICS §4.2) can't change inside a catch-up: they move only by command
   (`cmd_place_big_undead`, `cmd_set_party`, a demolish or a cancelled build sending one home), and every command
@@ -1024,11 +1025,25 @@ The profiles:
         - The first command answered otherwise is a husk raise at 86 400 s (`unknown_husk` open).
     - **The relic trickle, open against closed** (the step 9 review's item 1; MECHANICS §2's relics row). Its
       condition is read at each step's start. So each time it flips inside a catch-up step, the closed run's paying
-      seconds differ from the open run's by at most that step (10 to 20 s, against its 12 h period).
+      seconds differ from the open run's by at most that step (10 or 15 s, `idle.catchup_dt_max_s` and
+      `catchup_dt_long_s`, against its 12 h period).
       - test_relic_trickle `_open_closed_break` asserts it over 20 min at 10 s steps, with a fort breaking
         mid-step.
       - catchup_accuracy checks the steady case: 30 h with every t1 fort held, the same 2 relics and carried
         seconds.
+    - **A ready vat's hand, open against closed: a known catch-up gap** (the E4 final review's item 2; recorded,
+      not fixed, per the run's manager's ruling of 2026-11-17 20:20). Since 4f8b493 a staffed vat holding a ready
+      clone gives its tend hand back to the ladder at the end of the step it fills in (`GameState._sync_tend`, after
+      `_grow_vats`). `Catchup.next_event_s` doesn't clip at a vat's fill (§4's vats), so caught up the hand comes
+      back up to one catch-up step late: the hand keeps tending a full vat for the rest of the step it fills in.
+      - **The bound:** per vat fill, one tend hand for less than one catch-up step. That is under 10 s
+        (`idle.catchup_dt_max_s`), or under 15 s past the catch-up's first 12 h (`catchup_dt_long_s`), against
+        live play's 0.5 s (`sim.substep_s`). The fill itself is exact (a step that contains it ends at exactly 1),
+        and so is the clone it makes; only that hand's work elsewhere on the ladder is late.
+      - test_backups `_ready_frees_hand` checks the hand in live ticks (`tick(10.0)`, 0.5 s substeps). No test
+        compares live against closed for it.
+      - **The fix is a Phase I item, in the queue-rule batch:** clip `Catchup.next_event_s` at a staffed vat's fill,
+        as it clips at Relish's respawn. It moves closed trajectories, so it needs the batch and the pins re-run.
     - **Day 4's break is an open/closed queue divergence, a defect candidate, not a step-size horizon** (E4 step 2's
       sizing stop, the manager's ruling 1, worded at the R2 readout ruling). It doesn't move with the catch-up step.
       At 152ca1d the 8-day row passes days 1–3 (slip 3.4, 18.0, 43.7 s) and fails from day 4. The first command to
