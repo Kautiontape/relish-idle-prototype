@@ -190,6 +190,7 @@ func _make_row(bid: String) -> Dictionary:
 	queue.custom_minimum_size = Vector2(76, TownUI.MIN_TARGET)
 	queue.pressed.connect(func(): queue_pressed.emit(bid, String(queue.get_meta("lot", ""))))
 	top.add_child(queue)
+	TownGuide.add_lines(v, bid, bcfg, vcfg.get("guide", {}))  # why build it, and how it's used: fixed per building
 	var tags := HBoxContainer.new()
 	tags.add_theme_constant_override("separation", 10)
 	v.add_child(tags)

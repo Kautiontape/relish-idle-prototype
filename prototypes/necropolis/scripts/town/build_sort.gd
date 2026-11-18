@@ -837,6 +837,19 @@ static func relic_text(row: Dictionary, st: Dictionary, bview: Dictionary, vcfg:
 	return reason_text("no_relics", row, st, bview, vcfg)
 
 
+## A blocked upgrade's refusal in words (`u` is inspect()'s upgrade: reason, cost, level), followed by its unmet
+## relic cost when gold or bone is short first, so "needs 1 relic: raid a fort" is always said.
+static func upgrade_reason(u: Dictionary, st: Dictionary, bview: Dictionary, vcfg: Dictionary) -> String:
+	var reason := String(u.get("reason", ""))
+	var row := {"cost": u.get("cost", {}), "level": int(u.get("level", 0))}
+	var why := reason_text(reason, row, st, bview, vcfg)
+	if reason in ["no_gold", "no_bone"]:
+		var rel := relic_text(row, st, bview, vcfg)
+		if rel != "":
+			why += String((vcfg.get("shortage_text", {}) as Dictionary).get("also", "; ")) + rel
+	return why
+
+
 ## A blocked row's refusal in words (reason_text), followed by its unmet relic cost when the reason
 ## names something else (funds, a lot), so the relic gate is always said; "" for a buildable row. A
 ## tier, blueprint or building gate is said alone.
@@ -994,6 +1007,9 @@ static func inspect(entry: Dictionary, st: Dictionary, bcfg: Dictionary, bview: 
 	var up: Dictionary = entry.get("upkeep", {})
 	return {
 		"building_id": bid, "label": label_of(bid, bview), "flavour": String(bview.get(bid, {}).get("flavour", "")),
+		# what it does for you → the loop, and how it's used (TownGuide; view.guide)
+		"purpose": TownGuide.why(bid, vcfg.get("guide", {})), "use": TownGuide.how(bid, bcfg, vcfg.get("guide", {})),
+		"use_key": TownGuide.how_key(bid, vcfg.get("guide", {})),
 		"level": level, "max_level": max_level, "state": state,
 		"level_text": fmt(String(vcfg.get("level_text", "")), {"level": level, "max": max_level}),
 		"state_text": fmt(tpl, {"pct": int(round(float(entry.get("progress", 0.0)) * 100.0))}),

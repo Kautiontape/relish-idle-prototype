@@ -3482,7 +3482,7 @@ func _relic_gate(mid: Dictionary) -> void:
 	for m in miss:
 		sum += int(bc[m]["cost"]["relics"])
 	var g := BuildSort.relic_gate(mid, items, st, bv, vcfg)
-	var want := "Gated by relics: %s. You have %d. Relics come from dungeons." % [
+	var want := "Needs relics: %s. You have %d: raid a fort for more." % [
 		" · ".join(miss.map(func(m): return "%s %d%s" % [BuildSort.label_of(String(m), bv), int(bc[m]["cost"]["relics"]), ""])), int(st["relics"])]
 	want = want.replace("Walls and Gate 2", "Walls and Gate 2 ✓")  # 3 held: Walls is affordable, the Chapel then is not
 	t.ok(sum > int(st["relics"]) and g.get("ids", []) == miss and g.get("text", "") == want,
@@ -3496,13 +3496,13 @@ func _relic_gate(mid: Dictionary) -> void:
 	one["hud"]["relics"] = 0
 	one["inventory"]["relics"] = 0
 	var g1 := BuildSort.relic_gate(one, BuildSort.sort_rows(one["catalog"]["buildings"], BuildSort.needs(one, {}, vcfg, bv, bc), bv, vcfg), BuildSort.stocks(one), bv, vcfg)
-	t.ok(String(g1.get("text", "")).begins_with("Gated by relics: Walls and Gate 2. You have 0."), "relic gate: one building, its own cost, no mark (%s)" % g1.get("text", ""))
+	t.ok(String(g1.get("text", "")).begins_with("Needs relics: Walls and Gate 2. You have 0:"), "relic gate: one building, its own cost, no mark (%s)" % g1.get("text", ""))
 	var placed: Dictionary = one.duplicate(true)
 	placed["town"]["buildings"].append({"lot_id": "lot-23", "building_id": "walls", "level": 0, "state": "constructing", "progress": 0.1})
 	t.ok(BuildSort.relic_gate(placed, [], BuildSort.stocks(placed), bv, vcfg).is_empty(), "relic gate: a missing building already placed is not asked for")
 	var top := [{"row": {"building_id": "forge", "cost": {"gold": 0.0, "bone": 0.0, "relics": 1}}, "need": "idle_hands", "rank": 0}]
 	var g2 := BuildSort.relic_gate({"town": {"next_tier": {}}}, top, {"relics": 0.0}, bv, vcfg)
-	t.ok(g2.get("ids", []) == ["forge"] and String(g2.get("text", "")).begins_with("Gated by relics: Forge 1. You have 0."),
+	t.ok(g2.get("ids", []) == ["forge"] and String(g2.get("text", "")).begins_with("Needs relics: Forge 1. You have 0:"),
 		"relic gate: the top need-serving row blocked by relics pins too (%s)" % g2.get("text", ""))
 	t.ok(BuildSort.relic_gate({"town": {"next_tier": {}}}, top, {"relics": 1.0}, bv, vcfg).is_empty(), "relic gate: a top row it can pay for, no pin")
 	t.ok(String(vcfg["relic_gate"]["button"]) == "To the realm", "relic gate: the pinned row's button says To the realm")
@@ -5142,9 +5142,9 @@ func _td1_relics(mid: Dictionary) -> void:
 		var st := BuildSort.stocks(v)
 		var items := BuildSort.sort_rows(v["catalog"]["buildings"], BuildSort.needs(v, {}, vcfg, bv, bc), bv, vcfg)
 		return String(BuildSort.relic_gate(v, items, st, bv, vcfg).get("text", ""))
-	t.ok(pin.call(m3) == "Gated by relics: Walls and Gate 2 ✓ · Chapel of Vats 2. You have 3. Relics come from dungeons.", "pin: per building, Walls marked as affordable (%s)" % pin.call(m3))
+	t.ok(pin.call(m3) == "Needs relics: Walls and Gate 2 ✓ · Chapel of Vats 2. You have 3: raid a fort for more.", "pin: per building, Walls marked as affordable (%s)" % pin.call(m3))
 	var m0 := _with_relics(mid, 0, true)
-	t.ok(pin.call(m0) == "Gated by relics: Walls and Gate 2 · Chapel of Vats 2. You have 0. Relics come from dungeons.", "pin: with none, no building is marked (%s)" % pin.call(m0))
+	t.ok(pin.call(m0) == "Needs relics: Walls and Gate 2 · Chapel of Vats 2. You have 0: raid a fort for more.", "pin: with none, no building is marked (%s)" % pin.call(m0))
 	t.ok(pin.call(_with_relics(mid, 4, true)) == "", "pin: enough for both, no pin")
 	t.ok(String(vcfg["relic_gate"]["mark_ok"]) == "✓" and String(vcfg["relic_gate"]["button"]) == "To the realm", "pin: the mark and the To the realm button are town.json texts")
 

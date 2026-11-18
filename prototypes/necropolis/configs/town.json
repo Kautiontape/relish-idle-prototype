@@ -427,8 +427,58 @@
         "morale": "morale is low"
       }
     },
+    "guide": {
+      "_doc": "Phase I clarity (town-i M1, Shawn's checklist items 10-11; TownGuide). why: per building, one line: what it does for you → the part of the loop it feeds. how: act names the buildings the player uses by hand, and where; every other building works on its own, `staffed` when buildings.json gives it jobs, else `passive`. paid_line heads the Build tab's catalog; essence_line sits by every essence count in town. goal: the first goal in town, the first step whose `until` isn't met yet (built: a building of that id placed, under construction included; fort_taken: any fort held now or with flipped_count > 0); none once all are met, and none past the early `tiers` (a first goal is for a new game). {fort} is the first dungeon's name (view_realm forts' first_dungeon), else fort_any.",
+      "why": {
+        "crypt": "The slab raises big undead for your raids and sieges. Levels raise the cap.",
+        "raising_pit": "Turns bodies into undead → workers for your jobs, WAR for your forts.",
+        "charnel_house": "Hauls bodies home from your forts and stores them → bodies for the pits and the mill.",
+        "market": "Sells to your living → gold for buildings.",
+        "house": "Room for more living → more buyers at the Market → more gold.",
+        "well": "Morale and room for living → the living stay and buy.",
+        "bakery": "Morale and room for living → the living stay and buy.",
+        "inn": "Draws new living to town, with morale and room → more buyers, more gold.",
+        "bone_mill": "Grinds bodies into bone → bone for buildings.",
+        "forge": "Raises your undead's quality → every undead costs Vei more.",
+        "graveyard": "Stores more bodies, and your workers last longer → more hands.",
+        "embalmer": "Your workers last longer before they rot → more hands for jobs and WAR.",
+        "stables": "Faster hauls → bodies come home sooner.",
+        "chapel_of_vats": "Grows clones in its vats → backups keep Relish alive.",
+        "ossuary_tower": "Crafts phylactery charges and simulacra → backups keep Relish alive.",
+        "guildhall": "One more stance slot → more say in how your undead behave on their own.",
+        "watchtower": "Exact warden tells and death risk in fort hints → safer raids.",
+        "walls": "Room for living and morale. Your town needs it to reach Town tier.",
+        "plaza": "Morale → the living stay and buy.",
+        "statue": "Morale, and Relish's deaths shake the town less.",
+        "reliquary": "Bigger relic and essence stores → more saved for buildings and backups."
+      },
+      "how": {
+        "act": {
+          "crypt": "You use it: Crypt tab, while Relish is home. Lay a husk, slot remnants, hold to raise.",
+          "chapel_of_vats": "You use it: Backups tab. Staff a vat and it grows a clone.",
+          "ossuary_tower": "You use it: Backups tab, Craft. It's paid in essence from your raids.",
+          "guildhall": "Works on its own. Turn on the extra stance in the Stances tab."
+        },
+        "staffed": "Works on its own: your undead staff its jobs (order them in the Jobs tab).",
+        "passive": "Works on its own: no staff needed."
+      },
+      "paid_line": "Buildings cost gold and bone, which your town makes. Some, and higher levels, also need relics: raid a fort.",
+      "essence_line": "Essence comes home from your raids. It pays for backups here at the Ossuary Tower, never for buildings.",
+      "goal": {
+        "lead": "Goal: ",
+        "steps": [
+          {"id": "mill", "until": "built", "building": "bone_mill",
+            "text": "build a Bone Mill. Bone and gold pay for buildings, and your town makes both."},
+          {"id": "fort", "until": "fort_taken",
+            "text": "take your first fort. Return to the realm, raid {fort} and break its warden."}
+        ],
+        "fort_any": "a fort Vei holds",
+        "tiers": ["hamlet", "village"],
+        "px": 14, "x_px": 240.0, "y_px": 8.0
+      }
+    },
     "relic_gate": {
-      "text": "Gated by relics: {list}. You have {have}. Relics come from dungeons.",
+      "text": "Needs relics: {list}. You have {have}: raid a fort for more.",
       "item": "{label} {n}", "item_ok": "{label} {n} {mark}", "mark_ok": "✓",
       "join": " · ", "button": "To the realm"
     },
