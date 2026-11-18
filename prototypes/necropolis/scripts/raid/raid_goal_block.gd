@@ -8,7 +8,7 @@ extends Control
 const PAD := 8.0
 const GAP := 3.0
 
-var plate_alpha := 0.62
+var plate_alpha := 0.86
 var height := 0.0          # the plate's height for the rows set
 var _rows: Array = []
 var _lines: Array = []     # wrapped rows: {text, px, key}

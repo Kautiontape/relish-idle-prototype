@@ -25,6 +25,8 @@ func _goal_tests(t: TestUtil) -> void:
 	t.ok(RaidLogic.route_line(3, 1, "E") == "room 2 of 3 · the warden is 1 room E", "route: room 2 of 3, 1 room E")
 	t.ok(RaidLogic.route_line(3, 0, "") == "you are in the warden's room", "route: in the warden's room")
 	t.ok(RaidLogic.route_line(3, 5, "S").begins_with("room 1 of 3 · the warden is 5 rooms S"), "route: off the route (more hops left than the route) clamps to room 1")
+	t.ok(RaidLogic.route_line(0, 2, "NE") == "the warden is 2 rooms NE" and RaidLogic.route_line(0, 1, "") == "the warden is 1 room",
+		"route: an unreachable spawn room (route_len 0) drops 'room n of m', never 'of 0'")
 	t.ok(RaidLogic.route_line(3, 2, "") == "room 1 of 3 · the warden is 2 rooms", "route: no compass word drops it")
 	t.ok(RaidLogic.no_army(0, 0, 0, 0), "no army: all four zero")
 	t.ok(not RaidLogic.no_army(1, 0, 0, 0) and not RaidLogic.no_army(0, 1, 0, 0) and not RaidLogic.no_army(0, 0, 1, 0) and not RaidLogic.no_army(0, 0, 0, 1),
@@ -38,7 +40,12 @@ func _goal_tests(t: TestUtil) -> void:
 			var sp := RaidLogic.warden_spec({"id": "x", "tier": tier, "archetype": a}, cfg)
 			var ac: Dictionary = cfg["wardens"]["archetypes"][a]
 			var tag := "%s t%d" % [a, tier]
-			t.ok(WardenLogic.break_line(sp, pips).contains("%d pips" % pips), "%s: the break line holds the config's %d pips" % [tag, pips])
+			# the pips the player sees: the warden node's meter_n (warden.gd: bands x pips per band; the Pyre-priest's own meter)
+			var bands := WardenLogic.meter_bands(sp)
+			var shown := WardenLogic.meter_per_band(bands, pips) * (bands.size() - 1)
+			if a == "pyre_priest":
+				shown = int(WardenLogic.pyre_meter(sp, pips, int(cfg["wardens"]["pyre_pips_per_acolyte"]))["n"])
+			t.ok(WardenLogic.break_line(sp, shown).contains("%d pips" % shown), "%s: the break line holds the meter the player sees (%d; config meter_pips %d)" % [tag, shown, pips])
 			var tk := WardenLogic.takes_line(sp)
 			var want: Array = []
 			match a:
@@ -72,7 +79,8 @@ func _goal_tests(t: TestUtil) -> void:
 		"the HUD builds the RaidGoalBlock only inside the not-boss branch that builds the WardenBlock")
 	for call in ["RaidLogic.goal_line(", "RaidLogic.route_line(", "WardenLogic.break_line(", "WardenLogic.takes_line(", "WardenLogic.counter_line(", "RaidLogic.no_army(", "RaidLogic.NO_ARMY_LINE"]:
 		t.ok(hud_src.contains(call), "the HUD takes its words from %s" % call)
-	t.ok(hud_src.contains("RaidHud.break_rows(raid, w.spec)"), "the WardenBlock takes its extra rows from break_rows")
+	t.ok(hud_src.contains("RaidHud.break_rows(raid, w.spec, int(w.meter_n))") and hud_src.contains("break_rows(raid, sp, int(w.meter_n))"),
+		"the WardenBlock and the GoalBlock take their break rows with the warden node's meter_n")
 	t.ok(hud_src.contains("\"WARDEN\")") and hud_src.contains("_edge(_wp, view, Palette.c(\"vei\"), \"WARDEN\")"), "the Pointers class draws a WARDEN edge chevron")
 	var gb := FileAccess.get_file_as_string("res://scripts/raid/raid_goal_block.gd")
 	t.ok(gb.contains("class_name RaidGoalBlock") and not gb.contains("ConfigDb") and not gb.contains("Game."), "the goal block names no autoload")

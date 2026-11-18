@@ -430,9 +430,10 @@ static func goal_line(fort_name: String, warden_name: String, held: bool) -> Str
 static func route_line(route_len: int, hops_left: int, compass_word: String) -> String:
 	if hops_left <= 0:
 		return "you are in the warden's room"
-	var room := clampi(route_len - hops_left, 1, maxi(1, route_len))
-	return "room %d of %d · the warden is %d room%s%s" % [room, route_len, hops_left, "" if hops_left == 1 else "s",
-		"" if compass_word == "" else " " + compass_word]
+	var tail := "the warden is %d room%s%s" % [hops_left, "" if hops_left == 1 else "s", "" if compass_word == "" else " " + compass_word]
+	if route_len <= 0:   # the spawn's room has no walk to the warden's: no "room n of m"
+		return tail
+	return "room %d of %d · %s" % [clampi(route_len - hops_left, 1, route_len), route_len, tail]
 
 
 ## T4: she has no undead with her, no loose essence, nothing carried and no corpse pile left to stir:

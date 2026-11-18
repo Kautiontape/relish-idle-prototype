@@ -150,7 +150,7 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		# T4: the goal block, in the same spot while no warden block shows (before the wake, after it falls, a held raid)
 		_goal_block = RaidGoalBlock.new()
 		_goal_block.visible = false
-		_goal_block.plate_alpha = float(_goal_cfg(p_raid).get("plate_alpha", 0.62))
+		_goal_block.plate_alpha = float(_goal_cfg(p_raid).get("plate_alpha", 0.86))
 		add_child(_goal_block)
 		_goal_block.set_anchors_preset(Control.PRESET_CENTER_TOP)
 		_goal_block.anchor_left = 0.5
@@ -412,7 +412,7 @@ func _update_goal() -> void:
 		var sp: Dictionary = w.spec
 		rows.append({"text": RaidLogic.goal_line(fort_name, str(sp.get("name", "")), false), "px": gpx, "key": "vei"})
 		rows.append({"text": _route_text(), "px": rpx, "key": "text"})
-		for r in break_rows(raid, sp):
+		for r in break_rows(raid, sp, int(w.meter_n)):
 			rows.append({"text": r, "px": xpx, "key": "text_dim"})
 	elif wr != null and wr.chest != null:
 		rows.append({"text": RaidLogic.goal_line(fort_name, wr.warden_name, false), "px": gpx, "key": "vei"})
@@ -423,8 +423,11 @@ func _update_goal() -> void:
 
 
 ## The break line, the takes line (when something multiplies a blow) and the counter line for a warden's spec.
-static func break_rows(raid: Node, sp: Dictionary) -> Array:
-	var rows: Array = [WardenLogic.break_line(sp, int(raid.rcfg().get("wardens", {}).get("meter_pips", 12)))]
+static func break_rows(raid: Node, sp: Dictionary, meter_n := -1) -> Array:
+	# the pips the player sees are the warden node's meter_n (its bands; the Pyre-priest adds acolyte pips);
+	# the config's meter_pips only when there is no node
+	var pips := meter_n if meter_n > 0 else int(raid.rcfg().get("wardens", {}).get("meter_pips", 12))
+	var rows: Array = [WardenLogic.break_line(sp, pips)]
 	var tk := WardenLogic.takes_line(sp)
 	if tk != "":
 		rows.append(tk)
@@ -449,7 +452,7 @@ func _route_text() -> String:
 	if _route_len < 0:
 		var sr := RaidLogic.room_of(lay, lay.get("spawn", rel.global_position))
 		if sr >= 0:
-			_route_len = int((hops[sr] as Array)[wroom]) + 1
+			_route_len = maxi(0, int((hops[sr] as Array)[wroom]) + 1)   # 0: no walk from the spawn's room (the line drops "room n of m")
 	var rf := RaidLogic.room_of(lay, rel.global_position)
 	if rf >= 0:
 		_hops_left = int((hops[rf] as Array)[wroom])
@@ -970,7 +973,7 @@ class WardenBlock:
 		_rows_t += d / maxf(0.05, Engine.time_scale)
 		if _rows_t >= 0.25:
 			_rows_t = 0.0
-			var nr := RaidHud.break_rows(raid, w.spec)
+			var nr := RaidHud.break_rows(raid, w.spec, int(w.meter_n))
 			if nr != break_rows:
 				break_rows = nr
 				_key = -1
@@ -1235,7 +1238,7 @@ class Pointers:
 			_edge(_ep, view, Palette.c("relish"), "EXIT")
 		if _wp != Vector2.INF:
 			_edge(_wp, view, Palette.c("vei"), "WARDEN")
-		if _sp ==Vector2.INF:
+		if _sp == Vector2.INF:
 			return
 		if Rect2(Vector2.ZERO, view).grow(-30.0).has_point(_sp):
 			if _from != Vector2.INF:
