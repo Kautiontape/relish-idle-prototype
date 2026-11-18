@@ -120,8 +120,9 @@ static func death_lines(death: Dictionary) -> Array:
 # --- status chips ------------------------------------------------------------------------
 
 ## The fort's status chips, each {text, key}. `names` maps big-undead uids to names (a siege
-## uid with no name shows as itself).
-static func status_chips(fort: Dictionary, names: Dictionary) -> Array:
+## uid with no name shows as itself). `siege_block` is realm.json tithe.siege_block, the share of a
+## tithe wave a siege there blocks (0: not given, the siege chip makes no claim).
+static func status_chips(fort: Dictionary, names: Dictionary, siege_block := 0.0) -> Array:
 	var ch := _table("chips")
 	var keys := _table("chip_keys")
 	var out: Array = []
@@ -146,6 +147,11 @@ static func status_chips(fort: Dictionary, names: Dictionary) -> Array:
 		for u in siege:
 			who.append(str(names.get(str(u), str(u))))
 		out.append({"text": str(ch.get("siege_fmt", "%s")) % ", ".join(who), "key": keys.get("siege", "text")})
+		# what siege does: it blocks a share of a tithe wave and kills nothing; a second at the same fort adds nothing
+		if siege_block > 0.0:
+			out.append({"text": str(ch.get("siege_blocks_fmt", "%d")) % roundi(siege_block * 100.0), "key": keys.get("siege", "text")})
+			if siege.size() > 1:
+				out.append({"text": str(ch.get("siege_second", "")), "key": keys.get("siege", "text")})
 	var charges := float(fort.get("simulacrum_charges", 0.0))
 	if charges > 0.0:
 		out.append({"text": str(ch.get("simulacrum_fmt", "%s")) % MapLogic.fmt_mass(charges), "key": keys.get("simulacrum", "text")})

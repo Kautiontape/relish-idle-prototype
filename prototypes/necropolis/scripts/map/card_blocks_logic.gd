@@ -56,12 +56,13 @@ static func card_sig(card: Dictionary) -> String:
 ## warden, loot, threat in advance, matter.
 ## `backups` is view_backups(), `names` maps big-undead uids to names, `loot_cfg` is configs/loot.json
 ## (for the dungeon's loot line). `party` is view_party(), `raid_cfg` and `econ_cfg` are configs/raid.json
-## and economy.json (who comes in, and the tier's standard party), `tide_bias` is realm.relish.tide_bias.
+## and economy.json (who comes in, and the tier's standard party), `tide_bias` is realm.relish.tide_bias,
+## `siege_block` is realm.tithe.siege_block (the siege chip's "blocks 60% of a tithe wave").
 static func fort_card(fort: Dictionary, desc: String, backups: Dictionary, names: Dictionary, loot_cfg: Dictionary,
-		party: Dictionary, raid_cfg: Dictionary, econ_cfg: Dictionary, tide_bias: float) -> Dictionary:
+		party: Dictionary, raid_cfg: Dictionary, econ_cfg: Dictionary, tide_bias: float, siege_block := 0.0) -> Dictionary:
 	var c := _c()
 	var blocks: Array = []
-	var chips := CardLogic.status_chips(fort, names)
+	var chips := CardLogic.status_chips(fort, names, siege_block)
 	if not chips.is_empty():
 		blocks.append({"kind": "chips", "id": "chips", "chips": chips})
 	var held := bool(fort.get("held", false))

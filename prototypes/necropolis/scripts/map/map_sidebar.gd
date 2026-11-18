@@ -108,7 +108,8 @@ func refresh() -> void:
 	elif model.forts_by_id.has(selected_id):
 		var f := model.fort(selected_id)
 		_card.show_card(CardBlocksLogic.fort_card(f, _fort_desc(selected_id), model.backups, model.unit_names, ConfigDb.data.get("loot", {}),
-			model.party, ConfigDb.data.get("raid", {}), ConfigDb.data.get("economy", {}), _tide_bias()))
+			model.party, ConfigDb.data.get("raid", {}), ConfigDb.data.get("economy", {}), _tide_bias(),
+			float(model.realm_cfg.get("tithe", {}).get("siege_block", 0.0))))
 		_flush_actions(RelishLogic.fort_actions(f, model.relish, model.haul, model.names, _comes(f)))
 	elif not model.village(selected_id).is_empty():
 		_card.show_card(CardBlocksLogic.village_card(model.village(selected_id), ""))

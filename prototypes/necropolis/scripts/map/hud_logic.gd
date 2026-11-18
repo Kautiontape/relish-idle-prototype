@@ -117,6 +117,50 @@ static func tithe_line(vei_tithe: Dictionary, names: Dictionary) -> Dictionary:
 	return {"text": "", "fort_id": ""}
 
 
+## The player's words for a view `lever` ("raise_war" -> "Raise WAR"), from bone_line.levers; an
+## unknown lever reads as itself, "" as "".
+static func lever_text(lever: String) -> String:
+	return str(MapLogic.cfg()["bone_line"]["levers"].get(lever, lever))
+
+
+## The queue head that can never be afforded while the pits eat every body: {} when `head` (a
+## view_town().queue row, or {}) is not that.
+static func stalled_head(head: Dictionary) -> Dictionary:
+	if str(head.get("starved", "")) == "pits_first" and float(head.get("affordable_in_s", 0.0)) < 0.0:
+		return head
+	return {}
+
+
+## Whether the pits-first stall is live: the Bone Mill row ({starved, lever}) or the queue head says so.
+static func pits_stalled(mill: Dictionary, head: Dictionary) -> bool:
+	return str(mill.get("starved", "")) == "pits_first" or not stalled_head(head).is_empty()
+
+
+## The lever the stall names: the head's, else the mill's.
+static func stall_lever(mill: Dictionary, head: Dictionary) -> String:
+	var h := stalled_head(head)
+	return str(h.get("lever", "")) if not h.is_empty() else str(mill.get("lever", ""))
+
+
+## The BONE item's one-line warning, or "". A stalled queue head is named with its ETA as never
+## and what it is short of ("Inn: never, 7 bone short. The pits eat every body: raise WAR": never a
+## number of seconds); else the mill's own stall ("no bone: the pits eat every body. Raise WAR").
+## Only pits_first speaks: no_bodies has no lever and says nothing. `building_names` maps ids to
+## labels (buildings_view); an id without one is capitalised.
+static func bone_line(mill: Dictionary, head: Dictionary, building_names := {}) -> String:
+	var c: Dictionary = MapLogic.cfg()["bone_line"]
+	var lever := lever_text(stall_lever(mill, head))
+	var h := stalled_head(head)
+	if not h.is_empty():
+		var id := str(h.get("building_id", ""))
+		var short := MapLogic.fmt_mass(float(ceili(float(h.get("short", {}).get("bone", 0.0)))))
+		var low := lever.substr(0, 1).to_lower() + lever.substr(1)
+		return str(c["head_fmt"]) % [str(building_names.get(id, id.capitalize())), short, low]
+	if str(mill.get("starved", "")) == "pits_first":
+		return str(c["mill_fmt"]) % lever
+	return ""
+
+
 ## {head, rate, tail} for a lane row, or {} when its why is empty:
 ## "WAR → Ashgate " + "+1.2/s" (the rate font) + " · Relish left". The rate is the lane's own
 ## (view_lanes carries no delta), signed.

@@ -20,6 +20,8 @@ var hud := {}
 var haul := {}  # view_town().haul: {target, current, convoys}
 var job_slots := 0  # view_town().jobs' slots summed
 var town_queue: Array = []  # view_town().queue ([] when empty)
+var mill := {}  # the Bone Mill's view_town().buildings row's {starved, lever} ("" each when it is not built or not starved)
+var queue_stall := {}  # the queue row that reads a starved reason (only a head that can never be afforded does), else {}
 var backups := {}  # view_backups(): death is what a death costs now
 var party := {}  # view_party()
 var unit_names := {}  # big-undead uid -> name (view_big_undead)
@@ -67,6 +69,9 @@ func refresh(force := false) -> bool:
 	for j in town.get("jobs", []):
 		job_slots += int(j.get("slots", 0))
 	town_queue = town["queue"]
+	var stall := stall_from(town)
+	mill = stall["mill"]
+	queue_stall = stall["queue_stall"]
 	backups = state.view_backups()
 	party = state.view_party()
 	unit_names.clear()
@@ -98,6 +103,21 @@ func refresh(force := false) -> bool:
 	_refresh_raids()
 	_update_margin_sig()
 	return true
+
+
+## The store stalls view_town() reports: {mill: {starved, lever} of the Bone Mill row ("" each when it
+## is not built or not starved), queue_stall: the first queue row that reads a starved reason, else {}}.
+static func stall_from(town: Dictionary) -> Dictionary:
+	var mill_row := {"starved": "", "lever": ""}
+	for b in town.get("buildings", []):
+		if str(b.get("building_id", "")) == "bone_mill" and str(b.get("starved", "")) != "":
+			mill_row = {"starved": str(b["starved"]), "lever": str(b.get("lever", ""))}
+	var head := {}
+	for q in town.get("queue", []):
+		if str(q.get("starved", "")) != "":
+			head = q
+			break
+	return {"mill": mill_row, "queue_stall": head}
 
 
 ## The raid set (NextLogic.raid_set) from these views, after the demo overlay: ranked from

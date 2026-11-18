@@ -649,7 +649,14 @@
     "valve_overflow_text": "overflows to Vei",
     "valve_payoff_sep_px": 3,
     "valve_payoff_row_gap_px": 2,
-    "payoff_sep": " · "
+    "payoff_sep": " · ",
+    "valve_bone_label": "bone",
+    "valve_bone_label_key": "text",
+    "valve_bone_label_gap_px": 4.0,
+    "valve_bone_tick_key": "text",
+    "valve_bone_tick_w_px": 2.0,
+    "valve_bone_stall_fmt": "%s: the pits eat every body",
+    "valve_bone_below_text": "below the bone edge"
   },
   "map_drag_steps": 10,
   "hint_left_px": 214,
@@ -658,6 +665,12 @@
     "wave_fmt": "Tithe wave at %s now",
     "warning_fmt": "Tithe wave at %s in %s",
     "next_fmt": "Next tithe: %s in %s"
+  },
+  "bone_line": {
+    "key": "danger",
+    "levers": {"raise_war": "Raise WAR"},
+    "mill_fmt": "no bone: the pits eat every body. %s",
+    "head_fmt": "%s: never, %s bone short. The pits eat every body: %s"
   },
   "cards": {
     "warden_fallback_fmt": "The %s",
@@ -714,6 +727,8 @@
       "tide": "tide",
       "redirect": "redirect",
       "siege_fmt": "SIEGE · %s",
+      "siege_blocks_fmt": "blocks %d%% of a tithe wave",
+      "siege_second": "a second adds nothing",
       "simulacrum_fmt": "SIMULACRUM · %s charges",
       "first_dungeon": "YOUR FIRST DUNGEON"
     },

@@ -233,6 +233,10 @@ func _build_bar(items: Array) -> void:
 		MapType.style_rate(parts["rate"])
 		MapType.style_mass(parts["stock"], "text_dim", MapType.size_of("size_stock"))
 		MapType.style_label(parts["cap"], "text", MapType.size_of("size_stock"))
+		if str(it["id"]) == "bone":  # the pits-first warning rides beside BONE, in words (HudLogic.bone_line)
+			parts["warn"] = _bar_label(box)
+			MapType.style_label(parts["warn"], str(cfg["bone_line"]["key"]))
+			(parts["warn"] as Label).visible = false
 		_items.append(parts)
 	var status := HBoxContainer.new()
 	status.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -288,6 +292,12 @@ func refresh(force := false) -> void:
 		(w["rate"] as Label).text = it["rate_text"]
 		(w["stock"] as Label).text = it["stock_text"]
 		(w["cap"] as Label).text = it["cap_mark"]
+		if w.has("warn"):
+			var warn := w["warn"] as Label
+			var line := HudLogic.bone_line(model.mill, model.queue_stall, _building_names())
+			if warn.text != line:
+				warn.text = line
+				warn.visible = line != ""
 	var st := HudLogic.status(model.readout())
 	_odds.text = st["odds_text"]
 	_sign.text = st["sign_text"]
@@ -302,6 +312,15 @@ func refresh(force := false) -> void:
 	_wrap_cells()
 	_relayout()
 	_relayout.call_deferred()
+
+
+## building id -> its label (configs/buildings_view.json), for the bone warning's queue head.
+func _building_names() -> Dictionary:
+	var names := {}
+	var view: Dictionary = ConfigDb.data.get("buildings_view", {})
+	for id in view:
+		names[id] = str(view[id].get("label", id.capitalize()))
+	return names
 
 
 func _fort_names() -> Dictionary:

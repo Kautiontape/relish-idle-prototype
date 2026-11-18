@@ -41,6 +41,14 @@ func run() -> int:
 	var targets := m.hit_targets()
 	t.ok(targets.size() == 2 + 12 + 12 and targets.all(func(c): return c["radius"] > 0.0), "hit targets cover every node")
 
+	# the pits-first stall: the Bone Mill row's reason and the queue row that reads one
+	t.ok(m.mill == {"starved": "", "lever": ""} and m.queue_stall.is_empty(), "a healthy town: no stall read")
+	var town := {"buildings": [{"building_id": "house", "starved": ""}, {"building_id": "bone_mill", "starved": "pits_first", "lever": "raise_war"}],
+		"queue": [{"building_id": "inn", "starved": "", "affordable_in_s": 40.0}, {"building_id": "well", "starved": "pits_first", "affordable_in_s": -1.0}]}
+	var st := MapModel.stall_from(town)
+	t.ok(st["mill"] == {"starved": "pits_first", "lever": "raise_war"} and st["queue_stall"]["building_id"] == "well", "the mill row and the starved queue row are read")
+	t.ok(MapModel.stall_from({"buildings": [], "queue": []}) == {"mill": {"starved": "", "lever": ""}, "queue_stall": {}}, "no mill and no queue: no stall")
+
 	# the demo flag swaps the lanes for the synthetic set
 	var d := MapModel.new(s)
 	d.demo = true

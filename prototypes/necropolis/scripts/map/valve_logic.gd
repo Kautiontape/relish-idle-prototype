@@ -341,6 +341,32 @@ static func now_ring_pos(cur: Vector2, target: Vector2) -> Vector2:
 	return cur
 
 
+# --- the bone edge ------------------------------------------------------------------
+
+## The tick that marks WAR share `edge` (view_hud.bone_war_share) in the triangle's frame: the
+## level segment [left, right] across the triangle where WAR = edge, below it the pits eat every
+## body. [] when there is no edge (not inside 0..1).
+static func bone_tick(edge: float, side: float) -> Array:
+	if edge <= 0.0 or edge >= 1.0:
+		return []
+	var c := corners(side)
+	var apex: Vector2 = c["war"]
+	var left: Vector2 = (c["work"] as Vector2).lerp(apex, edge)
+	var right: Vector2 = (c["flood"] as Vector2).lerp(apex, edge)
+	return [left, right]
+
+
+## The valve readout's bone line: while the pits-first stall is live, the lever ("Raise WAR: the pits
+## eat every body"); else, while dragging with WAR under the edge, "below the bone edge"; else "".
+static func bone_readout(stalled: bool, lever_text: String, dragging: bool, war_share: float, edge: float) -> String:
+	var c := _c()
+	if stalled:
+		return str(c["valve_bone_stall_fmt"]) % lever_text
+	if dragging and edge > 0.0 and war_share < edge:
+		return str(c["valve_bone_below_text"])
+	return ""
+
+
 ## "WAR supports 0 of 3 held forts", or "" when no fort is held.
 static func supports_text(proj: Dictionary) -> String:
 	var s: Dictionary = proj["war_supports"]

@@ -441,6 +441,10 @@ func _contrast(t: TestUtil) -> void:
 		t.ok(cr >= 3.0, "%s pips and arcs read 3:1 over ground (%.2f)" % [k, cr])
 	for k in ["undead", "living", "relish", "vei"]:
 		t.ok(MapLogic.contrast_ratio(Palette.c(k), ground) >= 3.0, "%s pips read 3:1" % k)
+	# the next-tithe hollow badge: the living's key at tithe_next_alpha (contrast_ratio composites the alpha over the ground)
+	var badge := Palette.c("living", float(n["tithe_next_alpha"]))
+	var br := MapLogic.contrast_ratio(badge, ground)
+	t.ok(br >= 3.0, "the next-tithe hollow badge reads 3:1 over ground (%.2f)" % br)
 	var lab := Palette.c("text_dim", float(MapLogic.cfg()["node_label_dim_alpha"]))
 	t.ok(MapLogic.contrast_ratio(lab, ground) >= 4.5, "fort labels read 4.5:1 (%.2f)" % MapLogic.contrast_ratio(lab, ground))
 	t.ok(NodeLogic.fort_label_key("far") == "text" and NodeLogic.fort_label_key("mid") == "text" and NodeLogic.fort_label_key("near") == "text_dim", "fort names are full text in the overview tiers (far, mid), dim at near")

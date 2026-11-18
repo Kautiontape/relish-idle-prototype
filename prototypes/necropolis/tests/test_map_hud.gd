@@ -13,6 +13,7 @@ func run() -> int:
 	_bar(t)
 	_status(t)
 	_tithe_line(t)
+	_bone_line(t)
 	_callout_text(t)
 	_callout_rows(t)
 	_placement(t)
@@ -76,6 +77,46 @@ func _contrast(t: TestUtil) -> void:
 		for g in grounds:
 			var r := MapLogic.contrast_ratio(Palette.c(key), grounds[g])
 			t.ok(r >= 4.5, "%s on %s is %.1f:1 (>= 4.5)" % [key, g, r])
+
+
+## The BONE item's pits-first warning: the mill's stall, or the queue head that can never be afforded.
+func _bone_line(t: TestUtil) -> void:
+	t.suite("map_hud-bone-line")
+	var pits := {"starved": "pits_first", "lever": "raise_war"}
+	var none := {"starved": "", "lever": ""}
+	var bodies := {"starved": "no_bodies", "lever": ""}
+	var names := {"inn": "Inn"}
+	var stalled := {"building_id": "inn", "level": 1, "status": "waiting_funds", "reason": "no_bone", "affordable_in_s": -1.0,
+		"short": {"gold": 0.0, "bone": 6.2}, "starved": "pits_first", "lever": "raise_war"}
+	t.ok(HudLogic.bone_line(none, {}, names) == "", "no stall: nothing to say")
+	t.ok(HudLogic.bone_line({}, {}, names) == "", "no mill row: nothing to say")
+	t.ok(HudLogic.bone_line(pits, {}, names) == "no bone: the pits eat every body. Raise WAR", "mill pits_first: the stall and the lever, as config words: " + HudLogic.bone_line(pits, {}, names))
+	var head := HudLogic.bone_line(pits, stalled, names)
+	t.ok(head == "Inn: never, 7 bone short. The pits eat every body: raise WAR", "a stalled head is named with a never ETA and what it lacks: " + head)
+	t.ok(not head.contains(":0") and not head.contains(" in ") and not head.contains("m "), "a never ETA carries no number of time")
+	t.ok(HudLogic.bone_line(none, stalled, names) == head, "the head alone (the mill row between steps) reads the same")
+	var timed := stalled.duplicate()
+	timed["affordable_in_s"] = 90.0
+	timed["starved"] = ""
+	timed["lever"] = ""
+	t.ok(HudLogic.bone_line(pits, timed, names) == "no bone: the pits eat every body. Raise WAR", "a timed wait is not a stall: the mill's line stands")
+	t.ok(HudLogic.bone_line(bodies, {}, names) == "", "no_bodies is not pits first: no raise WAR line")
+	var bod_head := stalled.duplicate()
+	bod_head["starved"] = "no_bodies"
+	bod_head["lever"] = ""
+	t.ok(HudLogic.bone_line(bodies, bod_head, names) == "", "a no_bodies head says nothing either")
+	t.ok(HudLogic.bone_line(pits, stalled, {}).begins_with("Inn: never"), "no name table: the id, capitalised")
+	var bl: Dictionary = MapLogic.cfg()["bone_line"]
+	t.ok(HudLogic.lever_text("raise_war") == "Raise WAR" and bl["levers"]["raise_war"] == "Raise WAR", "the lever's words come from config, keyed by the view's lever")
+	var cfg := MapLogic.cfg()
+	var a := float(cfg["topbar_plate_alpha"])
+	var bright := ""
+	for k in Palette.keys():
+		if bright == "" or MapLogic.luminance(Palette.c(k)) > MapLogic.luminance(Palette.c(bright)):
+			bright = k
+	var through := Palette.c("ground").lerp(Palette.c(bright), 1.0 - a)
+	var r := MapLogic.contrast_ratio(Palette.c(str(bl["key"])), through)
+	t.ok(r >= 4.5, "the bone warning (%s) reads 4.5:1 on the bar plate (%.1f)" % [bl["key"], r])
 
 
 func _hud(rates: Array, extra := {}) -> Dictionary:

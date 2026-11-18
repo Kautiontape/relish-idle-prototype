@@ -19,6 +19,7 @@ func run() -> int:
 	_percents_and_project(t)
 	_throttle(t)
 	_panel_text(t)
+	_bone_edge(t)
 	_payoff_cost(t)
 	_eta_and_chip(t)
 	_reasons(t)
@@ -128,6 +129,42 @@ func _panel_text(t: TestUtil) -> void:
 	t.ok(ValveLogic.workers_text(float(pr["workers_steady"])) == "workers → 61", "workers → 61")
 	t.ok(ValveLogic.supports_text(pr) == "WAR supports 0 of 2 held forts", "the supports line shows when forts are held")
 	t.ok(ValveLogic.supports_text({"war_supports": {"n": 0, "m": 0}}) == "", "and is hidden when none is held")
+
+
+## The valve marks where bone starts (view_hud.bone_war_share) and says so while the stall is live.
+func _bone_edge(t: TestUtil) -> void:
+	t.suite("map_controls-valve-bone-edge")
+	var seg := ValveLogic.bone_tick(0.54, SIDE)
+	t.ok(seg.size() == 2, "a share inside 0..1 has a tick")
+	var a: Vector2 = seg[0]
+	var b: Vector2 = seg[1]
+	t.ok(is_equal_approx(a.y, b.y) and is_equal_approx(a.y, ValveLogic.height(SIDE) * 0.46), "the tick is level, 0.54 of the way up to WAR: y = %.1f" % a.y)
+	t.ok(is_equal_approx(b.x - a.x, SIDE * 0.46), "its length is the triangle's width there (%.1f)" % (b.x - a.x))
+	t.ok(absf(float(ValveLogic.bary_of(a, SIDE)["war"]) - 0.54) < 1e-4 and absf(float(ValveLogic.bary_of(b, SIDE)["war"]) - 0.54) < 1e-4, "both ends sit at WAR share 0.54")
+	t.ok(ValveLogic.is_inside(a, SIDE) and ValveLogic.is_inside(b, SIDE), "and on the triangle's edges")
+	t.ok(ValveLogic.bone_tick(0.0, SIDE).is_empty() and ValveLogic.bone_tick(1.0, SIDE).is_empty() and ValveLogic.bone_tick(-0.2, SIDE).is_empty(), "no edge (0, 1 or none): no tick")
+	var lever := "Raise WAR"
+	t.ok(ValveLogic.bone_readout(true, lever, false, 0.8, 0.54) == "Raise WAR: the pits eat every body", "a live stall carries the lever line")
+	t.ok(ValveLogic.bone_readout(true, lever, true, 0.3, 0.54) == "Raise WAR: the pits eat every body", "and keeps it while dragging (one line)")
+	t.ok(ValveLogic.bone_readout(false, lever, false, 0.2, 0.54) == "", "no stall, no drag: nothing, even below the edge")
+	t.ok(ValveLogic.bone_readout(false, lever, true, 0.3, 0.54) == "below the bone edge", "dragging under the edge says so")
+	t.ok(ValveLogic.bone_readout(false, lever, true, 0.54, 0.54) == "" and ValveLogic.bone_readout(false, lever, true, 0.7, 0.54) == "", "at or above the edge: nothing")
+	t.ok(ValveLogic.bone_readout(false, lever, true, 0.3, 0.0) == "", "no edge from the view: nothing")
+	var c: Dictionary = MapLogic.cfg()["controls"]
+	t.ok(str(c["valve_bone_label"]) == "bone", "the tick's tiny label")
+	var plate := Palette.c("ground").lightened(float(MapLogic.cfg()["panel_bg_lighten"]))
+	var pa := float(c["valve_plate_alpha"])
+	var bright := ""
+	for k in Palette.keys():
+		if bright == "" or MapLogic.luminance(Palette.c(k)) > MapLogic.luminance(Palette.c(bright)):
+			bright = k
+	var through := Palette.c("ground").lerp(Palette.c(bright), 1.0 - pa)
+	var under := plate.lerp(through, 1.0 - pa)
+	for key in [str(MapLogic.cfg()["bone_line"]["key"]), str(c["valve_bone_label_key"])]:
+		for g in [plate, under]:
+			var r := MapLogic.contrast_ratio(Palette.c(key), g)
+			t.ok(r >= 4.5, "valve text in %s reads 4.5:1 on the valve plate (%.1f)" % [key, r])
+	t.ok(float(c["valve_bone_tick_w_px"]) >= 1.0, "the tick is at least 1 px")
 
 
 func _payoff_cost(t: TestUtil) -> void:
