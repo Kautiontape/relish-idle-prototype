@@ -15,6 +15,10 @@ extends RefCounted
 ## --raid-profile=<party_tier> --raid-fort=<fort_id> (BALANCE 3's standard party of that tier at that world.json fort; raid.json autopilot.party_profiles),
 ##   with --raid-party-<stat>=<n> (power, beef, wits, presence, speed) every party big undead's <stat> set to n: the weak
 ##   points with and without (--raid-party-wits for the Shieldwall, --raid-party-power for the Pyre-priest).
+## --raid-run-ended=<frames> (H-a: after that many frames the raid emits a synthetic run_ended {run_id: its own, kind, outcome: retreated,
+##   cause: gap} through Game.game_event, as the state does when a gap above idle.gap_s ends the open run; the flag also enables the raid's
+##   listener in a standalone launch. It touches no state. The raid stops, shows the AWAY TOO LONG banner and emits one result: with the
+##   fixture a RAID_RESULT exit=retreated, the capture's retreat_by "gap"),
 ## --raid-shield-lane-every=<n> sets the Shieldwall's attack.rush_lane_every for this run (D-e task 4's candidates).
 ## A RefCounted, not a Node: the raid calls `start()` once the scene is built and `tick()` from
 ## its own _process, so it needs no tree presence of its own.
@@ -24,7 +28,8 @@ var _stress := 0                # --raid-stress=N
 var _autoexit := -1             # --raid-autoexit=<frames>
 var _autodie := -1              # --raid-autodie=<frames>
 var _go := false                # --raid-warden-go autopilot
-var _fell := -1                 # --raid-warden-fell=<frames>: frames after the wake, the warden falls (the clear card's shots)
+var _run_ended := -1            # --raid-run-ended=<frames>: the frame a synthetic run_ended goes out (-1 off)
+var _fell := -1               # --raid-warden-fell=<frames>: frames after the wake, the warden falls (the clear card's shots)
 var _woke_at := -1
 var _ap: RaidAutopilot = null   # --raid-autopilot=<score>: the headless measuring bot
 var _perf := false
@@ -144,6 +149,7 @@ func start() -> void:
 	_stress = int(cli_value("--raid-stress="))
 	_autoexit = int(cli_value("--raid-autoexit=")) if cli_value("--raid-autoexit=") != "" else -1
 	_autodie = int(cli_value("--raid-autodie=")) if cli_value("--raid-autodie=") != "" else -1
+	_run_ended = int(cli_value("--raid-run-ended=")) if cli_value("--raid-run-ended=") != "" else -1
 	if cli_flag("--raid-warden") and not _raid.is_boss():
 		_place_in_antechamber()
 	_go = cli_flag("--raid-warden-go")
@@ -187,6 +193,10 @@ func tick() -> void:
 	if _autoexit >= 0 and frame >= _autoexit and not _raid._ended:
 		_autoexit = -1
 		_raid.endings.confirm_exit("dev")
+	if _run_ended >= 0 and frame >= _run_ended:
+		_run_ended = -1
+		Game.game_event.emit({"t": 0.0, "type": "run_ended", "run_id": int(_raid.seed_data.get("run_id", 0)),
+			"kind": "boss" if _raid.is_boss() else "raid", "outcome": "retreated", "cause": "gap"})
 	if _autodie > 0 and frame > 0 and frame % _autodie == 0 and not _raid._ended and not _raid.is_boss():   # not at frame 0: the first hit at frame N
 		_autodie_hit()
 	if _perf:

@@ -1119,7 +1119,8 @@ class WardenBlock:
 				# the rows wrap to the plate's inner width, once per change (not per frame)
 				break_rows = nr
 				_wrap_w = size.x
-				break_lines = RaidLogic.wrap_break_rows(nr, ThemeDB.fallback_font, RaidLogic.BREAK_ROW_PX, size.x - 2.0 * RaidLogic.WARDEN_BLOCK_INSET)
+				break_lines = RaidLogic.wrap_break_rows(nr, ThemeDB.fallback_font, RaidLogic.BREAK_ROW_PX,
+					RaidLogic.break_wrap_width(size.x, RaidLogic.WARDEN_BLOCK_INSET, float(raid.rcfg().get("hud", {}).get("break_wrap_min_px", 120.0))))
 				_key = -1
 		var eh := (20.0 if w is RaidHuntsman else 0.0) + (20.0 if w.spec.has("pack") else 0.0) \
 			+ (RaidLogic.BREAK_ROW_STEP * break_lines.size() + 6.0 if not break_lines.is_empty() else 0.0)

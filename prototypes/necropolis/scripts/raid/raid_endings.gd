@@ -18,7 +18,9 @@ var banked_rooms := {}          # checkpoint room index -> true once it has bank
 var revived := 0                 # phylactery revives spent this run
 var exit_idx := -1               # index into layout.doors of the exit Relish stands at, else -1
 var left_spawn_exit := false     # Relish has been outside the spawn exit's radius once
-var retreat_by := ""             # what ended a retreat (capture's retreat_by): click | bot | dev | held_clear | close
+var retreat_by := ""             # what ended a retreat (capture's retreat_by): click | bot | dev | held_clear | close | gap
+var _gap := false                # the state ended the run under us (gap_end): one beat, one finish
+var _pending_cp := {}            # a checkpoint the state refused with catching_up: {run_id, loot, outcome}, resent by tick()
 
 var _raid: Node2D
 var _room := -2                  # Relish's current room
@@ -98,12 +100,64 @@ func clamp_banked() -> void:
 ## ending beat has begun, no later call can write "retreated" or the pre-ending `banked` back over it.
 ## `loot` (only checkpoint_ending passes one) is the ending's loot: it is stored in `_ending_loot`.
 func _send_checkpoint(loot := {}) -> void:
-	if not _raid._from_run:
+	if not _raid._from_run or _gap:
 		return
 	if not loot.is_empty():
 		_ending_loot = loot
 	var p := RaidLogic.checkpoint_payload(pending_exit, _ending_loot, banked)
-	Game.state.cmd_run_checkpoint(int(_raid.seed_data.get("run_id", 0)), p["loot"], p["outcome"])
+	_post_checkpoint({"run_id": int(_raid.seed_data.get("run_id", 0)), "loot": p["loot"], "outcome": p["outcome"]})
+
+
+## Send one payload; a catching_up refusal keeps it as the pending one (RaidLogic.checkpoint_pending_after: each
+## send replaces what was pending, so a newer checkpoint supersedes an older one).
+func _post_checkpoint(payload: Dictionary) -> void:
+	var res: Dictionary = Game.state.cmd_run_checkpoint(int(payload["run_id"]), payload["loot"], str(payload["outcome"]))
+	_pending_cp = RaidLogic.checkpoint_pending_after(payload, res)
+
+
+## Every frame of the raid's _process: a refused checkpoint is resent once the catch-up is over (one dictionary
+## test per frame when nothing is pending).
+func tick() -> void:
+	if _pending_cp.is_empty() or not RaidLogic.checkpoint_resend_due(_pending_cp, Game.state.catching_up()):
+		return
+	_post_checkpoint(_pending_cp)
+
+
+## The state ended this run underneath the raid (a gap above idle.gap_s: run_ended, or the away_report backstop):
+## stop like an ending, close what is open, say so, and emit the one result after gap_end.beat_s. `outcome` is
+## what the state recorded (RaidLogic.gap_outcome). No checkpoint goes out after this (the run is gone).
+func gap_end(outcome: String) -> void:
+	if finished or _gap:
+		return
+	_gap = true
+	_pending_cp = {}
+	if not ended:
+		retreat_by = "gap"
+	ended = true
+	_raid.trance.force_end()
+	if _raid.hud != null:
+		_raid.hud.close_retreat()
+		for c in _raid.hud.get_children():
+			if c is RaidDeathCard or c is RaidClearCard:
+				c.queue_free()
+		_raid.hud.show_banner(RaidLogic.gap_banner(), float(_raid.rcfg().get("gap_end", {}).get("banner_s", 4.0)), "danger")
+	_card = null
+	_raid.get_tree().create_timer(float(_raid.rcfg().get("gap_end", {}).get("beat_s", 2.5))).timeout.connect(_finish_gap.bind(outcome))
+
+
+## The gap beat is over: the one emit, shaped as the state already recorded the run (close_request's shapes: a retreat
+## pays the last checkpoint, a death or a win the beat's own result). The router ignores it (the run is ended).
+func _finish_gap(outcome: String) -> void:
+	if not is_instance_valid(_raid) or finished:
+		return
+	if _raid.is_boss():
+		finish(_raid.close_result())
+		return
+	var plan := RaidLogic.close_plan(true, outcome)
+	if plan["exit"] == "warden_beaten" and not win_result.is_empty():
+		finish(win_result)
+	else:
+		finish(_raid._death_result() if plan["exit"] == "relish_died" else build_result(plan["exit"], plan["closing"]))
 
 
 ## An ending beat has begun (`pending_exit` is set): record it with the state and save now, so a crash in
@@ -276,6 +330,7 @@ func finish(result: Dictionary) -> void:
 		return
 	finished = true
 	ended = true
+	_pending_cp = {}
 	if _raid.capture != null:
 		_raid.capture.write(result)   # capture mode: synchronous, before the emit (the router frees the scene; the bot quits)
 	if is_instance_valid(_card):

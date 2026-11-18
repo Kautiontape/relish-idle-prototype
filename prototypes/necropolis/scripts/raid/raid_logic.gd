@@ -266,6 +266,59 @@ static func close_plan(ended: bool, pending_exit: String) -> Dictionary:
 	return {"exit": exit, "closing": exit == "retreated"}
 
 
+## Does a game event end this raid (raid.gd `_on_game_event`; the state ended the run underneath it after a gap above
+## idle.gap_s)? A `run_ended` with our run id, or an `away_report` while the run open in the state is not ours
+## (`open_run_id` is view_relish.run_id, -1 for none): the backstop if the run_ended was missed.
+static func gap_ends_run(ev: Dictionary, run_id: int, open_run_id: int) -> bool:
+	match str(ev.get("type", "")):
+		"run_ended":
+			return int(ev.get("run_id", -1)) == run_id
+		"away_report":
+			return open_run_id != run_id
+	return false
+
+
+## The exit the state already recorded for the run a gap ended (run_ended.outcome); an away_report carries none,
+## and anything unknown, so a retreat.
+static func gap_outcome(ev: Dictionary) -> String:
+	return checkpoint_outcome(str(ev.get("outcome", "")))
+
+
+## The banner a gap-ended raid shows (the glossary's words: "checkpoint" is the banked point).
+static func gap_banner() -> String:
+	return "AWAY TOO LONG · the raid ended at its last checkpoint"
+
+
+## What is pending after a checkpoint send (RaidEndings._send_checkpoint): the payload when the state refused it
+## with catching_up (it is resent later), else nothing (accepted, or refused for a reason that will not pass).
+## Each send replaces what was pending, so a newer checkpoint supersedes an older one.
+static func checkpoint_pending_after(payload: Dictionary, res: Dictionary) -> Dictionary:
+	if not bool(res.get("ok", false)) and str(res.get("reason", "")) == "catching_up":
+		return payload
+	return {}
+
+
+## Resend a pending checkpoint only when the catch-up is over.
+static func checkpoint_resend_due(pending: Dictionary, catching_up: bool) -> bool:
+	return not pending.is_empty() and not catching_up
+
+
+## The seed with the fields a catch-up could change re-read from `fresh` (the state's view_dungeon_seed): the
+## phylactery stock the HUD and the revive rule read. `fresh` {} (no such run) or missing keys change nothing. A copy.
+static func reread_seed(seed: Dictionary, fresh: Dictionary) -> Dictionary:
+	var out := seed.duplicate(true)
+	for k in ["phylactery_charges", "phylactery_max_per_dungeon"]:
+		if fresh.has(k):
+			out[k] = fresh[k]
+	return out
+
+
+## The width the awake WardenBlock wraps its break rows to: the plate's inner width, floored so a plate with no
+## width yet (size.x 0) cannot wrap to one word per line.
+static func break_wrap_width(plate_w: float, inset: float, min_px: float) -> float:
+	return maxf(plate_w - 2.0 * inset, min_px)
+
+
 ## The loot a raid result carries (RaidEndings.build_result): a retreat or a win banks everything found
 ## plus the carried motes, a death keeps the last checkpoint snapshot (`banked`), and a close
 ## (`closing`) pays that snapshot whatever the exit. Always the full loot shape; inputs unchanged.

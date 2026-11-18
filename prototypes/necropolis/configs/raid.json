@@ -50,6 +50,7 @@
   "hud": {
     "_doc": "The stat block (top left). plate_alpha is its backing plate: near opaque so a corpse glyph or pickup under the block never crosses its text. Every HUD plate's alpha is pinned by tests/test_raid_clarity.gd: its dimmest text must stay 4.5:1 (lines 3:1) over the brightest thing the world can put under it, so lowering one fails the suite. warden_plate_alpha backs the awake warden's block.",
     "plate_alpha": 0.96,
+    "break_wrap_min_px": 120,
     "warden_plate_alpha": 0.96,
     "banner_plate_alpha": 0.94,
     "door_plate_alpha": 0.86,
@@ -123,6 +124,11 @@
   },
   "checkpoint": {
     "banner_s": 2.5
+  },
+  "gap_end": {
+    "_doc": "A gap above idle.gap_s (the machine slept mid-raid) made the state end the run from its last checkpoint (run_ended, cause gap): the raid stops, shows the AWAY TOO LONG banner, and emits its one result beat_s later (a held beat so the banner can be read; the state ignores the result, the run is already ended). banner_s is how long the banner shows (past the beat: the scene is usually gone by then).",
+    "beat_s": 2.5,
+    "banner_s": 4.0
   },
   "death": {
     "_doc": "The death frame (RaidDeathCard): card_s is how long the death beat holds the card before the result goes out (the measuring bot never waits, it keeps the 0.9 s beat; 0 = no card), skip_after_s when a click or SPACE may end it early, fade_s its fade-in (none under reduced motion).",
