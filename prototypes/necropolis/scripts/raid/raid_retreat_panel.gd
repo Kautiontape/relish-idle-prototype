@@ -197,7 +197,7 @@ func classify(ev: InputEvent) -> String:
 ## A press that puts the panel away while it shows: Esc (the one key that means "stay and fight"), and Space or
 ## right mouse, which are the raise (the trance) and keep that one meaning: the panel is centred and swallows a
 ## left press, so left up it would sit over the motes the raise is about to circle. The raid closes the panel on
-## it and then hands the event on as usual (raid.gd _unhandled_input); the foot says "Space raises and puts this away".
+## it and then hands the event on as usual (raid.gd _unhandled_input); the foot says "Space: raise undead" (the raise closes the panel on its way: one meaning for Space).
 static func is_stay_key(ev: InputEvent) -> bool:
 	if ev is InputEventKey:
 		var k := ev as InputEventKey
