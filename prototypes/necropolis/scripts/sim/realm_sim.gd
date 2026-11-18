@@ -131,6 +131,13 @@ var digest_q := 1.0  # the q of the last step; readout() uses it
 ## steps, as the state stands: _sync_hold_mult). Every pull at a held fort and every hold readout reads it (_k_dq).
 ## Not saved: GameState derives it from the buildings.
 var hold_mult := 1.0
+## P3b (api-request #21, dungeon-i P7): Vei is beaten (GameState.won, synced by GameState._sync_won at each core step's
+## start and on a load; set_won). While it is set Vei does nothing of her own: no tithe (the clock idles, so no
+## warning, wave or surge, and start_tithe can't restart it), no shipping or reship (living vei->fort), no retake (a
+## held fort's zero clock doesn't run; grace and held_for_s still count), and the undead her living destroy stay at the
+## fort as corpses (no dead fort->vei). The player's WAR, the garrisons (their drain included) and the holds run as
+## before. Not saved: GameState's `won` is.
+var won := false
 ## The one-wave need's tunables (E4 step 5, ruling B1 (ii); need_of) and the target rule's tie (_lowest_margin).
 var _need_tol := 0.0  # hold.need_tol: the bisection stops when its bracket is this narrow, mass/s
 var _need_iters := 0  # hold.need_iters: at most this many halvings
@@ -402,6 +409,14 @@ func tithe_period() -> float:
 	return _period_s * maxf(0.0, 1.0 - _backlog_scale * strain())
 
 
+## P3b (api-request #21): Vei beaten or not (the `won` field). Beaten, the tithe idles at once (a warning or a wave in
+## flight is dropped), so catch-up clips at no tithe event and no view names a target.
+func set_won(on: bool) -> void:
+	won = on
+	if on:
+		tithe = _tithe_idle()
+
+
 static func _tithe_idle() -> Dictionary:
 	return {"started": false, "next_s": 0.0, "next_id": 1, "warning": {}, "wave": {}}
 
@@ -409,6 +424,8 @@ static func _tithe_idle() -> Dictionary:
 ## Starts the tithe cycle (the first flip): the first wave comes one tithe_period() from now. A
 ## cycle that already runs is left alone.
 func start_tithe() -> void:
+	if won:
+		return  # (P3b, #21) no tithe once she is beaten
 	if not bool(tithe.get("started", false)):
 		tithe["started"] = true
 		tithe["next_s"] = tithe_period()
@@ -541,7 +558,7 @@ func _next_part(rem: float) -> float:
 			g = 0.0
 		if g > 0.0:
 			h = minf(h, g)
-		elif float(f["undead"]) <= 0.0:
+		elif float(f["undead"]) <= 0.0 and not won:  # (P3b, #21) beaten, no break to split at
 			var c := _break_s - float(f["zero_s"])
 			if c > _EPS_S:
 				h = minf(h, c)
@@ -667,7 +684,8 @@ func _step_part(dt: float, inputs: Dictionary, at: float) -> void:
 	var sum_cap := 0.0
 	for f in forts:
 		sum_cap += float(f["cap"])
-	var per_cap: float = _S_vei * dt / sum_cap if sum_cap > 0.0 else 0.0
+	# (P3b, #21) beaten, she ships nothing (shipping, reship and surge are all per_cap's or the idle tithe's)
+	var per_cap: float = _S_vei * dt / sum_cap if sum_cap > 0.0 and not won else 0.0
 	vei["undead_queue"] += flood * dt  # FLOOD (step 4) counts toward what she can make
 	_plan = _make(dt, q, INF, false)
 	var avail: float = vei["living_pool"] + float(_plan["made"])
@@ -745,7 +763,9 @@ func _step_part(dt: float, inputs: Dictionary, at: float) -> void:
 		var f: Dictionary = forts[i]
 		var keep: bool = keep_i[i]
 		u_start[i] = maxf(0.0, float(f["undead"]))
-		fort_step(f, dt, arriving[i] * inv, war_in[i], want_r[i], keep, q)
+		# (P3b, #21) beaten, every fort keeps the undead her living destroy as corpses (fort_step's keep), raising none
+		# but a redirect site's: nothing goes dead fort->vei
+		fort_step(f, dt, arriving[i] * inv, war_in[i], want_r[i], keep or won, q)
 		f["r_kills"] = _kills * inv
 		f["r_drain"] = _drained * inv
 		drained += _drained
@@ -765,6 +785,10 @@ func _step_part(dt: float, inputs: Dictionary, at: float) -> void:
 				sm["charges"] = float(sm["charges"]) - got
 				raised_by_sims += got
 			f["r_raised"] = _raised * inv
+		elif won:
+			f["r_redirected"] = 0.0
+			f["r_dead_out"] = 0.0
+			f["r_raised"] = 0.0
 		else:
 			dead_to_vei += _destroyed
 			f["r_redirected"] = 0.0
@@ -809,6 +833,9 @@ func _step_part(dt: float, inputs: Dictionary, at: float) -> void:
 			f["grace_s"] = g if g > _EPS_S else 0.0
 			f["held_s"] = f["grace_s"]
 			f["zero_s"] = 0.0
+			continue
+		if won:
+			f["zero_s"] = 0.0  # (P3b, #21) beaten, she retakes nothing: the zero clock doesn't run
 			continue
 		var tz := float(f.get("t_undead_out", -1.0))
 		var tb := float(f.get("t_undead_back", -1.0))
@@ -1657,6 +1684,8 @@ func reship_rate(f: Dictionary) -> float:
 
 ## reship_rate for a fort of `cap` at her odds `o`.
 func _reship_at(cap: float, o: float) -> float:
+	if won:
+		return 0.0  # (P3b, #21) beaten, she reships nothing
 	var sum_cap := 0.0
 	for g in forts:
 		sum_cap += float(g["cap"])
@@ -2029,7 +2058,7 @@ func train_probe(sup: Dictionary, q: float) -> Dictionary:
 		alive.append(true)
 	var n := ids.size()
 	var out := {"forts": {}, "settled": false, "p": 0, "cycles": 0, "steps": 0, "targets": []}
-	if n == 0:
+	if n == 0 or won:  # (P3b, #21) beaten, no wave comes: nothing to forecast
 		out["settled"] = true
 		return out
 	# the clock as it stands; wave_i: the running wave's fort (an index, -1 for a fort not probed, -2 none)

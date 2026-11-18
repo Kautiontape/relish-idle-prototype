@@ -168,7 +168,9 @@ Validation lives in `Results.validate(kind, dict) -> reasons[]`, and both sides 
    is processed (§4.4);
 4. Relish's travel and state (GameState);
 5. `RealmSim.step(dt, {war, flood, digest_q, tide_fort, tide_bias, redirect_fort, redirect_rate})`.
-   Holds and the tithe state are RealmSim's own state (§3.1), not inputs;
+   Holds and the tithe state are RealmSim's own state (§3.1), not inputs. P3b: `GameState._sync_won` runs at the
+   core step's start, so a won game's split (step 2: FLOOD and the muster to WAR) and this step both see `won` (§3.4's
+   "After the win");
 6. Backups;
 7. the ledger;
 8. readouts (EMA);
@@ -696,6 +698,16 @@ corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
 - **No wave ends a hold by itself** (E2b-2 T3.1 removed E2a's `tithe_wave` cause): it surges into the
   counter-garrison, and the contest decides (the retake above).
 - **A retake** resets the fort's `clears_since_retaken` to 0 and leaves its loot yield as it was (§5.3).
+- **After the win** (P3b, api-request #21; STATE-API §10 A19): once Vei is beaten (`won`), `RealmSim.won` (synced by
+  `GameState._sync_won` at each core step's start, on a load, at the win in `StateRuns.writeback_boss`, on debug's
+  `won` and on a new game; `set_won` idles the tithe at once and `start_tithe` does nothing while it is set) turns
+  her off. **No tithe** (no warning, wave or surge; catch-up clips at no tithe event), **no shipping, reship or
+  surge** (living vei->fort lanes 0), **no dead fort->vei** (the undead her living destroy stay at the fort as
+  corpses: `fort_step`'s keep path, raising none), **no retake** (a held fort's zero clock doesn't run; grace and
+  `held_for_s` still count), and no forecast: `train_probe` sees no wave and every fort's `hold` reads zeros (need 0,
+  margin 0, `fall_s` −1, `margin_cause` `""`). FLOOD's share and the muster go to WAR (`GameState._split_of` with
+  `war_share`/`flood_share`, §3.2's split), so `split.flood` is 0 and `muster_to` `"war"`. Still running: the player's
+  WAR, the garrisons (their drain into her queue too), the hold timers, the town.
 
 ### 3.5 Readouts
 - **Differential:** `diff = inflow − digestion` each substep, where inflow is fort drain + FLOOD +
@@ -709,7 +721,8 @@ corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
   sign only past about 12 mass/s.
 - **Drain time:** `backlog / −EMA` when the EMA < 0, else "holding". Never INF in state.
 - **Odds** (the win odds; E4 step 9, the run's manager's ruling of 2026-11-17 13:44, option B):
-  `odds.time_weight · t / (t + odds.time_s) + (1 − time_weight) · min(odds.backlog_cap, strain)`, with `t` the
+  `odds.time_weight · t / (t + odds.time_s) + (1 − time_weight) · min(odds.backlog_cap, strain + credit)` (P3b: the
+  raid credit, below; 0 before it), with `t` the
   game's age (sim seconds since the new game) and **strain** `backlog / (backlog + K)`. Mostly time-based, with the
   raid (backlog) part capped, so a player who is always present and raids hard reaches them sooner, but not by as much
   as the backlog alone would give. These are the odds every view shows, the boss seed carries and Vei-ready reads.
@@ -724,6 +737,20 @@ corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
   charges, `phylactery.max_per_dungeon`) + clones ready. Since P1's pool-scaled break the backups decide a first
   attempt (§6), so each clone raises the odds shown, and the readiness bounds what backups can buy. The fit is to the
   faithful grade at Vei-ready (BALANCE §5); `backups_mid` −1e9 gives the readiness back bit for bit.
+  **P3b, the shown odds** (V-I2 (b)): `first_odds = min(odds.first_cap, odds.first_gain × readiness) / (1 +
+  exp(−(backups − backups_mid) / backups_scale))`, `first_gain` 1.41, `first_cap` 0.95, `backups_mid` 6.72,
+  `backups_scale` 1.62, fit to P3's faithful grade at readiness 0.6053 with its 1+10 point added (reads 0.01, 0.08,
+  0.22, 0.46, 0.80 against 0.00, 0.05, 0.25, 0.45, 0.80 at 0+0, 1+2, 1+4, 1+6, 1+10; P3's form read 0.60 at 1+10).
+  The ceiling's dependence on the readiness is a choice (all grade points sit at one readiness): proportional as
+  before, up to `first_cap`. `first_gain` 1 with `first_cap` 1 is P3's form bit for bit
+  (`GameState.first_odds_of(readiness, backups, mid, scale, gain := 1.0, cap := 1.0)`). The deciders (Vei-ready, the
+  boss seed, the tithe, reship, need) keep reading the readiness or the strain.
+- **The raid credit** (P3b, V-I2 (a); STATE-API §5.1's `raid_credit`): the readiness is `time_weight · age / (age +
+  time_s) + (1 − time_weight) · min(backlog_cap, strain + credit)`, `credit = GameState.raid_credit() =
+  min(odds.raid_credit_cap, odds.raid_credit × stats.raids)` (`stats.raids`: every raid result applied; saved), sized
+  in BALANCE §5's P3b rows. Only the readiness reads it: `RealmSim.strain()` and what reads it (the tithe period,
+  reship, need) don't move. `raid_credit` 0 is the readiness above bit for bit (`ValveLogic.odds_at` takes it as
+  `credit`).
 - The EMA is saved (`readout.diff_ema`); the raw `diff` is not.
 - Vei's panel and the confrontation dialog show all three.
 - `RealmSim.readout()` stays for its old readers with the same keys. Its `capacity` is the most
@@ -1511,7 +1538,7 @@ finished against a copy without (STATE-API §5.10). The table is the design inte
 | Hearth | morale < `stance.hearth_morale` (0.5) | `stall` to the top |
 | Muster | idle workers: some stand idle, or the last step mustered some | the idle cap (`worker.idle_cap`) reads 0: every idle worker musters to WAR at once (without it the overflow above the cap musters to Vei's queue, §3.2) |
 | Thrift | the stalls' gold income < the gold upkeep owed | idles buildings over `stance.thrift_upkeep` (0.05) gold upkeep, in its order, until the income covers what is still paid |
-| Grow | a build or upgrade has finished since the new game (the finished levels total more than `opening.buildings`') | on in a new game (`stance.grow.default_on`), no slot. Right after the queue's processing, while no queue head waits on funds and fewer than `stance.grow.max_active` (1) constructions are under way: starts the upgrade, of a standing building in `stance.grow.order` whose lot has no queue entry and whose next level passes the tier gate, costs no relics and fits under every cap, that is affordable soonest at the queue's net income (ties in `order`, then lot order), once the stocks cover it; it passes over one no income can pay, and a gold-priced one while the gold income can't pay the upkeep (the Market's excepted). `grow_started`. Below |
+| Grow | a build or upgrade has finished since the new game (the finished levels total more than `opening.buildings`') | on in a new game (`stance.grow.default_on`), no slot. Right after the queue's processing, while no queue head waits on funds and fewer than `stance.grow.max_active` (1) constructions are under way: starts the upgrade, of a standing building in `stance.grow.order` whose lot has no queue entry and whose next level passes the tier gate, costs no relics and fits under every cap, that is affordable soonest at the queue's net income (ties in `order`, then lot order), once the stocks cover it; it passes over one no income can pay, and a gold-priced one while the gold income can't pay the upkeep (the Market's excepted). P3b (ruling 12, changed): it waits, with no pick, while any building is unpaid (shed). `grow_started`. Below |
 
 - **`active` is the condition alone, for every stance, on or off** (the run's manager). A stance acts only
   while it is on, not suspended and active; an off or suspended stance shows `active` and does nothing.
@@ -1586,6 +1613,10 @@ finished against a copy without (STATE-API §5.10). The table is the design inte
     `gold_income()` and `gold_due()`, the margin `held_by_income` reads; a level adds no upkeep, which is per
     building). A building that earns gold (the Market) is exempt: its level is the income. Without it, pre_vei's Grow
     spent the stock on the living's levels and shed nine buildings 57 min in, against 2 h 8 min with Grow off.
+  - **It waits while any building is unpaid (shed)** (P3b, the run's manager's ruling 12, changed;
+    `BuildRules.any_unpaid` in `grow_target`): no pick at all, since the gold an unpaid building waits on isn't Grow's
+    to spend. A Thrift-idled building doesn't hold it. `view_stances.grow` then names no pick (`building_id` `""`,
+    `in_s` −1).
   - **The wall stays visible:** once every standing building is at its last relic-free level, Grow has no pick and the
     queue's parked relic entries are what's left.
   - **The step:** right after `process_queue` in the core step (§3 step 3), on the state the processing left; a step
@@ -1765,7 +1796,7 @@ The Watchtower turns the bands into exact percentages and lists every tell.
 - **Backups in the fight:** each Relish death spends a phylactery charge first, then a ready clone.
   None left means the fight is lost. Each spent backup is a cracked violet ring, and from E3-5 the writeback raises
   one `relish_died {in_place: true}` for it, the charges first (STATE-API §8.3 boss step 3).
-- **Win:** `won = true`, the victory set piece, the game is beaten. Play continues (endless).
+- **Win:** `won = true`, the victory set piece, the game is beaten. Play continues (endless), with Vei off (§3.4's "After the win", P3b: no tithe, no shipping, FLOOD and the muster to WAR). The win survives a gap, a load or an abort once the scene has called `cmd_boss_won` (P3b, api-request #22; STATE-API §4.5): the open boss run resolves as that win, never a forfeit.
 - **Lose:**
   - backlog × `vei.loss_backlog_keep` (0.35 is kept);
   - the party's big undead die;

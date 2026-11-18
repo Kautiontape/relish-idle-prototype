@@ -106,6 +106,8 @@ const COMMANDS := {
 	"cmd_abort_dungeon": {"run_id": I},
 	# api_version 6 (E2b-2 T3.3c, api-request #4; IDLE I5): the open raid's last checkpoint
 	"cmd_run_checkpoint": {},
+	# P3b (api-request #22): Vei broke; the open boss run records its win
+	"cmd_boss_won": {"errors": [S]},
 	# api_version 6 (E2b-2 T3.3c, api-request #7 d; IDLE §7): dismiss the away report
 	"cmd_dismiss_away": {},
 	"apply_result": {"errors": [S], "minted": [S]},
@@ -153,7 +155,9 @@ const REASONS := {
 	"cmd_set_party": ["catching_up", "busy", "unknown_uid", "duplicate_uid"],
 	"cmd_assign_front": ["catching_up", "busy", "unknown_uid", "not_in_party", "unknown_front"],
 	"cmd_begin_dungeon": ["catching_up", "unknown_fort", "busy", "dead", "not_at_fort"],
-	"cmd_begin_boss": ["catching_up", "busy", "dead", "not_at_vei"],
+	"cmd_begin_boss": ["catching_up", "won", "busy", "dead", "not_at_vei"],  # won: P3b, api-request #21
+	"cmd_boss_won": ["no_run", "wrong_run", "wrong_kind", "catching_up", "not_won", "unknown_v", "invalid", "duplicate_run",
+		"stale_seed", "bad_party", "bad_backups"],  # P3b, api-request #22
 	# T3.3c: a dead run's refusal comes before catching_up (no run is open during a catch-up)
 	"cmd_abort_dungeon": ["no_run", "catching_up"],
 	"cmd_run_checkpoint": ["no_run", "wrong_run", "wrong_kind", "catching_up", "invalid", "bad_outcome"],
@@ -240,6 +244,7 @@ const VIEWS := {
 		"sign": I, "drain_s": F, "odds": F, "won": B,
 		# api_version 14 (Phase I P3, the odds split): `odds` the first-attempt estimate, `readiness` the win odds it reads
 		"readiness": F, "backups": I,
+		"raid_credit": F,  # P3b (V-I2 (a)): the readiness's raid credit (GameState.raid_credit)
 	},
 	"view_rates": {"rates": {"*": {"in": F, "out": F, "net": F, "unit": S}}},
 	"view_lanes": {"lanes": [{"id": S, "from": S, "to": S, "kind": S, "rate": F, "bias": F, "why": S}]},
@@ -315,6 +320,7 @@ const VIEWS := {
 		# api_version 14 (Phase I P3, the odds split): `odds` the first-attempt estimate (GameState.first_odds), `readiness`
 		# the win odds it reads (GameState.win_odds), `backups` the count it reads (GameState.vei_backups)
 		"readiness": F, "backups": I,
+		"raid_credit": F,  # P3b (V-I2 (a)): the readiness's raid credit (GameState.raid_credit)
 		"fronts": [{"id": S, "need": F, "have": F, "cleared": B, "assigned": [S], "counted": [S]}],
 		"fronts_required": I, "fronts_met": I,
 		# next_target, next_s: api_version 11 (E4 step 5, B1 (ii)): the telegraph

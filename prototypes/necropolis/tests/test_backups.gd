@@ -120,9 +120,10 @@ const TIP := {
 	# +1,868,492 (+1,867,726), the mint +2,251,317 (+2,251,104), the bone not stored 4,731 (4,730), the end bodies 0.34
 	# (0). The events are unchanged. day1's and midgame_2flips' convoys land nothing in these 12 h, so they don't move.
 	# The proof: the claim off (× 0) passes the old pins (was f23659ff… / a8a97ed8…).
+	# Re-pinned at P3b (the standing re-pin rule): the away report only, its "your odds" line (the shown odds' new form, first_gain/first_cap and the refit, and the readiness's raid credit with time_s 4.5 d). The state and events don't move. The proof: this tree with P3's odds (backups_mid 5.57, backups_scale 1.24, first_gain 1, first_cap 1), raid_credit 0 and time_s 345600 passes the old pins here, in test_stances and in test_big_undead (288 PASS, 0 FAIL). Was f701ba3f…
 	"pre_vei": {"state": "68c68ffdc82dc8c62a249d8fe91f0fd2c184c5522775ce967a180a255297384a",
 		"events": "fb00b6b760bbd7366d217e5421aa89e3ea3aeef9909f2f64b947bc2aae796177",
-		"away": "f701ba3f7ca574714ae85e093e3813cbe9e7b2e2d441981a31b435e4b10b5ed2", "steps": 4321, "n_events": 16},
+		"away": "5a48b9f72fab0f2de13e6fa6a2d4fa0fb1d7d3d2f1e22b631cae6f3e313b5547", "steps": 4321, "n_events": 16},
 }
 
 

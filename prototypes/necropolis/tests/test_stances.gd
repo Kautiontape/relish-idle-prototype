@@ -77,7 +77,8 @@ const TIP := {
 	# 58a6cc49… / a8a97ed8…).
 	"pre_vei": {"state": "de513152d69743260fd894dbb6ca6af748470f4dae3104227ef2955e0cdd70b7",
 		"events": "efa1e63ebbc4696325c4165bb19bde5bc21019c63723ee23dab7ee4a6a7bb84d",
-		"away": "f701ba3f7ca574714ae85e093e3813cbe9e7b2e2d441981a31b435e4b10b5ed2", "steps": 4321, "n_events": 10},
+		# Re-pinned at P3b (the standing re-pin rule): the away report only, its "your odds" line (the shown odds' new form, first_gain/first_cap and the refit, and the readiness's raid credit with time_s 4.5 d). The state and events don't move. The proof: this tree with P3's odds (backups_mid 5.57, backups_scale 1.24, first_gain 1, first_cap 1), raid_credit 0 and time_s 345600 passes the old pins here, in test_stances and in test_big_undead (288 PASS, 0 FAIL). Was f701ba3f…
+		"away": "5a48b9f72fab0f2de13e6fa6a2d4fa0fb1d7d3d2f1e22b631cae6f3e313b5547", "steps": 4321, "n_events": 10},
 }
 
 

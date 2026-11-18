@@ -26,6 +26,7 @@ func run() -> int:
 	_strain_label()
 	_first_attempt()
 	_away_backups()
+	_raid_credit()
 	return t.failures
 
 
@@ -129,7 +130,8 @@ func _valve_projection() -> void:
 	# Phase I P3's odds split: the projection is the readiness; first_odds_of on it and today's backups is the odds a
 	# player reads (view_vei's), which is how the valve can project the shown odds
 	var ocf: Dictionary = s._cfg()["odds"]
-	var po := GameState.first_odds_of(o, s.vei_backups(), float(ocf["backups_mid"]), float(ocf["backups_scale"]))
+	var po := GameState.first_odds_of(o, s.vei_backups(), float(ocf["backups_mid"]), float(ocf["backups_scale"]),
+		float(ocf["first_gain"]), float(ocf["first_cap"]))
 	t.near(po, float(s.view_vei()["odds"]), 1e-3, "first_odds_of on it: within a tenth of a point of view_vei's odds (%.5f against %.5f)" % [po, float(s.view_vei()["odds"])])
 	t.ok(ValveLogic.odds_at(float(s.realm.vei["undead_queue"]), 0.0, window, k) == s.realm.strain(), "without the odds block: the strain")
 	var up := ValveLogic.odds_at(float(s.realm.vei["undead_queue"]), 1000.0, window, k, ocfg, s.t)
@@ -192,39 +194,47 @@ func _strain_label() -> void:
 	t.ok(sl.begins_with("STRAIN") and not sl.contains("winning"), "the Vei card's row is the strain's, not 'winning' (%s)" % sl)
 
 
-## Phase I P3's odds split (the manager's ruling; realm.json odds.backups_mid, backups_scale): the odds a player reads are
-## first_odds_of(readiness, backups) = readiness / (1 + exp(-(backups - mid) / scale)), refit to P3's faithful grade at
-## sessions' Vei-ready (180121f's sessions seed 1 at day 5.1667, score 65, readiness 0.6053): its own 1+6 won 9/20, 1+4
-## 5/20, 1+2 1/20, 0+0 0/20 (was P1's, 6dc16a2 at readiness 0.6118: 1+8 9/20, 1+4 3/20, 1+2 1/20, 0+0 0/20). Within the
-## brief's ten points of each; rising in both inputs, never above the readiness; backups_mid -1e9 is the readiness bit for
-## bit (the revert proof); backups count the revives a run may use (min(charges, max_per_dungeon)) and the clones ready.
+## Phase I P3's odds split (the manager's ruling; realm.json odds.backups_mid, backups_scale) with P3b's honest ceiling
+## (V-I2 (b); odds.first_gain, first_cap): the odds a player reads are first_odds_of(readiness, backups) =
+## min(first_cap, first_gain × readiness) / (1 + exp(-(backups - mid) / scale)), fit to P3's faithful grade at sessions'
+## Vei-ready (180121f's sessions seed 1 at day 5.1667, score 65, readiness 0.6053): its own 1+10 won 16/20, 1+6 9/20, 1+4
+## 5/20, 1+2 1/20, 0+0 0/20. Within five points of each, and the 1+10 point reads its 80% (P3's form, the readiness as the
+## ceiling, read 0.60 there); rising in the backups, never falling with the readiness, never above the ceiling or
+## first_cap. Revert proofs: first_gain 1 with first_cap 1 is P3's form bit for bit (readiness / (1 + exp(...)), at P3's
+## 5.57 and 1.24), so 1+10 reads 0.60 again; backups_mid -1e9 is the ceiling bit for bit. Backups count the revives a run
+## may use (min(charges, max_per_dungeon)) and the clones ready.
 func _first_attempt() -> void:
 	t.suite("win-odds-first")
 	var ocf: Dictionary = TestUtil.configs()["realm"]["odds"]
 	var mid := float(ocf["backups_mid"])
 	var sc := float(ocf["backups_scale"])
+	var gain := float(ocf["first_gain"])
+	var cap := float(ocf["first_cap"])
 	var r := 0.6053
-	var grade := {7: 0.45, 5: 0.25, 3: 0.05, 0: 0.0}
+	var grade := {11: 0.80, 7: 0.45, 5: 0.25, 3: 0.05, 0: 0.0}
 	var fit := []
 	var within := true
 	for n in grade:
-		var o := GameState.first_odds_of(r, int(n), mid, sc)
+		var o := GameState.first_odds_of(r, int(n), mid, sc, gain, cap)
 		fit.append("%d: %.3f (%.2f)" % [n, o, float(grade[n])])
-		within = within and absf(o - float(grade[n])) <= 0.10
-	t.ok(within, "at readiness 0.6053 the odds are within ten points of P3's grade: %s" % ", ".join(fit))
+		within = within and absf(o - float(grade[n])) <= 0.05
+	t.ok(within, "at readiness 0.6053 the odds are within five points of P3's grade, 1+10 included: %s" % ", ".join(fit))
+	var old := GameState.first_odds_of(r, 11, 5.57, 1.24, 1.0, 1.0)
+	t.ok(absf(old - 0.598) < 0.005 and old == r / (1.0 + exp(-(11.0 - 5.57) / 1.24)) and old == GameState.first_odds_of(r, 11, 5.57, 1.24),
+		"first_gain 1 and first_cap 1 (the defaults): P3's form bit for bit, 1+10 at %.3f (the revert proof)" % old)
 	var rising := true
 	var capped := true
 	for n in range(0, 21):
 		for rr in [0.1, 0.4, 0.6118, 0.9]:
-			var o := GameState.first_odds_of(rr, n, mid, sc)
-			rising = rising and o > GameState.first_odds_of(rr, n - 1, mid, sc) and o > GameState.first_odds_of(rr - 0.05, n, mid, sc)
-			capped = capped and o >= 0.0 and o <= rr
-	t.ok(rising and capped, "the odds rise with each backup and with the readiness, and never pass the readiness (0..20 backups)")
+			var o := GameState.first_odds_of(rr, n, mid, sc, gain, cap)
+			rising = rising and o > GameState.first_odds_of(rr, n - 1, mid, sc, gain, cap) and o >= GameState.first_odds_of(rr - 0.05, n, mid, sc, gain, cap)
+			capped = capped and o >= 0.0 and o <= minf(cap, gain * rr) and o < 0.95 + 1e-12
+	t.ok(rising and capped, "the odds rise with each backup, never fall with the readiness, and never pass min(first_cap, first_gain × readiness) (0..20 backups)")
 	var exact := true
 	for rr in [0.0, 0.123456789, 0.6118, 0.94]:
 		for n in [0, 3, 9]:
-			exact = exact and GameState.first_odds_of(rr, n, -1e9, sc) == rr
-	t.ok(exact, "backups_mid -1e9: the odds are the readiness bit for bit (the revert proof)")
+			exact = exact and GameState.first_odds_of(rr, n, -1e9, sc, gain, cap) == minf(cap, gain * rr)
+	t.ok(exact, "backups_mid -1e9: the odds are the ceiling bit for bit")
 	t.ok(GameState.first_odds_of(0.5, 7, 7.0, 0.0) == 0.5 and GameState.first_odds_of(0.5, 6, 7.0, 0.0) == 0.0, "scale 0: a step at mid")
 	var s := _game()
 	s._phylactery_charges = 3
@@ -235,7 +245,7 @@ func _first_attempt() -> void:
 	s.t = 6.0 * 86400.0
 	s.realm.vei["undead_queue"] = 1.7 * float(s._cfg()["K"])
 	var v := s.view_vei()
-	t.ok(float(v["odds"]) == GameState.first_odds_of(float(v["readiness"]), s.vei_backups(), mid, sc) and int(v["backups"]) == s.vei_backups(),
+	t.ok(float(v["odds"]) == GameState.first_odds_of(float(v["readiness"]), s.vei_backups(), mid, sc, gain, cap) and int(v["backups"]) == s.vei_backups(),
 		"view_vei at day 6 with %d backups: odds %.4f on readiness %.4f" % [s.vei_backups(), float(v["odds"]), float(v["readiness"])])
 	s.clones_ready = 0
 	s._phylactery_charges = 0
@@ -270,3 +280,51 @@ func _away_backups() -> void:
 	t.ok(roundi(o0 * 100.0) != roundi(o1 * 100.0), "(setup) the odds at the start and now differ as printed: %.3f against %.3f" % [o0, o1])
 	t.ok(tail.get_slice(" → ", 0) == "%d%%" % roundi(o0 * 100.0) and tail.get_slice(" → ", 1) == "%d%%" % roundi(o1 * 100.0),
 		"A is the odds on the start's 9 backups, B on today's 1: %s (%.3f → %.3f)" % [line, o0, o1])
+
+
+## P3b (V-I2 (a), the active nudge; realm.json odds.raid_credit, raid_credit_cap): the readiness's strain term takes
+## min(raid_credit_cap, raid_credit × raids finished), GameState.raid_credit. A game at day 3 with Vei's strain at 0.5:
+## no raids, no credit; 50 raids lift the readiness by exactly (1 − w) × 50 × raid_credit and nothing else (the strain,
+## the tithe period, reship and the one-wave need are the same bits); 10 000 raids are held at the cap; the credit
+## rides stats.raids through a save; view_vei carries it and the valve's projection reads it (within a tenth of a
+## point of view_vei's readiness). Revert proof: raid_credit 0, the readiness is win_odds_of without it bit for bit.
+func _raid_credit() -> void:
+	t.suite("win-odds-credit")
+	var ocf: Dictionary = TestUtil.configs()["realm"]["odds"]
+	var per := float(ocf["raid_credit"])
+	var top := float(ocf["raid_credit_cap"])
+	var s := _game()
+	s.t = 3.0 * 86400.0
+	s.realm.vei["undead_queue"] = float(s._cfg()["K"])  # strain 0.5
+	var r0 := float(s.view_vei()["readiness"])
+	var st0 := s.realm.strain()
+	var per0 := s.realm.tithe_period()
+	t.ok(s.raid_credit() == 0.0 and r0 == GameState.win_odds_of(s.t, st0, W, T_S, CAP), "no raids: no credit, the readiness as before (%.5f)" % r0)
+	s.stats["raids"] = 50
+	var v := s.view_vei()
+	var r1 := float(v["readiness"])
+	t.ok(per > 0.0 and absf(r1 - r0 - (1.0 - W) * 50.0 * per) < 1e-12 and float(v["raid_credit"]) == 50.0 * per,
+		"50 raids: the readiness up by (1 - w) x 50 x %.5f = %.5f (%.5f -> %.5f)" % [per, (1.0 - W) * 50.0 * per, r0, r1])
+	t.ok(s.realm.strain() == st0 and s.realm.tithe_period() == per0 and float(v["strain"]) == st0,
+		"and only the readiness: the strain and the tithe period are the same bits")
+	s.stats["raids"] = 10000
+	t.ok(s.raid_credit() == top and absf(float(s.view_vei()["readiness"]) - GameState.win_odds_of(s.t, st0 + top, W, T_S, CAP)) < 1e-12,
+		"10 000 raids: held at raid_credit_cap %.3f" % top)
+	s.stats["raids"] = 50
+	var n := GameState.new(s._cfgs)
+	t.ok(n.from_dict(JSON.parse_string(JSON.stringify(s.to_dict())))["ok"] and n.raid_credit() == s.raid_credit()
+		and float(n.view_vei()["readiness"]) == r1, "a save keeps it (stats.raids): readiness %.5f" % float(n.view_vei()["readiness"]))
+	var k := float(s._cfg()["K"])
+	var window := float(MapLogic.cfg()["controls"]["drain_window_s"])
+	var o := ValveLogic.odds_at(float(s.realm.vei["undead_queue"]), 0.0, window, k, s._cfg()["odds"], s.t, float(v["raid_credit"]))
+	t.near(o, r1, 1e-3, "the valve's projection with view_vei's raid_credit: within a tenth of a point of its readiness (%.5f against %.5f)" % [o, r1])
+	var cfg := TestUtil.configs()
+	cfg["realm"]["odds"]["raid_credit"] = 0.0
+	var z := GameState.new(cfg)
+	z.cmd_new_game(7)
+	z.t = 3.0 * 86400.0
+	z.realm.vei["undead_queue"] = float(z._cfg()["K"])
+	z.stats["raids"] = 50
+	var ocz: Dictionary = cfg["realm"]["odds"]
+	t.ok(float(z.view_vei()["readiness"]) == GameState.win_odds_of(z.t, z.realm.strain(), float(ocz["time_weight"]), float(ocz["time_s"]), float(ocz["backlog_cap"])),
+		"raid_credit 0: the readiness is win_odds_of without the credit bit for bit (the revert proof)")

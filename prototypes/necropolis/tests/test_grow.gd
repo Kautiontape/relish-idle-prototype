@@ -7,6 +7,7 @@ extends RefCounted
 ## - its condition: a build or upgrade has finished since the new game (the opening's levels alone don't arm it);
 ## - the pick: the soonest affordable, ties in stance.grow.order; one no income can pay is passed over;
 ## - the upkeep test: a gold-priced level is passed over while the gold income can't pay the bill (a gold earner isn't);
+## - P3b: no pick at all while any building is unpaid (a Thrift-idled one doesn't count);
 ## - never while a queue head waits on funds; a parked (gated) entry doesn't stop it; a lot with a queue entry, a level
 ##   costing relics, over a cap or behind the tier, or a building not in `order`, is never picked;
 ## - at most stance.grow.max_active constructions under way, anyone's;
@@ -33,6 +34,7 @@ func run() -> int:
 	_held()
 	_never_picks()
 	_upkeep()
+	_waits_unpaid()
 	_max_active()
 	_off()
 	_save()
@@ -290,6 +292,35 @@ func _upkeep() -> void:
 	var unpaid := evs.filter(func(e): return e["type"] == "building_unpaid" and bool(e["unpaid"]))
 	t.ok(_grows(evs).is_empty() and unpaid.is_empty(),
 		"pre_vei with Grow on, 1 h away: %d Grow starts, %d buildings unpaid (%.0f gold left)" % [_grows(evs).size(), unpaid.size(), n.town_sim.gold])
+
+
+## P3b (ruling 12, changed): Grow waits while any building is unpaid, whatever the income. A House whose level 2 the
+## income pays, beside a Statue shed (unpaid, its hold running): no start, and no pick in view_stances; the Statue back
+## at work (as its resume sets it), the House's level 2 starts.
+## Revert proof: grow_target without the any_unpaid wait, 2 FAIL (the House's level 2 starts beside the unpaid Statue).
+func _waits_unpaid() -> void:
+	var s := _mk(cfgs({"economy.stance.grow.order": ["house"]}))
+	s.town_sim.place_building("lot-05", "house", 1)
+	s.town_sim.place_building("lot-06", "statue", 1)
+	var sb: Dictionary = s.town_sim.buildings["lot-06"]
+	sb["state"] = "unpaid"
+	sb["unpaid_s"] = 600.0
+	_funds(s, 1000.0, 200.0)
+	s.drain_events()
+	s.tick(2.0)
+	var g := _grows(s.drain_events())
+	var ts := s.town_sim
+	t.ok(ts.income_pays(ts.gold_income(), ts.gold_due()) and str(ts.buildings["lot-06"]["state"]) == "unpaid",
+		"(setup) the income pays the working bill (%.3f g/s due, %.3f in), the Statue unpaid" % [ts.gold_due(), ts.gold_income()])
+	t.ok(g.is_empty() and BuildRules.grow_target(s).is_empty() and str(s.view_stances()["grow"]["building_id"]) == "",
+		"a Statue unpaid: Grow starts nothing and view_stances.grow names no pick: %s" % str(g))
+	t.ok(BuildRules.grow_start_s(s) == INF, "a Statue unpaid: grow_start_s is INF (catch-up clips nothing for Grow)")
+	sb["state"] = "active"
+	sb["unpaid_s"] = 0.0
+	s.tick(1.0)
+	g = _grows(s.drain_events())
+	t.ok(g.size() == 1 and g[0]["lot_id"] == "lot-05",
+		"the Statue back at work: the House's level 2 starts: %s" % str(g))
 
 
 ## stance.grow.max_active: a House under construction (the player's) keeps Grow from starting at 1; at 2 it starts one.

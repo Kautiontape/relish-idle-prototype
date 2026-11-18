@@ -88,7 +88,8 @@ const PARENT := {
 	# unchanged). day1's and midgame_2flips' convoys land nothing here. The claim off passes the old pins (was a9cdb710…
 	# live, ffeda0ce… / a8a97ed8… caught).
 	"pre_vei": {"live": {"state": "1eaada3cf4bde37c", "events": "6e879ad9b1177900", "n_events": 16},
-		"caught": {"state": "6f8ed1542208b6e2", "events": "fb00b6b760bbd736", "away": "f701ba3f7ca57471", "n_events": 16, "steps": 4321}},
+		# Re-pinned at P3b (the standing re-pin rule): the away report only, its "your odds" line (the shown odds' new form, first_gain/first_cap and the refit, and the readiness's raid credit with time_s 4.5 d). The state and events don't move. The proof: this tree with P3's odds (backups_mid 5.57, backups_scale 1.24, first_gain 1, first_cap 1), raid_credit 0 and time_s 345600 passes the old pins here, in test_stances and in test_big_undead (288 PASS, 0 FAIL). Was f701ba3f…
+		"caught": {"state": "6f8ed1542208b6e2", "events": "fb00b6b760bbd736", "away": "5a48b9f72fab0f2d", "n_events": 16, "steps": 4321}},
 	# E4 step 7: pre_vei's caught report above and PARENT_C3's below re-pinned for the away report only (the full store's
 	# line moved from losses to ready; was 982d56f5… and a3210db8…), as test_backups'; states and events unchanged; with
 	# the line back under losses the old hashes pass (test_backups' revert proof, E4 review item 5)

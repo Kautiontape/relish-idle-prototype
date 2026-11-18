@@ -132,6 +132,14 @@ func _starved_hold() -> void:
 	t.ok(since >= 0.0 and r0["status"] == "waiting_funds" and r0["starved"] == "pits_first" and float((s.town_sim.staffing["jobs"]["mill"] as Dictionary)["staffed"]) > 0.0,
 		"(setup) the mill staffed, its pits first: the head reads dry and holds, never_since %.1f" % since)
 	s.drain_events()
+	# P3b (the P3 review's should-fix 2): an edited save whose never_since is ahead of its t loads at t, so the head
+	# holds no longer than a hold that started now. Revert proof: SaveIO.apply taking it as saved (t + 5 000 s).
+	var ed: Dictionary = JSON.parse_string(JSON.stringify(s.to_dict()))
+	ed["queue"][0]["never_since"] = s.t + 5000.0
+	var el := _mk(c)
+	t.ok(el.from_dict(ed)["ok"] and absf(float(el.build_queue[0].get("never_since", -1.0)) - el.t) <= 1e-6,
+		"a saved never_since 5 000 s past the save's t loads clamped to t (%.1f, t %.1f)" % [
+		float(el.build_queue[0].get("never_since", -1.0)) if not el.build_queue.is_empty() else -1.0, el.t])
 	var starts := {}
 	for away in [3600, 14400, 28800, 86400]:
 		var n := _away(c, s, "hold", away)
@@ -395,6 +403,17 @@ func _checkpoint_revive() -> void:
 	bad["pending_retreat"]["revived_in_place"] = 3
 	var cr := _mk(c)
 	t.ok(not cr.from_dict(bad)["ok"], "a pending_retreat with more revives (3) than the save's charges (2) is corrupt")
+	# P3b (the P3 review's should-fix 2): within the charges (2) but over the seed's max_per_dungeon (1), an edited
+	# save's count is clamped to 1 on load, so the run ends as the retreat it was (loot banked, one charge spent), not
+	# forfeited. Revert proof: apply_pending without the clamp (apply_result refuses 2 revives: the run is forfeited).
+	var over: Dictionary = JSON.parse_string(JSON.stringify(d))
+	over["pending_retreat"]["revived_in_place"] = 2
+	var co := _mk(c)
+	var co_ok: bool = co.from_dict(over)["ok"]
+	var banked := co.drain_events().filter(func(e): return e["type"] == "loot_banked")
+	t.ok(int(sd["phylactery_max_per_dungeon"]) == 1 and co_ok and co.run.is_empty() and co._phylactery_charges == 1 and banked.size() == 1,
+		"2 revives in a save whose seed allows 1 a dungeon: clamped to 1, the run ends as a retreat (%d charge left, %d loot_banked)" % [
+		co._phylactery_charges, banked.size()])
 
 
 ## A raid with one checkpoint of `loot` (and `outcome`), its t in meta "saved_t" once saved by _away.
