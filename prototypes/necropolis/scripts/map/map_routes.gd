@@ -92,7 +92,7 @@ var _reported := false
 var _report_ms := -1.0  # Pulse's clock when the --lanes-report table prints
 var _victory := ""  # "" | SetpieceLogic.RUN | SetpieceLogic.STOP
 var _vei_hidden := false  # the won map's END: no lane with Vei at an end (set_vei_hidden)
-var _hold_ms := -1.0 # victory's stop: the clock every offset is taken at from then on (-1: live)
+var _hold_ms := -1.0  # victory's stop: the clock every offset is taken at from then on (-1: live)
 
 # bench readout (--bench-seconds): per ground mode, the routes' ms per frame
 var _bench := false
@@ -183,6 +183,8 @@ func set_victory(phase: String) -> void:
 
 ## Victory's END (MapSetpieces): every lane with Vei at either end is hidden from now on, with its
 ## carts, whatever its flow (LaneStyle.without_vei).
+## TODO(api-request #21): a stand-in. Once #21 stops her lanes they carry no rate and view_lanes omits them, so this
+## hides nothing; it can go then (with MapCallouts.set_vei_hidden and LaneStyle.without_vei).
 func set_vei_hidden(on: bool) -> void:
 	if on == _vei_hidden:
 		return
