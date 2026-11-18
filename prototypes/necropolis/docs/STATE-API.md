@@ -416,6 +416,15 @@ from `BALANCE.md` §0.
     never on; a timed wait reads `""` (before, any row short of gold read the stalls' flag and any row short of bone
     the mills'). The upkeep gate's away line (§5.19) reads the stalls' bind from the state the gate evaluated
     (`TownSim.trade_bound()`, the final review's item 7), not from the last step's `trade_starved`.
+  `api_version` 13 (Phase I P2, the queue rule; the run's manager's ruling 1 of 2026-11-17 22:40, Q-a) added:
+  - **`view_town.queue_slots`** (int: the queue's rows that hold a slot, every one that isn't `skipped_gate`) and
+    **`view_town.queue_list_max`** (int: `queue.max_len` × `queue.list_mult`, 16), §5.9. A queue row's shape is
+    unchanged: `status` `skipped_gate` is what marks an entry that holds no slot.
+  - **`queue_full`'s meaning** (no new key; §10 A14): a gated entry (`skipped_gate`, any reason, `needs_tier`,
+    `no_relics`, `upkeep` and `under_construction` among them) holds no slot, so `cmd_queue_build` refuses an entry
+    that would hold one only while `queue_slots` is at `queue_max`, and any entry once the list is at
+    `queue_list_max` (§4.3). Before v13 every entry counted toward `queue.max_len`, so eight gated entries kept every
+    relic-free build out. A save's queue loads up to `queue_list_max` entries (§9.1; before, `queue.max_len`).
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -470,7 +479,7 @@ from `BALANCE.md` §0.
 
 ### 1.4 Constants on `GameState`
 ```gdscript
-const API_VERSION := 12
+const API_VERSION := 13
 const SAVE_VERSION := 2
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
 const RATE_IDS := ["mint", "work", "war", "flood", "workers", "bodies", "gold", "bone", "living", "corpses", "backlog"]
@@ -998,12 +1007,16 @@ Game.state.cmd_cancel_build("lot-05")  # -> {ok: true, reason: "", refund: {gold
   built yet), `-1` when no level covers it. Otherwise `""`, `""` and `-1`. From v7 (R2) `affordable_in_s:
   float`: the new entry's `affordable_in_s` as `view_town().queue` shows it (§5.9), so the player learns at
   queue time that it will wait, or never be afforded at the current income (`-1.0`); `-1.0` on a refusal (no entry).
-- **Reasons**, in check order: only what waiting can never make valid. `queue_full` (`queue.max_len`,
-  8), `unknown_building`, `unknown_lot`, `unique` (one stands, is under construction or is queued),
-  `lot_taken` (a building stands or is under construction there: queued entries don't claim lots),
-  `lot_too_small`; for an upgrade `empty_lot` (nothing stands or is queued there) and `max_level` (the
+- **Reasons**, in check order: only what waiting can never make valid. `queue_full` (the list at
+  `queue_list_max`, 16, gated entries and all), `unknown_building`, `unknown_lot`, `unique` (one stands, is under
+  construction or is queued), `lot_taken` (a building stands or is under construction there: queued entries don't
+  claim lots), `lot_too_small`; for an upgrade `empty_lot` (nothing stands or is queued there) and `max_level` (the
   level it would build, below, is past `max_level`); `cost_exceeds_cap` (its gold, bone or relic cost is
-  above that store's cap now).
+  above that store's cap now); then `queue_full` again (v13, Phase I P2's queue rule) for an entry that would hold a
+  slot (not `skipped_gate` on the walk with it appended) while `queue_slots` is already at `queue.max_len` (8). A
+  gated entry holds no slot, so it is accepted with the slots full while the list has room. Nothing is evicted: an
+  entry whose gate clears takes its slot back, so `queue_slots` can read above `queue_max`, and only new entries
+  that would hold a slot are refused then.
 - **Accepted as gates** (the run's manager, 2026-11-14: IDLE §5 over this request's first wording; the
   town adapts its UI in Phase I): `needs_tier`, `needs_blueprint`, `needs_building`, `lot_locked`, a
   relic shortfall (`no_relics`), and for an upgrade `under_construction` and `unpaid`. The entry shows
@@ -1790,7 +1803,9 @@ until the first substep.
 | `morale` | Dictionary | `{value: float, target: float, factors: Array[{id: String, delta: float}]}`. Factor ids: `base`, `amenity:<building_id>`, `foreman` (v8, E3-3: the working foremen's `foreman.presence_k · presence`, only when non-zero), `dread`, `shock`. |
 | `gold`, `bone`, `bodies`, `bodies_cap` | float | stocks |
 | `queue` | Array[Dictionary] | the build queue in order (v6, E2b-2 T3.2, api-request #3; MECHANICS §4.4): one entry per queued build or upgrade (below). Always present: `[]` when empty, so the town's stand-in switches itself off |
-| `queue_max` | int | `economy.json` `queue.max_len` (8) |
+| `queue_max` | int | `economy.json` `queue.max_len` (8): the slots. A `skipped_gate` entry holds none (v13) |
+| `queue_slots` | int | v13 (Phase I P2): the `queue` rows that hold a slot, every one whose `status` isn't `skipped_gate`. Can read above `queue_max` after gates clear (nothing is evicted); `cmd_queue_build` refuses a new slot-holding entry while it is at or above `queue_max` |
+| `queue_list_max` | int | v13: the whole list's cap, `queue.max_len` × `queue.list_mult` (2): 16. `cmd_queue_build` refuses any entry once `queue` has this many |
 | `gold_cap`, `bone_cap` | float | the gold and bone caps (v6, E2b-2 T3.2): `gold.cap` / `bone.cap` plus the Market's and the Bone Mill's per-level `gold_cap` / `bone_cap` (MECHANICS §4.3). A store can sit above its cap after the cap drops; it keeps the excess and earns nothing until it is under |
 | `trade_rate` | float | stall sales per second (the town draws trade arcs from it) |
 | `haul` | Dictionary | `{target: String ("auto" or a fort id), current: String, convoys: Array[{from: String, to: String, phase: "out"\|"back", t: float, load: float}]}`. `t` is trip progress 0..1; `load` is mass. |
@@ -2781,7 +2796,7 @@ take the router's legacy path (§2.3).
 | `cleared_forts` | Array[String] | forts whose first clear is spent by a win (sorted) |
 | `first_dungeon` | String | the first dungeon's id until a won raid result (`warden_beaten`) clears it, then `""` |
 | `pending_retreat` | Dictionary | optional, additive at v6 (E2b-2 T3.3c; IDLE I5, api-request #4), written only while a run is open: `{run_id: int, kind: String, fort_id: String, seed_rev: int, loot: {relics, blueprints, husks, remnants, essence} (§8.1), outcome: String}`, the run's last checkpoint (`cmd_run_checkpoint`, §4.5), or empty loot and `"retreated"` when it has none (a boss run never has one; its `fort_id` is `"vei"`). `from_dict` ends the run with it (below). Present, it must match: a known `kind` and `outcome`, a raid's fort a known fort with `relish` saved `at_fort` there, a boss's `"vei"` with her `at_vei`, and loot `Results.validate` takes; else the save is `corrupt` |
-| `queue` | Array[Dictionary] | optional, additive at v6 (E2b-2 T3.2; `SAVE_VERSION` stays 2, as `game_id` did): the build queue, `[{building_id: String, lot_id: String, upgrade: bool, waited_on: String}]` in order. A save without it loads an empty queue; `waited_on` is optional (`""`). An entry of another shape makes the save `corrupt`; one naming a building or lot today's config lacks, an upgrade to a level past its building's `max_level` (the level cut rule, `town` below), or one past `queue.max_len`, is dropped with a warning |
+| `queue` | Array[Dictionary] | optional, additive at v6 (E2b-2 T3.2; `SAVE_VERSION` stays 2, as `game_id` did): the build queue, `[{building_id: String, lot_id: String, upgrade: bool, waited_on: String}]` in order. A save without it loads an empty queue; `waited_on` is optional (`""`). An entry of another shape makes the save `corrupt`; one naming a building or lot today's config lacks, an upgrade to a level past its building's `max_level` (the level cut rule, `town` below), or one past the list's cap (`queue_list_max`, 16, from v13; `queue.max_len` before), is dropped with a warning. The slots aren't checked on load: entries whose gates cleared can hold more than `queue.max_len`, as in play |
 
 **What each block holds** (v2; additive keys and E3 placeholders):
 - `realm`: `forts` (array in world order: `id`, `living`, `undead`, `dead`, the hold, `flipped_count`,
@@ -2980,3 +2995,4 @@ no meaningful `saved_at` (it is a state, not a session's save), so neither catch
 | A11 | `view_rates` returns `{rev, rates: {id: …}}` and `view_lanes` returns `{rev, lanes: [...]}`, not MECHANICS' bare map and array. | Every view must carry `rev` (§1.3), and mixing `rev` into an id map would collide with the ids. |
 | A12 | **`to_dict()` writes floats at 15 significant digits**, as `JSON.stringify` prints them. | Godot's JSON parser is not exact for 17-digit floats (about 1 in 10 differs in the last bit), so `to_dict → JSON → from_dict → to_dict` could never be equal. A loaded float differs from the live one by at most 1e-15 relative. |
 | A13 | **Fixtures keep E2/E3 fields as stored values.** `realm.tithe`, `stances.hold` (live from E3-1: the holds left; the fixtures' is empty), `backups.phylactery_charges` and `readout` are saved and restored as is. E1 views show `phylactery_charges` (backups, relish, inventory and both seeds) from the stored value; the rest are read by no E1 view. The fronts are not stored: from E3-5 they are computed from the state (§5.14), and read 0 until then. | A fixture can carry them now, and E2/E3 read them without a save-shape change. |
+| A14 | **A gated queue entry holds no slot** (Phase I P2, the run's manager's ruling 1 of 2026-11-17 22:40, reversible; v13). "Gated" is the walk's `skipped_gate`, every reason included, so an upgrade waiting on its lot's construction (`under_construction`) and one behind a gated entry for its lot hold none either. The list caps at `queue.max_len` × `queue.list_mult`. Nothing is evicted when gates clear. | IDLE §5's "a gated entry holds nothing" now covers the slot too: eight gated entries no longer keep a relic-free build out (town_only's queue jammed at 8.0 h at c15f874), the gated entry stays as the player's intent and the wall's chip, and the list cap stops parking without end. One reason for every gate keeps the rule the walk already computes; a chain of upgrades queued while its lot builds can hold more than 8 entries' worth of building, bounded by the list cap. |

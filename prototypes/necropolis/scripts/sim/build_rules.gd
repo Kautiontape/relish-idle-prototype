@@ -357,9 +357,28 @@ static func cap_bonus(gs: GameState, section: String) -> int:
 ## core step's processing all run, so a status always says what the next processing does.
 
 ## economy.json queue.max_len (GameState.REQUIRED: a missing key is an error, never a silent 0 that would
-## make every cmd_queue_build queue_full).
+## make every cmd_queue_build queue_full): the entries that hold a slot (queue_slots). Phase I P2's queue rule (the
+## run's manager's ruling 1 of 2026-11-17 22:40, Q-a): a gated entry (`skipped_gate`, whatever its reason) holds
+## no slot, so it never keeps a relic-free build out.
 static func queue_max(gs: GameState) -> int:
 	return int(gs._req_f("economy.queue.max_len"))
+
+
+## The whole list's cap (Phase I P2, ruling 1): queue.max_len × queue.list_mult (2), gated entries and all, so a
+## player can't park entries without end. Both REQUIRED.
+static func queue_list_max(gs: GameState) -> int:
+	return int(gs._req_f("economy.queue.max_len")) * int(gs._req_f("economy.queue.list_mult"))
+
+
+## The walk's rows that hold a slot toward queue_max: every one that isn't `skipped_gate` (Phase I P2, ruling 1). A
+## gated entry holds nothing (no funds, no lot) and no slot; an entry whose gate clears takes a slot again, so the
+## count can pass queue_max then (nothing is evicted: cmd_queue_build only refuses a new one).
+static func queue_slots(rows: Array) -> int:
+	var n := 0
+	for r in rows:
+		if str(r["status"]) != "skipped_gate":
+			n += 1
+	return n
 
 
 ## The building whose effects raise `store`'s cap (gold_cap, bone_cap, relic_cap), the first in
@@ -717,11 +736,13 @@ static func process_queue(gs: GameState) -> void:
 
 
 ## §4.3 cmd_queue_build: appends a build (or, with building_id "", an upgrade of the building on or queued
-## for `lot_id`). Refuses only what waiting can't make valid, in order: queue_full, unknown_building,
-## unknown_lot, unique (one stands, is under construction or is queued), lot_taken (one stands or is under
-## construction there; queued entries don't claim lots), lot_too_small; an upgrade's empty_lot (nothing
+## for `lot_id`). Refuses only what waiting can't make valid, in order: queue_full (the list at queue_list_max),
+## unknown_building, unknown_lot, unique (one stands, is under construction or is queued), lot_taken (one stands or
+## is under construction there; queued entries don't claim lots), lot_too_small; an upgrade's empty_lot (nothing
 ## there or queued) and max_level (the level it would build); cost_exceeds_cap (a gold, bone or relic cost
-## over that store's cap now; `store` names it and `cap_building` the building that raises it). Gates
+## over that store's cap now; `store` names it and `cap_building` the building that raises it); then queue_full
+## again for an entry that would hold a slot (not skipped_gate on the walk with it appended) while queue_slots
+## already holds queue_max (Phase I P2, ruling 1: a gated entry holds no slot). Gates
 ## time or play can clear (the tier, a blueprint, a building, a locked lot, relics, a construction under
 ## way, an unpaid spell) are accepted and show as skipped_gate. Affordability never refuses. R2: the new
 ## entry's affordable_in_s, its row's from the walk (−1.0 on a refusal: no entry), warns at queue time.
@@ -732,7 +753,7 @@ static func queue_build(gs: GameState, building_id: String, lot_id: String) -> D
 	var bid := building_id
 	var def: Dictionary = buildings_cfg(gs).get(bid, {})
 	var why := ""
-	if q.size() >= queue_max(gs):
+	if q.size() >= queue_list_max(gs):
 		why = "queue_full"
 	elif not up and def.is_empty():
 		why = "unknown_building"
@@ -762,11 +783,18 @@ static func queue_build(gs: GameState, building_id: String, lot_id: String) -> D
 				out["cap_building"] = cap_building(gs, store)
 				out["store"] = store
 				out["cap_level"] = cap_level(gs, store, float(cost[store]))
+	var rows: Array = []
+	if why == "":
+		# the slot rule (Phase I P2): appending changes no row ahead of it (the walk runs in order), so the rows ahead
+		# are today's and the last is the new entry's
+		rows = queue_walk(gs, q + [entry])["rows"]
+		if rows.back()["status"] != "skipped_gate" and queue_slots(rows.slice(0, rows.size() - 1)) >= queue_max(gs):
+			why = "queue_full"
 	if why != "":
 		out["reason"] = why
 		return out
 	q.append(entry)
-	var row: Dictionary = queue_walk(gs, q)["rows"].back()
+	var row: Dictionary = rows.back()
 	if row["status"] == "skipped_gate" or row["status"] == "waiting_funds":
 		entry["waited_on"] = str(row["reason"])
 	gs.rev += 1

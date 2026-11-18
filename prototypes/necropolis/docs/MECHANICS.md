@@ -1311,11 +1311,14 @@ until the new level completes; the construction adds `job.build.slots` build slo
 upgrade refunds in full and changes nothing else.
 
 **The build queue** (IDLE §5, E2b-2 T3.2; `BuildRules.queue_walk`, STATE-API §4.3, §5.9). GameState keeps an
-ordered list of entries `{building_id, lot_id, upgrade, waited_on}`, at most `queue.max_len` (8), saved.
+ordered list of entries `{building_id, lot_id, upgrade, waited_on}`, saved. From Phase I P2 (IDLE §5's queue rule)
+`queue.max_len` (8) counts only the entries that hold a slot: a `skipped_gate` entry holds none, and the whole list
+caps at `queue.max_len` × `queue.list_mult` (16).
 Everything else an entry shows is derived from today's state by one walk, which `view_town().queue`,
 `cmd_queue_build` and the core step's processing all run, so a status always says what the next
 processing does.
-- **What `cmd_queue_build` refuses:** only what waiting can never make valid: `queue_full`,
+- **What `cmd_queue_build` refuses:** only what waiting can never make valid: `queue_full` (the list at its cap, or
+  a slot-holding entry with the slots full: STATE-API §4.3),
   `unknown_building`, `unknown_lot`, `unique` (one stands, is under construction or is queued),
   `lot_taken` (a building stands or is under construction there), `lot_too_small`; for an upgrade
   `empty_lot` (nothing stands or is queued there) and `max_level`; and `cost_exceeds_cap` (a gold, bone or
@@ -1357,7 +1360,8 @@ processing does.
 - **The manager's four rules for gated entries:**
   1. **A gated entry never stalls the queue.** The head is the first entry that isn't gated. When a gate
      clears, the entry starts at its own position: it never jumps an earlier entry that waits for funds.
-  2. **A gated entry holds nothing.** It reserves no gold, bone or relics and claims no lot. If another
+  2. **A gated entry holds nothing.** It reserves no gold, bone or relics, claims no lot and (Phase I P2) holds
+     no slot toward `queue.max_len`. If another
      entry or the player's `cmd_build` takes its lot first, it turns `skipped_gate` with `lot_taken`, and
      stays for the player to see and unqueue; it is never dropped silently. Two queued builds on one lot:
      whichever starts first takes it. An upgrade behind an entry for its lot that hasn't started shows that

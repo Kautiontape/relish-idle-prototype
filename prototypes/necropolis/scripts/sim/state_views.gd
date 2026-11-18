@@ -311,6 +311,7 @@ static func convoys(gs: GameState) -> Array:
 ## stances acting (E3-1: TownSim.effective_ladder).
 static func town(gs: GameState) -> Dictionary:
 	var ts := gs.town_sim
+	var rows := BuildRules.queue_rows(gs)
 	var lots: Array = []
 	for l in BuildRules.lots_cfg(gs):
 		var id := str(l.get("id", ""))
@@ -364,7 +365,10 @@ static func town(gs: GameState) -> Dictionary:
 		"morale": {"value": ts.morale, "target": ts.morale_target(), "factors": ts.morale_factors()},
 		"gold": ts.gold, "bone": ts.bone, "bodies": ts.bodies, "bodies_cap": ts.body_cap(), "trade_rate": float(r["trade_rate"]),
 		"gold_cap": ts.gold_cap(), "bone_cap": ts.bone_cap(),
-		"queue": BuildRules.queue_rows(gs), "queue_max": BuildRules.queue_max(gs),
+		"queue": rows, "queue_max": BuildRules.queue_max(gs),
+		# v13 (Phase I P2, the queue rule): the rows that hold a slot toward queue_max (a gated one holds none), and the
+		# whole list's cap
+		"queue_slots": BuildRules.queue_slots(rows), "queue_list_max": BuildRules.queue_list_max(gs),
 		"haul": {"target": gs.haul_target, "current": str(ts.haul["current"]), "convoys": convoys(gs)},
 		"relish_home": gs.relish["state"] == "home",
 	}

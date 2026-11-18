@@ -805,7 +805,9 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 	gs.first_dungeon_id = str(m["first_dungeon"])
 	# the build queue (E2b-2 T3.2): optional; an entry naming a building or lot today's config lacks is
 	# dropped with a warning, and so is an upgrade to a level past its max_level (the level cut rule: it would
-	# hold its slot as a max_level gate for good) and any past queue.max_len
+	# hold its slot as a max_level gate for good) and any past the whole list's cap (Phase I P2's queue rule:
+	# BuildRules.queue_list_max, gated entries and all; before P2, queue.max_len). The slot count isn't checked here:
+	# entries whose gates cleared can hold more than queue.max_len slots, as they can in play
 	gs.build_queue = []
 	for e in m.get("queue", []):
 		var bid := str(e["building_id"])
@@ -816,8 +818,8 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 		elif entry["upgrade"] and int(BuildRules.queue_levels(gs, gs.build_queue + [entry]).back()) \
 				> int(BuildRules.buildings_cfg(gs)[bid].get("max_level", 1)):
 			push_warning("SaveIO: dropped a queued %s upgrade on %s: past its max_level" % [bid, lot_id])
-		elif gs.build_queue.size() >= BuildRules.queue_max(gs):
-			push_warning("SaveIO: dropped a queued %s on %s: past queue.max_len" % [bid, lot_id])
+		elif gs.build_queue.size() >= BuildRules.queue_list_max(gs):
+			push_warning("SaveIO: dropped a queued %s on %s: past the queue's list cap" % [bid, lot_id])
 		else:
 			gs.build_queue.append(entry)
 	# session state: nothing of the old session survives a load

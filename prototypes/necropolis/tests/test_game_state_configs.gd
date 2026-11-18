@@ -92,7 +92,7 @@ func run() -> int:
 		"GameState holds the REQUIRED tunables as the configs give them")
 	var live_ok := true
 	for path in ["realm.flip.hold_s", "realm.flip.tier_mult", "economy.morale.death_shock", "vei.loss_backlog_keep", "realm.relish.tide_bias",
-			"economy.queue.max_len"]:
+			"economy.queue.max_len", "economy.queue.list_mult"]:
 		var v: Variant = cfg
 		for k in str(path).split("."):
 			v = v[k]

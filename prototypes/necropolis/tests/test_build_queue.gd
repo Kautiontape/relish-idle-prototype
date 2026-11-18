@@ -63,10 +63,75 @@ func _started(evs: Array) -> Array:
 	return evs.filter(func(e): return e["type"] == "queue_started")
 
 
+## Phase I P2's queue rule (the run's manager's ruling 1 of 2026-11-17 22:40; STATE-API §4.3, IDLE §5): a gated entry
+## holds no slot, the whole list caps at queue.max_len × queue.list_mult, and a save keeps a list past max_len. A new
+## game is a hamlet, so a Watchtower (a town building) is skipped_gate on needs_tier; Houses on one lot hold slots (the
+## first waits on gold, the rest queue behind it: entries don't claim lots).
+## Revert proofs: with cac5a17's queue_build (queue_full at queue_max entries, gated or not) the fifth House behind four
+## gated Watchtowers is refused and the slot asserts fail; without the list-cap check the seventeenth entry (gated) is
+## accepted; with SaveIO's old load cap (max_len) the twelve-entry save loads eight.
+func _slot_rule() -> void:
+	var c := TestUtil.configs()
+	var mx := int(c["economy"]["queue"]["max_len"])
+	var lmax := mx * int(c["economy"]["queue"]["list_mult"])
+	t.ok(mx == 8 and lmax == 16, "(setup) queue.max_len 8, list_mult 2: a list of 16")
+	var s := _mk()
+	_funds(s, 0.0, 0.0)
+	var gated := 0
+	for i in 4:
+		var r := s.cmd_queue_build("watchtower", "lot-05")
+		gated += 1 if r["ok"] and _q(s)[i]["status"] == "skipped_gate" and _q(s)[i]["reason"] == "needs_tier" else 0
+	var v := s.view_town()
+	t.ok(gated == 4 and v["queue_slots"] == 0 and v["queue_list_max"] == lmax,
+		"four Watchtowers in a hamlet: all skipped_gate on needs_tier, holding no slot (queue_slots %d, list cap %d)" % [v["queue_slots"], v["queue_list_max"]])
+	var houses := 0
+	for i in mx:
+		houses += 1 if s.cmd_queue_build("house", "lot-06")["ok"] else 0
+	var rows := _q(s)
+	t.ok(houses == mx and s.view_town()["queue_slots"] == mx and rows[4]["status"] == "waiting_funds" and rows[5]["status"] == "queued",
+		"behind them eight Houses all fit and hold the eight slots; the first is the head (waiting on gold), never blocked by the gated ahead: %s" % str(_col(rows, "status")))
+	var ninth := s.cmd_queue_build("house", "lot-07")
+	t.ok(ninth["reason"] == "queue_full" and ninth["index"] == -1 and _q(s).size() == 12, "a ninth slot-holding entry (the list at 12 of 16): queue_full, nothing added")
+	t.ok(s.cmd_queue_build("nope", "lot-07")["reason"] == "unknown_building", "with the slots full but the list not, the id checks come first (queue_full is checked after them)")
+	# a gated entry still joins while the list has room
+	var more := 0
+	for i in lmax - 12:
+		more += 1 if s.cmd_queue_build("watchtower", "lot-07")["ok"] else 0
+	t.ok(more == lmax - 12 and _q(s).size() == lmax and s.view_town()["queue_slots"] == mx,
+		"gated entries still join with the slots full: the list reaches its cap of %d, slots still %d" % [lmax, mx])
+	var over := s.cmd_queue_build("watchtower", "lot-08")
+	t.ok(over["reason"] == "queue_full" and _q(s).size() == lmax, "the list at %d: queue_full, even for a gated entry" % lmax)
+	t.ok(s.cmd_queue_build("nope", "lot-08")["reason"] == "queue_full", "with the list full, queue_full comes first, as before")
+	# the slots can pass queue_max when gates clear (no eviction): the town tier and the relics, and every Watchtower holds a slot
+	s.town_tier = "town"
+	s.relics = 12
+	var v2 := s.view_town()
+	t.ok(v2["queue_slots"] > mx and (v2["queue"] as Array).size() == lmax, "the tier and relics there: the Watchtowers' gate clears and the slots read %d, over queue_max (nothing is evicted)" % v2["queue_slots"])
+	t.ok(s.cmd_queue_build("house", "lot-09")["reason"] == "queue_full", "and a new entry is refused")
+	# a save keeps a list past queue_max: twelve entries, four gated
+	var p := _mk()
+	_funds(p, 0.0, 0.0)
+	for i in 4:
+		p.cmd_queue_build("watchtower", "lot-05")
+	for i in mx:
+		p.cmd_queue_build("house", "lot-06")
+	var back := GameState.new(TestUtil.configs())
+	var lr := back.from_dict(JSON.parse_string(JSON.stringify(p.to_dict())))
+	t.ok(lr["ok"] and back.build_queue.size() == 12 and back.view_town()["queue_slots"] == mx,
+		"a save with twelve entries (four gated) loads all twelve: %d, slots %d" % [back.build_queue.size(), back.view_town()["queue_slots"]])
+	var d: Dictionary = JSON.parse_string(JSON.stringify(p.to_dict()))
+	var qd: Array = d["queue"]
+	while qd.size() < lmax + 1:
+		qd.append(qd[0].duplicate())
+	var cut := GameState.new(TestUtil.configs())
+	t.ok(cut.from_dict(d)["ok"] and cut.build_queue.size() == lmax, "a save with %d entries loads the first %d (the list's cap)" % [lmax + 1, cut.build_queue.size()])
+
+
 func run() -> int:
 	t = TestUtil.new()
 	_refusals()
 	_accepts()
+	_slot_rule()
 	_view_shape()
 	_rule1_never_stalls()
 	_rule2_holds_nothing()
@@ -133,8 +198,11 @@ func _refusals() -> void:
 	var n := _q(s).size()
 	var rv := s.rev
 	t.ok(s.cmd_queue_build("nope", "lot-05")["ok"] == false and _q(s).size() == n and s.rev == rv, "a refusal changes nothing, rev stays")
-	# queue_full: the queue's 8, two builds on one lot allowed (queued entries don't claim lots)
+	# queue_full: the queue's 8, two builds on one lot allowed (queued entries don't claim lots). No funds, so the
+	# first waits and the rest queue behind it, each holding a slot (with the first started, the others would be
+	# skipped_gate on lot_taken and hold none: Phase I P2's queue rule, _slot_rule)
 	var f := _mk()
+	_funds(f, 0.0, 0.0)
 	var oks := 0
 	for i in int(TestUtil.configs()["economy"]["queue"]["max_len"]):
 		oks += 1 if f.cmd_queue_build("house", "lot-05")["ok"] else 0

@@ -272,6 +272,8 @@ const VIEWS := {
 		"gold_cap": F, "bone_cap": F,
 		# api_version 6 (E2b-2 T3.2, api-request #3): the build queue
 		"queue": [QUEUE_ENTRY], "queue_max": I,
+		# api_version 13 (Phase I P2, the queue rule): the slots held toward queue_max, and the whole list's cap
+		"queue_slots": I, "queue_list_max": I,
 		"haul": {"target": S, "current": S,
 			"convoys": [{"from": S, "to": S, "phase": S, "t": F, "load": F}]},
 		"relish_home": B,

@@ -666,9 +666,17 @@ same profile with the game closed.
   same.
 
 ## 5. The build queue
-- An ordered list of builds and upgrades (`cmd_queue_build`, `cmd_unqueue`, `cmd_reorder_queue`), up
-  to `queue.max_len` (8; E2b-2 T3.2, MECHANICS §4.4). Builds take their `build_work` through the build
+- An ordered list of builds and upgrades (`cmd_queue_build`, `cmd_unqueue`, `cmd_reorder_queue`), with
+  `queue.max_len` (8; E2b-2 T3.2, MECHANICS §4.4) slots. Builds take their `build_work` through the build
   job, as before.
+- **The queue rule** (Phase I P2, the run's manager's ruling 1 of 2026-11-17 22:40; STATE-API §10 A14):
+  - A gated entry (one waiting on a tier, a relic or anything else it can't start on: the walk's `skipped_gate`)
+    holds no resources and **doesn't count toward `queue.max_len`**.
+  - It stays in the list: it is the player's intent, and its chip is the visible wall ("needs relics: raid a fort").
+  - It never blocks a relic-free entry behind it, in the walk or for a slot.
+  - The whole list caps at `queue.max_len` × `queue.list_mult` (2 × 8 = 16).
+  - Before P2 every entry counted, so eight gated entries refused every relic-free build (`queue_full`):
+    town_only's bot jammed at 8.0 h at c15f874 (vision-e4-final item 3).
 - **Processing**, every core step, right after the tier check:
   - The queue is processed in order.
   - An entry blocked by an **unmet gate** (blueprint, tier, a building, a locked lot, relics) is flagged
@@ -770,7 +778,9 @@ a **"While you were away"** panel. It is ordered **gains, then ready actions, th
     became a waiting head and the queue got no line. When the absence ends with no entry able to start and at
     least one skipped on `no_relics`, `ready` gets "Crypt level 2 needs relics: raid a fort"
     (`afford_relics_last_fmt`, kind `queue`, target `queue`) for the first such entry in queue order: no rate,
-    no "move it down" (a gated entry holds nothing). Stores full or not. **No entry can start** is read off
+    no "move it down" (a gated entry holds nothing). Stores full or not. From Phase I P2 (§5's queue rule) the
+    relic-gated entry holds no slot either, so it can wait in the list beside eight relic-free builds; the wall
+    shows once those have all started. **No entry can start** is read off
     the walk's statuses: no row is `next`, and no `waiting_funds` head will be afforded (`affordable_in_s` >= 0);
     either means the town is still building, so no wall. An entry `queued` behind a head at −1.0 can't start
     either (the queue never jumps), so it doesn't clear the wall: House (−1.0 on bone), Well (queued), then a
@@ -1167,6 +1177,14 @@ The policies (the run's manager's, for Shawn):
 - **The queue** is kept filled to `queue_max` from a fixed priority list of build, lot and level, walked top first. An
   item is queued once the level below it on its lot is built, building or queued. A refusal (mostly `cost_exceeds_cap`)
   leaves it for a later look.
+  - **The fill skips gated entries** (Phase I P2, the run's manager's ruling 2: test hygiene; §5's queue rule is what a
+    real player hits). Before each command it reads the walk with the item appended (statuses only, no command), and
+    passes over an item that would be `skipped_gate`, except an upgrade waiting on its own lot's construction
+    (`under_construction`, which the shipped fill queued and still counts toward `queue_max`) and one `no_relics` entry
+    while the queue holds no other (`park_relics`: the build a player parks behind the relics, so the wall's chip
+    shows; it counts toward nothing). Before P2 the fill counted every entry, so gated ones filled `queue_max` and
+    jammed it (town_only at 8.0 h at c15f874). `cost_exceeds_cap` is a gate on the walk, so such an item is now passed
+    over without a command, and the `queue:cost_exceeds_cap` refusal count drops.
   - The list (`BUILD_LIST`): Market level 2, a Raising Pit, the Bone Mill, a House (the Village gate), mill level 2, pit
     level 2, charnel level 2, a second House; then the Chapel of Vats on lot-13 and Walls on lot-23 (the Town gate),
     Market and mill level 3, the Forge, two more pits, the Stables, a House, the Embalmer, another pit, the Ossuary on

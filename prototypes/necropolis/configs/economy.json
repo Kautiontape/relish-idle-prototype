@@ -23,7 +23,7 @@
   "body_store": { "cap": 200.0 },
   "gold": { "cap": 6500.0 },
   "bone": { "cap": 200.0 },
-  "queue": { "max_len": 8 },
+  "queue": { "_doc": "The build queue (IDLE 5, STATE-API 4.3; Phase I P2, the run's manager's ruling 1 of 2026-11-17 22:40). max_len: the entries that hold a slot. A gated entry (skipped_gate, any reason) holds no resources and no slot, so it never keeps a relic-free build out; it stays in the list (the player's intent, and its chip is the visible wall). The whole list, gated entries and all, caps at max_len x list_mult. Both read REQUIRED.", "max_len": 8, "list_mult": 2 },
   "relic_trickle": {"_doc": "E4 step 9, the run's manager's rulings on step 9 (3) (2026-11-17 12:45 and 14:24; MECHANICS 2, the relics row): one relic per period_s of game time while no raidable fort remains, read as every fort at or below the highest tier ever flipped being held (GameState.relic_trickle_paying), paid into the relic store (lost at its cap). For a player walled at a tier. Read REQUIRED by GameState.", "period_s": 43200.0},
   "idle": {
     "gap_s": 30.0, "catchup_max_s": 604800.0, "catchup_dt_max_s": 10.0, "catchup_max_steps": 4320,
