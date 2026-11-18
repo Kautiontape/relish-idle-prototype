@@ -309,6 +309,57 @@ static func husk_label(kind: String, cfg: Dictionary, sep := " · ") -> String:
 	return sep.join(parts)
 
 
+## A store's cap in view_hud().rates (`id` "bone", "gold", ...); -1 when the store has none or isn't listed.
+static func store_cap(rates: Array, id: String) -> float:
+	for r in rates:
+		if String(r.get("id", "")) == id:
+			return float(r.get("cap", -1.0))
+	return -1.0
+
+
+## The husk craft (town-i M2 Q-f, the bone lever; STATE-API §4.3 cmd_craft_husk, §5.10 view_catalog().husk_craft):
+## {shown, head, buttons: [{kind, text}], can, reason, why}. `hc` is view_catalog().husk_craft, `rates` view_hud().rates,
+## `n_rems` the remnants held, `count`/`cap` the crypt's places taken (big undead plus husks waiting) and its
+## big_undead cap. The view's reason is kind-free, so every kind's button shares `can`. Its no_bone splits in two
+## here: a bone store whose cap is under the price ("no_bone_cap") can't pay it until a Bone Mill level raises the cap.
+## `texts` is town.json view.crypt; its husk_craft block holds every line.
+static func husk_craft(hc: Dictionary, rates: Array, n_rems: int, count: int, cap: int, slab: Dictionary, texts: Dictionary) -> Dictionary:
+	var kinds: Array = hc.get("kinds", [])
+	var tx: Dictionary = texts.get("husk_craft", {})
+	if kinds.is_empty():
+		return {"shown": false, "head": "", "buttons": [], "can": false, "reason": "", "why": ""}
+	var cost: Dictionary = hc.get("cost", {})
+	var price := float(cost.get("bone", 0.0))
+	var fmt := {"bone": "%d" % roundi(price), "remnants": int(cost.get("remnants", 0)), "have": n_rems,
+		"count": count, "cap": cap}
+	var reason := String(hc.get("reason", ""))
+	if reason == "no_bone":
+		var bone_cap := store_cap(rates, "bone")
+		if bone_cap >= 0.0 and bone_cap < price:
+			reason = "no_bone_cap"
+			fmt["bone_cap"] = "%d" % roundi(bone_cap)
+	var buttons: Array = []
+	for k in kinds:
+		buttons.append({"kind": String(k), "text": String(tx.get("btn", "{label}")).format(
+			{"label": husk_label(String(k), slab, String(texts.get("sep", " · ")))})})
+	var can := bool(hc.get("can_craft", false)) and reason == ""
+	return {"shown": true, "head": String(tx.get("head", "")).format(fmt), "buttons": buttons, "can": can,
+		"reason": reason, "why": "" if can else husk_craft_why(reason, fmt, tx)}
+
+
+## A husk-craft reason in words, from town.json view.crypt.husk_craft.reasons (its `_unknown` for one it lacks).
+static func husk_craft_why(reason: String, fmt: Dictionary, tx: Dictionary) -> String:
+	var rs: Dictionary = tx.get("reasons", {})
+	return String(rs.get(reason, rs.get("_unknown", reason))).format(fmt)
+
+
+## The line a kept craft leaves: "A Skeleton husk is made: ..." (the slab's noun for the kind).
+static func husk_craft_done(kind: String, home: bool, slab: Dictionary, texts: Dictionary) -> String:
+	var tx: Dictionary = texts.get("husk_craft", {})
+	var noun := String(slab.get("nouns", {}).get(kind, kind.capitalize()))
+	return String(tx.get("done_home" if home else "done_away", "")).format({"noun": noun})
+
+
 ## A remnant button: "power 2 · common" (aspect, magnitude, rarity).
 static func remnant_label(r: Dictionary, sep := " · ") -> String:
 	return "%s %d%s%s" % [String(r.get("aspect", "")), int(r.get("magnitude", 0)), sep, String(r.get("rarity", ""))]
@@ -414,4 +465,6 @@ static func bind_sig(views: Dictionary) -> int:
 		lots.append([b.get("lot_id", ""), b.get("building_id", ""), b.get("level", 0), b.get("slots", 0), b.get("foreman", "")])
 	return [[relish.get("state", ""), relish.get("at", ""), relish.get("target", ""), relish.get("respawn_with_clone", false),
 		ceili(maxf(float(relish.get("dead_s_left", 0.0)), 0.0))], views.get("fort_names", {}), views.get("forts", []),
-		inv.get("husks", []), inv.get("remnants", []), bu.get("count", 0), bu.get("cap", 0), bu.get("big_undead", []), lots].hash()
+		inv.get("husks", []), inv.get("remnants", []), bu.get("count", 0), bu.get("cap", 0), bu.get("big_undead", []), lots,
+		# the husk craft's state and the bone cap its no_bone_cap reads (never the bone stock, which moves every fetch)
+		views.get("catalog", {}).get("husk_craft", {}), store_cap(views.get("hud", {}).get("rates", []), "bone")].hash()

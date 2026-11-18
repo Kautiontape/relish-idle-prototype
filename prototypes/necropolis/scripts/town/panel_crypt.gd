@@ -10,6 +10,7 @@ extends VBoxContainer
 ##             to take it off; one that fits no free slot is disabled with the reason
 ##   hold      hold the button, or Space on this tab, for slab.raise_hold_s; releasing early cancels
 ##   naming    inline "Name your new friend?", then cmd_raise_big_undead(husk, slot order, name)
+##   craft     the husk craft (cmd_craft_husk): its price, a button per kind, why it can't now; it works away too
 ##   roster    every big undead: name (rename inline), kind, role, all five stats, its place in words;
 ##             Crypt, Party, Foreman at…, Siege… (cmd_place_big_undead, cmd_set_party), refusals in words
 ## The raise is still a stub (ok, uid ""): the set piece plays, nothing is consumed. Before the hold a note
@@ -74,6 +75,16 @@ var _rem_cells: Dictionary = {}  # uid -> {btn, why}
 var _rem_sig := ""
 var _bind_sig := 0  # CryptLogic.bind_sig of the views the panel last took (0 = none yet)
 var _stat_dom: Array = []  # per stat row: whether it was last drawn dominant (theme overrides only on a flip)
+## The husk craft (cmd_craft_husk; CryptLogic.husk_craft): outside the slab box, so it shows while Relish is away.
+var _craft: Dictionary = {}  # CryptLogic.husk_craft's last result
+var _craft_box: VBoxContainer
+var _craft_head: Label
+var _craft_row: HFlowContainer
+var _craft_btns: Dictionary = {}  # kind -> Button
+var _craft_sig := ""
+var _craft_why: Label
+var _craft_status: Label
+var _craft_left := -1.0  # seconds until the craft's status line clears (-1 = not timed)
 var _roster_head: Label
 var _no_big: Label
 var _roster: VBoxContainer
@@ -97,6 +108,7 @@ func _ready() -> void:
 	col.add_theme_constant_override("separation", 4)
 	scroll.add_child(col)
 	_build_slab(col)
+	_build_craft(col)
 	_roster_head = TownUI.label("", _px("roster_name_px"))
 	col.add_child(_roster_head)
 	_no_big = TownUI.label(String(_t.get("no_big", "")), _px("text_px"), "text_dim")
@@ -214,6 +226,29 @@ func _build_slab(col: VBoxContainer) -> void:
 	_slab_box.add_child(_rem_grid)
 
 
+## The husk craft: a title, the price line, one button per kind, the reason it can't now, and its own status line.
+func _build_craft(col: VBoxContainer) -> void:
+	var tx: Dictionary = _t.get("husk_craft", {})
+	_craft_box = VBoxContainer.new()
+	_craft_box.add_theme_constant_override("separation", 4)
+	_craft_box.visible = false
+	col.add_child(_craft_box)
+	var title := TownUI.label(String(tx.get("title", "")), _px("roster_name_px"))
+	title.add_theme_font_override("font", TownUI.bold_font())
+	_craft_box.add_child(title)
+	_craft_head = _wrap("", _px("text_px"), "text_dim")
+	_craft_box.add_child(_craft_head)
+	_craft_row = HFlowContainer.new()
+	_craft_row.add_theme_constant_override("h_separation", 6)
+	_craft_row.add_theme_constant_override("v_separation", 4)
+	_craft_box.add_child(_craft_row)
+	_craft_why = _wrap("", _px("small_px"), "text_dim")
+	_craft_box.add_child(_craft_why)
+	_craft_status = _wrap("", _px("text_px"), "select")
+	_craft_status.visible = false
+	_craft_box.add_child(_craft_status)
+
+
 func _line_edit() -> LineEdit:
 	var e := LineEdit.new()
 	e.max_length = CryptLogic.NAME_MAX + 8  # room to type past the limit; check_name says why
@@ -250,8 +285,67 @@ func bind(views: Dictionary) -> void:
 	_sync_remnants(inv.get("remnants", []))
 	_board = CryptLogic.reconcile(_board, inv)
 	_apply_preset(inv)
+	_craft = _craft_view(views.get("catalog", {}).get("husk_craft", {}))
+	_sync_craft()
 	_refresh_slab()
 	_sync_roster()
+
+
+## CryptLogic.husk_craft for `hc` against the views last bound (the remnants held, the crypt's places, the bone cap).
+func _craft_view(hc: Dictionary) -> Dictionary:
+	var inv: Dictionary = _views.get("inventory", {})
+	var bu: Dictionary = _views.get("big_undead", {})
+	return CryptLogic.husk_craft(hc, _views.get("hud", {}).get("rates", []), (inv.get("remnants", []) as Array).size(),
+		int(bu.get("count", 0)) + (inv.get("husks", []) as Array).size(), int(bu.get("cap", 0)), _slab, _t)
+
+
+## The craft section's text and buttons from `_craft`; the buttons themselves only when the kinds change.
+func _sync_craft() -> void:
+	_craft_box.visible = bool(_craft.get("shown", false))
+	var head := String(_craft.get("head", ""))
+	if not _home:
+		head += " " + String(_t.get("husk_craft", {}).get("away", ""))
+	_craft_head.text = head
+	var buttons: Array = _craft.get("buttons", [])
+	var sig := ",".join(buttons.map(func(b): return String(b["kind"]) + "=" + String(b["text"])))
+	if sig != _craft_sig:
+		_craft_sig = sig
+		TownUI.clear(_craft_row)
+		_craft_btns = {}
+		for b in buttons:
+			var btn := TownUI.button(String(b["text"]))
+			btn.custom_minimum_size = Vector2(0, TownUI.MIN_TARGET)
+			btn.pressed.connect(_on_craft_husk.bind(String(b["kind"])))
+			_craft_row.add_child(btn)
+			_craft_btns[String(b["kind"])] = btn
+	_say(_craft_why, String(_craft.get("why", "")))
+	_craft_enable()
+
+
+## A craft can take a remnant slotted on the slab, so the buttons rest while a raise is held, formed or playing.
+func _craft_enable() -> void:
+	var off := not bool(_craft.get("can", false)) or _holding or _formed or _raising
+	for k in _craft_btns:
+		(_craft_btns[k] as Button).disabled = off
+
+
+func _on_craft_husk(kind: String) -> void:
+	if _holding or _formed or _raising:
+		return
+	var r: Dictionary = Game.state.cmd_craft_husk(kind)
+	command_issued.emit()
+	var tx: Dictionary = _t.get("husk_craft", {})
+	_craft_left = float(tx.get("line_s", 6.0))
+	if bool(r.get("ok", false)):
+		_say(_craft_status, CryptLogic.husk_craft_done(kind, _home, _slab, _t))
+		return
+	# the refusal in the same words the why line uses, its numbers from the views last bound
+	var reason := String(r.get("reason", ""))
+	var hc: Dictionary = (_views.get("catalog", {}).get("husk_craft", {}) as Dictionary).duplicate()
+	hc["reason"] = reason
+	hc["can_craft"] = false
+	var why := String(_craft_view(hc).get("why", ""))
+	_say(_craft_status, TownUI.refusal(reason, why, String(tx.get("refused", "")).format({"why": why})))
 
 
 ## Debug (`--town-slab=h1:r2,r3`, from the shell): this husk and these remnants on the slab, once
@@ -406,6 +500,7 @@ func _refresh_slab() -> void:
 	_say(_hold_why, _block)
 	_say(_status, _status.text)
 	_preview.formed = _formed
+	_craft_enable()
 
 
 ## Sets a label's text and hides it while empty (an empty label still takes a line).
@@ -486,6 +581,7 @@ func _cancel_hold() -> void:
 	_held_s = 0.0
 	_preview.hold = 0.0
 	_hold_btn.text = _tx("hold")
+	_craft_enable()
 
 
 func _process(delta: float) -> void:
@@ -496,6 +592,11 @@ func _process(delta: float) -> void:
 		if _line_left <= 0.0:
 			_line_left = -1.0
 			_say(_status, "")
+	if _craft_left > 0.0:
+		_craft_left = CryptLogic.line_left(_craft_left, delta)
+		if _craft_left <= 0.0:
+			_craft_left = -1.0
+			_say(_craft_status, "")
 	if not _holding:
 		return
 	if not is_visible_in_tree():  # the tab was switched mid-hold: its release can't reach us
