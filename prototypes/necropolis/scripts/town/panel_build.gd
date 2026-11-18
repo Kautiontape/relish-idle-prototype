@@ -306,15 +306,15 @@ func _make_row(bid: String) -> Dictionary:
 	place.pressed.connect(_toggle_place.bind(bid))
 	top.add_child(place)
 	TownGuide.add_lines(v, bid, _bcfg, _vcfg.get("guide", {}))  # why build it, and how it's used: fixed per building
-	var ben := HBoxContainer.new()  # the live benefit, as the card draws it: rates oblique, words upright
-	ben.add_theme_constant_override("separation", 10)
+	var ben := HFlowContainer.new()  # the live benefit, as the card draws it: rates oblique, words upright; parts wrap whole
+	ben.add_theme_constant_override("h_separation", 10)
 	v.add_child(ben)
 	var rates: Array = []
 	for k in 3:
 		var rl := TownUI.rate_label("", 14)
 		ben.add_child(rl)
 		rates.append(rl)
-	var plain := _wrap("", 14, "text_dim")
+	var plain := TownUI.label("", 14, "text_dim")
 	ben.add_child(plain)
 	var cost_row := HBoxContainer.new()
 	v.add_child(cost_row)

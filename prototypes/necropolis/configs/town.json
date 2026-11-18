@@ -439,7 +439,7 @@
         "bakery": "Morale and room for living → the living stay and buy.",
         "inn": "Draws new living to town, with morale and room → more buyers, more gold.",
         "bone_mill": "Grinds bodies into bone → bone for buildings.",
-        "forge": "Raises your undead's quality → every undead costs Vei more.",
+        "forge": "Toughens all your undead → they last longer holding your forts and against Vei.",
         "graveyard": "Stores more bodies, and your workers last longer → more hands.",
         "embalmer": "Your workers last longer before they rot → more hands for jobs and WAR.",
         "stables": "Faster hauls → bodies come home sooner.",
@@ -457,7 +457,7 @@
           "crypt": "You use it: Crypt tab, while Relish is home. Lay a husk, slot remnants, hold to raise.",
           "chapel_of_vats": "You use it: Backups tab. Staff a vat and it grows a clone.",
           "ossuary_tower": "You use it: Backups tab, Craft. It's paid in essence from your raids.",
-          "guildhall": "Works on its own. Turn on the extra stance in the Stances tab."
+          "guildhall": "You use it: Stances tab. Its extra slot lets one more stance run at once."
         },
         "staffed": "Works on its own: your undead staff its jobs (order them in the Jobs tab).",
         "passive": "Works on its own: no staff needed."
