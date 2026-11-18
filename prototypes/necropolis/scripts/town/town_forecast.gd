@@ -30,8 +30,7 @@ static func parts_of(views: Dictionary, vcfg: Dictionary, bview: Dictionary) -> 
 	var town: Dictionary = views.get("town", {})
 	var idle := int(floor(float((town.get("workers", {}) as Dictionary).get("idle", 0.0))))
 	if idle >= int(fc.get("idle_min", 1)):
-		var to := String(((views.get("hud", {}) as Dictionary).get("split", {}) as Dictionary).get("muster_to", "war")).to_upper()
-		out.append(BuildSort.fmt(String(fc.get("idle", "")), {"n": idle, "to": to}))
+		out.append(BuildSort.fmt(String(fc.get("idle", "")), {"n": idle, "to": HudModel.muster_name(views, vcfg)}))
 	for f in views.get("forts", []):
 		if bool(f.get("held", false)) and String(f.get("margin", "")) == "will_fall":
 			out.append(BuildSort.fmt(String(fc.get("falls", "")), {"fort": String(f.get("name", ""))}))

@@ -23,6 +23,7 @@ func run() -> int:
 	_catchup()
 	_spread_refresh()
 	_hud_idle_short()
+	_muster_words()
 	_vat_costed()
 	_p2_counts()
 	return t.failures
@@ -131,9 +132,41 @@ func _hud_idle_short() -> void:
 	t.ok(whole.contains("bodies now") and whole.ends_with("or let them muster"), "the tooltip's line keeps the rates: '%s'" % whole)
 	t.ok(short == "10 idle: build a %s (+%d jobs)" % [label, BuildSort.job_slots("charnel_house", bc)],
 		"the cell's line is short: '%s' (%d characters)" % [short, short.length()])
-	t.ok(short.length() <= 48, "short enough for the workers cell beside '+0.03/s → WAR' (%d ≤ 48)" % short.length())
+	t.ok(short.length() <= 48, "short enough for the workers cell beside '+0.03/s idle → FLOOD' (%d ≤ 48)" % short.length())
 	var hud_src := FileAccess.get_file_as_string("res://scripts/town/town_hud.gd")
-	t.ok(hud_src.contains("_tab, true)") and hud_src.contains("tooltip_text = whole"), "the HUD binds the short line and tooltips the whole one")
+	t.ok(hud_src.contains("_tab, true)") and hud_src.contains(", whole].filter(") and hud_src.contains("tooltip_text = tip"),
+		"the HUD binds the short line and tooltips the whole one (after the muster's tip)")
+
+
+## The manager's ruling 5 on M2: one flow, one name. The HUD's "+0.06/s → WAR" was the idle muster, the same flow the
+## forecast's "idle hands muster to FLOOD" names, so the two read as a contradiction. Every town line now names the
+## muster's real destination (view_hud.split.muster_to: FLOOD, Vei's queue, unless the Muster stance sends it to WAR).
+func _muster_words() -> void:
+	var hcfg: Dictionary = vcfg["hud"]
+	var flood := {"hud": {"split": {"muster_to": "flood"}}}
+	var war := {"hud": {"split": {"muster_to": "war"}}}
+	t.ok(HudModel.muster_word(flood, hcfg) == "idle → FLOOD" and HudModel.muster_word(war, hcfg) == "idle → WAR",
+		"the HUD's word after the muster rate names its destination")
+	t.ok(HudModel.muster_tip(flood, hcfg).contains("Vei's queue") and HudModel.muster_tip(war, hcfg).contains("Muster stance"),
+		"its tooltip says where that is ('%s')" % HudModel.muster_tip(flood, hcfg))
+	t.ok(HudModel.muster_to({"town": {"workers": {"muster_to": "war"}}}) == "war" and HudModel.muster_to({}) == "flood",
+		"view_town's muster_to stands in when view_hud's split is missing; FLOOD when neither says (the rule without the stance)")
+	t.ok(HudModel.muster_name(flood, vcfg) == "FLOOD (Vei's queue)" and HudModel.muster_name(war, vcfg) == "WAR (your forts)",
+		"the forecast and the idle line name it with where it goes")
+	var fv := {"town": {"workers": {"idle": 10.0}, "queue": []}, "hud": {"split": {"muster_to": "flood"}}}
+	t.ok(TownForecast.parts_of(fv, vcfg, cfg["buildings_view"]).has("10 idle hands muster to FLOOD (Vei's queue)"),
+		"the forecast: FLOOD by the view (%s)" % str(TownForecast.parts_of(fv, vcfg, cfg["buildings_view"])))
+	var hud_src := FileAccess.get_file_as_string("res://scripts/town/town_hud.gd")
+	t.ok(hud_src.contains("HudModel.muster_word(views, _hcfg)") and not String(vcfg["hud"]["text"].get("war", "")).contains("WAR"),
+		"the HUD row reads its word from the view; no fixed '→ WAR' is left")
+	# the real views agree with each other: the forecast's destination is the HUD's
+	var s := GameState.new(cfg)
+	s.debug_enabled = true
+	s.cmd_debug_load_fixture("day1")
+	s.tick(s.substep_s())
+	var rv := {"hud": s.view_hud(), "town": s.view_town()}
+	t.ok(HudModel.muster_to(rv) == String(rv["town"]["workers"]["muster_to"]),
+		"day1: view_hud's split and view_town's workers name the same destination ('%s')" % HudModel.muster_to(rv))
 
 
 ## Q-g, the vat toggle's preview against the real staffing, in the costed case: with no idle hands to cover it,

@@ -3254,7 +3254,8 @@ func _kept(day1: Dictionary) -> void:
 	t.ok(HudModel.surplus_rate(town, 60.0, 60.0, h) == 0.0, "surplus: hidden when steady does not exceed kept")
 	town["workers"].erase("muster_steady")
 	t.ok(HudModel.surplus_rate(town, 87.8, 60.0, h) == 0.0, "surplus: hidden when no muster rate is known")
-	t.ok(HudModel.war_text(0.069, h) == "+0.07/s" and h["text"]["war"] == "\u2192 WAR", "surplus: signed rate, upright '→ WAR'")
+	t.ok(HudModel.war_text(0.069, h) == "+0.07/s" and HudModel.muster_word({}, h) == "idle \u2192 FLOOD",
+		"surplus: signed rate, then where the muster goes, upright (FLOOD without the Muster stance: '%s')" % HudModel.muster_word({}, h))
 
 
 func _vrow(id: String, count: int, gold := 10.0) -> Dictionary:
@@ -3379,7 +3380,7 @@ func _hud_idle(day1: Dictionary) -> void:
 	var none: Array = rows.duplicate(true)
 	none[1]["can_build"] = false
 	none[1]["reason"] = "no_gold"
-	t.ok(HudModel.parts_text(HudModel.idle_parts(mk.call(10.0, 0.1, none), vcfg, bv, bc)) == "10 idle: no job building affordable; mustering to WAR",
+	t.ok(HudModel.parts_text(HudModel.idle_parts(mk.call(10.0, 0.1, none), vcfg, bv, bc)) == "10 idle: no job building affordable; mustering to FLOOD (Vei's queue)",
 		"hud idle: nothing to build while mustering")
 	t.ok(HudModel.parts_text(HudModel.idle_parts(mk.call(6.0, 0.0, none), vcfg, bv, bc)) == "6 idle: no job building affordable; waiting at the crypt",
 		"hud idle: nothing to build and no muster: they wait")
@@ -4129,7 +4130,7 @@ func _fix3a_hud(day1: Dictionary) -> void:
 	var p: Array = HudModel.idle_parts(mk.call(rows, 1000.0), vcfg, bv, bc)
 	t.ok(HudModel.parts_text(p) == "10 idle: upgrade the Market to L2 (+%d jobs) or let them muster" % BuildSort.job_slots("market", bc) and p.size() == 1,
 		"hud idle: the best use is a job upgrade, the Build tab's suggestion (%s)" % HudModel.parts_text(p))
-	t.ok(HudModel.parts_text(HudModel.idle_parts(mk.call(rows, 10.0), vcfg, bv, bc)) == "10 idle: no job building affordable; mustering to WAR",
+	t.ok(HudModel.parts_text(HudModel.idle_parts(mk.call(rows, 10.0), vcfg, bv, bc)) == "10 idle: no job building affordable; mustering to FLOOD (Vei's queue)",
 		"hud idle: an upgrade that can't be paid for is no job building affordable")
 	# a suggestion with no jobs (the tier's House) leaves the line on the first buildable job item
 	var jrows := [_row("house", true, "", ["lot-05"]), _row("charnel_house", true, "", ["lot-06"]), _row("market", false, "no_gold", ["lot-08"])]

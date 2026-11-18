@@ -59,8 +59,8 @@ func _idle_and_forts() -> void:
 		"forts": [{"name": "Vespers", "held": true, "margin": "will_fall"}, {"name": "Ashgate", "held": true, "margin": "safe"},
 			{"name": "Greywall", "held": false, "margin": "will_fall"}]}
 	var parts := TownForecast.parts_of(v, vcfg, bv)
-	t.ok(parts == ["10 idle hands muster to WAR", "Vespers will fall"], "idle hands and a held fort that will fall (%s)" % str(parts))
-	t.ok(TownForecast.line(v, vcfg, bv) == "If you leave now: 10 idle hands muster to WAR · Vespers will fall", "the line: '%s'" % TownForecast.line(v, vcfg, bv))
+	t.ok(parts == ["10 idle hands muster to WAR (your forts)", "Vespers will fall"], "idle hands (the Muster stance's WAR) and a held fort that will fall (%s)" % str(parts))
+	t.ok(TownForecast.line(v, vcfg, bv) == "If you leave now: 10 idle hands muster to WAR (your forts) · Vespers will fall", "the line: '%s'" % TownForecast.line(v, vcfg, bv))
 	t.ok(TownForecast.line({}, vcfg, bv) == "", "nothing to say: no line")
 
 

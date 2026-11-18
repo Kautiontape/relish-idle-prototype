@@ -4,7 +4,8 @@ extends PanelContainer
 ## the upright stock with its cap bar and "full in" readout; morale with its factors; the tier and
 ## what the next one needs; the Return button. A bottleneck line under it names what is stuck. The
 ## workers cell also names the unspent hands and their best use ("10 idle: build a Forge (+2 jobs)
-## or let them muster") next to "→ WAR", and why the town keeps fewer than its steady state.
+## or let them muster") next to the muster's rate and destination ("+0.07/s idle → FLOOD"), and why the town keeps
+## fewer than its steady state.
 ## All logic is HudModel's; this only lays out labels and reuses them on every bind.
 
 signal command_issued
@@ -110,13 +111,13 @@ func _make_cell(id: String) -> Control:
 	var war_rate: Label = null
 	var war_word: Label = null
 	var idle_line: RichTextLabel = null
-	if id == "workers":  # the surplus past what the town keeps, "+0.07/s → WAR", and the idle hands' best use
+	if id == "workers":  # the idle muster past what the town keeps, "+0.07/s idle → FLOOD", and the idle hands' best use
 		war_row = HBoxContainer.new()
 		war_row.add_theme_constant_override("separation", 4)
 		war_row.mouse_filter = Control.MOUSE_FILTER_STOP  # the idle line is clipped: its tooltip carries it whole
 		war_rate = TownUI.rate_label("", int(_hcfg.get("split_px", 12)), "text_dim")
 		war_row.add_child(war_rate)
-		war_word = TownUI.label(String((_hcfg.get("text", {}) as Dictionary).get("war", "")), int(_hcfg.get("split_px", 12)), "text_dim")
+		war_word = TownUI.label("", int(_hcfg.get("split_px", 12)), "text_dim")  # HudModel.muster_word, on bind
 		war_row.add_child(war_word)
 		idle_line = TownUI.parts_label(int(_hcfg.get("split_px", 12)), "text")
 		war_row.add_child(idle_line)
@@ -236,10 +237,12 @@ func _bind_cell(id: String, c: Dictionary, town: Dictionary, hud: Dictionary, fl
 		(c["war_rate"] as Label).visible = war > 0.0
 		(c["war_word"] as Label).visible = war > 0.0
 		(c["war_rate"] as Label).text = HudModel.war_text(war, _hcfg)
+		(c["war_word"] as Label).text = HudModel.muster_word(views, _hcfg)
 		TownUI.set_parts(c["idle"], idle)
 		(c["idle"] as Control).visible = not idle.is_empty()
-		(c["war_row"] as Control).tooltip_text = whole
-		(c["idle"] as Control).tooltip_text = whole
+		var tip := "\n".join(PackedStringArray([HudModel.muster_tip(views, _hcfg) if war > 0.0 else "", whole].filter(func(x): return x != "")))
+		(c["war_row"] as Control).tooltip_text = tip
+		(c["idle"] as Control).tooltip_text = tip
 	elif id == "living":
 		split = HudModel.split_text([["in", float(town.get("migrants", inn))], ["out", -float(town.get("departures", out))]], _hcfg)
 		c["stock"].text = "%d / %d" % [roundi(float(town.get("living", 0.0))), roundi(float(town.get("living_cap", 0.0)))]

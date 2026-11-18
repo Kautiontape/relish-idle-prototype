@@ -213,7 +213,11 @@
       "cell_w_px": 140.0, "morale_w_px": 220.0, "morale_stretch": 1.0, "cell_stretch": {"workers": 4.0}, "tier_w_px": 100.0, "return_w_px": 170.0,
       "morale_bar": {"w_px": 120.0, "h_px": 8.0},
       "text": {
-        "in": "in", "out": "out", "rot": "rot", "muster": "muster", "steady": "→ steady {n}", "war": "→ WAR",
+        "in": "in", "out": "out", "rot": "rot", "muster": "muster", "steady": "→ steady {n}",
+        "_muster_doc": "The idle muster (view_hud.split.muster_to): FLOOD, Vei's queue, unless the Muster stance sends it to WAR. muster_word follows its rate in the workers cell; muster_tip is that row's tooltip.",
+        "muster_word": {"flood": "idle → FLOOD", "war": "idle → WAR"},
+        "muster_tip": {"flood": "Idle hands beyond the idle cap muster to FLOOD: they join Vei's queue. The Muster stance sends them to WAR, your forts, instead.",
+          "war": "The Muster stance is on: idle hands muster to WAR and stream to your forts."},
         "full_in": "full in {t}", "full": "full: overflowing", "no_cap": "no cap",
         "dur_s": "{n} s", "dur_min": "{n} min", "dur_h": "{n} h", "dur_d": "{n} d",
         "dur_min_from_s": 90.0, "dur_h_from_s": 5400.0, "dur_d_from_s": 172800.0,
@@ -238,7 +242,8 @@
         "idle_build_short": "{n} idle: build a {label} ({gain})",
         "idle_upgrade_short": "{n} idle: upgrade the {label} to L{level} ({gain})",
         "idle_jobs": "+{n} jobs",
-        "idle_none": "{n} idle: no job building affordable; mustering to WAR",
+        "idle_none": "{n} idle: no job building affordable; mustering to {to}",
+        "idle_none_short": "{n} idle: no job building affordable",
         "idle_none_wait": "{n} idle: no job building affordable; waiting at the crypt",
         "kept_reason": "kept: {slots} slots + {cap} idle cap",
         "source": {"gold": "trade", "bone": "milling"},
@@ -487,6 +492,8 @@
         "px": 14, "x_px": 240.0, "y_px": 8.0
       }
     },
+    "muster_names": {"_doc": "Where the idle muster goes, named as the valve names it (view_hud.split.muster_to): the HUD's idle line and the forecast.",
+      "flood": "FLOOD (Vei's queue)", "war": "WAR (your forts)"},
     "replay": {
       "_doc": "The welcome-back replay (TownReplay, Q-f): once per away report in a session, each build that finished while you were away flashes in order, first_beats then flash_beats apart (Pulse beats), under a strip in the dock (over the tabs, clear of every lot) of the report's build and ready lines (at most max_lines). The strip hides hold_s after the last flash (0: until closed). acts: the button on a line with somewhere to go.",
       "title": "While you were away ({time})",
