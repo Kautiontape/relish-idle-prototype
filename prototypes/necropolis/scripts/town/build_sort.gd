@@ -1010,6 +1010,30 @@ static func dismiss_box(cell: Rect2, plate: Rect2, above: bool) -> Rect2:
 	return Rect2(Vector2(cell.position.x, plate.end.y - s.y if above else plate.position.y), s)
 
 
+## Where the suggestion's tag (`size`, its dismiss box reaching `room` past its right end) goes for the suggested
+## lot `lot` (V-I1: at City it sat on the Raising Pit's "4 working" above its lot). The first spot that meets none of
+## `keep` and stays inside `host`, tried above the lot (`gap` over it), then tucked half over its own top edge (City's
+## rows leave less than a tag's height between a lot and the badges above it), then below it (`gap` under `below_y`:
+## the lot's own badge's foot); at each height centred on the lot, then flush with its right edge, then its left.
+## Always on its own lot's edge and over its span, so it reads as that lot's. None clear: centred above, or under the
+## lot when above leaves the view (as before). {pos, above}.
+static func sug_place(lot: Rect2, size: Vector2, room: float, keep: Array, host: Vector2, below_y: float, gap: float) -> Dictionary:
+	var hi := maxf(host.x - size.x - room - 4.0, 4.0)
+	var xs := [lot.get_center().x - size.x * 0.5, lot.end.x - size.x, lot.position.x]
+	for spot in [[lot.position.y - size.y - gap, true], [lot.position.y - size.y * 0.5, true], [below_y + gap, false]]:
+		var y: float = spot[0]
+		if y < 4.0 or y + size.y > host.y - 4.0:
+			continue
+		for x0 in xs:  # (the dismiss box's reach is invisible: only the view's edge, `hi`, holds it back)
+			var plate := Rect2(Vector2(clampf(float(x0), 4.0, hi), y), size)
+			if keep.all(func(k): return not (k as Rect2).intersects(plate)):
+				return {"pos": plate.position, "above": spot[1]}
+	var p := Vector2(clampf(float(xs[0]), 4.0, hi), lot.position.y - size.y - gap)
+	if p.y < 4.0:
+		return {"pos": Vector2(p.x, lot.end.y + gap), "above": false}
+	return {"pos": p, "above": true}
+
+
 ## How far dismiss_box reaches past the tag's right end, for an x cell `cell_w` wide.
 static func dismiss_room(cell_w: float) -> float:
 	return maxf(44.0 - cell_w, 0.0)
@@ -1271,6 +1295,34 @@ static func _queue_key(e: Dictionary) -> String:
 static func is_gate_wait(e: Dictionary, vcfg: Dictionary) -> bool:
 	return String(e.get("status", "")) == "skipped_gate" \
 		and ((vcfg.get("queue_text", {}) as Dictionary).get("gate_wait", {}) as Dictionary).has(String(e.get("reason", "")))
+
+
+## What a click on lot `lot_id` opens (the Build tab's on_lot_clicked): "dock" for a built or constructing lot
+## (`built`) while the Build tab shows (`dock_shown`), its inspector there and no lot card repeating it over the town
+## (V-I1: the card hid the town to say what the dock already said); "inspect" for one while another tab shows (the
+## card is then the only place it shows); "catalog" for an empty open lot (the card's what-fits list, which the dock
+## has no copy of); "" for a locked lot or no lot (closes the card).
+static func lot_click(lot_id: String, built: bool, unlocked: bool, dock_shown: bool) -> String:
+	if lot_id == "":
+		return ""
+	if built:
+		return "dock" if dock_shown else "inspect"
+	return "catalog" if unlocked else ""
+
+
+## A queue row's detail line and its palette key, {text, key}: a status glyph (">" next, "||" saving, "x" skipped,
+## "-" queued: a shape beside the words, as the canvas ghosts have) and the status's words. A gate waited out in its
+## place (is_gate_wait) has no glyph: its words already lead, "queued: waits for its lot to open…" (V-I1 read the ".."
+## it had as stray punctuation), and it draws in text_dim, queued rather than struck.
+static func queue_detail(e: Dictionary, catalog: Dictionary, st: Dictionary, bview: Dictionary, vcfg: Dictionary) -> Dictionary:
+	var status := String(e.get("status", ""))
+	var line := skip_text(e, catalog, st, bview, vcfg) if status == "skipped_gate" \
+		else fmt(String((vcfg.get("queue_text", {}) as Dictionary).get(status, "")), {"why": entry_reason(e, catalog, st, bview, vcfg)})
+	if is_gate_wait(e, vcfg):
+		return {"text": line, "key": "text_dim"}
+	var glyph: String = {"next": ">", "waiting_funds": "||", "skipped_gate": "x", "queued": "-"}.get(status, "-")
+	return {"text": "%s %s" % [glyph, line],
+		"key": {"next": "text", "waiting_funds": "select", "skipped_gate": "danger", "queued": "text_dim"}.get(status, "text_dim")}
 
 
 ## A skipped entry's line: "queued: waits for Village" for a gate it waits out (gate_wait), else "skipped: <why>".

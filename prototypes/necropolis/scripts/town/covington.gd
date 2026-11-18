@@ -69,7 +69,7 @@ var _frame := 0
 var _walkers_n := 0
 var _grow_label: Label
 var _cue: ScrollCue  # the dock's "more below" fade over the shown tab's scroll edge
-var _goal: PanelContainer  # the first goal in town (TownGuide.goal), top-left of the town view; hidden once met
+var _goal: PanelContainer  # the goal plate (TownGuide.goal), top-left of the town view, at every tier
 var _goal_head: Label  # the game's goal, over
 var _goal_step: Label  # the step due now
 ## The welcome-back replay (TownReplay): the away strip sits in the dock over the tabs. `_replayed` is the
@@ -546,9 +546,9 @@ func _fetch_views_b(views: Dictionary) -> Dictionary:
 	return views
 
 
-## The first-goal plate: the game's goal in bold (goal.head_px) over the step due now (goal.px), both in `text` on a
+## The goal plate: the game's goal in bold (goal.head_px) over the step due now (goal.px), both in `text` on a
 ## ground plate edged in `select`, at guide.goal's x/y in the town view, under the lot card (so an open card is never
-## covered). Hidden until a goal is due.
+## covered). Shown at every tier once the first fetch has a step.
 func _build_goal() -> void:
 	var vcfg: Dictionary = ConfigDb.v("town", "view", {})
 	var g: Dictionary = vcfg.get("guide", {}).get("goal", {})
@@ -625,11 +625,13 @@ func _on_strip_acted(act: String) -> void:
 			_on_return()
 
 
-## Sets the goal plate from the fetched views; the labels are touched only when the step changes.
+## Sets the goal plate from the fetched views; the labels are touched only when the step changes. The step is
+## TownGuide.step's, the one the top bar's next: line shows (TownHud.bind), so the two agree at every tier.
 func _update_goal(views: Dictionary) -> void:
 	if _goal == null:
 		return
-	var g := TownGuide.goal(views, ConfigDb.v("town", "view", {}).get("guide", {}))
+	var vcfg: Dictionary = ConfigDb.v("town", "view", {})
+	var g := TownGuide.goal(views, vcfg.get("guide", {}), vcfg.get("hud", {}), ConfigDb.data.get("buildings_view", {}))
 	var text := String(g.get("text", ""))
 	if text != _goal_step.text:
 		_goal_step.text = text
@@ -638,6 +640,7 @@ func _update_goal(views: Dictionary) -> void:
 		_goal.visible = text != ""
 		_goal.reset_size()
 		_plates.reset_size()
+		_view.set_cover(Rect2(_plates.position, _plates.get_combined_minimum_size()) if _goal.visible else Rect2())
 
 
 ## The forts as the crypt's Siege… chooser and the first goal (TownGuide) need them:

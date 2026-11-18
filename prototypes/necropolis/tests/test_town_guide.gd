@@ -7,6 +7,8 @@ var t: TestUtil
 var cfg: Dictionary
 var vcfg: Dictionary
 var gcfg: Dictionary
+var hcfg: Dictionary
+var bview: Dictionary
 
 
 func run() -> int:
@@ -15,6 +17,8 @@ func run() -> int:
 	cfg = TestUtil.configs()
 	vcfg = cfg["town"]["view"]
 	gcfg = vcfg["guide"]
+	hcfg = vcfg["hud"]
+	bview = cfg["buildings_view"]
 	_lines()
 	_how_kinds()
 	_goal_new_game()
@@ -123,8 +127,8 @@ func _how_kinds() -> void:
 	t.ok(TownGuide.how("guildhall", bc, gcfg).contains("Stances tab"), "the Guildhall points at the Stances tab for its slot")
 
 
-## A new game: the goal is the Bone Mill until one is placed, then the first fort (by the first dungeon's name)
-## until a fort is taken, then nothing.
+## A new game: the step is the Bone Mill until one is placed, then the first fort (by the first dungeon's name)
+## until a fort is taken, then the next tier (V-I1: the plate stays, at every tier, under the game's goal).
 func _goal_new_game() -> void:
 	var s := _new_game()
 	var v := _views(s)
@@ -134,7 +138,7 @@ func _goal_new_game() -> void:
 			first = f["name"]
 	t.ok(first != "", "(setup) a new game marks a first dungeon")
 	t.ok(not TownGuide.placed(v, "bone_mill") and not TownGuide.fort_taken(v), "(setup) a new game: no Bone Mill, no fort taken")
-	var g := TownGuide.goal(v, gcfg)
+	var g := _goal(v)
 	t.ok(g.get("id", "") == "mill" and String(g.get("text", "")).begins_with("First step: build a Bone Mill"),
 		"a new game's first step is the Bone Mill: '%s'" % g.get("text", ""))
 	# clarity round 3: the game's goal heads the plate, in the glossary's words ("your goal", never "the run")
@@ -150,41 +154,81 @@ func _goal_new_game() -> void:
 	var r: Dictionary = s.cmd_build("bone_mill", lot)
 	t.ok(r.get("ok", false), "(setup) a Bone Mill is placed on %s: %s" % [lot, r.get("reason", "")])
 	v = _views(s)
-	g = TownGuide.goal(v, gcfg)
+	g = _goal(v)
 	t.ok(TownGuide.placed(v, "bone_mill"), "a Bone Mill under construction counts as placed")
 	t.ok(g.get("id", "") == "fort" and String(g.get("text", "")).contains(first) and String(g.get("text", "")).contains("Return to the realm"),
 		"once the mill is placed the goal is the first fort, by name: '%s'" % g.get("text", ""))
 	t.ok(String(g.get("text", "")).begins_with("Next step: ") and String(g.get("head", "")).begins_with("Your goal: "),
 		"the next step takes the plate's shared lead, under the same head: '%s'" % g.get("text", ""))
+	t.ok(String(g.get("short", "")).begins_with("next: ") and String(g.get("short", "")).contains(first),
+		"the top bar's line names the same fort: '%s'" % g.get("short", ""))
 	v["forts"][0]["flipped_count"] = 1  # a fort taken (held now or retaken since): the state flip_fort leaves
-	t.ok(TownGuide.goal(v, gcfg).is_empty(), "once a fort is taken (and the mill placed) there is no goal")
+	g = _goal(v)
+	var nl := HudModel.next_line(v, hcfg, bview)
+	t.ok(g.get("id", "") == "tier" and String(g.get("head", "")).begins_with("Your goal: "),
+		"once a fort is taken (and the mill placed) the plate stays, under the game's goal, with the next tier: '%s'" % g.get("text", ""))
+	t.ok(String(g["short"]) == String(nl["text"]) and String(g["text"]).contains("reach %s" % nl["tier"])
+		and String(g["text"]).contains("%d buildings (you have %d)" % [nl["b_need"], nl["b_have"]]),
+		"the tier step is the top bar's own line, worded for the plate from the same parts: '%s' / '%s'" % [g["text"], g["short"]])
+	for m in nl["missing"]:
+		t.ok(String(g["text"]).contains(String(m)), "the tier step names the missing %s: '%s'" % [m, g["text"]])
 	var no_mill: Dictionary = v.duplicate(true)
 	no_mill["town"]["buildings"] = (no_mill["town"]["buildings"] as Array).filter(func(b): return b["building_id"] != "bone_mill")
-	t.ok(TownGuide.goal(no_mill, gcfg).get("id", "") == "mill", "a fort taken but no mill: the goal is still the mill")
+	t.ok(_goal(no_mill).get("id", "") == "mill", "a fort taken but no mill: the goal is still the mill")
 	var unnamed: Dictionary = _views(s)
 	for f in unnamed["forts"]:
 		f["first_dungeon"] = false
-	t.ok(String(TownGuide.goal(unnamed, gcfg).get("text", "")).contains(String(gcfg["goal"]["fort_any"])),
+	t.ok(String(_goal(unnamed).get("text", "")).contains(String(gcfg["goal"]["fort_any"])),
 		"with no first dungeon marked the goal says '%s'" % gcfg["goal"]["fort_any"])
 
 
+func _goal(v: Dictionary) -> Dictionary:
+	return TownGuide.goal(v, gcfg, hcfg, bview)
+
+
+## V-I1 top change 3 (and clarity-review-3 #4): the plate's head and a step at every tier, the step the top bar's
+## next: line shows (TownGuide.step's `short`), so the two can't disagree.
 func _goal_fixtures() -> void:
+	var head := String(gcfg["goal"]["head"])
 	for fx in ["day1", "midgame_2flips", "pre_vei"]:
 		var s := GameState.new(cfg)
 		s.debug_enabled = true
 		t.ok(s.cmd_debug_load_fixture(fx)["ok"], "(setup) %s loads" % fx)
-		var g := TownGuide.goal(_views(s), gcfg)
+		var v := _views(s)
+		var g := _goal(v)
+		t.ok(String(g.get("head", "")) == head and String(g.get("text", "")) != "" and String(g.get("short", "")) != "",
+			"%s (%s): the plate has the game's goal and a step: '%s' / '%s'" % [fx, v["town"]["tier"], g.get("text", ""), g.get("short", "")])
+		t.ok(String(g.get("text", "")).length() <= 100, "%s: the step is one short line (%d chars)" % [fx, String(g.get("text", "")).length()])
 		if fx == "day1":
-			t.ok(g.get("id", "") == "mill", "day1 (no mill, no fort taken) shows the mill goal")
-		elif fx == "midgame_2flips":
-			t.ok(g.is_empty(), "midgame_2flips (mill built, two forts held) shows no goal: '%s'" % g.get("text", ""))
-		else:  # pre_vei loads its forts unheld (no held_s in the fixture), but it is a City: past the early tiers
-			t.ok(g.is_empty() and not String(_views(s)["town"]["tier"]) in gcfg["goal"]["tiers"],
-				"pre_vei (City tier) shows no goal: '%s'" % g.get("text", ""))
+			t.ok(g.get("id", "") == "mill" and String(g["short"]) == "next: build a Bone Mill",
+				"day1 (no mill, no fort taken): the mill, on the plate and in the top bar: '%s'" % g["short"])
+		elif fx == "midgame_2flips":  # Village, two forts held, Town held back by relics (3 of 4)
+			var nl := HudModel.next_line(v, hcfg, bview)
+			t.ok(g.get("id", "") == "relics" and bool(g["relics"]) and String(g["short"]) == String(nl["text"]),
+				"midgame_2flips: the relic wall, the top bar's own line: '%s'" % g["short"])
+			t.ok(String(g["text"]).contains("reach Town") and String(g["text"]).contains("%d %s (you have %d)" % [nl["need"], nl["unit"], nl["have"]])
+				and String(g["text"]).contains("raid a fort"), "midgame_2flips: the plate says the same wall: '%s'" % g["text"])
+		else:  # pre_vei: a City (no next tier), its forts loaded unheld: the realm's step
+			var left := TownGuide.forts_left(v)
+			t.ok(left == (v["forts"] as Array).size() and left > 0, "(setup) pre_vei: every fort still Vei's (%d)" % left)
+			t.ok(g.get("id", "") == "forts" and String(g["text"]).contains("%d still hers" % left) and String(g["short"]).contains("%d still hers" % left),
+				"pre_vei (City): take Vei's forts, %d still hers, on both: '%s' / '%s'" % [left, g["text"], g["short"]])
+			for f in v["forts"]:
+				f["held"] = true
+			var all := _goal(v)
+			t.ok(all.get("id", "") == "vei" and String(all["text"]).contains("face Vei") and String(all["short"]).contains("face Vei"),
+				"a City holding every fort: face Vei: '%s' / '%s'" % [all["text"], all["short"]])
 	var late := {"town": {"buildings": [], "tier": "town"}, "forts": []}
-	t.ok(TownGuide.goal(late, gcfg).is_empty(), "a Town-tier town with no mill and no fort shows no first goal")
+	t.ok(not _goal(late).get("id", "") in ["mill", "fort"], "a Town-tier town skips the first steps (they're for a new game)")
 	var held := {"town": {"buildings": [{"building_id": "bone_mill"}], "tier": "village"}, "forts": [{"held": true, "flipped_count": 0}]}
-	t.ok(TownGuide.goal(held, gcfg).is_empty(), "a fort held (an old save's flipped_count 0) counts as taken")
+	t.ok(_goal(held).get("id", "") != "fort", "a fort held (an old save's flipped_count 0) counts as taken")
+	# the one source: the HUD's next: line is TownGuide.step's short and the plate is TownGuide.goal (source checks:
+	# both scripts need the autoloads, so they can't load headless)
+	var hud := FileAccess.get_file_as_string("res://scripts/town/town_hud.gd")
+	t.ok(hud.contains("TownGuide.step(") and hud.contains("_next.text = String(nl[\"short\"])") and not hud.contains("HudModel.next_line("),
+		"the top bar's next: line is TownGuide.step's short, not a line of its own")
+	var shell := FileAccess.get_file_as_string("res://scripts/town/covington.gd")
+	t.ok(shell.contains("TownGuide.goal(views,"), "the goal plate is TownGuide.goal's (the same step)")
 
 
 ## The words Shawn's item 11 asks for: essence comes home from raids and pays for backups at the Ossuary; buildings
@@ -203,7 +247,7 @@ func _words() -> void:
 			bad.append(s)
 	t.ok(bad.is_empty(), "no town text tells the player to carry essence anywhere (%s)" % str(bad))
 	for built in [[], [{"building_id": "bone_mill"}]]:  # the mill step, then the fort step
-		var g := TownGuide.goal({"town": {"buildings": built, "tier": "hamlet"}, "forts": [{"first_dungeon": true, "name": "Old Sluice"}]}, gcfg)
+		var g := _goal({"town": {"buildings": built, "tier": "hamlet"}, "forts": [{"first_dungeon": true, "name": "Old Sluice"}]})
 		t.ok(g.get("text", "") != "" and String(g["text"]).length() <= 100,
 			"the goal is one short line (%d chars): '%s'" % [String(g.get("text", "")).length(), g.get("text", "")])
 	var long: Array = []
