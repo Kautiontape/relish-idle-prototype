@@ -1674,3 +1674,8 @@ Rows: iters `grade-*` in `reports/dungeon/calibration-dd-raw.tsv(.jsonl)`; 778 r
   - Tests: every end_reason, backups 0/1/2, `death_ends` absent / 0.0 / 60, source guards (`_lose_card`, the sequence's end). Shots: `dz-vei-loss.png` (a bot timeout loss, backups 1+1 unspent) and `dz-vei-loss-reduced.png` (autodie, final death).
 - **The retreat dialog:** a big still walking to the plate (`sent`) reads "X is sent to the plate · lost if you retreat."; `held` keeps "is on the plate". Tested.
 - **Not done, by the manager's correction:** the held door's entry line (the item was dropped).
+
+## Telemetry bytes changed at K-f (f723711)
+
+- **Horn over a toll's tell** (`WardenBellringer._step`): the cancelled beat is un-booked, so for runs with a horn over a toll beat the bot's telemetry differs from before K-f: the `bell` tallies (`_toll_tally`), `toll_beats`, and `bell` itself when the only counted toll was cancelled. The sim, RNG and timing are unchanged (nothing acts on `toll_beats` or `toll_marks`), so the bot's result line, e.g. seed 60 (`exit warden_beaten, duration_s 129.13, raises 20, allies_end 15, warden_wake_s 14.3`), is identical. Frozen telemetry lines of horn-over-toll runs are not byte-identical to earlier ones.
+- **"Booked" means a qualifying beat** (the review-kf follow-up): `toll_beats` drops by one whenever a horn cancels a beat that was counted, whether or not its toll was placed (`_toll_beat_booked`). `toll_exit_px_max` is not rolled back: it is the worst case over placed tolls, a cancelled one included.

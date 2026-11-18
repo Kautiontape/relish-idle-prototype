@@ -13,7 +13,8 @@ var win_result := {}    # the warden's win, built once at chest open on the clea
 var pending_exit := ""  # the exit an ending beat will emit (relish_died, warden_beaten); a close keeps it
 
 var banked := {}                 # the last checkpoint snapshot (full loot shape)
-var banked_rooms := {}           # checkpoint room index -> true once it has banked
+var _ending_loot := {}           # the loot checkpoint_ending sent for the ending (sticky: every later send repeats it)
+var banked_rooms := {}          # checkpoint room index -> true once it has banked
 var revived := 0                 # phylactery revives spent this run
 var exit_idx := -1               # index into layout.doors of the exit Relish stands at, else -1
 var left_spawn_exit := false     # Relish has been outside the spawn exit's radius once
@@ -66,6 +67,8 @@ func rooms_seen() -> int:
 
 ## Bank loot: snapshot what was found plus what is carried now (MECHANICS 7).
 func take_checkpoint(room: int, announce: bool) -> void:
+	if ended:
+		return   # an ending has begun: its checkpoint stands (belt and braces; _send_checkpoint is sticky too)
 	if not (_raid.layout.get("checkpoints", []) as Array).has(room):
 		return
 	var snap := RaidLogic.loot_snapshot(_raid.found_loot, _raid.carried_count())
@@ -80,6 +83,8 @@ func take_checkpoint(room: int, announce: bool) -> void:
 
 ## Motes circled into undead are spent: a later death must not bank them (it would mint essence).
 func clamp_banked() -> void:
+	if ended:
+		return
 	var clamped := RaidLogic.clamp_banked_essence(banked, _raid.carried_count())
 	if clamped == banked:
 		return
@@ -87,11 +92,30 @@ func clamp_banked() -> void:
 	_send_checkpoint()
 
 
-## Tell the state what is banked. TODO(api-request #4): cmd_run_checkpoint(run_id, loot) is not
-## in the state API yet, so this is a no-op until it lands.
-func _send_checkpoint() -> void:
-	if _raid._from_run and Game.state.has_method("cmd_run_checkpoint"):
-		Game.state.cmd_run_checkpoint(int(_raid.seed_data.get("run_id", 0)), banked)
+## Tell the state what is banked and the exit the run would end in now (Game.state.cmd_run_checkpoint; a
+## save written from here, or a crash, ends the run from it on the next load). The outcome comes from
+## `pending_exit` and the loot from `_ending_loot` (RaidLogic.checkpoint_payload), so both are sticky: once an
+## ending beat has begun, no later call can write "retreated" or the pre-ending `banked` back over it.
+## `loot` (only checkpoint_ending passes one) is the ending's loot: it is stored in `_ending_loot`.
+func _send_checkpoint(loot := {}) -> void:
+	if not _raid._from_run:
+		return
+	if not loot.is_empty():
+		_ending_loot = loot
+	var p := RaidLogic.checkpoint_payload(pending_exit, _ending_loot, banked)
+	Game.state.cmd_run_checkpoint(int(_raid.seed_data.get("run_id", 0)), p["loot"], p["outcome"])
+
+
+## An ending beat has begun (`pending_exit` is set): record it with the state and save now, so a crash in
+## the beat resumes as that ending and not as a retreat (the autosave clock is 30 s of real time).
+## `loot` is the win's loot, or `banked` for a death (it keeps the last checkpoint snapshot; with none banked,
+## the empty loot shape: the state refuses {}). It is stored, and every later send repeats it.
+func checkpoint_ending(loot := {}) -> void:
+	if not _raid._from_run:
+		return
+	var l: Dictionary = loot if not loot.is_empty() else banked
+	_send_checkpoint(RaidLogic.empty_loot() if l.is_empty() else l)
+	Game.autosave()
 
 
 # ------------------------------------------------------------------ retreat ---
@@ -125,8 +149,7 @@ func confirm_exit(by := "") -> void:
 
 
 # ------------------------------------------------------------------- close ---
-## "No run survives a close" (IDLE I5), the scene's stand-in until economy's cmd_run_checkpoint lands
-## (TODO(api-request #4)): the window is asked to close mid-run, so the run ends now. Only a
+## "No run survives a close" (IDLE I5): the window is asked to close mid-run, so the run ends now. Only a
 ## router-launched run does this (not standalone); it must emit before the quit save, see raid.gd
 ## `_notification`. True when it emitted.
 ##   dungeon  a retreat paying the last checkpoint snapshot (what was found since is lost, the same
@@ -185,6 +208,7 @@ func on_relish_died() -> void:
 		return
 	ended = true
 	pending_exit = RaidLogic.pending_on("relish_died")
+	checkpoint_ending()   # a death keeps the last checkpoint snapshot: a crash in the beat resumes as a death
 	_raid.trance.force_end()
 	RaidFx.ring(_raid.fx_root, _raid.relish.global_position, Palette.c("danger"), 90.0, 0.8, 4.0)
 	RaidFx.ring(_raid.fx_root, _raid.relish.global_position, Palette.c("relish"), 50.0, 0.8, 3.0)
@@ -207,14 +231,24 @@ func _finish_death() -> void:
 	finish(_raid._death_result())
 
 
+## What a death costs her right now, the one source for the death card and the retreat panel's IF RELISH FALLS
+## column: the unbanked loot, the big shut in at the held door (D-e task 6: lost too, on a row of its own apart
+## from the party that fell) and the party's big count without it.
+func death_inputs() -> Dictionary:
+	var ub: Dictionary = RaidLogic.unbanked(_raid.found_loot, _raid.carried_count(), banked)
+	var shut: String = _raid.held_door.shut_name() if _raid.held_door != null else ""
+	var party_n := (_raid.seed_data.get("party", []) as Array).size() - (1 if shut != "" else 0)
+	return {"unbanked": ub, "shut": shut, "party_n": party_n}
+
+
 ## The death card's rows: what killed her, what the last checkpoint banked, what is lost.
 func death_rows() -> Array:
 	var wname: String = _raid.warden_run.warden_name if _raid.warden_run != null else ""
 	var cause := RaidLogic.death_cause(_raid.relish.last_hit_src, wname)
-	var ub: Dictionary = RaidLogic.unbanked(_raid.found_loot, _raid.carried_count(), banked)
-	# a big shut in at the held door (D-e task 6) is lost too, on a row of its own apart from the party that fell
-	var shut: String = _raid.held_door.shut_name() if _raid.held_door != null else ""
-	var party_n := (_raid.seed_data.get("party", []) as Array).size() - (1 if shut != "" else 0)
+	var di := death_inputs()
+	var ub: Dictionary = di["unbanked"]
+	var shut: String = di["shut"]
+	var party_n: int = di["party_n"]
 	return RaidLogic.death_rows_with_shut(RaidLogic.death_card_rows(cause, RaidLogic.loot_counts(banked), ub, party_n,
 		RaidLogic.death_tell(_raid.relish.last_hit_src), RaidLogic.death_next_row(_raid.seed_data)), shut)
 

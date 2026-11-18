@@ -12,6 +12,12 @@ var raid: Node = null
 var _title: Label
 var _stats: StatBlock
 var _hint: Label
+var _hint2: Label      # the idle hint's second line (dungeon only)
+var _hint_plate: ColorRect = null   # the hint's ground plate, bottom-centre, inside the danger frame
+var _hp_fitted := false   # the hint plate's cached fit: what it was fitted to (show flag, hint text, sub-line text)
+var _hp_show := false
+var _hp_text := ""
+var _hp_sub := ""
 var _meter: Control
 var _exit_btn: Control = null       # dungeon only
 var _retreat: RaidRetreatPanel = null   # dungeon only: the retreat choice (mouse only; Space never confirms)
@@ -68,15 +74,14 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		_door_prompt = _mk_label(self, 17, Palette.c("text"))
 		_door_prompt.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 		_door_prompt.anchor_top = 1.0
-		_door_prompt.offset_top = -92.0
-		_door_prompt.offset_bottom = -64.0
+		# its top and bottom come from the hint's fitted plate (_fit_hint_plate), which refits it with the plate
 		_door_prompt.offset_left = 0.0
 		_door_prompt.offset_right = 0.0
 		_door_prompt.grow_horizontal = Control.GROW_DIRECTION_BOTH   # sized to its text, centred
 		_door_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		# its own dark plate, as the banner has: the map's walls never run through the trade it names
 		var pplate := StyleBoxFlat.new()
-		pplate.bg_color = Palette.c("ground", 0.86)
+		pplate.bg_color = Palette.c("ground", float(raid.rcfg().get("hud", {}).get("door_plate_alpha", 0.86)))
 		pplate.content_margin_left = 10.0
 		pplate.content_margin_right = 10.0
 		pplate.content_margin_top = 3.0
@@ -99,7 +104,7 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		_legend.offset_top = -54.0 - lsz.y
 
 	_banner_plate = ColorRect.new()
-	_banner_plate.color = Palette.c("ground", 0.72)
+	_banner_plate.color = Palette.c("ground", float(raid.rcfg().get("hud", {}).get("banner_plate_alpha", 0.94)))
 	_banner_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_banner_plate.visible = false
 	add_child(_banner_plate)
@@ -116,7 +121,15 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_banner.visible = false
 
-	_hint = _mk_label(self, 19, Palette.c("text"))
+	_hint_plate = ColorRect.new()   # fitted to the hint's visible lines by _fit_hint_plate
+	_hint_plate.color = Palette.c("ground", float(raid.rcfg().get("hud", {}).get("hint", {}).get("plate_alpha", 0.96)))
+	_hint_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hint_plate.visible = false
+	add_child(_hint_plate)
+	_hint_plate.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_hint_plate.anchor_top = 1.0
+	var hint_cfg: Dictionary = raid.rcfg().get("hud", {}).get("hint", {})
+	_hint = _mk_label(self, int(hint_cfg.get("font_px", 19)), Palette.c("text"))
 	_hint.text = RaidLogic.HINT_IDLE
 	_hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	_hint.anchor_top = 1.0
@@ -125,6 +138,16 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	_hint.offset_left = -380.0
 	_hint.offset_right = 380.0
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# the idle hint's second line (RaidLogic.hint_sub_text): under the first, dim, until the first raise
+	_hint2 = _mk_label(self, int(hint_cfg.get("sub_font_px", 15)), Palette.c("text_dim"))
+	_hint2.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_hint2.anchor_top = 1.0
+	_hint2.offset_top = -24.0
+	_hint2.offset_bottom = -4.0
+	_hint2.offset_left = -380.0
+	_hint2.offset_right = 380.0
+	_hint2.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hint2.visible = false
 
 	_meter = TranceMeter.new()
 	_meter.raid = p_raid
@@ -153,7 +176,7 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		# T4: the goal block, in the same spot while no warden block shows (before the wake, after it falls, a held raid)
 		_goal_block = RaidGoalBlock.new()
 		_goal_block.visible = false
-		_goal_block.plate_alpha = float(_goal_cfg(p_raid).get("plate_alpha", 0.86))
+		_goal_block.plate_alpha = float(_goal_cfg(p_raid).get("plate_alpha", 0.96))
 		add_child(_goal_block)
 		_goal_block.set_anchors_preset(Control.PRESET_CENTER_TOP)
 		_goal_block.anchor_left = 0.5
@@ -185,6 +208,7 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		_push.offset_bottom = 88.0
 
 		_retreat = RaidRetreatPanel.new()
+		_retreat.configure(raid.rcfg().get("hud", {}).get("retreat", {}))
 		_retreat.chosen.connect(func(go: bool) -> void:
 			if go:
 				raid.endings.try_retreat("click"))
@@ -236,6 +260,7 @@ func _process(_delta: float) -> void:
 		return
 	_scene_s += _delta
 	refresh()
+	_fit_hint_plate()
 	_tick_cues()
 	if _warden_block != null:
 		if _goal_block != null:
@@ -332,7 +357,7 @@ func refresh() -> void:
 			_door_prompt.text = dp
 		_door_prompt.visible = dp != ""
 	if not raid.is_boss():
-		st.phyl = raid.phylactery_left()
+		st.set_phyl(raid.phylactery_left())
 		st.phyl_word = RaidLogic.phylactery_word(st.phyl)
 		if st.phyl_word != "":
 			# no revive is a state, not a mood: `danger` whatever her hp (the halo's dashes say it in the world)
@@ -364,6 +389,8 @@ func refresh() -> void:
 		_hint.text = RaidLogic.hint_text(raid.trance_active, at_exit)
 		if at_exit:
 			_hint.visible = true
+		_hint2.text = RaidLogic.hint_sub_text(raid.trance_active, at_exit, raid.first_raise_done)
+		_hint2.visible = _hint.visible and _hint2.text != ""
 		# the "your undead fight on their own" cue (once per run)
 		if not _undead_cue_shown:
 			var alive := 0
@@ -451,7 +478,23 @@ func _update_goal() -> void:
 	elif not held and wr != null:
 		s["warden_name"] = wr.warden_name
 	s["no_army"] = (held or alive or s["chest"]) and _no_army()   # the row follows a goal row only
-	_goal_block.set_rows(RaidLogic.goal_rows(s))
+	# the sleeping warden's ring must stay clear: compact rows while the block's FULL rect (measured with the full
+	# rows even when compact shows, so it cannot flicker) meets the ring's screen rect
+	var full_rows := RaidLogic.goal_rows(s)
+	var vw := get_viewport().get_visible_rect().size.x
+	var full := Rect2(Vector2(vw * 0.5 + _goal_block.offset_left, _goal_block.offset_top),
+		Vector2(_goal_block.offset_right - _goal_block.offset_left, _goal_block.height_for(full_rows)))
+	s["compact"] = alive and not held and RaidLogic.goal_compact(full, _sleeping_ring_rect(w))
+	_goal_block.set_rows(RaidLogic.goal_rows(s) if s["compact"] else full_rows)
+
+
+## The screen rect of the sleeping warden's ring and glyph (RaidLogic.warden_ring_rect, through the canvas
+## transform so it follows the camera); empty while it is awake, down or absent.
+func _sleeping_ring_rect(w: Variant) -> Rect2:
+	if w == null or not is_instance_valid(w) or not w.alive or w.awake:
+		return Rect2()
+	var xf: Transform2D = (w as Node2D).get_global_transform_with_canvas()
+	return RaidLogic.warden_ring_rect(xf.origin, xf.get_scale().x, float(w.radius), w.wcfg().get("presence", {}))
 
 
 ## The break line, the takes line (when something multiplies a blow) and the counter line for a warden's spec.
@@ -464,10 +507,9 @@ static func break_rows(raid: Node, sp: Dictionary, meter_n := -1) -> Array:
 	if tk != "":
 		rows.append(tk)
 	var stat := str((sp.get("weak_point", {}) as Dictionary).get("stat", ""))
-	var vals: Array = []
-	for a in raid.allies:
-		if is_instance_valid(a) and a.alive and a.role == "party":
-			vals.append(RaidLogic.unit_stat(a, stat))
+	# the bigs the warden's own counter checks count (RaidLogic.counter_party_values): not the one spent on the door's plate
+	var hd = raid.held_door
+	var vals: Array = RaidLogic.counter_party_values(raid.allies, stat, hd.holder if hd != null and hd.committed() else null)
 	rows.append(WardenLogic.counter_line(sp, vals))
 	return rows
 
@@ -555,6 +597,47 @@ func _push_room() -> float:
 		var goal_right := _goal_block.global_position.x + _goal_block.size.x
 		room = minf(room, _push.global_position.x + _push.size.x - goal_right - 12.0)
 	return maxf(160.0, room)
+
+
+## The hint's plate: the visible hint lines stacked up from `hint.bottom_px` above the screen bottom (clear of the
+## danger frame's inner edge, 10 px in), a ground plate fitted to them. Refit only when what shows changes.
+func _fit_hint_plate() -> void:
+	if _hint_plate == null:
+		return
+	var show := _hint.visible and _hint.text != ""
+	var sub := show and _hint2.visible and _hint2.text != ""
+	var sub_text := _hint2.text if sub else ""
+	if _hp_fitted and show == _hp_show and _hint.text == _hp_text and sub_text == _hp_sub:
+		return
+	_hp_fitted = true
+	_hp_show = show
+	_hp_text = _hint.text
+	_hp_sub = sub_text
+	_hint_plate.visible = show
+	var hc: Dictionary = raid.rcfg().get("hud", {}).get("hint", {})
+	var bottom_px := float(hc.get("bottom_px", 24))
+	var top := -bottom_px   # the plate's top (its bottom while the hint is hidden): the held door's prompt sits over it
+	if show:
+		var f := ThemeDB.fallback_font
+		var hpx := int(hc.get("font_px", 19))
+		var spx := int(hc.get("sub_font_px", 15))
+		var L := RaidLogic.hint_plate_layout(bottom_px, float(hc.get("pad_px", 14)), float(hc.get("gap_px", 4)),
+			f.get_string_size(_hint.text, HORIZONTAL_ALIGNMENT_LEFT, -1, hpx).x, _hint.get_line_height(),
+			f.get_string_size(sub_text, HORIZONTAL_ALIGNMENT_LEFT, -1, spx).x if sub else 0.0, _hint2.get_line_height() if sub else 0.0)
+		if sub:
+			_hint2.offset_bottom = L["sub_bottom"]
+			_hint2.offset_top = L["sub_top"]
+		_hint.offset_bottom = L["hint_bottom"]
+		_hint.offset_top = L["hint_top"]
+		_hint_plate.offset_left = L["plate_left"]
+		_hint_plate.offset_right = L["plate_right"]
+		_hint_plate.offset_top = L["plate_top"]
+		_hint_plate.offset_bottom = L["plate_bottom"]
+		top = L["plate_top"]
+	if _door_prompt != null:
+		# over the plate (not a hand-computed offset): refitted whenever the plate is
+		_door_prompt.offset_bottom = top - float(hc.get("door_gap_px", 8))
+		_door_prompt.offset_top = _door_prompt.offset_bottom - float(hc.get("door_prompt_h", 28))
 
 
 ## The banner's plate: the widest line plus a margin, as tall as its lines, centred under it.
@@ -679,26 +762,7 @@ func exit_enabled() -> bool:
 ## `text` in lines no wider than `max_w` at `font_px`: whole " · " chunks where they fit, a long chunk
 ## broken at spaces (draw only: the StatBlock's DOOR row wraps on its plate).
 static func wrap_chunks(text: String, font: Font, font_px: int, max_w: float) -> PackedStringArray:
-	var out := PackedStringArray()
-	if text == "":
-		return out
-	var words := PackedStringArray()
-	var chunks := text.split(" · ")
-	for i in chunks.size():
-		var ws := chunks[i].split(" ")
-		for j in ws.size():
-			words.append(ws[j] + (" ·" if j == ws.size() - 1 and i < chunks.size() - 1 else ""))
-	var line := ""
-	for wd in words:
-		var trial := wd if line == "" else line + " " + wd
-		if line != "" and font.get_string_size(trial, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x > max_w:
-			out.append(line)
-			line = wd
-		else:
-			line = trial
-	if line != "":
-		out.append(line)
-	return out
+	return RaidLogic.wrap_chunks(text, font, font_px, max_w)   # the one wrap, headless-testable in RaidLogic
 
 
 func open_exit_dialog() -> void:
@@ -709,11 +773,14 @@ func open_exit_dialog() -> void:
 
 ## The retreat panel's lines now: what a retreat pays (found loot and carried essence) and what stays. A big
 ## spent on the held door is lost, said by its state (on the plate, or shut in at the cache).
-func _retreat_lines() -> PackedStringArray:
+func _retreat_lines() -> Array:
 	var hd = raid.held_door
 	var keep := RaidLogic.loot_counts(RaidLogic.loot_snapshot(raid.found_loot, raid.carried_count()))
-	return RaidLogic.retreat_lines(raid.held, keep,
-		RaidLogic.held_door_retreat_line(hd.state, hd.holder_name) if hd != null else "")
+	# the right column reads what the death card reads (RaidEndings.death_inputs, death_next_row, the revive rule)
+	var di: Dictionary = raid.endings.death_inputs()
+	return [RaidLogic.retreat_keep_lines(raid.held, keep,
+			RaidLogic.held_door_retreat_line(hd.state, hd.holder_name) if hd != null else ""),
+		RaidLogic.retreat_fall_lines(raid.endings.phylactery_left(), di["unbanked"], int(di["party_n"]), RaidLogic.death_next_row(raid.seed_data), str(di["shut"]))]
 
 
 ## The retreat panel shows (the raid closes it on a stay key: Space, right mouse, Esc).
@@ -759,6 +826,8 @@ class StatBlock:
 	var ward := [0, 0, 0, 0]
 	var raised_text := ""
 	var phyl := 0
+	var phyl_meaning := PackedStringArray()   # its dim meaning rows (RaidLogic.phylactery_meaning), kept by set_phyl
+	var phyl_extra := 0      # rows its meaning takes beyond one
 	var phyl_word := ""      # "NO REVIVE · death ends the run" at 0 charges (RaidLogic.phylactery_word)
 	var phyl_tone: Color = Palette.c("danger")   # the NO REVIVE words: `danger` whenever no charge is left
 	var banked_text := ""
@@ -772,7 +841,7 @@ class StatBlock:
 	var _pip := 7.0
 	var _row_max := 24
 	var _col := 92.0
-	var plate_alpha := 0.86
+	var plate_alpha := 0.96
 	var show_key := false
 	var door_lines := PackedStringArray()   # D-e task 6: the held door's DOOR row, wrapped (empty: no row)
 	var door_tone: Color = Palette.c("text")
@@ -784,8 +853,8 @@ class StatBlock:
 		_lab = int(c.get("label_px", 13))
 		_val = int(c.get("value_px", 15))
 		_row_max = int(c.get("pip_row_max", 24))
-		plate_alpha = float(c.get("plate_alpha", 0.86))
-		var rows := 3.0 if boss else 13.0   # living, essence, raised | + 4 ward rows, essence meaning, phylactery, banked, unbanked, stakes
+		plate_alpha = float(c.get("plate_alpha", 0.96))
+		var rows := 3.0 if boss else 14.0   # living, essence, raised | + 4 ward rows, essence meaning, phylactery, its meaning, banked, unbanked, stakes
 		custom_minimum_size = Vector2(420.0, rows * _row + 8.0)
 
 	## The floor-loot key (two rows under the stakes) shows while something lies on the floor.
@@ -805,8 +874,19 @@ class StatBlock:
 	func value_w() -> float:
 		return 420.0 - _col - 8.0
 
+	## The PHYLACT. count: its meaning is one row, or two with none left (RaidLogic.phylactery_meaning).
+	func set_phyl(n: int) -> void:
+		if n == phyl and not phyl_meaning.is_empty():
+			return   # called every frame: nothing to rebuild while the count holds
+		phyl = n
+		phyl_meaning = RaidLogic.phylactery_meaning(n)
+		var extra := phyl_meaning.size() - 1
+		if extra != phyl_extra:
+			phyl_extra = extra
+			_fit()
+
 	func _fit() -> void:
-		custom_minimum_size = Vector2(420.0, (13.0 + (2.0 if show_key else 0.0) + float(door_lines.size())) * _row + 8.0)
+		custom_minimum_size = Vector2(420.0, (14.0 + float(phyl_extra) + (2.0 if show_key else 0.0) + float(door_lines.size())) * _row + 8.0)
 
 	## A floor glyph as the pickups draw it (RaidLoot.floor_glyph shapes), small, at `p`.
 	func _key_glyph(p: Vector2, shape: String, col: Color) -> void:
@@ -827,9 +907,9 @@ class StatBlock:
 		for k in [["relic", "relic"], ["remnant", "remnant"], ["husk", "husk"], ["blueprint", "blueprint"]]:
 			var g := RaidLoot.floor_glyph(str(k[0]), false)
 			_key_glyph(Vector2(x + 6.0, y - 4.0), str(g["shape"]), Palette.c(str(g["key"])))
-			draw_string(f, Vector2(x + 16.0, y), str(k[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Palette.c("text_dim"))
-			x += 22.0 + f.get_string_size(str(k[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
-		draw_string(f, Vector2(6.0, y + _row), "grey ×9 = a corpse pile (the bodies in it): walk close, it gives essence", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Palette.c("text_dim"))
+			draw_string(f, Vector2(x + 16.0, y), str(k[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Palette.c("text_dim"))
+			x += 22.0 + f.get_string_size(str(k[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+		draw_string(f, Vector2(6.0, y + _row), RaidLogic.KEY_PILE_LINE, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Palette.c("text_dim"))
 
 	func _label(y: float, text: String) -> void:
 		draw_string(ThemeDB.fallback_font, Vector2(6, y), text, HORIZONTAL_ALIGNMENT_LEFT, _col, _lab, Palette.c("text_dim"))
@@ -844,7 +924,7 @@ class StatBlock:
 	func _pips(x: float, y: float, n: int, filled: int, col: Color, r: float, diamond := false) -> float:
 		var step := r * 2.0 + 3.0
 		var dim := col
-		dim.a = 0.6
+		dim.a = 0.8   # a hollow pip's outline: a line, held at 3:1 over the plate by the contrast test
 		for i in n:
 			var p := Vector2(x + r + step * i, y)
 			if diamond:
@@ -907,6 +987,10 @@ class StatBlock:
 				if cut >= 0:
 					draw_string(ThemeDB.fallback_font, Vector2(hx, y), phyl_word.substr(cut), HORIZONTAL_ALIGNMENT_LEFT, -1, _lab, Palette.c("text_dim"))
 			y += _row
+			# what a phylactery charge is (RaidLogic.phylactery_meaning), dim, as the ESSENCE row's meaning line
+			for ml in phyl_meaning:
+				draw_string(ThemeDB.fallback_font, Vector2(_col, y), ml, HORIZONTAL_ALIGNMENT_LEFT, -1, _lab, Palette.c("text_dim"))
+				y += _row
 			# zero kinds are hidden; nothing at all is one dim word
 			_label(y, "BANKED")
 			_value(_col, y, banked_text if banked_text != "" else "none", null if banked_text != "" else Palette.c("text_dim"))
@@ -1005,6 +1089,8 @@ class WardenBlock:
 	var _key3 := -1
 	var _rows_t := 1.0
 	var break_rows: Array = []   # T4: the break / takes / counter lines (RaidHud.break_rows), drawn under the existing rows
+	var break_lines := PackedStringArray()   # those rows wrapped to the plate (RaidLogic.wrap_break_rows): what is drawn and counted in extra_h
+	var _wrap_w := -1.0
 
 	func _warden() -> RaidWarden:
 		if raid == null or raid.warden_run == null:
@@ -1029,11 +1115,14 @@ class WardenBlock:
 		if _rows_t >= 0.25:
 			_rows_t = 0.0
 			var nr := RaidHud.break_rows(raid, w.spec, int(w.meter_n))
-			if nr != break_rows:
+			if nr != break_rows or size.x != _wrap_w:
+				# the rows wrap to the plate's inner width, once per change (not per frame)
 				break_rows = nr
+				_wrap_w = size.x
+				break_lines = RaidLogic.wrap_break_rows(nr, ThemeDB.fallback_font, RaidLogic.BREAK_ROW_PX, size.x - 2.0 * RaidLogic.WARDEN_BLOCK_INSET)
 				_key = -1
 		var eh := (20.0 if w is RaidHuntsman else 0.0) + (20.0 if w.spec.has("pack") else 0.0) \
-			+ (20.0 * break_rows.size() + 6.0 if not break_rows.is_empty() else 0.0)
+			+ (RaidLogic.BREAK_ROW_STEP * break_lines.size() + 6.0 if not break_lines.is_empty() else 0.0)
 		if eh != extra_h:
 			extra_h = eh
 			offset_bottom = offset_top + RaidLogic.TOP_BLOCK_BASE_H + eh
@@ -1092,7 +1181,7 @@ class WardenBlock:
 		var w := _warden()
 		if w == null:
 			return
-		draw_rect(Rect2(Vector2.ZERO, size), Palette.c("ground", 0.62))
+		draw_rect(Rect2(Vector2.ZERO, size), Palette.c("ground", float(raid.rcfg().get("hud", {}).get("warden_plate_alpha", 0.96))))
 		var x0 := 12.0
 		var px0 := 150.0
 		var y := 26.0
@@ -1122,7 +1211,7 @@ class WardenBlock:
 				draw_arc(p, r - 0.6, 0.0, TAU, 14, Palette.c("undead"), 1.6)
 				draw_line(p + Vector2(-r * 0.7, r * 0.7), p + Vector2(r * 0.7, -r * 0.7), Palette.c("undead"), 1.6)
 			else:
-				draw_arc(p, r - 0.6, 0.0, TAU, 14, Palette.c("text_dim", 0.6), 1.3)
+				draw_arc(p, r - 0.6, 0.0, TAU, 14, Palette.c("text_dim", 0.8), 1.3)
 			x += 16.0
 		x = _text(x + 2.0, y, "%d/%d" % [lit, w.meter_n], 15)
 		y += 26.0
@@ -1161,7 +1250,7 @@ class WardenBlock:
 				if i < hw.catches:
 					draw_colored_polygon(pts, Palette.c("danger"))
 				else:
-					draw_polyline(pts, Palette.c("text_dim", 0.6), 1.3)
+					draw_polyline(pts, Palette.c("text_dim", 0.8), 1.3)
 				cx += 16.0
 			var x5 := cx + 2.0
 			if hw.catches > 0:
@@ -1199,9 +1288,9 @@ class WardenBlock:
 		_pack_row(w, x0, y + (44.0 if hw != null else 22.0))
 		# the new rows sit under the last of the existing ones (the Huntsman's catch row, a pack's row)
 		var ry := y + 22.0 * ((1.0 if hw != null else 0.0) + (1.0 if w.spec.has("pack") else 0.0))
-		for line in break_rows:
-			ry += 20.0
-			_text(x0, ry, str(line), 13, "text_dim")
+		for line in break_lines:
+			ry += RaidLogic.BREAK_ROW_STEP
+			_text(x0, ry, str(line), RaidLogic.BREAK_ROW_PX, "text_dim")
 
 
 ## Screen-space pointers over the world (a Node2D: it takes no input). The loot pointer: a faint
@@ -1331,7 +1420,7 @@ class PushLine:
 	func _line(f: Font, y: float, s: String) -> void:
 		var w := f.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
 		var x := size.x - w
-		draw_rect(Rect2(Vector2(x - 10.0, y - 3.0), Vector2(w + 12.0, 28.0)), Palette.c("ground", float(ConfigDb.data.get("raid", {}).get("hud", {}).get("plate_alpha", 0.86))))
+		draw_rect(Rect2(Vector2(x - 10.0, y - 3.0), Vector2(w + 12.0, 28.0)), Palette.c("ground", float(ConfigDb.data.get("raid", {}).get("hud", {}).get("plate_alpha", 0.96))))
 		draw_string(f, Vector2(x - 2.0, y + 17.0), s, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Palette.c("text"))
 
 	func _draw() -> void:

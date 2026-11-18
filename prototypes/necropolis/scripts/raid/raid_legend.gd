@@ -21,15 +21,15 @@ const L_SLOW := "slow time"
 const L_DRAG := "then drag a loop around essence to RAISE undead"
 const CAP_PAD := 7.0     # a key cap's side padding
 const CAP_VPAD := 5.0    # and its top and bottom
-const MIN_PX := 12      # nothing in the legend is set smaller
+const MIN_PX := 13      # nothing in the legend is set smaller
 const HDR_HIT := 44.0   # the header's hit band is at least this tall (touch floor)
 
 var is_open := true
-var _row_px := 14
-var _key_px := 13
+var _row_px := 15
+var _key_px := 14
 var _pad := 10.0
 var _gap := 8.0
-var _alpha := 0.86
+var _alpha := 0.97
 var _chip := Vector2(140.0, 44.0)
 var _header_rect := Rect2()
 var _rows: Array = []   # per row: [y, [[kind, text, x, w], ...]] kind "cap" or "txt"
@@ -44,11 +44,11 @@ func _init() -> void:
 
 ## `cfg` is raid.json's hud.legend; `open` the state to start in.
 func setup(cfg: Dictionary, open: bool) -> void:
-	_row_px = maxi(MIN_PX, int(cfg.get("row_px", 14)))
-	_key_px = maxi(MIN_PX, int(cfg.get("key_px", 13)))
+	_row_px = maxi(MIN_PX, int(cfg.get("row_px", 15)))
+	_key_px = maxi(MIN_PX, int(cfg.get("key_px", 14)))
 	_pad = float(cfg.get("pad_px", 10))
 	_gap = float(cfg.get("gap_px", 8))
-	_alpha = float(cfg.get("plate_alpha", 0.86))
+	_alpha = float(cfg.get("plate_alpha", 0.97))
 	_chip = Vector2(float(cfg.get("chip_w", 140)), maxf(44.0, float(cfg.get("chip_h", 44))))
 	is_open = open
 	_fit()
@@ -134,8 +134,8 @@ func _draw() -> void:
 			HORIZONTAL_ALIGNMENT_CENTER, size.x, _key_px, Palette.c("text"))
 		return
 	var hy := _hdr_base
-	draw_string(font, Vector2(_pad, hy), L_HEADER, HORIZONTAL_ALIGNMENT_LEFT, -1.0, _key_px, Palette.c("text_dim"))
-	draw_string(font, Vector2(_hdr_hide_x, hy), L_HIDE, HORIZONTAL_ALIGNMENT_LEFT, -1.0, _key_px, Palette.c("text_dim"))
+	draw_string(font, Vector2(_pad, hy), L_HEADER, HORIZONTAL_ALIGNMENT_LEFT, -1.0, _key_px, Palette.c("text"))
+	draw_string(font, Vector2(_hdr_hide_x, hy), L_HIDE, HORIZONTAL_ALIGNMENT_LEFT, -1.0, _key_px, Palette.c("text"))
 	for row in _rows:
 		var y: float = row[0]
 		var rh: float = row[1]
@@ -143,7 +143,7 @@ func _draw() -> void:
 			var x: float = it[2]
 			var bw: float = it[3]
 			if it[0] == "cap":
-				draw_rect(Rect2(x, y, bw, rh), Palette.c("text_dim"), false, 1.5)
+				draw_rect(Rect2(x, y, bw, rh), Palette.c("text"), false, 1.5)   # a bright outline: the cap reads as a key
 				draw_string(font, Vector2(x + CAP_PAD, y + rh * 0.5 + float(_key_px) * 0.36), it[1],
 					HORIZONTAL_ALIGNMENT_LEFT, -1.0, _key_px, Palette.c("text"))
 			else:

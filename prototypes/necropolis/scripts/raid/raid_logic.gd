@@ -230,6 +230,23 @@ static func close_exit(ended: bool, pending_exit: String) -> String:
 	return pending_exit if ended and pending_exit in ["relish_died", "warden_beaten"] else "retreated"
 
 
+## The outcome a checkpoint sent to the state carries (RaidEndings._send_checkpoint): the ending beat already
+## playing (`pending_exit`: relish_died or warden_beaten, from pending_on), else "retreated". A save written
+## mid-beat, or a crash, then ends the run as that ending on the next load, and no later checkpoint can
+## write "retreated" back over it. Any other string reads as a retreat.
+static func checkpoint_outcome(pending_exit: String) -> String:
+	return pending_exit if pending_exit in ["relish_died", "warden_beaten"] else "retreated"
+
+
+## What a checkpoint sends the state (RaidEndings._send_checkpoint): {outcome, loot}. Sticky in both: once an
+## ending beat has begun (`pending_exit` set) the loot is the one the ending sent (`ending_loot`: the win's,
+## or the death's banked), never the pre-ending `banked`, so no later call can write the chest back out. Before
+## an ending it is `banked` and "retreated". An empty loot is the empty loot shape (the state refuses {}). A copy.
+static func checkpoint_payload(pending_exit: String, ending_loot: Dictionary, banked: Dictionary) -> Dictionary:
+	var loot := ending_loot if (pending_exit != "" and not ending_loot.is_empty()) else banked
+	return {"outcome": checkpoint_outcome(pending_exit), "loot": empty_loot() if loot.is_empty() else loot.duplicate(true)}
+
+
 ## The exit an ending beat leaves pending when it starts: `chest_opened` (the warden's victory beat)
 ## -> warden_beaten, `relish_died` (her death beat) -> relish_died; "" for anything else.
 static func pending_on(event: String) -> String:
@@ -453,24 +470,127 @@ static func goal_rows(s: Dictionary) -> Array:
 	var rpx := int(s.get("route_px", 14))
 	var xpx := int(s.get("row_px", 13))
 	var fort := str(s.get("fort_name", ""))
+	var compact := bool(s.get("compact", false))   # the sleeping warden's ring lies under the full block: goal, BREAK, COUNTER, the short no-army row
 	if bool(s.get("held", false)):
 		rows.append({"text": goal_line(fort, "", true), "px": gpx, "key": "vei"})
 	elif bool(s.get("warden_alive", false)):
 		rows.append({"text": goal_line(fort, str(s.get("warden_name", "")), false), "px": gpx, "key": "vei"})
-		rows.append({"text": str(s.get("route_text", "")), "px": rpx, "key": "text"})
-		for r in s.get("break_rows", []):
-			rows.append({"text": str(r), "px": xpx, "key": "text_dim"})
+		if not compact:
+			rows.append({"text": str(s.get("route_text", "")), "px": rpx, "key": "text"})
+		var br: Array = s.get("break_rows", [])
+		for i in br.size():
+			if compact and br.size() > 2 and i > 0 and i < br.size() - 1:
+				continue   # the TAKES row (between the BREAK and COUNTER rows) waits for the full block
+			rows.append({"text": str(br[i]), "px": xpx, "key": "text_dim"})
 	elif bool(s.get("chest", false)):
 		rows.append({"text": goal_line(fort, str(s.get("warden_name", "")), false), "px": gpx, "key": "vei"})
 		rows.append({"text": CHEST_ROW, "px": rpx, "key": "text"})
 	if not rows.is_empty() and bool(s.get("no_army", false)):
-		rows.append({"text": NO_ARMY_LINE, "px": xpx, "key": "danger"})
+		rows.append({"text": NO_ARMY_SHORT if compact else NO_ARMY_LINE, "px": xpx, "key": "danger"})
 	return rows
+
+
+## The goal block shows its compact rows while the sleeping warden's ring (its screen rect, `ring_rect`; empty
+## when there is none to protect) meets the block's FULL rect (`full_rect`: the full rows' height, measured even
+## while compact is showing, so the block cannot flicker between the two).
+static func goal_compact(full_rect: Rect2, ring_rect: Rect2) -> bool:
+	return full_rect.has_area() and ring_rect.has_area() and full_rect.intersects(ring_rect)
+
+
+## A sleeping warden's presence picture as a screen rect: a square around the dashed outer ring. `center` is the
+## warden's screen point, `scale` the canvas scale (camera zoom), `radius` its world radius; `pc` is wardens.presence
+## (ring_mult, dash_gap_px). The glyph and the plinth lie inside it; `pad` screen px of margin.
+static func warden_ring_rect(center: Vector2, scale: float, radius: float, pc: Dictionary, pad := 4.0) -> Rect2:
+	var rs := radius * float(pc.get("ring_mult", 1.9)) * scale + float(pc.get("dash_gap_px", 7.0)) + pad
+	return Rect2(center - Vector2(rs, rs), Vector2(rs, rs) * 2.0)
+
+
+## WCAG 2 relative luminance of an sRGB colour.
+static func rel_luminance(c: Color) -> float:
+	var ch := [c.r, c.g, c.b]
+	for i in 3:
+		var v: float = ch[i]
+		ch[i] = v / 12.92 if v <= 0.03928 else pow((v + 0.055) / 1.055, 2.4)
+	return 0.2126 * float(ch[0]) + 0.7152 * float(ch[1]) + 0.0722 * float(ch[2])
+
+
+## WCAG contrast ratio of two opaque colours, 1 to 21 (alpha ignored: composite with `over` first).
+static func contrast_ratio(fg: Color, bg: Color) -> float:
+	var a := rel_luminance(fg)
+	var b := rel_luminance(bg)
+	return (maxf(a, b) + 0.05) / (minf(a, b) + 0.05)
+
+
+## `top` at `alpha` (times its own alpha) composited over the opaque `under` in sRGB, as Godot's 2D blend does
+## (this project does not enable hdr_2d). Opaque result.
+static func over(top: Color, alpha: float, under: Color) -> Color:
+	var a := clampf(alpha * top.a, 0.0, 1.0)
+	return Color(top.r * a + under.r * (1.0 - a), top.g * a + under.g * (1.0 - a), top.b * a + under.b * (1.0 - a), 1.0)
 
 
 ## The banner's top: `base` while no top-centre block shows, else stepped down 14 px under it, and further by
 ## what the block is taller than its TOP_BLOCK_BASE_H base (`block_h` is its height).
 const TOP_BLOCK_BASE_H := 62.0   # the awake WardenBlock's height with no extra rows
+
+const WARDEN_BLOCK_W := 680.0    # the awake WardenBlock's plate width
+const WARDEN_BLOCK_INSET := 12.0   # its text's inset each side
+const BREAK_ROW_PX := 13           # the break / takes / counter rows' font size
+const BREAK_ROW_STEP := 20.0       # one wrapped line's height
+
+
+## `text` in lines no wider than `max_w` at `font_px`: whole " · " chunks where they fit, a long chunk
+## broken at spaces (draw only: the StatBlock's DOOR row and the WardenBlock's break rows wrap on their plates).
+static func wrap_chunks(text: String, font: Font, font_px: int, max_w: float) -> PackedStringArray:
+	var out := PackedStringArray()
+	if text == "":
+		return out
+	var words := PackedStringArray()
+	var chunks := text.split(" · ")
+	for i in chunks.size():
+		var ws := chunks[i].split(" ")
+		for j in ws.size():
+			words.append(ws[j] + (" ·" if j == ws.size() - 1 and i < chunks.size() - 1 else ""))
+	var line := ""
+	for wd in words:
+		var trial := wd if line == "" else line + " " + wd
+		if line != "" and font.get_string_size(trial, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x > max_w:
+			out.append(line)
+			line = wd
+		else:
+			line = trial
+	if line != "":
+		out.append(line)
+	return out
+
+
+## The awake WardenBlock's break rows (break / takes / counter) wrapped to `max_w`, as the lines it draws.
+static func wrap_break_rows(rows: Array, font: Font, font_px: int, max_w: float) -> PackedStringArray:
+	var out := PackedStringArray()
+	for r in rows:
+		out.append_array(wrap_chunks(str(r), font, font_px, max_w))
+	return out
+
+
+## The hint's plate stacked up from `bottom_px` above the screen bottom (offsets from the bottom edge, negative
+## up): the sub-line (height `sub_h`, 0 for none) `gap` over the plate's bottom, the hint line over it, the plate
+## `gap` over the hint and `pad` wider than the wider line each side.
+static func hint_plate_layout(bottom_px: float, pad: float, gap: float, hint_w: float, hint_h: float, sub_w: float, sub_h: float) -> Dictionary:
+	var bottom := -bottom_px
+	var y := bottom - gap
+	var d := {"plate_bottom": bottom}
+	if sub_h > 0.0:
+		d["sub_bottom"] = y
+		y -= sub_h
+		d["sub_top"] = y
+	d["hint_bottom"] = y
+	y -= hint_h
+	d["hint_top"] = y
+	var w := maxf(hint_w, sub_w if sub_h > 0.0 else 0.0)
+	d["plate_left"] = -w * 0.5 - pad
+	d["plate_right"] = w * 0.5 + pad
+	d["plate_top"] = y - gap
+	return d
+
 
 static func banner_top(base: float, block_visible: bool, block_h: float) -> float:
 	if not block_visible:
@@ -533,6 +653,9 @@ static func card_skips(ev: InputEvent, t: float, gate: float) -> bool:
 ## T4: she has no undead with her, no loose essence, nothing carried and no corpse pile left to stir:
 ## nothing can be raised here.
 const NO_ARMY_LINE := "NO UNDEAD WITH YOU AND NOTHING TO RAISE · retreat, then send WAR here or bring big undead"
+## The StatBlock's floor-loot key, second line (13 px, on the 420 px plate: a test pins it to fit).
+const KEY_PILE_LINE := "grey ×9 = a corpse pile (bodies in it): walk close, it gives essence"
+const NO_ARMY_SHORT := "NO UNDEAD, NOTHING TO RAISE · retreat, then send WAR here or bring big undead"   # the compact goal block's form
 
 static func no_army(allies_alive: int, loose_motes: int, carried: int, piles_left: int) -> bool:
 	return allies_alive == 0 and loose_motes == 0 and carried == 0 and piles_left == 0
@@ -617,17 +740,23 @@ static func clear_card_title(fort_name: String) -> String:
 ## pays (`loot` = loot_counts of RaidLogic.result_loot("warden_beaten", ...)), and what comes next.
 static func clear_card_rows(warden_name: String, loot: Dictionary) -> Array:
 	var ll := loot_line(loot)
-	return [
+	var rows: Array = [
 		{"label": "BROKEN", "text": warden_name, "key": "vei"},
 		{"label": "TAKEN", "text": "its living become your dead · it joins your realm as a held fort", "key": "text"},
 		{"label": "LOOT", "text": ll if ll != "" else "nothing this time", "key": "text"},
-		{"label": "NEXT", "text": "Vei contests it once its grace runs out · send WAR there to hold it", "key": "text_dim"},
 	]
+	var uses := loot_uses_line(loot)
+	if uses != "":
+		rows.append({"label": "USE", "text": uses, "key": "text_dim"})
+	rows.append({"label": "NEXT", "text": "Vei contests it once its grace runs out · send WAR there to hold it", "key": "text_dim"})
+	return rows
 
 
 ## The death card's geometry (RaidDeathCard._draw reads it, and so does the clear card; the test measures the
 ## widest value against it): card width, padding, the label column, the value font size.
-const DEATH_CARD := {"w": 560.0, "pad": 22.0, "label_w": 120.0, "value_px": 18}
+## label_px / foot_px: the dim label column and footer sizes; backdrop_a the world-dimming rect behind the card,
+## plate_a the card's own ground plate (the contrast test composites both over the brightest world colour).
+const DEATH_CARD := {"w": 560.0, "pad": 22.0, "label_w": 120.0, "value_px": 18, "label_px": 14, "foot_px": 14, "backdrop_a": 0.55, "plate_a": 0.96}
 
 
 ## The death card's rows [{label, text, key}] (key: a Palette key): who killed her, the tell she missed when
@@ -718,6 +847,15 @@ static func hint_text(trance_active: bool, at_exit: bool) -> String:
 	return HINT_IDLE
 
 
+## The idle hint's second line (dim, under HINT_IDLE): shown while nothing has been raised yet, and only
+## when the idle line itself shows (the trance's and the exit's instructions stand alone).
+const HINT_IDLE_SUB := "your undead fight on their own · keep Relish safe and raise more"
+
+
+static func hint_sub_text(trance_active: bool, at_exit: bool, raised_any: bool) -> String:
+	return "" if (trance_active or at_exit or raised_any) else HINT_IDLE_SUB
+
+
 ## The "your undead fight on their own" cue is due once: an undead stands and (a living has died or
 ## `delay_s` scene seconds have passed).
 static func undead_cue_due(shown: bool, kills: int, scene_s: float, delay_s: float, allies_alive: int) -> bool:
@@ -752,6 +890,14 @@ static func exposed_tint(level: float, cfg: Dictionary) -> float:
 ## whatever her hp: the chain and her hp still stand between her and it).
 static func phylactery_word(phyl_left: int) -> String:
 	return "" if phyl_left > 0 else "NO REVIVE · death ends the run"
+
+
+## The PHYLACT. row's dim sub-lines, one string per row. No charge: the glossary's Jargon line in two rows (where a
+## charge comes from matters most then). With charges: one row, what one does now.
+static func phylactery_meaning(phyl_left: int) -> PackedStringArray:
+	if phyl_left > 0:
+		return PackedStringArray(["a death here revives her in place, once"])
+	return PackedStringArray(["revives Relish in place, at most once per dungeon.", "The Ossuary Tower crafts it from essence."])
 
 
 ## Sacrifice chain (MECHANICS 5.0): rank 0 chaff tier (raised chaff, garrison, starters),
@@ -1259,14 +1405,66 @@ static func death_rows_with_shut(rows: Array, shut: String) -> Array:
 ## (`keep` is loot_counts of what a retreat pays: everything found plus the carried essence, as
 ## result_loot builds it), and what stays: the fort stays Vei's (a held fort stays yours). `door_line`
 ## is held_door_retreat_line's text, its leading newline dropped ("" for none).
-static func retreat_lines(held: bool, keep: Dictionary, door_line: String) -> PackedStringArray:
-	var out := PackedStringArray(["You keep everything you found and all carried essence."])
+## The panel's left column ("RETREAT NOW"), lines [{text, key}]: what a retreat keeps, its counts, what
+## the loot is for (dim, only with something found), then what stays.
+static func retreat_keep_lines(held: bool, keep: Dictionary, door_line: String) -> Array:
+	var out: Array = [{"text": "You keep everything you found and all carried essence.", "key": "text"}]
 	var now := loot_line(keep)
-	out.append("  now: " + (now if now != "" else "nothing yet"))
-	out.append("The fort stays yours." if held else "The fort stays Vei's · you can come back and break its warden.")
+	out.append({"text": "  " + (now if now != "" else "nothing found yet"), "key": "text"})
+	var uses := loot_uses_line(keep)
+	if uses != "":
+		out.append({"text": uses, "key": "text_dim"})
+	out.append({"text": "The fort stays yours." if held else "The fort stays Vei's · you can come back and break its warden.", "key": "text"})
 	var d := door_line.strip_edges()
 	if d != "":
-		out.append(d)
+		out.append({"text": d, "key": "text"})
+	return out
+
+
+const RETREAT_HEAD := "RETREAT NOW"
+const FALL_HEAD := "IF RELISH FALLS"
+
+
+## The panel's right column ("IF RELISH FALLS"), lines [{text, key}], from the death card's own pieces:
+## `revive_left` phylactery charges spendable now (the once-per-dungeon rule applied: RaidEndings.phylactery_left),
+## the unbanked loot and party big count the card's LOST row reads (death_lost_line), and its AFTER row
+## (death_next_row). With a charge left a death revives her in place, so LOST and AFTER would not apply.
+static func retreat_fall_lines(revive_left: int, unbanked: Dictionary, party_n: int, next_row: Dictionary, shut := "") -> Array:
+	if revive_left > 0:
+		return [{"text": "a phylactery charge revives her here (at most once per dungeon)", "key": "relish"}]
+	var lost := death_lost_line(unbanked, party_n)
+	var out: Array = [{"text": "LOST · " + lost, "key": "danger" if lost != "nothing" else "text_dim"}]
+	if shut != "":
+		# the big shut in at the cache (`shut`, its name) is lost too: the death card's own row, before AFTER
+		var sr := held_door_card_row(shut)
+		out.append({"text": "%s · %s" % [sr["label"], sr["text"]], "key": sr["key"]})
+	out.append({"text": "AFTER · " + str(next_row.get("text", "")), "key": str(next_row.get("key", "text"))})
+	return out
+
+
+## What each kind of loot in `counts` (loot_counts) is for, in the glossary's words: "" when none applies.
+## Blueprints have no use line.
+static func loot_uses_line(counts: Dictionary) -> String:
+	var parts: PackedStringArray = []
+	if int(counts.get("relics", 0)) > 0:
+		parts.append("relics are spent when you build")
+	if int(counts.get("husks", 0)) > 0:
+		parts.append("husk: the frame a big undead is raised in · lay it on the crypt slab and slot remnants to shape it")
+	elif int(counts.get("remnants", 0)) > 0:
+		parts.append("remnants feed the crypt slab, which raises big undead")
+	if int(counts.get("essence", 0)) > 0:
+		parts.append("essence pays for backups (Ossuary Tower)")
+	return " · ".join(parts)
+
+
+## The big undead whose stat the COUNTER line counts: alive, a big (kind), in the party (role), and not the
+## one spent on the held door (`holder`: its plate-bound big stays in raid.allies until it is shut in, but
+## the warden's own counter checks must not see it as standing). Their `stat` values (unit_stat), in order.
+static func counter_party_values(allies: Array, stat: String, holder = null) -> Array:
+	var out: Array = []
+	for a in allies:
+		if is_instance_valid(a) and a.alive and a.kind == "big" and a.role == "party" and a != holder:
+			out.append(unit_stat(a, stat))
 	return out
 
 

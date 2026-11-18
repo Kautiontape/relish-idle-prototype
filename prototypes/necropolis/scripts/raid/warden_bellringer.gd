@@ -28,7 +28,8 @@ var _slam_tells := 0           # slam tells begun (the toll lands on every attac
 var tolls_struck := 0          # of them, those that struck her
 var toll_exit_at := Vector2.INF   # the exit WardenLogic.toll_exit found for this tell's toll (the decent player's step)
 var toll_beats := 0            # toll beats with her in the room beyond the slam's reach (telemetry: tolls / toll_beats placed)
-var toll_exit_px_max := 0.0    # the longest exit path among the tolls placed (telemetry: the worst-case margin)
+var toll_exit_px_max := 0.0    # the longest exit path among the tolls placed (telemetry: the worst case over placed tolls, a horn-cancelled one included)
+var _toll_beat_booked := false # this tell's beat is counted in toll_beats (cleared when the slam begins or a horn cancels it)
 var toll_marks := {}           # telemetry: "%.4f" slam beat of each toll placed -> "placed", "struck" or "muffled"
 var _toll_word_t := 99.0       # draw only: seconds since a toll resolved
 var _toll_word_at := Vector2.ZERO
@@ -82,7 +83,11 @@ func _contacts() -> Array:
 func _step(delta: float) -> void:
 	if _pack_step(delta):   # its pack runs: no tell until a beat after the last falls (one threat at a time)
 		_next_attack = maxf(_next_attack, ceilf(beat()) + float(spec.get("attack", {}).get("tell_beats", 1.0)) + float(spec.get("attack", {}).get("pack_rest_beats", 1.0)))
-		toll_at = Vector2.INF   # a horn over a toll's tell: that toll never lands (draw only; as the Shieldwall's _end_rush)
+		if _toll_beat_booked:   # a horn over a booked beat's tell: nothing lands, so the beat is not booked either, placed toll or not (telemetry)
+			toll_beats = maxi(0, toll_beats - 1)
+			toll_marks.erase("%.4f" % _tell_for)
+			_toll_beat_booked = false
+		toll_at = Vector2.INF   # (as the Shieldwall's _end_rush)
 		toll_exit_at = Vector2.INF
 	muffled = WardenLogic.is_muffled(spec, _contacts())
 	var b := beat()
@@ -90,7 +95,7 @@ func _step(delta: float) -> void:
 	var rel0: RaidRelish = raid.relish
 	if rel0 != null and is_instance_valid(rel0) and rel0.alive and _slam_beat < 0.0 \
 			and WardenLogic.is_tell(b, _next_attack, float(at.get("tell_beats", 1.0))) \
-			and rel0.global_position.distance_to(global_position) <= float(at.get("radius_px", 360.0)):
+			and rel0.global_position.distance_to(global_position) <= WardenLogic.slam_edge_px(spec):
 		raid.danger_targeted()   # her edge warns while the slam tell reaches her
 	if _slam_beat < 0.0 and _tell_for != _next_attack and WardenLogic.is_tell(b, _next_attack, float(at.get("tell_beats", 1.0))):
 		_tell_for = _next_attack
@@ -107,10 +112,11 @@ func _step(delta: float) -> void:
 		# else that slam tolls nothing)
 		toll_at = Vector2.INF
 		toll_exit_at = Vector2.INF
-		var slam_reach := float(at.get("radius_px", 360.0)) + float(at.get("band_px", 36.0)) * 0.5
+		var slam_reach := WardenLogic.slam_edge_px(spec)
 		if toll_r > 0.0 and rel0 != null and is_instance_valid(rel0) and rel0.alive \
 				and room.has_point(rel0.global_position) and rel0.global_position.distance_to(global_position) > slam_reach + rel0.radius:
 			toll_beats += 1
+			_toll_beat_booked = true
 			var budget := (float(at.get("tell_beats", 1.0)) * tempo_s() - float(at.get("toll_react_s", 0.6))) * rel0.speed
 			toll_exit_at = WardenLogic.toll_exit(room, rel0.global_position, global_position, toll_r, rel0.radius,
 				slam_reach + rel0.radius, float(at.get("toll_exit_margin_px", 16.0)), budget)
@@ -120,6 +126,7 @@ func _step(delta: float) -> void:
 				toll_exit_px_max = maxf(toll_exit_px_max, toll_at.distance_to(toll_exit_at))
 	if _slam_beat < 0.0 and b >= _next_attack:
 		_slam_beat = _next_attack
+		_toll_beat_booked = false   # the slam has begun: a horn after it cancels nothing
 		_last_attack = _next_attack
 		_slam_prev_r = 0.0
 		_slam_muffled = muffled
@@ -136,7 +143,7 @@ func _step(delta: float) -> void:
 				and WardenLogic.toll_strikes(rp, toll_at, toll_r, rel0.radius, muffled, in_ring)
 			if struck:
 				tolls_struck += 1
-				rel0.take_hit(WardenLogic.slam_damage(spec, "relish", 0.0, false), "toll")   # its own source: the card tells it from the slam
+				rel0.take_hit(WardenLogic.slam_damage(spec, "relish", 0.0, false, true), "toll")   # its own source: the card tells it from the slam
 			_toll_word = "MUFFLED" if muffled else ("TOLLED" if struck else "")
 			toll_marks["%.4f" % _slam_beat] = "muffled" if muffled else ("struck" if struck else "placed")
 			_toll_word_at = toll_at
@@ -197,7 +204,7 @@ func _apply_slam(r_prev: float, r_now: float, band: float) -> void:
 		var d: float = a.global_position.distance_to(global_position)
 		if WardenLogic.slam_crosses(d, r_prev, r_now, band):
 			var big: bool = a.kind == "big"
-			a.take_hit(WardenLogic.slam_damage(spec, "big" if big else "unit", a.beef if big else 0.0, _slam_muffled))
+			a.take_hit(WardenLogic.slam_damage(spec, "big" if big else "unit", a.beef if big else 0.0, _slam_muffled, true))   # the lever only gates her damage
 	var rel: RaidRelish = raid.relish
 	var lev := WardenLogic.lever_on(int(spec.get("tier", 1)), bool(spec.get("first_dungeon", false)), wcfg())
 	if rel != null and is_instance_valid(rel) and rel.alive \
