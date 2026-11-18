@@ -320,7 +320,7 @@ func _card_shift(t: TestUtil) -> void:
 	t.ok(HudLogic.label_key(3, 1.0, "mid", 5, open_pk) != HudLogic.label_key(3, 1.0, "mid", 5, base_pk) and HudLogic.label_key(3, 1.0, "mid", 5) == HudLogic.label_key(3, 1.0, "mid", 5, base_pk),
 		"the label cache key changes when the card opens")
 	t.ok(HudLogic.label_key(3, 1.0, "mid", 5, open_pk) != HudLogic.label_key(3, 1.0, "mid", 5, NodeLogic.panel_key(NodeLogic.panel_of(1100.0, 0.0, 1.0, 1600.0))), "and when it moves")
-	var ck := func(pk: Array): return SetpieceLogic.callout_key("x", 1.0, Vector2.ZERO, Vector2(1600, 900), "mid", 3, Vector2.ZERO, [], pk)
+	var ck := func(pk: Array): return SetpieceLogic.callout_key("x", 1.0, Vector2.ZERO, Vector2(1600, 900), "mid", 3, Vector2.ZERO, [], [], pk)
 	t.ok(ck.call(base_pk) != ck.call(open_pk) and ck.call(open_pk) != ck.call(NodeLogic.panel_key(NodeLogic.panel_of(1100.0, 0.0, 1.0, 1600.0))), "the set-piece callout key changes when the card opens or moves")
 	var src := FileAccess.get_file_as_string("res://scripts/map/map_fort_idle.gd")
 	t.ok(src.contains("NodeLogic.panel_key(ctx.panel)"), "the chip layout's key carries the card")
