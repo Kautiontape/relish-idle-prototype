@@ -94,6 +94,7 @@ var _living_cap := 0.0
 var _haul_speed := 0.0
 var _carry := 0.0
 var _auto_min := 0.0
+var _substep := 0.0  # economy.json sim.substep_s, live play's step (_haul_wait_s); 0 when absent
 var _haul_mult := 0.0
 var _mill_mass := 0.0
 var _mill_rate := 0.0
@@ -182,6 +183,12 @@ var staffing := {}
 ## "pits_first" when the pits took bodies and the supply fell short of both; "no_bodies" when the
 ## pits took none either (nothing in the store or landing, or no staffed pit). STATE-API §5.9.
 var mill_starved := ""
+## Why the staffed stalls sold less than their hands can in the last step (never saved; "" before a first step,
+## after a new game and after a load): "living_first" when the living's shopping (living · market.shop_rate) is
+## under the staffed stalls' rate (staffed · stall.rate) by more than float noise, so a Market level, which adds
+## stalls, sells nothing more; "" when the stalls bind or none are staffed (E4 step 10, review-t7r1r2 §5: the
+## Market side of the input-limited lever). The queue's gold-short rows read it (STATE-API §5.9).
+var trade_starved := ""
 var _by_lot := {}  # lot_id -> {job: staffed}
 ## The allocation's rooms (staff_rooms), cached: they change only when the ladder, a building (its
 ## arrival or removal, state, level or staff cap) or the vats do, and every place that changes one
@@ -233,6 +240,7 @@ func setup(cfgs: Dictionary) -> void:
 	_haul_speed = _num(cfgs, "economy.job.haul.speed")
 	_carry = _num(cfgs, "economy.job.haul.carry")
 	_auto_min = _num(cfgs, "economy.job.haul.auto_min_dead")
+	_substep = float((cfgs.get("economy", {}) as Dictionary).get("sim", {}).get("substep_s", 0.0))
 	_mill_mass = _num(cfgs, "economy.job.mill.mass_per_s")
 	_mill_rate = _num(cfgs, "economy.job.mill.rate")
 	_forge_rate = _num(cfgs, "economy.job.forge.rate")
@@ -325,6 +333,7 @@ static func _d(v: Variant) -> Dictionary:
 ## BALANCE §0: the start buildings on their lots, the opening stocks and the default ladder.
 func new_game() -> void:
 	mill_starved = ""
+	trade_starved = ""
 	workers = float(_start["workers"])
 	bodies = float(_start["bodies"])
 	gold = float(_start["gold"])
@@ -518,6 +527,7 @@ func clone() -> TownSim:
 	c._haul_speed = _haul_speed
 	c._carry = _carry
 	c._auto_min = _auto_min
+	c._substep = _substep
 	c._haul_mult = _haul_mult
 	c._mill_mass = _mill_mass
 	c._mill_rate = _mill_rate
@@ -565,6 +575,9 @@ func clone() -> TownSim:
 	# projection reads pit_weight() before its first step's restaff refills it (StateViews._proj_step's mint)
 	c.staffing = staffing.duplicate(true)
 	c._by_lot = _by_lot.duplicate(true)
+	# the last step's reasons (the E4 final review's item 6): a queue walk on the twin reads them as on this one
+	c.mill_starved = mill_starved
+	c.trade_starved = trade_starved
 	c._mark_rooms()
 	return c
 
@@ -692,6 +705,8 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	var sales := _sales()
 	var gold_in := sales * _price * _job_f("stall") * dt
 	gold += gold_in
+	# the stalls' reason (trade_starved): the living buy less than the staffed stalls could sell
+	trade_starved = trade_bound()
 
 	# 5. the forge: work toward the next q level; a level completes only with its relics
 	var forge_work := 0.0
@@ -927,6 +942,11 @@ func idle_cap() -> float:
 ## inside the realm step. Without it a long step's dead-limited leg missed them, and they waited at the
 ## fort, where some were cleared: the I1 first away's convoy, leaving at auto_min_dead, made 99 such legs
 ## in 2 400 s and landed 1.7% less at 3 s than at 0.5 s (MECHANICS §4.2).
+## The wait (E4 step 10, the I1 bone-gap probe): an auto convoy at home with no fort above auto_min_dead leaves at
+## the step's first sim.substep_s mark after a fort's projected corpses pass it (_haul_wait_s), as live play's next
+## substep finds it. Before (0b2a9ec), it waited for the step's end: over a build-free hour of the I1 first away (from 3 000 s)
+## a 3 s catch-up milled 303 bone mass against 246 at 0.5 s and open (the pits' feed loop amplifies the later, larger
+## loads), and the sessions run's bone read 233 caught up against 59 open at 14 400 s.
 ## Returns the mass landed.
 func _haul(dt: float, inp: Dictionary, crew_now: float, cap: float, out: Dictionary, b0: float, net: float) -> float:
 	_haul_trip = -1.0
@@ -955,7 +975,13 @@ func _haul(dt: float, inp: Dictionary, crew_now: float, cap: float, out: Diction
 				break
 			var fid := _haul_pick(forts, target, taken, late, dt - left)
 			if fid == "":
-				break
+				var s_dep := _haul_wait_s(forts, target, taken, late, dt - left, dt)
+				if s_dep >= dt or clampf(lvl + net * (s_dep - at_lvl), 0.0, hi) >= cap - EPS:
+					break
+				left = dt - s_dep
+				fid = _haul_pick(forts, target, taken, late, s_dep)
+				if fid == "":
+					break
 			var trip := maxf(MIN_TRIP_S, cov.distance_to(_xy(by_id[fid].get("pos", [0.0, 0.0]))) / speed)
 			convoys.append({"fort": fid, "phase": "out", "t": 0.0, "trip_s": trip, "load": 0.0, "crew": crew_now})
 			haul["current"] = fid
@@ -1023,6 +1049,34 @@ func land_claim(mass: float, landed: bool, dt: float) -> float:
 			rb["in"] = float(rb["in"]) + got / dt
 			rb["haul"] = float(rb["haul"]) + got / dt
 	return got
+
+
+## The moment, seconds into the step, an auto convoy waiting at home after `at` finds a target: the first sim.substep_s
+## mark of the step at or after the first fort's projected corpses (RealmSim.dead_at, less this step's legs) pass
+## job.haul.auto_min_dead, as live play's next substep would find it; `dt` (none in the step) when no fort passes it
+## before the step's end or the target is set. A live step is one substep, so it has no mark inside: live play is as
+## before, and a catch-up step no longer holds the convoy at home to its end.
+func _haul_wait_s(forts: Array, target: String, taken: Dictionary, late: Dictionary, at: float, dt: float) -> float:
+	if target != "auto" or not (_substep > 0.0):
+		return dt
+	var cross := INF
+	for f in forts:
+		var rate := float(f.get("dead_rate", 0.0))
+		if not (rate > 0.0):
+			continue
+		var id := str(f.get("id", ""))
+		var s := (_auto_min + float(taken.get(id, 0.0)) + float(late.get(id, 0.0)) - maxf(0.0, float(f.get("dead", 0.0)))) / rate
+		cross = minf(cross, s)
+	if cross >= dt:
+		return dt
+	var k := ceilf(maxf(cross, at) / _substep - 1e-9)
+	var s_dep: float = k * _substep
+	if s_dep <= at + 1e-9:
+		s_dep += _substep
+	# the pick is strict (dead > auto_min_dead): a mark exactly on the crossing finds none, so the next mark
+	if s_dep <= cross + 1e-9:
+		s_dep += _substep
+	return s_dep if s_dep < dt - 1e-9 else dt
 
 
 ## The convoy's target at a departure `at` seconds into the step: the set one, or (auto) the fort with
@@ -1857,6 +1911,16 @@ func gold_income() -> float:
 	return _sales() * _price * _job_f("stall")
 
 
+## What binds the stalls at today's staffing and living (the state gold_income() reads): "living_first" when the
+## living's shopping (living · market.shop_rate) is under the staffed stalls' rate (staffed · stall.rate) by more than
+## float noise, else "" (the stalls bind, or none are staffed). Step 4 sets trade_starved with it at the step's own
+## state; the upkeep gate's away line reads it at the report, the state the gate evaluates (the E4 final review's
+## item 7), since the living (step 7) and the staffing (step 10) move after step 4 inside a step.
+func trade_bound() -> String:
+	var stall_cap := _job("stall") * _stall_rate
+	return "living_first" if stall_cap > 0.0 and living * _shop_rate < stall_cap * (1.0 - 1e-9) else ""
+
+
 ## The resume rule's income test (E4 step 4, the run's manager's ruling on the gold-trap stop: (i), gold only): an
 ## unpaid building with gold upkeep `own` may resume only while the gold income (`income`, g/s) exceeds the paying
 ## upkeep (`due`) plus its own by economy.json upkeep.resume_net_min (0: strictly positive), so a town whose income
@@ -2083,6 +2147,7 @@ func to_dict() -> Dictionary:
 
 func from_dict(d: Dictionary) -> void:
 	mill_starved = ""
+	trade_starved = ""
 	workers = float(d.get("workers", 0.0))
 	bodies = float(d.get("bodies", 0.0))
 	gold = float(d.get("gold", 0.0))

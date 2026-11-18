@@ -17,8 +17,10 @@ func run() -> int:
 	_formula()
 	_views_agree()
 	_fight_reads_strain()
+	_sim_blind()
 	_valve_projection()
 	_away_line()
+	_strain_label()
 	return t.failures
 
 
@@ -84,7 +86,23 @@ func _fight_reads_strain() -> void:
 		float(a.view_vei()["odds"]), float(b.view_vei()["odds"])])
 
 
-## The map valve's "odds in 10 min" (ValveLogic.payoff) projects the win odds view_vei shows: at a zero differential its
+## The step 9 review's item 3, end to end: nothing the sim steps reads the win odds. Two games, the odds block as shipped
+## and at time_weight 0, cap 1 (the strain: 69542f2's revert proof, kept in the suite), from day 3 with a backlog, stepped
+## an hour of live substeps: their saves (to_dict: the realm, the town, every stock, Vei's queues and clocks) are the same
+## bits, while view_vei's odds differ.
+func _sim_blind() -> void:
+	var a := _game()
+	var b := _game(0.0, 1.0)
+	for s in [a, b]:
+		s.t = 3.0 * 86400.0
+		s.realm.vei["undead_queue"] = 1.4 * float(s._cfg()["K"])
+		for i in 60:
+			s.tick(60.0)  # (uncapped: 120 live substeps a call, no gap)
+	t.ok(float(a.view_vei()["odds"]) != float(b.view_vei()["odds"]), "(setup) the odds differ after the hour: %.4f against %.4f" % [
+		float(a.view_vei()["odds"]), float(b.view_vei()["odds"])])
+	var ja := JSON.stringify(a.to_dict(), "", true)
+	var jb := JSON.stringify(b.to_dict(), "", true)
+	t.ok(ja == jb and a.t == b.t, "an hour of live play at time_weight 0.7 and at 0 saves the same state (%d chars, t %.1f)" % [ja.length(), a.t])
 ## "now" side is win_odds at age + the window on the same strain; without the odds block it is the strain, as before.
 func _valve_projection() -> void:
 	var s := _game()
@@ -118,3 +136,39 @@ func _away_line() -> void:
 	var tail := line.get_slice(" · odds ", 1)
 	t.ok(tail.get_slice(" → ", 0) == "%.2f" % o0 and tail.get_slice(" → ", 1) == "%.2f" % float(s.view_vei()["odds"]),
 		"the backlog line's odds are the win odds at the start and now: %s (%.3f → %.3f)" % [line, o0, float(s.view_vei()["odds"])])
+
+
+## The ▲/▼ is the backlog's sign (the differential's EMA), while the odds are mostly time and climb on a ▼, so wherever the
+## map shows it with the odds it is labelled as the strain and never follows the percent (E4 step 10, the step 9 review's
+## item 4; the run's manager's 2026-11-17 16:40 ruling): the top bar's STRAIN label before the glyph, Vei's node "61%"
+## over "strain ▲ · drain …", the card's row, the pinned odds and the BEGIN dialog. Before this they read "61% ▲ gaining".
+func _strain_label() -> void:
+	t.suite("win-odds-strain-label")
+	var words := {1: "strain ▲ rising", 0: "strain holding", -1: "strain ▼ falling"}
+	for sg in [1, 0, -1]:
+		var ro := {"odds": 0.61, "sign": sg, "drain_s": 520.0, "backlog": 18000.0}
+		var pin := CardLogic.pinned_odds(ro)
+		var conf := CardLogic.confirm_text(ro)
+		t.ok(pin == "Your odds 61%% · %s · drains in 8m 40s" % words[sg], "sign %d: the pinned odds (%s)" % [sg, pin])
+		t.ok(conf.contains("Odds 61%% · %s · drains in 8m 40s" % words[sg]), "sign %d: the BEGIN dialog (%s)" % [sg, conf.replace("\n", " / ")])
+		for txt in [pin, conf]:
+			t.ok(not txt.contains("% ▲") and not txt.contains("% ▼") and not txt.contains("%▲") and not txt.contains("%▼"),
+				"sign %d: no glyph right after the percent (%s)" % [sg, str(txt).replace("\n", " / ")])
+	t.ok(NodeLogic.strain_line(1, 18000.0, 520.0) == "strain ▲ · drain 8m 40s" and NodeLogic.strain_line(-1, 18000.0, -1.0) == "strain ▼ · drain ∞"
+		and NodeLogic.strain_line(0, 0.0, -1.0) == "strain holding · queue empty",
+		"Vei's node: the line under the odds (%s)" % NodeLogic.strain_line(1, 18000.0, 520.0))
+	var vei_src := FileAccess.get_file_as_string("res://scripts/map/map_vei.gd")
+	t.ok(vei_src.contains("NodeLogic.strain_line(") and not vei_src.contains("MapLogic.sign_glyph("), "Vei's node draws the odds alone and the glyph on the strain line")
+	# A source-order check, accepted as is (the E4 final review's item 4; the run's manager's 2026-11-17 20:20 ruling 9): it
+	# fails if the order is edited, and would pass a label built but never added, or hidden. Building the real bar
+	# headless was tried (MapHud.new() then _build_bar([]), which needs no tree): map_hud.gd doesn't compile under the
+	# --script runner ("Identifier not found: Game", the autoload its _ready connects to), so the suite can't load it.
+	# The bar's screenshots (reports/economy/e4-strain-label-*.png) are the visual check
+	var hud_src := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
+	var at_odds := hud_src.find("_odds = _bar_label(")
+	var at_label := hud_src.find("cfg[\"strain_label\"]")
+	var at_sign := hud_src.find("_sign = _bar_label(")
+	t.ok(at_odds >= 0 and at_odds < at_label and at_label < at_sign, "the top bar puts the STRAIN label between the odds and the glyph")
+	t.ok(str(MapLogic.cfg()["strain_label"]) == "STRAIN", "the top bar's label reads STRAIN")
+	var sl := str(MapLogic.cfg()["cards"]["vei_sign_label"])
+	t.ok(sl.begins_with("STRAIN") and not sl.contains("winning"), "the Vei card's row is the strain's, not 'winning' (%s)" % sl)

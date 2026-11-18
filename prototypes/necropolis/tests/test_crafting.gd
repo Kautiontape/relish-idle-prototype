@@ -293,12 +293,12 @@ func _gate_by_effect() -> void:
 	b.relics = 12
 	t.ok(b.town_sim.start_construction(OSSUARY_LOT, "ossuary_tower", 1)["ok"] and b.cmd_craft("simulacrum")["reason"] == "needs_building",
 		"an Ossuary on its first build (level 0) doesn't craft yet")
+	# E4 step 10: the Ossuary has one level (max_level 1); its L2 and L3 bought nothing (a level-2 Ossuary crafted as
+	# level 1 did, one item a craft), so neither is offered, nor can one be placed
 	var l2 := _mk()
-	l2.town_sim.place_building(OSSUARY_LOT, "ossuary_tower", 2)
-	l2.essence = 60
-	l2.relics = 12
-	t.ok(l2.town_sim.built_effect("craft_slots") == 2.0 and l2.cmd_craft("simulacrum")["count"] == 1,
-		"a level-2 Ossuary (craft_slots 2) crafts as level 1 does: one item a craft")
+	t.ok(int(l2._cfgs["buildings"]["ossuary_tower"]["max_level"]) == 1 and not l2.town_sim.place_building(OSSUARY_LOT, "ossuary_tower", 2)
+		and l2.town_sim.place_building(OSSUARY_LOT, "ossuary_tower", 1) and l2.town_sim.built_effect("craft_slots") == 1.0,
+		"the Ossuary has one level: a level 2 can't be placed, level 1 gives craft_slots 1")
 
 
 ## A capacity effect (TownSim.CAPACITY_EFFECTS): an unpaid Ossuary still crafts, and so does one the Thrift stance

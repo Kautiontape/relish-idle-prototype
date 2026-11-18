@@ -138,7 +138,8 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
   `view_backups().death` reads it (a clone ready), nothing inside a catch-up does (no run is open during one: every
   run ends before it starts), so a step that contains the fill ends at exactly 1, as live play's would. A tended
   pre_vei vat fills 310 s into a 12 h catch-up at its 10 s steps against 300.5 s live, within one step
-  (`test_backups`). With no vat tended a 12 h catch-up from each fixture is bit-identical to 646f288's (state, events,
+  (`test_backups`). Since 4f8b493 a ready vat gives its tend hand back at the end of that step, so caught up the hand
+  returns up to one step late (§8's known gap, with its bound). With no vat tended a 12 h catch-up from each fixture is bit-identical to 646f288's (state, events,
   away report; `test_backups`).
 - **The foremen** (E3-3, MECHANICS §4.2) can't change inside a catch-up: they move only by command
   (`cmd_place_big_undead`, `cmd_set_party`, a demolish or a cancelled build sending one home), and every command
@@ -737,6 +738,19 @@ a **"While you were away"** panel. It is ordered **gains, then ready actions, th
       current income of 0/s bone: the pits are eating every body. Raise WAR, or move it down"
       (`idle.report.afford_starved_fmt`; `afford_starved_last_fmt` without the move down, the same rule). Below a new
       game's bone edge (`view_hud.bone_war_share`, MECHANICS §4.2) day 1's first queue sits here.
+    - **the living buying less than the stalls can sell** (E4 step 10, review-t7r1r2 §5, the Market side): never on
+      gold while the head row's `starved` is `living_first` (gold is min(staffed stalls · `stall.rate`, living ·
+      `market.shop_rate`), so a Market level adds stalls and sells nothing more), ahead of the producer form: "House
+      level 2 can't be afforded, 54 gold short at the current income of −0.050/s gold: the living buy less than the
+      stalls can sell. Build housing or an Inn, or move it down" (`idle.report.afford_living_fmt`;
+      `afford_living_last_fmt` without the move down). The upkeep gate's line takes the same lever in that state:
+      "House waits: the current income of +0.050/s gold can't pay its upkeep, and the living buy less than the stalls
+      can sell: build housing or an Inn" (`afford_upkeep_living_fmt`). "That state" is the one the gate evaluated
+      (`TownSim.trade_bound()` at the report, beside the `gold_income()` the gate reads), not the last step's flag: the
+      living and the staffing move after the stalls inside a step, so a catch-up's last step can start under the bind
+      and end over it (the E4 final review's item 7; test_trade_starved (h)). The income test's "Still stopped … Build a
+      Market" (`unpaid_upkeep_fmt`) is unchanged: in a new game the shed reaches the Market and its stalls first, so
+      no test reaches it with the living binding (a Phase I item if a larger town shows it).
   - **Stores full, queue empty: raid** (R2; the run's manager, from Shawn's "needs relics: raid a fort",
     the review's question 2). When the absence ends with every capped store full (gold and bone, each within
     `idle.report.full_tol` of its cap: 1%) and the queue empty, the plateau is the wall Shawn asked for, and
@@ -820,10 +834,10 @@ dismissed) and the `away_report` event.
 | target | starting value |
 |---|---|
 | Vei-ready under the sessions profile | about 5–8 days (about 4–10 h of active play in all) |
-| share of backlog growth that happens while away, under sessions | ≥ 70% |
+| share of backlog growth that happens while away, under sessions | ≥ 70%. At c15f874 (BALANCE §5's calibration list): 96.3%, and 79.4% of the build value |
 | dead air: active minutes in which nothing has positive projected value | < 10% |
-| continuous play (open all day, always acting), in calendar time to Vei-ready | **10–30% sooner** than sessions. Being present is never pointless, and idle still wins. The throttles are loot recovery and the relic cap. Since E4 step 9 (the win odds, mostly time-based with the backlog term capped; BALANCE §5's `odds` row): continuous day 4.8291 against sessions' 6.0001, **19.5% sooner** (was 44.9% with the odds the strain), and no profile's odds reach 0.6 before day 4.24. |
-| pure idle from a fresh start (never raids) | never Vei-ready (relics gate the endgame), but a full queue and a supported setup keep growing for about 2–3 days |
+| continuous play (open all day, always acting), in calendar time to Vei-ready | **10–30% sooner** than sessions. Being present is never pointless, and idle still wins. The throttles are loot recovery and the relic cap. At 69542f2 (E4 step 9, the win odds, mostly time-based with the backlog term capped; BALANCE §5's `odds` row), unchanged through 553a66f, 4384a17 and b475eb3: continuous day 4.8291 against sessions' 6.0001, **19.5% sooner** (was 44.9% with the odds the strain), and no profile's odds reach 0.6 before day 4.24. At c15f874, after 4f8b493's ready-vat hand moved the sim (BALANCE §5's calibration list): continuous 4.8358 against 6.0001, **19.4% sooner**. Two trees, so two numbers. |
+| pure idle from a fresh start (never raids) | never Vei-ready (relics gate the endgame), but a full queue and a supported setup keep growing for about 2–3 days. **Missed at c15f874** (BALANCE §5's calibration list): pure_idle's one queue runs dry 1.9 h into its close, and town_only's bot jams its queue on gated entries at 8.0 h; with a fill that skips them, town_only's relic-free content lasts to day 1.46 |
 | after an 8 h night away with a sensible setup | the report shows backlog ▲ and at least one thing to do. From E4 step 3 the backlog line ends with Vei's odds before and after ("· odds 0.02 → 0.11" on sessions' first night), and one night never takes them near 1. Since E4 step 9 they are the win odds (MECHANICS §3.5): sessions' first night reads 0.06 at its close and 0.16 on its load, its sixth 0.57 → 0.61 |
 | away 24 h with the default setup | at least half the held forts lost |
 | away 24 h with a prepared setup (WAR support, siege on the likely targets, weak forts raided before leaving) | at most a quarter lost; Covington never |
@@ -957,8 +971,9 @@ The profiles:
       cleared (+8.3). The convoys' targets are the same (99 departures, fort for fort): not the haul phase. **The
       amplifier:** the bone-bound queue. A Raising Pit level lands a step apart, and each later bone-timed start shifts
       from there (bone at 4 h: 260 closed, 229 open). With the cap lifted in a probe, the window agrees within 0.35%,
-      but 4 h still parts (267 against 226), so the end gap is the queue's sensitivity near the bone edge, not a
-      catch-up bias.
+      but 4 h still parts (267 against 226), so the end gap read as the queue's sensitivity near the bone edge, not a
+      catch-up bias. That held for that window only: past it, at the first away's 3 s steps, it was one (step 10's
+      probe, below).
       - **The seed is fixed by the convoy's claim** (MECHANICS §4.2, the hold and the claim). In the same window the
         caught-up run now mills 224.25 against 223.54 (+0.32%, from −1.7%), with both ledgers exact; bone at 4 h is
         264 closed, 230 open.
@@ -971,6 +986,67 @@ The profiles:
           14 400 s, `queue_full` closed and accepted open.
         - So what's left is the amplifier: a bone-bound queue near the bone edge turns any small offset into a
           build a step apart.
+      - **The amplifier's source was a catch-up bias (E4 step 10, the I1 bone-gap probe, measured at 0b2a9ec).**
+        - The first away (1 200 to 14 400 s) catches up at 3.06 s steps. Over its build-free hour from the 3 000 s
+          state, the bone made reads +123.0 open and +122.8 to +123.0 caught up at 0.5, 0.83 and 1 s steps, but
+          +151.7 at 3.06 s (milled +23%) and +138 to +151 at 5, 7 and 10 s.
+        - Either knockout, in the caught-up run alone, removes it at 3 s: the pits' feed bonus at 0 (+71.9 against
+          +71.9 at 0.5 s), or auto_min_dead at 0.5 (+124.0 against +124.3).
+        - **The cause:** an auto convoy at home with no fort above auto_min_dead re-checked only at a step's start or
+          after a landing. A catch-up step held it home to the step's end, so its loads came later and larger, and
+          the pits' feed loop turned that into more mint, more corpses and more bone.
+        - In the sessions run, bone read 233 closed against 59 open at 14 400 s, and the Bone Mill L2 started 1 790 s
+          early.
+      - **Fixed** (TownSim._haul_wait_s; MECHANICS §4.2; measured at 4384a17, the fix's own code): the waiting convoy leaves at the step's first
+        sim.substep_s mark after a fort's projected corpses pass the threshold, as live play's next substep finds
+        it.
+        - Live play is bit for bit as before, since a live step has no mark inside it.
+        - At 3.06 s the hour reads +122.8. The first away's builds start 0.9 to 65 s apart (the mill L2 2.1 s).
+          At 14 400 s bone is 62.7 closed against 59.3 open, with the same queue and levels.
+        - Test: test_town_sim `_haul_wait`. Its revert proof: the 3 s and 10 s cases fail on 0b2a9ec's code.
+      - **The residual (not chased):** with the fix, 5, 7 and 10 s steps still read +138, +132 and +151, and the
+        same two knockouts remove it at 10 s (+73.3 against +71.9; +123.7 against +124.3). Nights catch up at
+        catchup_dt_max_s, 10 s. One unconfirmed reading: the convoy's corpse projection (the last realm step's
+        dead_rate) lags the feed loop's cycle of about 24 s.
+        - **Re-measured and pinned (the E4 close-out, the final review's item 3).** At 3137462 (i1b2_probe), the hour
+          reads open +122.99 against +123.01 at 0.5 s, +138.12 at 5 s, +131.89 at 7 s and +151.34 at 10 s, so the
+          numbers above hold on today's code. test_haul_hour (default suite, about 26 s) runs the same hour at 5 s
+          and 10 s and fails past ±16.0 and ±29.5 of the open hour (measured +15.13 and +28.35). With 4384a17's
+          TownSim change reversed on 26c978c's tree, 5 s reads +54.98 (it fails) and 10 s +26.76 (it passes): at 10
+          s the hour doesn't see the departure fix, and `_haul_wait`'s 10 s case below does. Not chased: the 5 s
+          figure is well above the pre-fix "+138 to +151 at 5, 7 and 10 s" recorded above at 0b2a9ec.
+        - **Where it is not.** test_town_sim `_haul_wait` runs live 0.5 s steps against one 5 s and one 10 s step
+          on a fort forming at a fixed rate, debited by what each step takes. The departures (1.5 s, and 8.0 s for
+          the second leg), the mass taken (6.5 and 13.0) and the convoy's end all match. So the residual is not the
+          departure mark, and not the leg's arrival arithmetic either. The dead_rate reading stays unconfirmed.
+      - **The gate with the fix** (sessions_open, 2 days) is still red, but closer.
+        - Day 1: living 70/70 (was 70/62), the backlog 0.02% apart (was 4.7%), the wave clocks 2.2 s apart (was
+          78.6), essence 49/45, remnants 25/24, and the crypt L2 closed against L1 open.
+        - Day 2: living 86/78, husks 0/3, remnants 30/36, and 21 buildings against 20.
+        - The first difference is now a held fort: at the 14 569 s raid, old-sluice is held open and not closed
+          (the first away's realm, not its bone).
+        - The first command answered otherwise is a husk raise at 86 400 s (`unknown_husk` open).
+    - **The relic trickle, open against closed** (the step 9 review's item 1; MECHANICS §2's relics row). Its
+      condition is read at each step's start. So each time it flips inside a catch-up step, the closed run's paying
+      seconds differ from the open run's by at most that step (10 or 15 s, `idle.catchup_dt_max_s` and
+      `catchup_dt_long_s`, against its 12 h period).
+      - test_relic_trickle `_open_closed_break` asserts it over 20 min at 10 s steps, with a fort breaking
+        mid-step.
+      - catchup_accuracy checks the steady case: 30 h with every t1 fort held, the same 2 relics and carried
+        seconds.
+    - **A ready vat's hand, open against closed: a known catch-up gap** (the E4 final review's item 2; recorded,
+      not fixed, per the run's manager's ruling of 2026-11-17 20:20). Since 4f8b493 a staffed vat holding a ready
+      clone gives its tend hand back to the ladder at the end of the step it fills in (`GameState._sync_tend`, after
+      `_grow_vats`). `Catchup.next_event_s` doesn't clip at a vat's fill (§4's vats), so caught up the hand comes
+      back up to one catch-up step late: the hand keeps tending a full vat for the rest of the step it fills in.
+      - **The bound:** per vat fill, one tend hand for less than one catch-up step. That is under 10 s
+        (`idle.catchup_dt_max_s`), or under 15 s past the catch-up's first 12 h (`catchup_dt_long_s`), against
+        live play's 0.5 s (`sim.substep_s`). The fill itself is exact (a step that contains it ends at exactly 1),
+        and so is the clone it makes; only that hand's work elsewhere on the ladder is late.
+      - test_backups `_ready_frees_hand` checks the hand in live ticks (`tick(10.0)`, 0.5 s substeps). No test
+        compares live against closed for it.
+      - **The fix is a Phase I item, in the queue-rule batch:** clip `Catchup.next_event_s` at a staffed vat's fill,
+        as it clips at Relish's respawn. It moves closed trajectories, so it needs the batch and the pins re-run.
     - **Day 4's break is an open/closed queue divergence, a defect candidate, not a step-size horizon** (E4 step 2's
       sizing stop, the manager's ruling 1, worded at the R2 readout ruling). It doesn't move with the catch-up step.
       At 152ca1d the 8-day row passes days 1–3 (slip 3.4, 18.0, 43.7 s) and fails from day 4. The first command to

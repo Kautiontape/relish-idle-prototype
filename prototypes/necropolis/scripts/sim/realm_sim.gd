@@ -1219,7 +1219,9 @@ func _u_path(dt: float, u0: float, w_in: float, pull: float, r: float) -> void:
 ## run's manager, 2026-11-17): a fort lost and retaken has already been looted, so losing it costs, not pays.
 ## The event's `war_in` is the settled WAR its margin chip read (margins_of's: the step's target_war split as this
 ## part's dispatch splits it, read before the hold ends), not the part's r_in, which the convoy's sawtooth moves so
-## open and closed read different values (E4 review item 7). `i` is f's index in `forts`.
+## open and closed read different values (E4 review item 7). `i` is f's index in `forts`. war_at reads only the
+## part's dispatch, which a retake doesn't touch, so forts breaking in one part read the same split whatever their
+## order (test_wave_train _retake_war_in_pair).
 func _retaken(f: Dictionary, i: int, cause: String, at: float) -> void:
 	var settled := float(war_at(maxf(0.0, float(_part_inputs.get("target_war", _part_inputs.get("war", 0.0)))))[0][i])
 	f["held"] = false

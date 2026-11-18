@@ -173,7 +173,7 @@ from `BALANCE.md` §0.
     meaning; which building they name changes: a meaning change, not a shape change;
   - (R2, the same review's item 3; R1 and R2 merge as one milestone, so they share this entry and there is no
     v8) **when each queued build becomes affordable**: `view_town().queue[].affordable_in_s: float` (§5.9),
-    `0.0` affordable now, the seconds until it is at today's net rates, `-1.0` never at them; and
+    `0.0` affordable now, the seconds until it is at the current net rates, `-1.0` never at them; and
     `cmd_queue_build`'s extra `affordable_in_s: float` (§4.3), the new entry's (`-1.0` on a refusal), the
     review's warning at queue time. The walk that sets `status` sets it, so the two never disagree;
   - (R2) **the away report's `ready` says why the queue sat still, or that the stores are full** (§5.19, IDLE
@@ -406,6 +406,16 @@ from `BALANCE.md` §0.
     `inventory.relic_trickle_s` (the accrued paying seconds; written once non-zero, so a save that never paid is
     byte for byte as before; absent, it loads as 0; §9.1). The highest tier flipped is derived from the forts' saved
     `flipped_count` (never reset), so it needs no save key of its own, and an old save reads its own history.
+  - **The Market side of the input-limited lever** (E4 step 10, review-t7r1r2 §5; no version bump: new values in
+    existing String keys, no shape change): `view_town.queue[].starved` reads `"living_first"` and `.lever`
+    `"raise_living"` on a head never affordable on gold while the living buy less than the stalls can sell
+    (§5.9). §5.19's never-on-gold line and the upkeep gate's line then name housing or an Inn, not a Market
+    (`idle.report.afford_living_fmt`, `afford_living_last_fmt`, `afford_upkeep_living_fmt`).
+  - **A row's own reason** (the E4 close-out, the final review's item 5; no shape change): a queue row's
+    `starved` and `lever` are set only on the head waiting on funds at `affordable_in_s` −1.0, from the store it is
+    never on; a timed wait reads `""` (before, any row short of gold read the stalls' flag and any row short of bone
+    the mills'). The upkeep gate's away line (§5.19) reads the stalls' bind from the state the gate evaluated
+    (`TownSim.trade_bound()`, the final review's item 7), not from the last step's `trade_starved`.
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -1801,9 +1811,9 @@ in it: that is correct, not a mismatch.
 | `status` | String | `"next"` (the first entry that isn't gated, and the stocks cover it; several can be `next` in a row, each paid for in turn, and all of them start in the next step), `"waiting_funds"` (that head, short of gold or bone: it holds the queue), `"skipped_gate"` (a gate holds it; the walk goes on past it), `"queued"` (behind a waiting head, or behind an entry for its lot that hasn't started) |
 | `reason` | String | `""` for `next` and `queued`; `no_gold`/`no_bone` for `waiting_funds`; for `skipped_gate` the gate: `needs_tier`, `needs_blueprint`, `needs_building`, `lot_locked`, `no_relics` (`view_catalog`'s key for a row the relics can't pay, with the same `cost.relics`, when gold and bone are covered; short of gold or bone too, the catalog says `no_gold`/`no_bone` while the queue still reads `no_relics`, a gate there), `lot_taken` (another entry or `cmd_build` took its lot first), `empty_lot` (an upgrade whose building is gone), `under_construction`, `unpaid`, `max_level`, `unique`, `lot_too_small`, `cost_exceeds_cap` (a cost now above its cap, after a cap building went) |
 | `waited_on` | String | the last reason that kept it from starting (a gate, or `no_gold`/`no_bone`), `""` if it never waited; set when queued and by each step's processing, never by a view. An entry `queued` behind a head waiting on funds takes the head's `no_gold`/`no_bone`. Saved. `queue_started.waited_on` carries it (§6) |
-| `affordable_in_s` | float | v7 (R2): when its funds come at today's net rates, in sim seconds from now: `0.0` when the stocks cover it now, the seconds until they do, or `-1.0` when they never will at these rates. Set by the same walk as `status` (below), so the two never disagree: a `next` entry reads `0.0` and a `waiting_funds` head never does. Never saved; a view changes nothing |
+| `affordable_in_s` | float | v7 (R2): when its funds come at the current net rates, in sim seconds from now: `0.0` when the stocks cover it now, the seconds until they do, or `-1.0` when they never will at these rates. Set by the same walk as `status` (below), so the two never disagree: a `next` entry reads `0.0` and a `waiting_funds` head never does. Never saved; a view changes nothing |
 | `short` | Dictionary | v11 (the A1 day-1 ruling): `{gold, bone}`, what a `waiting_funds` head is short of at the walk's stocks (its cost less what is left once the `next` entries ahead are paid); `0.0` each for every other status. With `affordable_in_s` at `-1.0` it names what a "never" waits on |
-| `starved`, `lever` | String | v11 (the A1 day-1 ruling): while `short.bone` > 0, the mills' `starved` reason (as on the mill's building row) and its `lever`: a head that can never be afforded on bone while the pits eat every body reads `"pits_first"` and `"raise_war"`; `""` otherwise. Per step, never saved |
+| `starved`, `lever` | String | Why this row's store can't pay it, and the lever that fixes it. **The row's own reason** (the E4 close-out, the final review's item 5): only the head waiting on funds that can never be afforded (`affordable_in_s` −1.0) reads a reason, from the store it is never on (the one its away line names). A timed wait reads `""` whatever the town-wide flags say, since it will be afforded at the current income, and so does every other row. On bone (v11, the A1 day-1 ruling): the mills' `starved` reason (as on the mill's building row) and its `lever`, so a never on bone while the pits eat every body reads `"pits_first"` and `"raise_war"`. On gold (E4 step 10, review-t7r1r2 §5, the Market side): the stalls' reason (`TownSim.trade_starved`), `"living_first"` when the living buy less than the staffed stalls can sell (living · `market.shop_rate` under staffed · `stall.rate`), with the lever `"raise_living"` (housing, or an Inn). `""` otherwise. Per step, never saved |
 
 **`affordable_in_s`** (v7, R2; from the E2b-2 vision review's item 3, the run's manager's ruling for Shawn: the
 queue never stalls or jumps, so the player gets the data instead, and E3's autoplayer reads it too; MECHANICS
@@ -1847,7 +1857,7 @@ Each `buildings` entry:
 | `work_left` | float | v6 (E2b-2 T3.2, api-request #17): while `constructing`, the build work still to do, `build_work · target level · (1 − progress)` (TownSim's step 6); 0.0 otherwise |
 | `eta_s` | float | v6 (#17): while `constructing`, `work_left` over the lot's build rate now (`job.build.rate` × the builders staffed there as TownSim's last staffing has them), so the seconds to finish if the staffing holds; `-1.0` with no builders, and on every other state |
 | `upgrade_projected` | Dictionary | v6 (E2b-2 T3.2, api-request #9): `rate_id → float` over every `RATE_IDS` id, the change in each net rate if this lot's next level were finished now and staffed by the current ladder, at today's state (§5.10's `projected`, for the next level); `{}` at `max_level` or while constructing. Display-only: refreshed late in the substep interval on frames without a substep, while the catalog is being read (§5.10, cost and caching), so it can lag a change by about 1.5 s live, stays within `town.projection_tol` of the fresh value, and reads `{}` until its first refresh, and again once the lot holds another building or level than the one it was computed for (a demolish and rebuild, a finished upgrade) until it is refreshed |
-| `starved` | String | v6 (T3.4a): why this building's mills milled less than their hands want, from TownSim's last step (MECHANICS §4.3). `""` for a building with no mill slots (every one but the Bone Mill), when the staffed mills milled all they want, and when none are staffed; `"pits_first"` when they milled less because the pits had first call and took bodies, the supply short of both; `"no_bodies"` when they milled less and the pits took none either (an empty store with nothing landing, or no staffed pit). A per-step figure, never saved: `""` after a new game and after a load until the first step. The town reads it in Phase I and owns the text |
+| `starved` | String | v6 (T3.4a): why this building's mills milled less than their hands want, from TownSim's last step (MECHANICS §4.3). `""` for a building with no mill slots (every one but the Bone Mill), when the staffed mills milled all they want, and when none are staffed; `"pits_first"` when they milled less because the pits had first call and took bodies, the supply short of both; `"no_bodies"` when they milled less and the pits took none either (an empty store with nothing landing, or no staffed pit). A per-step figure, never saved: `""` after a new game and after a load until the first step. A `TownSim.clone()` twin (a projection's) copies it and `trade_starved` (the E4 close-out, the final review's item 6), so a queue walk on the twin reads what the town does. The town reads it in Phase I and owns the text |
 | `lever` | String | v11 (the A1 day-1 ruling): the lever that fixes `starved`, from `economy.json` `town.starved_lever`: `"raise_war"` for `"pits_first"` (more WAR makes more corpses at the forts, so bodies outrun the pits' want); `""` for `""`, for `"no_bodies"` and for a building with no mill slots |
 | `upgrade_work` | float | v6 (#17): the build work the next level's construction needs, `build_work · (level + 1)` (for a lot under construction, the construction under way); 0.0 at `max_level` |
 | `foreman_mult` | float | v8 (E3-3): the multiplier this building's job output gets from its foreman now (MECHANICS §4.2): `foreman.mult + speed · foreman.speed_k` while one works there; 1.0 with no foreman, and where one gives nothing (a passive building, or one not `active`: unpaid, idled by Thrift, mid-upgrade, no hands staffed). Its `output` already includes it |
@@ -2771,7 +2781,7 @@ take the router's legacy path (§2.3).
 | `cleared_forts` | Array[String] | forts whose first clear is spent by a win (sorted) |
 | `first_dungeon` | String | the first dungeon's id until a won raid result (`warden_beaten`) clears it, then `""` |
 | `pending_retreat` | Dictionary | optional, additive at v6 (E2b-2 T3.3c; IDLE I5, api-request #4), written only while a run is open: `{run_id: int, kind: String, fort_id: String, seed_rev: int, loot: {relics, blueprints, husks, remnants, essence} (§8.1), outcome: String}`, the run's last checkpoint (`cmd_run_checkpoint`, §4.5), or empty loot and `"retreated"` when it has none (a boss run never has one; its `fort_id` is `"vei"`). `from_dict` ends the run with it (below). Present, it must match: a known `kind` and `outcome`, a raid's fort a known fort with `relish` saved `at_fort` there, a boss's `"vei"` with her `at_vei`, and loot `Results.validate` takes; else the save is `corrupt` |
-| `queue` | Array[Dictionary] | optional, additive at v6 (E2b-2 T3.2; `SAVE_VERSION` stays 2, as `game_id` did): the build queue, `[{building_id: String, lot_id: String, upgrade: bool, waited_on: String}]` in order. A save without it loads an empty queue; `waited_on` is optional (`""`). An entry of another shape makes the save `corrupt`; one naming a building or lot today's config lacks, or past `queue.max_len`, is dropped with a warning |
+| `queue` | Array[Dictionary] | optional, additive at v6 (E2b-2 T3.2; `SAVE_VERSION` stays 2, as `game_id` did): the build queue, `[{building_id: String, lot_id: String, upgrade: bool, waited_on: String}]` in order. A save without it loads an empty queue; `waited_on` is optional (`""`). An entry of another shape makes the save `corrupt`; one naming a building or lot today's config lacks, an upgrade to a level past its building's `max_level` (the level cut rule, `town` below), or one past `queue.max_len`, is dropped with a warning |
 
 **What each block holds** (v2; additive keys and E3 placeholders):
 - `realm`: `forts` (array in world order: `id`, `living`, `undead`, `dead`, the hold, `flipped_count`,
@@ -2805,9 +2815,16 @@ take the router's legacy path (§2.3).
   WORK in that step; an older save's value is delivered with the next step's). `morale`,
   `shock`, `rates` and `pending` are optional on load (TownSim's defaults: morale at its base, no
   shock, zero rates, nothing pending). A building on an unknown or repeated lot, of an unknown id, in
-  another state or at a level the building lacks, a ladder that is not a permutation of `JOB_IDS`, or a
-  haul target or convoy naming an unknown fort makes the save `corrupt`. A load restores the saved
+  another state, at a `level` below 0 or a `build_level` below 1, a ladder that is not a permutation of
+  `JOB_IDS`, or a haul target or convoy naming an unknown fort makes the save `corrupt`. A load restores the saved
   building states and recomputes the staffing; the first substep restaffs.
+  **The level cut rule** (E4 close-out, `SaveIO.clamp_levels`): a level above the building's `max_level` in
+  today's `buildings.json` is not `corrupt`, since a config may lower a top that saves already reached (E4 step
+  10 cut the Ossuary Tower from 3 levels to 1). The load clamps `level` and `build_level` to `max_level`. An
+  upgrade under way past the top is **cancelled**, as `cancel_construction` leaves one: the building works at the
+  top level with progress 1, and its pending `building_started` is dropped. A queued upgrade past the top is
+  dropped with a warning (`queue`, above). Nothing is refunded, because the cut levels buy nothing. A save
+  within every `max_level` loads unchanged. `SAVE_VERSION` stays 2.
 - `stances`: `on` (oldest first) and `hold` (E3 timers: from E3-1, stance id → the seconds left of its hold,
   for each stance held; a key that isn't a stance, or a hold at 0, is dropped on load). From v8 (E3-1) the
   optional `state`: `{stance_id: {active: bool, fired_beat_id: int}}` for each stance whose condition has

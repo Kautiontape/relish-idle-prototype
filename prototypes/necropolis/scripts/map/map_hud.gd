@@ -246,6 +246,10 @@ func _build_bar(items: Array) -> void:
 	odds_name.text = str(cfg["cards"]["vei_odds_label"])
 	_odds = _bar_label(status)
 	MapType.style_mass(_odds)
+	# the ▲/▼ is the backlog's sign, labelled as her strain: the odds are mostly time and can climb on a ▼
+	var strain_name := _bar_label(status)
+	MapType.style_label(strain_name)
+	strain_name.text = str(cfg["strain_label"])
 	_sign = _bar_label(status)
 	MapType.style_mass(_sign)
 	var drain_name := _bar_label(status)

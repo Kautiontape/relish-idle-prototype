@@ -395,7 +395,12 @@ static func staffing_projection(gs: GameState, order: Array, vats: Dictionary) -
 	var o: Array = []
 	for j in order:
 		o.append(str(j))
-	var st: Dictionary = ts.project_staffing(o, vats)["staffing"]
+	# the overrides are staffing, as cmd_staff_vat takes it; a vat holding a ready clone opens no tend slot (E4 step 10,
+	# GameState._tended_vats), so an override on it is tended only while its clone isn't ready
+	var tv := {}
+	for slot in vats:
+		tv[slot] = bool(vats[slot]) and gs._vat_grow(int(slot)) < 1.0
+	var st: Dictionary = ts.project_staffing(o, tv)["staffing"]
 	var lots: Dictionary = st["lots"]
 	var buildings: Array = []
 	for lot_id in BuildRules.built_lots(gs):
@@ -1125,7 +1130,10 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 			elif i == wall and stuck:
 				ready.append(_away_line(afford_text(gs, rep, row, "relics", {}, false), "queue", "queue"))
 			elif i == upk:
-				ready.append(_away_line(str(rep["afford_upkeep_fmt"]).format({
+				# E4 step 10: while the living buy less than the stalls can sell, a Market adds no income either. Read from
+				# the state the gate evaluated (TownSim.trade_bound, beside gold_income), not the last step's flag
+				var ufmt := "afford_upkeep_living_fmt" if gs.town_sim.trade_bound() == "living_first" else "afford_upkeep_fmt"
+				ready.append(_away_line(str(rep[ufmt]).format({
 					"name": _building_name(gs, rep, str(row["building_id"]), int(row["level"])),
 					"rate": _fmt_rate(rep, gs.town_sim.gold_income())}), "queue", "queue"))
 	# E4 step 7 (the brief's "stores full: queue more, or raid for relics"): each store that filled up is a ready action,
@@ -1206,6 +1214,14 @@ static func afford_text(gs: GameState, rep: Dictionary, row: Dictionary, store: 
 		if s == "bone" and str(row.get("starved", "")) == "pits_first":
 			return str(rep["afford_starved_fmt" if movable else "afford_starved_last_fmt"]).format({"name": name,
 				"short": _fmt_count(rep, ceilf(float((row.get("short", {}) as Dictionary).get("bone", 0.0)))),
+				"rate": _fmt_rate(rep, float(net.get(s, 0.0)))})
+		# E4 step 10 (review-t7r1r2 §5, the Market side): never on gold while the living buy less than the stalls can
+		# sell (the row's `starved` living_first): a Market level adds stalls and sells nothing more, so the line names
+		# the gold short and the living's lever, "House level 2 can't be afforded, 50 gold short at the current income
+		# of −0.04/s gold: the living buy less than the stalls can sell. Build housing or an Inn, or move it down"
+		if s == "gold" and str(row.get("starved", "")) == "living_first":
+			return str(rep["afford_living_fmt" if movable else "afford_living_last_fmt"]).format({"name": name,
+				"short": _fmt_count(rep, ceilf(float((row.get("short", {}) as Dictionary).get("gold", 0.0)))),
 				"rate": _fmt_rate(rep, float(net.get(s, 0.0)))})
 		var own := str(row["building_id"]) == str((rep["afford_producer"] as Dictionary).get(s, ""))
 		var fmt := ("afford_never_self" if own else "afford_never") + ("_fmt" if movable else "_last_fmt")

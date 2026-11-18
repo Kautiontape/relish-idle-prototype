@@ -470,17 +470,21 @@ func _vat_hands() -> void:
 	t.ok(s.cmd_debug_grant({"workers": 3.0 - s.town_sim.workers})["ok"], "three workers")
 	var stall0 := _staffed_job(s, "stall")
 	var rv := s.rev
-	t.ok(s.cmd_staff_vat(0, true)["ok"] and s.rev == rv + 1, "staff vat 0")
+	# vat 1: pre_vei's vat 0 holds a ready clone, which needs no tending (E4 step 10), so staffing it opens no slot
+	t.ok(s.cmd_staff_vat(0, true)["ok"] and int(_tend_of(s)["slots"]) == 0 and s.cmd_staff_vat(0, false)["ok"],
+		"pre_vei's vat 0 holds a ready clone: staffed, it opens no tend slot")
+	rv = s.rev
+	t.ok(s.cmd_staff_vat(1, true)["ok"] and s.rev == rv + 1, "staff vat 1 (empty)")
 	t.ok(int(_tend_of(s)["slots"]) == 1 and float(_tend_of(s)["staffed"]) == 1.0 and _staffed_job(s, "stall") == stall0 - 1.0,
 		"its tend slot opens at once and takes the hand the stall below it had (stall %.1f -> %.1f)" % [stall0, _staffed_job(s, "stall")])
 	var d := s.to_dict()
 	var n := GameState.new(TestUtil.configs())
 	n.debug_enabled = true
-	t.ok(n.from_dict(d)["ok"] and float(_tend_of(n)["staffed"]) == 1.0 and n.view_backups()["vats"][0]["staffed"],
+	t.ok(n.from_dict(d)["ok"] and float(_tend_of(n)["staffed"]) == 1.0 and n.view_backups()["vats"][1]["staffed"],
 		"a save keeps the vat and a load reopens its slot")
-	t.ok(s.cmd_staff_vat(0, false)["ok"] and int(_tend_of(s)["slots"]) == 0 and _staffed_job(s, "stall") == stall0,
+	t.ok(s.cmd_staff_vat(1, false)["ok"] and int(_tend_of(s)["slots"]) == 0 and _staffed_job(s, "stall") == stall0,
 		"unstaffing it closes the slot and gives the hand back")
-	s.cmd_staff_vat(1, true)
+	s.cmd_staff_vat(0, true)
 	s.cmd_new_game(3)
 	t.ok(s.town_sim.vats_on() == [] and s.vats_staffed == [], "a new game clears the vats in TownSim too")
 

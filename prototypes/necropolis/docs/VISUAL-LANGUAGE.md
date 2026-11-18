@@ -130,7 +130,8 @@ this file's older Necropolis notes.
   - Concentric digestion rings rotate at her capacity.
   - The backlog is a countable stack of rings at her gates.
   - The odds show as a **number**, with the sustained differential's sign (▲/▼) and the drain time
-    beside it.
+    beside it. The sign is labelled as her strain ("strain ▲", the top bar's STRAIN) and never sits
+    right after the percent: the odds are mostly time (MECHANICS §3.5) and can climb on a ▼.
 - **Relish.** A violet token with a stacked-stroke halo.
   - When she moves, she leaves a fading violet wake along her path.
   - Where she stands, the dead within her light radius catch `dead_lit`, and the routes she bends

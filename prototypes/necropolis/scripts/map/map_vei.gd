@@ -38,13 +38,13 @@ func _draw_static() -> void:
 		text(vp + Vector2.from_angle(deg_to_rad(float(n["backlog_overflow_deg"]))) * (r_out + ctx.px(float(n["overflow_gap_px"]))), "+%d" % int(b["overflow"]), size,
 			Palette.c("undead"), ALIGN_LEFT, 0.0, true)
 
-	# the reading: odds as an integer percent, the differential's sign, and the drain time
+	# the reading: odds as an integer percent, then the differential's sign (labelled as her strain) and the drain time
 	var x0 := vp.x + r_out + float(n["odds_gap_px"])
 	var line := float(n["odds_line_px"])
-	var odds := "%s %s" % [NodeLogic.fmt_odds(float(ctx.readout.get("odds", 0.0))), MapLogic.sign_glyph(int(ctx.readout.get("sign", 0)))]
+	var odds := NodeLogic.fmt_odds(float(ctx.readout.get("odds", 0.0)))
 	text(Vector2(x0, vp.y), "ODDS", size, Palette.c("text_dim"), ALIGN_LEFT, -line)
 	text(Vector2(x0, vp.y), odds, int(n["font_odds"]), Palette.c("vei"), ALIGN_LEFT, size * float(n["odds_baseline_ratio"]), true)
-	text(Vector2(x0, vp.y), NodeLogic.drain_line(float(ctx.readout.get("backlog", 0.0)), float(ctx.readout.get("drain_s", -1.0))), int(n["font_odds_sub"]),
+	text(Vector2(x0, vp.y), NodeLogic.strain_line(int(ctx.readout.get("sign", 0)), float(ctx.readout.get("backlog", 0.0)), float(ctx.readout.get("drain_s", -1.0))), int(n["font_odds_sub"]),
 		Palette.c("text"), ALIGN_LEFT, line * float(n["drain_line_mult"]))
 	text(Vector2(vp.x - r_out - float(n["odds_gap_px"]), vp.y), "VEI'S DOMAIN", size,
 		Palette.c("vei", float(MapLogic.cfg()["node_label_dim_alpha"])), ALIGN_RIGHT, size * float(n["text_mid_ratio"]))

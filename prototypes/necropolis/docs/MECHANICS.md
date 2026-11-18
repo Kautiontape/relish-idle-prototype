@@ -1009,7 +1009,7 @@ mass; bodies, rot return, WORK and muster are mass.
 
 | job | building | effect |
 |---|---|---|
-| haul | charnel house | One convoy. It leaves when haulers are staffed, bodies are under the cap and there is a target: `auto` is the fort with the most `dead` above `job.haul.auto_min_dead` at the moment it leaves (below); otherwise it is the fort set by `cmd_set_haul_target`. Each leg takes distance / (`job.haul.speed` · (1 + Σ stables `haul_speed_mult`)), and the crew is fixed at departure. At arrival it picks up `job.haul.carry` per hauler (× `flip.haul_mult` at a held fort), clamped to the fort's `dead` at that moment, to what the fort held at the step's start (less this step's earlier pickups there) and to the store's headroom (its projected level at that moment, §4.1). What formed there since the step's start it claims, up to the carry and headroom the load leaves, and that is taken after the realm step (§4.2, the hold and the claim). The load lands on the way back; what the store can't hold once the pits and mills have taken theirs is `haul_overflow` (§4.1). A long step runs as many legs as it holds. At the body cap, haulers stay staffed but no convoy leaves. |
+| haul | charnel house | One convoy. It leaves when haulers are staffed, bodies are under the cap and there is a target: `auto` is the fort with the most `dead` above `job.haul.auto_min_dead` at the moment it leaves (below); otherwise it is the fort set by `cmd_set_haul_target`. An `auto` convoy at home with no fort above the threshold leaves at the step's first `sim.substep_s` mark after a fort's projected `dead` passes it, as live play's next substep finds it, not at the step's end (E4 step 10, the I1 bone-gap probe: a 3 s catch-up step held it home and made 23% more bone over an hour; IDLE §8). Each leg takes distance / (`job.haul.speed` · (1 + Σ stables `haul_speed_mult`)), and the crew is fixed at departure. At arrival it picks up `job.haul.carry` per hauler (× `flip.haul_mult` at a held fort), clamped to the fort's `dead` at that moment, to what the fort held at the step's start (less this step's earlier pickups there) and to the store's headroom (its projected level at that moment, §4.1). What formed there since the step's start it claims, up to the carry and headroom the load leaves, and that is taken after the realm step (§4.2, the hold and the claim). The load lands on the way back; what the store can't hold once the pits and mills have taken theirs is `haul_overflow` (§4.1). A long step runs as many legs as it holds. At the body cap, haulers stay staffed but no convoy leaves. |
 | mill | bone mill | each miller turns `job.mill.mass_per_s` bodies into `job.mill.rate` bone per mass, from what the pits leave (§4.1) |
 | stall | market | gold = `min(staffed_stalls · stall.rate, living · market.shop_rate) · market.price`. The sales rate is `trade_rate`. |
 | forge | forge | `job.forge.rate` work per worker-second toward `forge.level_work[level]`. The level completes only when `forge.level_relics[level]` relics are available; until then progress holds. This is TownSim's forge level (for `q_forge`), not the Forge building's level. |
@@ -1064,7 +1064,13 @@ mass; bodies, rot return, WORK and muster are mass.
     last step, `view_town().buildings[]` reads `starved` on a building with mill slots: `"pits_first"` if the pits took
     bodies, `"no_bodies"` if they took none (STATE-API §5.9). The same shape of problem exists, unsaid,
     for the pits (store empty: `feed` < 1), the stalls (`living` · `market.shop_rate` under the staffed
-    stalls' rate) and the forge (a level waiting for relics); only the mill's is reported.
+    stalls' rate) and the forge (a level waiting for relics); only the mill's is reported on the buildings.
+    From E4 step 10 (review-t7r1r2 §5) the stalls' is kept too (`TownSim.trade_starved` `"living_first"`, per step,
+    never saved) and read by a queue head that can never be afforded on gold, not by the Market's building row: a
+    Market level adds stalls, so while the living bind it sells nothing more, and the row's lever and the away
+    report's line name housing or an Inn (IDLE §7). A queue row reads a flag only when it is that row's blocker
+    (the E4 final review's item 5): the head waiting on funds at `affordable_in_s` −1, from the store it is never on;
+    a timed wait reads `""` (STATE-API §5.9).
   - **The bone cliff** (E4, the run's manager's A1 day-1 ruling). Under A1 (§3.2) the muster goes to Vei, so
     early bodies come from WAR's corpses at the forts and the workers' rot return. Below a WAR share of about 0.54
     a new game's pits eat every body (0.20 mass/s of rot return; the forts' corpses are cleared as they form) and
@@ -1078,7 +1084,7 @@ mass; bodies, rot return, WORK and muster are mass.
     It is a tipping point, not a per-fort inequality: at 0.40 the three nearest forts' WAR already beats their
     living's pull (k_destroy / q · L), so no closed form reads it off a state. The cliff stays because it is
     visible and one valve move fixes it (the ruling): the start valve is 0.25 / 0.60 / 0.15 (BALANCE §0); the
-    mill's row and a queue head short of bone read `starved` `"pits_first"` and `lever` `"raise_war"`, the head's
+    mill's row and a queue head never affordable on bone read `starved` `"pits_first"` and `lever` `"raise_war"`, the head's
     `short` names the bone, and the away report's head line says so (IDLE §7; STATE-API §5.9, §5.19);
     `view_hud.bone_war_share` is a new game's edge (`economy.json` `opening.bone_edge.war_share`, bracketed by
     test_day1_queues) for the valve readout. Pits-first and the yields are unchanged, and there is no mill floor.
@@ -1369,7 +1375,7 @@ processing does.
 - **When each entry becomes affordable** (R2, the E2b-2 vision review's item 3; the run's manager for Shawn:
   the queue never stalls or jumps, so the player gets the data instead: "data, not a skip"). The same walk
   sets each entry's `affordable_in_s` (STATE-API §5.9), `0.0` affordable now, the seconds until it is at
-  today's net rates, `-1.0` never at them:
+  the current net rates, `-1.0` never at them:
   - **net rates:** each store's net now, income less upkeep, from TownSim's last step: the HUD's and
     `view_rates`' net below the cap; at the cap, where theirs clips the income to the upkeep and reads 0, the
     income before the clip (`trade`, `mill`) less the upkeep, since an entry ahead that spends the store
@@ -1789,7 +1795,10 @@ gives it: an idle worker if there is one, else the lowest room staffed below it.
 closes the slot and the hand goes back to the ladder's next room, or idles. The vats are numbered
 as `view_backups` numbers them: in lot order over every built Chapel (unpaid or mid-upgrade too, at
 its built level), then by vat within it. An unpaid Chapel keeps its numbers but offers no slot.
-From E3-2 the tend hand is what grows the vat's clone (above).
+From E3-2 the tend hand is what grows the vat's clone (above). **A ready clone needs no tending** (E4 step 10):
+a staffed vat holding a ready clone closes its slot at the end of the step it fills in, and the hand goes back to
+the ladder; spending the clone reopens it (`GameState._tended_vats`). The vat stays staffed (`view_backups`, the
+save), so it takes its hand again on its own; before, a full vat kept a hand that grew nothing.
 - **Measured:** a save with a Chapel and no staffed vat loses its tenders to the ladder. pre_vei
   (two unstaffed vats, 35 workers on 25 slots, the idle pool at its cap of 10) has 2 tenders fewer:
   they go idle, which puts the idle pool 2 over its cap, so its first step musters 2 workers (80

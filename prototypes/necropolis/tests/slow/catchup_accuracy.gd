@@ -6,8 +6,8 @@ extends RefCounted
 ## (test_catchup.gd's accuracy() and compare()). Then I1 over 12 h: a new game's scripted opening, then
 ## closed against open through the frame path. The field is shrunk (8 × 6) as in the default suite.
 ## Run with tests/run.sh --slow --only=catchup_accuracy (a few minutes).
-## - Starts: midgame_2flips and fresh (convergence.gd's: a new game run 10 min). pre_vei is run and
-##   printed, not asserted: its gold reaches its floor about 2.14 h in with no input (one Market against
+## - Starts: midgame_2flips, fresh (convergence.gd's: a new game run 10 min) and pre_vei, asserted again from E4
+##   step 10 (it was run and printed only until the window means landed). Its gold reaches its floor about 2.14 h in with no input (one Market against
 ##   City-tier upkeep, a fixture artifact that is E4's, T3.3a's attribution). From there its pits work (all 6
 ##   since R1's shed order sheds the decorations and passive buildings first; 2 of 6 before) on a store the
 ##   convoy refills a load at a time, so the feed the mint reads (the last step's burned / wanted) is a 10 s
@@ -37,8 +37,9 @@ func run() -> int:
 	for st in ["midgame_2flips", "fresh", "pre_vei"]:
 		var r: Dictionary = cu.accuracy(c, conv.start_json(st), HOURS * 3600.0, tol, WINDOW_S)
 		print("  [catchup_accuracy] %s, %.0f h caught up vs live: %s%s" % [st, HOURS, "pass" if r["ok"] else "FAIL", "; " + str(r["lines"])])
-		if st != "pre_vei":
-			t.ok(r["ok"], "%s: %.0f h caught up against live at 0.5 s within %s: %s" % [st, HOURS, conv._pct(tol), r["lines"]])
+		# pre_vei asserted again from E4 step 10 (handoff E4 item 10): with R1's shed order and the 600 s window means it
+		# passes (b475eb3: every stock within 0.035%, the mint's 12 h endpoint 7.48% on its 8.5 s saw)
+		t.ok(r["ok"], "%s: %.0f h caught up against live at 0.5 s within %s: %s" % [st, HOURS, conv._pct(tol), r["lines"]])
 		# the window's premise (E4 review item 4): a mean over WINDOW_S is off by at most about swing × cycle ÷ window, so
 		# the mint's saw must cycle well inside it (at most a tenth: 10 cycles), or not saw past the tolerance at all.
 		# Measured at the E4 review items' tree: fresh 30.8% on 21.4 s, pre_vei 36.6% on 8.5 s, midgame_2flips none
@@ -55,4 +56,23 @@ func run() -> int:
 	var i1: Dictionary = cu.i1(c, "new", script, HOURS * 3600.0, 0.25, tol)
 	print("  [catchup_accuracy] I1, a new game's session left %.0f h, closed vs open: %s" % [HOURS, i1["lines"]])
 	t.ok(i1["ok"], "I1 over %.0f h: closed equals open within %s, the same outcomes: %s" % [HOURS, conv._pct(tol), i1["lines"]])
+	_trickle_30h(c)
 	return t.failures
+
+
+## The step 9 review's item 1, the steady case: the relic trickle over 30 h, open against closed (the real runner's steps),
+## from midgame_2flips with every t1 fort held for 2 days (test_relic_trickle.start): both pay the same relics and carry the
+## same seconds (2 relics and 6 h). The transition (a fort lost inside a step) is the default suite's.
+func _trickle_30h(c: Dictionary) -> void:
+	var tr = load("res://tests/test_relic_trickle.gd")
+	var s: GameState = tr.start(c, 0.0, false)
+	var period := float(c["economy"]["relic_trickle"]["period_s"])
+	var r0 := s.relics
+	var runs: Array = tr.open_closed(c, s, 30.0 * 3600.0)
+	var cl: GameState = runs[0]
+	var op: GameState = runs[1]
+	var want := 30.0 * 3600.0 - 2.0 * period
+	print("  [catchup_accuracy] the relic trickle over 30 h, every t1 fort held: relics %d -> %d closed, %d open; carried %.3f s closed, %.3f s open" % [
+		r0, cl.relics, op.relics, cl.relic_trickle_s, op.relic_trickle_s])
+	t.ok(cl.relics == r0 + 2 and op.relics == r0 + 2 and absf(cl.relic_trickle_s - want) < 1e-3 and absf(op.relic_trickle_s - want) < 1e-3,
+		"the trickle over 30 h, open and closed: 2 relics each and %.0f s carried (closed %.3f, open %.3f)" % [want, cl.relic_trickle_s, op.relic_trickle_s])
