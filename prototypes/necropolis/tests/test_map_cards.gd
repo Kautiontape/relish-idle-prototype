@@ -534,6 +534,8 @@ func _comes(t: TestUtil) -> void:
 	t.ok(CardLogic.comes_in_text({"garrison": 0, "starter": 0, "bigs": 1, "total": 1}) == "They're 1 big undead from your Party, plus any you raise inside; none come from your WAR stream yet.", "bigs only: the WAR note")
 	t.ok(CardLogic.comes_in_text({"garrison": 0, "starter": 0, "bigs": 0, "total": 0}) == "None come from your WAR stream yet, and your Party has no big undead.", "nobody: why, in one sentence")
 	t.ok(CardLogic.comes_in_text({"garrison": 0, "starter": 0, "bigs": 0, "total": 0, "war_here": 6.0}) == "The 6 WAR undead here are too few to send one (one comes per 10), and your Party has no big undead.", "nobody, a few WAR undead there: too few")
+	t.ok(CardLogic.comes_in_text({"garrison": 0, "starter": 8, "bigs": 0, "total": 8, "war_here": 1.2}) == "They're your 8 starter undead, plus any you raise inside; the 1 WAR undead here is too few to send one (one per 10).", "one WAR undead there: 'is'")
+	t.ok(CardLogic.comes_in_text({"garrison": 0, "starter": 0, "bigs": 0, "total": 0, "war_here": 0.9}).begins_with("The 1 WAR undead here is too few"), "nobody, one WAR undead there: 'is'")
 	# the sentence names the fort's undead as its HELD chip counts them (IdleLogic.garrison_text), and the raid's per-10 count
 	var rcfg := TestUtil.load_json("res://configs/raid.json")
 	for u in [0.0, 4.0, 22.0, 300.0]:

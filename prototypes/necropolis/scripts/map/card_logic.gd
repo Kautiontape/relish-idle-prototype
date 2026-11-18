@@ -385,11 +385,12 @@ static func comes_in_text(ci: Dictionary) -> String:
 	var b := int(ci.get("bigs", 0))
 	var here := roundf(float(ci.get("war_here", 0.0)))
 	var here_s := MapLogic.fmt_mass(here)
+	var one := is_equal_approx(here, 1.0)  # "the 1 WAR undead here is", "the 4 ... are"
 	var war_note := ""
 	if g == 0:
-		war_note = str(c.get("comes_who_few_fmt", "%s")) % here_s if here > 0.0 else str(c.get("comes_who_no_war", ""))
+		war_note = str(c.get("comes_who_few_one_fmt" if one else "comes_who_few_fmt", "%s")) % here_s if here > 0.0 else str(c.get("comes_who_no_war", ""))
 	if g + s + b == 0:
-		return (str(c.get("comes_who_none_few_fmt", "%s")) % here_s) if here > 0.0 else str(c.get("comes_who_none", ""))
+		return (str(c.get("comes_who_none_few_one_fmt" if one else "comes_who_none_few_fmt", "%s")) % here_s) if here > 0.0 else str(c.get("comes_who_none", ""))
 	var parts: Array = []
 	if g > 0:
 		var capped := g >= int(ci.get("garrison_max", 12)) and here >= float(g + 1) * 10.0

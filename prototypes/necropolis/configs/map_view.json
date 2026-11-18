@@ -925,6 +925,8 @@
     "comes_who_none": "None come from your WAR stream yet, and your Party has no big undead.",
     "comes_who_few_fmt": "; the %s WAR undead here are too few to send one (one per 10)",
     "comes_who_none_few_fmt": "The %s WAR undead here are too few to send one (one comes per 10), and your Party has no big undead.",
+    "comes_who_few_one_fmt": "; the %s WAR undead here is too few to send one (one per 10)",
+    "comes_who_none_few_one_fmt": "The %s WAR undead here is too few to send one (one comes per 10), and your Party has no big undead.",
     "bring_more_fmt": "More: raise WAR on the valve (Relish here draws %s× its share), or raise big undead at the crypt slab for the party.",
     "comes_none": "No undead and no corpses here. Relish never attacks, so this raid can't be won yet.",
     "comes_none_piles": "No undead come in: you'd raise every one inside, from corpse piles. Bring some first.",
