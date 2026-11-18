@@ -469,11 +469,13 @@ static func goal_rows(s: Dictionary) -> Array:
 
 
 ## The banner's top: `base` while no top-centre block shows, else stepped down 14 px under it, and further by
-## what the block is taller than its 62 px base (`block_h` is its height).
+## what the block is taller than its TOP_BLOCK_BASE_H base (`block_h` is its height).
+const TOP_BLOCK_BASE_H := 62.0   # the awake WardenBlock's height with no extra rows
+
 static func banner_top(base: float, block_visible: bool, block_h: float) -> float:
 	if not block_visible:
 		return base
-	return base + 14.0 + maxf(0.0, block_h - 62.0)
+	return base + 14.0 + maxf(0.0, block_h - TOP_BLOCK_BASE_H)
 
 
 ## Where an edge chevron at `p` (with its label at `label_rect`) goes so it never sits under the top-centre

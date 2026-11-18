@@ -134,8 +134,8 @@ func _gui_input(ev: InputEvent) -> void:
 			_hover = hv
 			queue_redraw()
 		return
-	if ev is InputEventMouseButton and (ev as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
-		accept_event()   # a left press or release on the plate never moves Relish; any other button reaches the raid
+	if ev is InputEventMouseButton and (ev as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT and ev.pressed:
+		accept_event()   # a left press on the plate never moves Relish; a release (a loop dragged here ends) and any other button reach the raid
 		apply(classify(ev))
 
 

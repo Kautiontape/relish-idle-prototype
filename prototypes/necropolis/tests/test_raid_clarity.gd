@@ -487,9 +487,9 @@ func _retreat_panel_tests(t: TestUtil) -> void:
 	# a right press and motion are not accepted by the panel or the RETREAT button, so they reach the raid
 	var panel_src := FileAccess.get_file_as_string("res://scripts/raid/raid_retreat_panel.gd")
 	var pgi := _func_src(panel_src, "func _gui_input(")
-	t.ok(RegEx.create_from_string("if ev is InputEventMouseButton and [^\\n]*MOUSE_BUTTON_LEFT:\\s*(#[^\\n]*)?\\s*accept_event\\(\\)").search(pgi) != null
+	t.ok(RegEx.create_from_string("if ev is InputEventMouseButton and [^\\n]*MOUSE_BUTTON_LEFT and ev\\.pressed:\\s*(#[^\\n]*)?\\s*accept_event\\(\\)").search(pgi) != null
 		and _code(pgi).count("accept_event()") == 1 and panel_src.contains("mouse_filter = Control.MOUSE_FILTER_PASS") and not _code(panel_src).contains("MOUSE_FILTER_STOP"),
-		"the panel is MOUSE_FILTER_PASS and accepts only a left-button event")
+		"the panel is MOUSE_FILTER_PASS and accepts only a left press (a loop released over it still ends)")
 	var hud_code := _code(FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd"))
 	var exit_src := hud_code.substr(hud_code.find("class ExitButton:"))
 	exit_src = exit_src.substr(0, exit_src.find("\nclass ", 10))

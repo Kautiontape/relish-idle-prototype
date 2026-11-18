@@ -416,7 +416,7 @@ func top_block_rect() -> Rect2:
 	if _goal_block != null and _goal_block.visible:
 		return Rect2(_goal_block.global_position, Vector2(_goal_block.size.x, _goal_block.height))
 	if _warden_block != null and _warden_block.visible:
-		return Rect2(_warden_block.global_position, Vector2(_warden_block.size.x, 62.0 + (_warden_block as WardenBlock).extra_h))
+		return Rect2(_warden_block.global_position, Vector2(_warden_block.size.x, RaidLogic.TOP_BLOCK_BASE_H + (_warden_block as WardenBlock).extra_h))
 	return Rect2()
 
 
@@ -1024,7 +1024,7 @@ class WardenBlock:
 			+ (20.0 * break_rows.size() + 6.0 if not break_rows.is_empty() else 0.0)
 		if eh != extra_h:
 			extra_h = eh
-			offset_bottom = offset_top + 62.0 + eh
+			offset_bottom = offset_top + RaidLogic.TOP_BLOCK_BASE_H + eh
 			_key = -1
 		var k := w.meter_lit() | (w.phase << 6) | (w.weak_taken << 9)
 		var k2 := 0
