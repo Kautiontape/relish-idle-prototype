@@ -171,7 +171,10 @@ static func tithe_focus(vei_tithe: Dictionary) -> Dictionary:
 ## Where a panel of `size` goes for a fort at screen point `anchor`: `gap` above it (below when
 ## there is no room under `top`), then kept `margin` inside the viewport and below `top`. A panel
 ## that would cover `avoid` (the open card's screen rect; a zero Rect2 is nothing) moves to the
-## card's free side: its right edge `margin` left of the card.
+## card's free side: its right edge `margin` left of the card. With no room on the left (a narrow
+## viewport or a wide card) it goes below the card (`margin` under its bottom edge) if that fits
+## in the viewport, else above it (`margin` over its top edge, under `top`). When nothing fits it
+## keeps the left-clamped position and overlaps the card: the last resort.
 static func panel_pos(anchor: Vector2, size: Vector2, viewport: Vector2, top: float, gap: float, margin: float, avoid := Rect2()) -> Vector2:
 	var y := anchor.y - gap - size.y
 	if y < top + margin:
@@ -180,5 +183,16 @@ static func panel_pos(anchor: Vector2, size: Vector2, viewport: Vector2, top: fl
 	var max_x := maxf(viewport.x - size.x - margin, margin)
 	var pos := Vector2(clampf(x, margin, max_x), clampf(y, top + margin, maxf(viewport.y - size.y - margin, top + margin)))
 	if avoid.has_area() and Rect2(pos, size).intersects(avoid):
-		pos.x = clampf(avoid.position.x - margin - size.x, margin, max_x)
+		var left := avoid.position.x - margin - size.x
+		if left >= margin:
+			pos.x = left
+		else:
+			var below := avoid.end.y + margin
+			var above := avoid.position.y - margin - size.y
+			if below + size.y <= viewport.y - margin:
+				pos.y = below
+			elif above >= top + margin:
+				pos.y = above
+			else:
+				pos.x = margin
 	return pos

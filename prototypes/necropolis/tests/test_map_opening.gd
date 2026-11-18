@@ -243,6 +243,16 @@ func _panel(t: TestUtil) -> void:
 	t.ok(OpeningLogic.panel_pos(Vector2(400, 500), size, vp, 100.0, 30.0, 8.0, card) == Vector2(250, 320), "a panel already clear stays put")
 	var low2 := OpeningLogic.panel_pos(Vector2(1300, 150), size, vp, 100.0, 30.0, 8.0, card)
 	t.ok(not Rect2(low2, size).intersects(card) and low2.y == 180.0, "also below the fort, and still under the HUD")
+	var narrow := Vector2(700, 900)
+	var short_card := Rect2(300, 60, 400, 300)
+	var under := OpeningLogic.panel_pos(Vector2(500, 500), size, narrow, 100.0, 30.0, 8.0, short_card)
+	t.ok(not Rect2(under, size).intersects(short_card) and under.y == 368.0, "no room on the left: below the card, a margin off")
+	var tall_low := Rect2(300, 500, 400, 350)
+	var over := OpeningLogic.panel_pos(Vector2(500, 600), size, narrow, 100.0, 30.0, 8.0, tall_low)
+	t.ok(not Rect2(over, size).intersects(tall_low) and over.y == 342.0, "none below either: above the card, a margin off")
+	var wall := Rect2(300, 60, 400, 780)
+	var last := OpeningLogic.panel_pos(Vector2(500, 500), size, narrow, 100.0, 30.0, 8.0, wall)
+	t.ok(last == Vector2(8, 320), "nowhere clear: the left-clamped position (it overlaps; the last resort)")
 
 
 func _lane(kind: String, from: String, to: String, rate: float, why: String) -> Dictionary:
