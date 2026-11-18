@@ -1066,7 +1066,8 @@ static func exposed_tint(level: float, cfg: Dictionary) -> float:
 static func wrap_each(lines: PackedStringArray, font: Font, px: int, max_w: float) -> PackedStringArray:
 	var out := PackedStringArray()
 	for l in lines:
-		out.append_array(wrap_chunks(l, font, px, max_w))
+		for w in wrap_chunks(l, font, px, max_w):
+			out.append(w.trim_suffix(" ·"))   # a line that ends where a " · " was cut needs no hanging dot
 	return out
 
 

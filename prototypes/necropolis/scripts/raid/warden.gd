@@ -462,6 +462,17 @@ func _draw_plates(ci: CanvasItem) -> void:
 		_draw_plate(pl["lines"], pl["anchor"], pl["above"], _pres["plate_a"], pl["size"], ci)
 
 
+## The sleeping picture's screen rect: the ring and both name plates (RaidLogic.warden_ring_rect, grown by the
+## plates' own rects once they are measured). The HUD keeps its banner off all of it.
+func presence_screen_rect() -> Rect2:
+	var xf := get_global_transform_with_canvas()
+	var r := RaidLogic.warden_ring_rect(xf.origin, xf.get_scale().x, radius, wcfg().get("presence", {}))
+	if _pres.has("plates"):
+		var plates: Array = _pres["plates"]
+		r = r.merge(_plate_screen_rect(plates[0], true)).merge(_plate_screen_rect(plates[1], false))
+	return r
+
+
 ## The screen rect a plate (`pl`, as _draw_plate draws it, above or below its anchor) covers at the camera's spot.
 func _plate_screen_rect(pl: Dictionary, above: bool) -> Rect2:
 	var sz: Vector2 = pl["size"]

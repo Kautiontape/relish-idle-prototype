@@ -274,7 +274,8 @@ func _process(_delta: float) -> void:
 			var pw := _banner_plate.offset_right - _banner_plate.offset_left
 			var plate := Rect2(vr.size.x * 0.5 + _banner_plate.offset_left, top - 3.0, pw, _banner_plate.offset_bottom - _banner_plate.offset_top)
 			var wd = raid.warden_run.warden if raid.warden_run != null else null
-			top = RaidLogic.banner_clear_top(top, plate, _sleeping_ring_rect(wd), Rect2(Vector2.ZERO, vr.size))
+			var pres := (wd as RaidWarden).presence_screen_rect() if _sleeping_ring_rect(wd).has_area() else Rect2()   # the ring and its name plates
+			top = RaidLogic.banner_clear_top(top, plate, pres, Rect2(Vector2.ZERO, vr.size))
 		if _banner.offset_top != top:
 			_banner.offset_top = top
 			_fit_banner_plate()

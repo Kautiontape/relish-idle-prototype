@@ -132,6 +132,7 @@ func _round2_tests(t: TestUtil) -> void:
 			t.ok(ThemeDB.fallback_font.get_string_size(m, HORIZONTAL_ALIGNMENT_LEFT, -1, dpx).x <= vcol, "PHYLACT. meaning (%d) row fits the value column at %d px: %s" % [n, dpx, m])
 	var ess := RaidLogic.wrap_each(PackedStringArray([RaidLogic.ESSENCE_MEANING]), ThemeDB.fallback_font, dpx, vcol)
 	t.ok(ess.size() >= 1 and ess.size() <= 2, "the ESSENCE meaning is %d line(s) at %d px" % [ess.size(), dpx])
+	t.ok(not ess[0].ends_with("·"), "a wrapped meaning keeps no hanging dot at a line's end (%s)" % str(ess))
 	for m in ess:
 		t.ok(ThemeDB.fallback_font.get_string_size(m, HORIZONTAL_ALIGNMENT_LEFT, -1, dpx).x <= vcol, "an ESSENCE meaning line fits the value column at %d px: %s" % [dpx, m])
 	# the NO REVIVE tail (drawn after the head, on the PHYLACT. row): the row's whole run stays on the 420 px plate
