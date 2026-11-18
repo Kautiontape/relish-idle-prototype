@@ -346,7 +346,9 @@ func _actions(t: TestUtil) -> void:
 		{"ci": {"garrison": 0, "starter": 0, "bigs": 0, "total": 0}, "warn": {"text": "No undead come in. X", "key": "danger"}})
 	var wdi := warned.find_custom(func(i): return i["act"] == "descend")
 	t.ok(warned[wdi - 1]["text"] == "No undead come in. X" and warned[wdi - 1]["key"] == "danger", "the warning sits above DESCEND, with its key")
-	t.ok(RelishLogic.actions_sig(warned) == RelishLogic.actions_sig(c), "the structure key ignores the line's text and key")
+	var warned2 := RelishLogic.fort_actions(_fort("ashgate", true, ""), there, auto, names,
+		{"ci": {"garrison": 0, "starter": 0, "bigs": 0, "total": 0}, "warn": {"text": "Other words", "key": "select"}})
+	t.ok(RelishLogic.actions_sig(warned) == RelishLogic.actions_sig(warned2), "the structure key ignores the line's text and key")
 
 
 func _routes(t: TestUtil) -> void:
