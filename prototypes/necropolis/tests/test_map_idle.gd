@@ -47,7 +47,37 @@ func run() -> int:
 	_model(t)
 	_sources(t)
 	_chips(t)
+	_layout_key(t)
 	return t.failures
+
+
+## IdleLogic.layout_key: the chip layout's cache key has no frame number, follows every input that
+## moves a chip, and holds while Relish stays in one grid cell.
+func _layout_key(t: TestUtil) -> void:
+	t.suite("map_idle-layout-key")
+	var grid := float(MapLogic.cfg()["callouts"]["token_key_px"])
+	var base := {"rev": 4, "zoom": 1.0, "tier": "mid", "forts": 6, "has_token": true, "cell": IdleLogic.token_cell(Vector2(100, 50), grid), "margin_sig": "a",
+		"shares": {"work": 0.2, "war": 0.8}, "backlog": 3.0, "vei_radius": 40.0, "cov_pos": Vector2(1, 2), "vei_pos": Vector2(3, 4), "widths": [120.0, 130.0]}
+	var k0 := IdleLogic.layout_key(base)
+	t.ok(IdleLogic.layout_key(base.duplicate(true)) == k0, "the same inputs give the same key on two calls (no frame number)")
+	var src := FileAccess.get_file_as_string("res://scripts/map/map_fort_idle.gd")
+	t.ok(not src.contains("get_process_frames"), "map_fort_idle.gd keys its layout on no frame number")
+	var changes := {"rev": 5, "zoom": 1.5, "tier": "near", "forts": 7, "has_token": false, "margin_sig": "b", "shares": {"work": 0.5, "war": 0.5},
+		"backlog": 4.0, "vei_radius": 41.0, "cov_pos": Vector2(9, 2), "vei_pos": Vector2(3, 9), "widths": [120.0, 131.0],
+		"cell": IdleLogic.token_cell(Vector2(100 + grid * 2.0, 50), grid)}
+	for k in changes:
+		var v := base.duplicate(true)
+		v[k] = changes[k]
+		t.ok(IdleLogic.layout_key(v) != k0, "a changed %s changes the key" % k)
+	# Relish moving inside one cell leaves the cell, and so the key, alone
+	var c1 := IdleLogic.token_cell(Vector2(100, 50), grid)
+	var c2 := IdleLogic.token_cell(Vector2(100 + grid * 0.4, 50 - grid * 0.4), grid)
+	t.ok(c1 == c2, "a token move of 0.4 cell stays in its grid cell")
+	t.ok(IdleLogic.token_cell(Vector2(100 + grid, 50), grid) != c1, "a move of a whole cell changes the cell")
+	# the pad covers the distance from the cell's centre to any point in it
+	var corner := IdleLogic.token_center(c1, grid) + Vector2(grid, grid) * 0.5  # a cell is centred on its centre
+	t.ok(absf((corner - IdleLogic.token_center(c1, grid)).length() - IdleLogic.token_pad(grid)) < 0.001, "the token pad is half the cell's diagonal (%.2f)" % IdleLogic.token_pad(grid))
+	t.ok(IdleLogic.token_cell(IdleLogic.token_center(c1, grid), grid) == c1, "a cell's centre is in the cell")
 
 
 ## The real world's forts as chip_layout items: every fort labelled (name_w 7 px a letter, a 40 px tag

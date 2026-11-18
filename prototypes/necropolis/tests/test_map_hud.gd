@@ -20,6 +20,7 @@ func run() -> int:
 	_drag_cap(t)
 	_rects_key(t)
 	_one_source(t)
+	_layer_keys(t)
 	_fit(t)
 	_wrap(t)
 	_clarity(t)
@@ -350,6 +351,26 @@ func _rects_key(t: TestUtil) -> void:
 	var sub := [Rect2(10.2, 20.1, 40, 12), Rect2(100.3, 100.0, 40, 12)]
 	t.ok(HudLogic.rects_key(a) == HudLogic.rects_key(sub), "a sub-pixel drift does not re-place")
 	t.ok(HudLogic.rects_key([]) == [], "no chips, an empty key")
+
+
+## The callouts' label rects and the legend's refresh run only when their keys change.
+func _layer_keys(t: TestUtil) -> void:
+	t.suite("map_hud-layer-keys")
+	t.ok(HudLogic.label_key(3, 1.0, "mid", 5) == HudLogic.label_key(3, 1.0, "mid", 5), "the same label inputs give the same key")
+	t.ok(HudLogic.label_key(3, 1.0, "mid", 5) == HudLogic.label_key(3, 1.0004, "mid", 5), "a sub-thousandth zoom drift does not change it")
+	for alt in [HudLogic.label_key(4, 1.0, "mid", 5), HudLogic.label_key(3, 1.2, "mid", 5), HudLogic.label_key(3, 1.0, "near", 5), HudLogic.label_key(3, 1.0, "mid", 6)]:
+		t.ok(alt != HudLogic.label_key(3, 1.0, "mid", 5), "a changed rev, zoom, tier or fort count changes the label key")
+	var chip := Rect2(12, 60, 330, 100)
+	var valve := Rect2(12, 600, 300, 120)
+	var area := Vector2(1280, 720)
+	var k0 := HudLogic.legend_key(area, true, -1, chip, valve, 4)
+	t.ok(HudLogic.legend_key(area, true, -1, chip, valve, 4) == k0, "the same legend inputs give the same key")
+	for alt in [HudLogic.legend_key(Vector2(1000, 720), true, -1, chip, valve, 4), HudLogic.legend_key(area, false, -1, chip, valve, 4),
+			HudLogic.legend_key(area, true, 1, chip, valve, 4), HudLogic.legend_key(area, true, -1, Rect2(12, 60, 330, 140), valve, 4),
+			HudLogic.legend_key(area, true, -1, chip, Rect2(12, 560, 300, 160), 4), HudLogic.legend_key(area, true, -1, chip, valve, 5)]:
+		t.ok(alt != k0, "a changed size, open flag, click, chip rect, valve rect or row count changes the legend key")
+	var src := FileAccess.get_file_as_string("res://scripts/map/map_legend.gd")
+	t.ok(src.contains("legend_key"), "MapLegend._process gates its refresh on the key")
 
 
 func _placement(t: TestUtil) -> void:

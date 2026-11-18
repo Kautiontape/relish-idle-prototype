@@ -416,3 +416,34 @@ static func word(m: String) -> String:
 
 static func color_key(m: String) -> String:
 	return str(cfg().get("colors", {}).get(m, "text"))
+
+
+# --- layout cache keys -------------------------------------------------------------
+
+## The grid cell Relish's token is in, `cell` world px a side (cells centred on multiples of it, as
+## MapCallouts._chip_signature rounds): the chip layout is keyed on it, so her travel re-lays out
+## only on crossing a cell.
+static func token_cell(pos: Vector2, cell: float) -> Vector2i:
+	var g := maxf(cell, 0.001)
+	return Vector2i(roundi(pos.x / g), roundi(pos.y / g))
+
+
+## The cell's centre, world px: the token position the layout is computed for (the real one is
+## within token_pad of it).
+static func token_center(c: Vector2i, cell: float) -> Vector2:
+	return Vector2(c) * cell
+
+
+## How far the real token can be from its cell's centre: half the cell's diagonal. Added to the
+## token's radius so a layout kept for the cell still clears her.
+static func token_pad(cell: float) -> float:
+	return cell * sqrt(0.5)
+
+
+## What MapFortIdle._layout's result depends on, as a cache key: every input that can change it
+## between frames. `inp`: zoom, tier, rev, forts (count), cell (Vector2i, ZERO with no token),
+## has_token, margin_sig, shares (the valve shares node_obstacles gets), backlog, vei_radius,
+## cov_pos, vei_pos, widths (each held fort's chip width, in order: its clock ticks between revs).
+static func layout_key(inp: Dictionary) -> Array:
+	return [inp["rev"], inp["zoom"], inp["tier"], inp["forts"], inp["has_token"], inp["cell"], inp["margin_sig"], inp["shares"],
+		inp["backlog"], inp["vei_radius"], inp["cov_pos"], inp["vei_pos"], inp["widths"]]

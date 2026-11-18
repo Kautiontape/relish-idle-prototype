@@ -338,3 +338,15 @@ static func place(options: Array, max_count: int, gap: float, occupied: Array = 
 			placed.append(cands[pick])
 		picks.append(pick)
 	return picks
+
+
+## What the fort labels' rects (MapCallouts._label_rects) depend on: the rev (names, tags), the
+## zoom in thousandths, the tier and the fort count. Equal keys, equal rects.
+static func label_key(rev: int, zoom: float, tier: String, forts: int) -> Array:
+	return [rev, roundi(zoom * 1000.0), tier, forts]
+
+
+## What MapLegend.refresh depends on: its parent's size, whether it is open (and the player's
+## click), the Relish chip's and the valve's rects, and the rows' count. Refresh runs when it changes.
+static func legend_key(area: Vector2, open: bool, open_user: int, chip: Rect2, valve: Rect2, rows: int) -> Array:
+	return [area, open, open_user, chip, valve, rows]

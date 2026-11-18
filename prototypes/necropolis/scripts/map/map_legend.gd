@@ -15,6 +15,7 @@ var _open_user := -1  # -1: follow the game (open until a fort is taken), 0 clos
 var _head: Button
 var _rows: VBoxContainer
 var _shown_open := true
+var _legend_key: Array = []  # what refresh() last ran for (HudLogic.legend_key); empty: lay out on the next frame
 
 
 ## One state's glyph in a small box: its ring and its shape, drawn as the fort layer draws them.
@@ -104,7 +105,17 @@ func is_open() -> bool:
 	return HudLogic.legend_open(model.hud, _open_user)
 
 
+## Lays out only when an input changed (HudLogic.legend_key): its parent's size, open or closed,
+## the Relish chip's and the valve's rects, the row count. The first frame has no key, so it lays out.
 func _process(_delta: float) -> void:
+	if model == null:
+		return
+	var vrect := valve.get_global_rect() if valve != null else Rect2()
+	var crect := chip.get_global_rect() if chip != null and is_instance_valid(chip) else Rect2()
+	var key := HudLogic.legend_key(get_parent_area_size(), is_open(), _open_user, crect, vrect, _rows.get_child_count())
+	if key == _legend_key:
+		return
+	_legend_key = key
 	refresh()
 
 

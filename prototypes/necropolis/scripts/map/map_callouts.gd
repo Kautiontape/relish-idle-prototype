@@ -24,6 +24,8 @@ var _card_key: Array = []
 var _chip_sig: Array = []  # what the chip rects depend on: recomputed only when it changes
 var _chip_rects_cache: Array = []
 var _chip_key: Array = []  # the held forts' chip rects as drawn (HudLogic.rects_key): a moved chip re-places
+var _label_key: Array = []  # the fort labels' rects, kept until HudLogic.label_key changes (they cost a measure per string)
+var _label_cache: Array = []
 var _capped := false  # a valve drag is on: only callouts.drag_max_count show
 var _shown: Array = []  # [{plate, leader_from, leader_to, head, rate, tail, base}] in screen px
 
@@ -75,6 +77,9 @@ func _occupied(z: float) -> Array:
 ## Every fort's name label and tag line as drawn (MapFortRing: the plates NodeLogic.fort_label_rects
 ## gives), in this layer's frame: the fort's label anchor x zoom plus the plates' screen-px rects.
 func _label_rects(z: float) -> Array:
+	var key := HudLogic.label_key(model.rev, z, _tier, model.forts.size())
+	if key == _label_key:
+		return _label_cache
 	var out: Array = []
 	var size := int(MapLogic.cfg()["font_label"])
 	var font := ThemeDB.fallback_font  # what MapNodeLayer.draw_label measures with
@@ -91,6 +96,8 @@ func _label_rects(z: float) -> Array:
 		var at := (MapModel.to_vec(f["pos"]) + Vector2(0.0, MapLogic.fort_radius(tier) + off)) * z
 		for r in NodeLogic.fort_label_rects(name_w, tag_w, size):
 			out.append(Rect2(at + (r as Rect2).position, (r as Rect2).size))
+	_label_key = key
+	_label_cache = out
 	return out
 
 
