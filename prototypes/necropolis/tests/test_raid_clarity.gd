@@ -8,6 +8,7 @@ func run() -> int:
 	Palette.configure(TestUtil.load_json("res://configs/palette.json"))
 	_retreat_panel_tests(t)
 	_t5_tests(t)
+	_replace_tests(t)
 	_retreat_line_tests(t)
 	_warden_presence_tests(t)
 	_legend_tests(t)
@@ -15,6 +16,7 @@ func run() -> int:
 	_goal_tests(t)
 	_clear_card_tests(t)
 	_round2_tests(t)
+	_lost_agreement_tests(t)
 	_contrast_tests(t)
 	_goal_compact_tests(t)
 	return t.failures
@@ -108,12 +110,15 @@ func _round2_tests(t: TestUtil) -> void:
 	t.ok(panel_heads.title == "LEAVE THE RAID?" and panel_heads.btn_retreat == "RETREAT" and panel_heads.btn_stay == "STAY"
 		and panel_heads.foot == "click to choose · Space or Esc: stay and fight", "the panel's title, buttons and footer are the ones hud.retreat gives it")
 	panel_heads.free()
-	_lost_agreement_tests(t)
+	# (_lost_agreement_tests runs from run(): it names its own suite, which the checks below must not inherit)
 	# Stays a source pin: raid_hud.gd and raid_endings.gd name autoloads, so the headless suite cannot load them to
 	# check the one fact the pure-function test above cannot reach: both the retreat panel (HUD) and the death
 	# card (endings) are fed from the same `death_inputs()`. The --raid-autodie=60 boot covers the card end to end.
 	var rl := _func_src(hsrc, "func _retreat_lines(")
 	t.ok(rl.contains("raid.endings.death_inputs()"), "the HUD builds the retreat panel's IF RELISH FALLS column from the endings' death_inputs()")
+	t.ok(rl.contains("RaidLogic.retreat_fall_lines(rw, dw, raid.endings.phylactery_left(), di[\"unbanked\"], int(di[\"party_n\"]),")
+		and rl.contains("RaidLogic.death_next_row(raid.seed_data, dw), str(di[\"shut\"]))"),
+		"_retreat_lines passes the death card's shut-in big (di[\"shut\"]) and party count (di[\"party_n\"]) into retreat_fall_lines")
 	var esrc := FileAccess.get_file_as_string("res://scripts/raid/raid_endings.gd")
 	t.ok(_func_src(esrc, "func death_rows(").contains("death_inputs()"), "the death card reads the same death_inputs()")
 	# the words moved out of code live in raid.json: the in-world pip label (at least 13 px), the keep prefix, the AFTER words
@@ -201,7 +206,9 @@ func _round2_tests(t: TestUtil) -> void:
 	t.ok(RaidLogic.wrap_loot_line("essence 8", ThemeDB.fallback_font, vpx, 320.0) == PackedStringArray(["essence 8"]) and RaidLogic.wrap_loot_line("", ThemeDB.fallback_font, vpx, 320.0).is_empty(), "a short line stays one line; nothing is no lines (the HUD's dim \"none\")")
 	# Source pins: raid_hud.gd names autoloads, so the headless suite cannot build the HUD. The wrap itself is
 	# RaidLogic.wrap_loot_line, tested above; these pin where it is called, with its arguments, each inside its own
-	# function (refresh feeds set_loot, set_loot wraps both lines at value_w()). The windowed shots cover it end to end.
+	# function (refresh feeds set_loot, set_loot wraps both lines at value_w()). Covered end to end by the windowed
+	# after-shots of the stat block (the raid-start and retreat-dialog runs, where BANKED / UNBANKED draw wrapped), and by the
+	# --raid-autoexit boot for the script compiling at all.
 	t.ok(_func_src(hsrc, "func refresh(").contains("st.set_loot(RaidLogic.loot_line(bk), RaidLogic.loot_line(ub))"), "the HUD's refresh feeds BANKED and UNBANKED through set_loot")
 	var sl := _inner_src(hsrc, "\tfunc set_loot(")
 	t.ok(sl.contains("banked_lines = RaidLogic.wrap_loot_line(banked, ThemeDB.fallback_font, _val, value_w())")
@@ -473,9 +480,11 @@ func _hint_cue_tests(t: TestUtil) -> void:
 
 
 ## Source pins, not a behavioural test: the panel names no autoload, but it only re-places itself while it sits in a
-## SceneTree (`is_inside_tree()`), and the runner calls every suite from SceneTree._init, where
+## SceneTree (`is_inside_tree()`), and no suite receives the tree: suites run from the runner's `_init`, where
 ## Engine.get_main_loop() is still null (probed), so the test cannot add_child it to drive a position or a resize.
-## So each piece is pinned inside its own function: the setter, the open-time connection and the guards.
+## So each piece is pinned inside its own function: the setter, the open-time connection and the guards. The windowed
+## retreat-dialog after-shot covers the placement end to end. Called from run() (not from inside another suite's tests),
+## so the checks that follow it in a suite keep that suite's name.
 func _replace_tests(t: TestUtil) -> void:
 	t.suite("raid_retreat_replace")
 	var psrc := FileAccess.get_file_as_string("res://scripts/raid/raid_retreat_panel.gd")
@@ -933,11 +942,20 @@ func _t5_tests(t: TestUtil) -> void:
 	t.ok(wide.position.x == floorf((2600.0 - float(rc["w"])) * 0.5), "a wide viewport where centring already clears the block: centred")
 	var tiny := RaidLogic.retreat_panel_rect(Vector2(300, 900), rc, stat_right, 300.0)
 	t.ok(tiny.position.x >= margin and tiny.end.x <= 300.0 - margin, "a 300 px viewport: the viewport clamp wins over the stat block")
-	# the real panel at the clamped width: the two columns and the buttons still fit
+	# the real panel at the configured width and at the 700 px clamp's width: the columns and both buttons fit inside it.
+	# The panel is not in a tree here, so `_fit` takes the configured `w` outright (no viewport to clamp it): the clamped
+	# case is made by giving it the clamped width (p.w = n.size.x), the width a 700 px viewport would hand it.
+	# The project's stretch mode (canvas_items, aspect expand; project.godot) keeps the logical viewport at least
+	# 1600x900, so the 700 px and 300 px cases are defensive only; the 300 px button overflow (x0 < 0: two buttons
+	# plus their gap are wider than the clamped plate) is unreachable and not chased.
 	var p := RaidRetreatPanel.new()
 	p.configure(rc)
 	p.open([_cl(["a"]), _cl(["b"])])
-	t.ok(p.retreat_rect().position.x >= 0.0 and p.stay_rect().end.x <= p.size.x, "the default-width panel keeps both buttons inside it")
+	t.ok(is_equal_approx(p.size.x, float(rc["w"])) and p.retreat_rect().position.x >= 0.0 and p.stay_rect().end.x <= p.size.x, "the default-width panel keeps both buttons inside it (%.0f px)" % p.size.x)
+	p.w = n.size.x
+	p.open([_cl(["a"]), _cl(["b"])])
+	t.ok(is_equal_approx(p.size.x, n.size.x) and p.retreat_rect().position.x >= 0.0 and p.stay_rect().end.x <= p.size.x and p.retreat_rect().end.x <= p.stay_rect().position.x,
+		"at the 700 px clamp's width (%.0f px) both buttons sit inside the panel, side by side (x %.0f..%.0f)" % [p.size.x, p.retreat_rect().position.x, p.stay_rect().end.x])
 	p.free()
 	var psrc := FileAccess.get_file_as_string("res://scripts/raid/raid_retreat_panel.gd")
 	var hsrc := FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd")
@@ -969,15 +987,22 @@ func _t5_tests(t: TestUtil) -> void:
 	# the retreat panel's columns at the 700 px clamp
 	var rcfg := _hr()
 	var r700 := RaidLogic.retreat_panel_rect(Vector2(700, 900), rcfg, 18.0 + float(_hs()["plate_w"]), 300.0)
-	var cw := RaidLogic.retreat_col_w(r700.size.x, float(rcfg["pad"]), float(rcfg["col_gap"]))
-	t.ok(cw > 0.0 and is_equal_approx(cw * 2.0 + 2.0 * float(rcfg["pad"]) + float(rcfg["col_gap"]), r700.size.x), "700 px: both columns are %.0f px wide and fill the %.0f px plate" % [cw, r700.size.x])
+	# the real panel at the 700 px plate's width (not in a tree, so `_fit` uses `w` as given): the columns have a width
+	# and both buttons lie inside the plate (the 700 px case is defensive only: see the stretch-mode note above)
+	var p7 := RaidRetreatPanel.new()
+	p7.configure(rcfg)
+	p7.w = r700.size.x
+	p7.open([_cl(["a"]), _cl(["b"])])
+	var cw := p7._col_w()
+	t.ok(cw > 0.0 and is_equal_approx(p7.size.x, r700.size.x) and p7.retreat_rect().position.x >= 0.0 and p7.stay_rect().end.x <= p7.size.x,
+		"700 px: the panel's columns are %.0f px wide and both buttons lie inside its %.0f px plate" % [cw, p7.size.x])
+	p7.free()
 	var lpx := int(rcfg["line_px"])
 	for k in ["keep_all", "fort_vei", "fall_revive"]:
 		var sz := fnt.get_multiline_string_size(str(rcfg[k]), HORIZONTAL_ALIGNMENT_LEFT, cw, lpx)
 		t.ok(sz.x <= cw, "700 px: the retreat line %s wraps within the %.0f px column (%.0f px)" % [k, cw, sz.x])
 	t.ok(RaidLogic.retreat_col_w(100.0, 18.0, 32.0) == 16.0 and RaidLogic.retreat_col_w(20.0, 18.0, 32.0) == 0.0, "retreat_col_w halves what padding and gap leave, never below 0")
-	# the panel re-places itself when the viewport or the stat block's edge changes while it is open
-	_replace_tests(t)
+	# (the panel's re-place pins, _replace_tests, run from run(): they name their own suite)
 	var hudsrc := FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd")
 	t.ok(hudsrc.contains("_plate_w = float(words.get(\"plate_w\"") and not hudsrc.contains("420.0 - _col"), "the stat block reads its plate and label widths from raid.json")
 	# a word-wrapped line balances: the wrap that left "dungeon." alone now splits evenly
@@ -1370,7 +1395,8 @@ func _goal_compact_tests(t: TestUtil) -> void:
 	# Stays a source pin: raid_hud.gd names autoloads, so the headless suite cannot run _update_goal. The decision is
 	# RaidLogic.goal_compact, tested above (including the no-flicker case, fed the FULL block's rect); the one fact
 	# left is that _update_goal feeds it the FULL rows' rect (height_for(full_rows), the rows built before
-	# compact is set) and the sleeping ring's rect, and not the compact rect, which would flicker.
+	# compact is set) and the sleeping ring's rect, and not the compact rect, which would flicker. Covered end to end by
+	# the windowed raid-start after-shot (the goal block over the sleeping warden's ring), and by a boot for the script compiling.
 	var gi := ug.find("var full_rows := RaidLogic.goal_rows(g, s)")
 	t.ok(gi >= 0 and gi < ug.find("var full := Rect2(") and ug.contains("_goal_block.height_for(full_rows)") and gi < ug.find("s[\"compact\"] =")
 		and ug.contains("s[\"compact\"] = alive and not held and RaidLogic.goal_compact(full, _sleeping_ring_rect(w))"),

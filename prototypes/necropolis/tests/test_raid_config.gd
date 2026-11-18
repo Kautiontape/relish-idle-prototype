@@ -200,6 +200,22 @@ static func _blank_strings(v: Variant, path: String, out: Array) -> void:
 		out.append(path)
 
 
+## The format specifiers of `w` in order, `%%` left out: what `%` will take an argument for.
+static func _specs(w: String) -> Array:
+	var re := RegEx.new()
+	re.compile("%(%|[-+0-9.*]*[a-zA-Z])")
+	var out := []
+	for m in re.search_all(w):
+		if m.get_string() != "%%":
+			out.append(m.get_string())
+	return out
+
+
+## How many `%` in `w` are not half of a `%%` (RaidLogic.word_fmt's count): a lone `%` the regex does not match too.
+static func _percents(w: String) -> int:
+	return w.count("%") - 2 * w.count("%%")
+
+
 ## What is wrong with raid.json's words, one string per problem (empty when they are all there).
 static func _word_problems(raid: Dictionary) -> Array:
 	var out: Array = []
@@ -216,6 +232,20 @@ static func _word_problems(raid: Dictionary) -> Array:
 		for ph in FORMATS[p]:
 			if v is String and not (v as String).contains(ph):
 				out.append("%s lost its %s" % [p, ph])
+		# the exact list: `contains` cannot see a lost duplicate ("%d %d" -> "%d"), an extra placeholder or a stray %
+		var exp: Array = FORMATS[p]
+		if v is String and not exp.is_empty() and (exp[0] as String).begins_with("%"):
+			var got := _specs(v)
+			if got != exp:
+				out.append("%s has the placeholders %s, the code formats it with %s" % [p, got, exp])
+			elif _percents(v) != exp.size():
+				out.append("%s has a stray %% besides its placeholders %s" % [p, exp])
+	# a word the code reads without arguments (not in FORMATS) holds no bare %: its `%` would throw, or word_fmt blank it
+	# ("%%" alone is fine: word_fmt turns it into one "%", and the words read this way go through word_fmt with [])
+	for p in WORDS:
+		var v: Variant = _dig(raid, p)
+		if not FORMATS.has(p) and v is String and _percents(v) != 0:
+			out.append("%s has a bare %% but no FORMATS entry (the code reads it with no arguments)" % p)
 	# each warden a fort names has its tells: warden.gd's WAKES banner reads the first
 	var arches: Variant = _dig(raid, "wardens.archetypes")
 	var by_fort: Variant = _dig(raid, "wardens.by_fort")
@@ -345,3 +375,30 @@ func _proof_tests(t: TestUtil) -> void:
 	stray["held_door"]["_doc_geometry"] = ""
 	var sp := _word_problems(stray)
 	t.ok(sp.has("demo.loot_hint is blank") and sp.size() == 1, "a blank word outside WORDS is reported, and a blank _doc is not: %s" % [sp])
+
+	# the format check is exact: each break below is caught (an in-memory raid.json, one edit each)
+	t.ok(_word_problems(real).is_empty(), "the shipped words pass the exact format check")
+	var edits := {
+		"vei_fight.card_of": ["%d of total", "a placeholder lost (card_of: '%d of %d' became '%d of total', so rows_for would throw)"],
+		"hud.text.raised_ranks": ["%d %d", "a placeholder lost (3 became 2)"],
+		"hud.text.raised_big": ["%d, %d and %d", "a placeholder gained (2 became 3)"],
+		"hud.text.checkpoint": ["%d %d %d %d", "a lost duplicate of one kind (five %d became four)"],
+		"hud.goal.goal_break": ["%d and %s", "a placeholder's type changed (%s became %d)"],
+		"hud.stats.enemies": ["%d enemies, 100% sure", "a stray % beside the placeholder"],
+		"hud.text.exit_banks": ["banks 100% of your loot", "a bare % in a word the code reads with no arguments (every ExitButton redraw would throw)"],
+	}
+	for p: String in edits:
+		var broken: Dictionary = (real as Dictionary).duplicate(true)
+		var parts := p.split(".")
+		var node: Dictionary = broken
+		for i in parts.size() - 1:
+			node = node[parts[i]]
+		node[parts[parts.size() - 1]] = (edits[p] as Array)[0]
+		var found := false
+		for msg: String in _word_problems(broken):
+			found = found or msg.begins_with(p + " ")
+		t.ok(found, "%s is reported: %s" % [p, (edits[p] as Array)[1]])
+	var pct: Dictionary = (real as Dictionary).duplicate(true)
+	pct["hud"]["text"]["exit_banks"] = "banks 100%% of your loot"
+	t.ok(_word_problems(pct).is_empty(), "a %% word outside FORMATS is fine (the code reads it through word_fmt, which makes it one %)")
+	t.ok(_specs("%d%% of %s, %.2f") == ["%d", "%s", "%.2f"] and _percents("%d%% stays") == 1 and _percents("100% of") == 1, "_specs skips %% and keeps the flags; _percents counts a lone %")
