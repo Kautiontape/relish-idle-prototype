@@ -222,6 +222,7 @@ func _build_ui() -> void:
 	setpieces.callouts = callouts_view
 	setpieces.valve = valve
 	setpieces.layer = setpiece_layer
+	setpieces.seen = seen
 	add_child(setpieces)
 
 

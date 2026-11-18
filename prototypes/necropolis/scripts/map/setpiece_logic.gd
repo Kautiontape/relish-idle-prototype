@@ -18,6 +18,8 @@ const KINDS := [VALVE, FLIP, FIRST_FLIP, TITHE, GARRISON, VICTORY, RETREAT]
 const TAKEN := "taken"  # return_kind: the raid took the fort (its set piece is FLIP or FIRST_FLIP)
 const RUN := "run"    # victory: every lane green, running toward Vei
 const STOP := "stop"  # victory: every dash frozen, the victory line up
+const VICTORY_PLAY := "play"      # victory_start: first time in this game: mark it seen and run it
+const VICTORY_SETTLE := "settle"  # victory_start: seen in this game: straight to the end state (STOP)
 const NONE := Vector2(-1.0, -1.0)  # no band this frame
 
 
@@ -210,6 +212,14 @@ static func prune_placed(placed: Dictionary, used: Dictionary) -> Dictionary:
 ## Whether the victory is already seen: it played on this map, or the game was already won when the map mounted.
 static func victory_seen(played: bool, won_at_mount: bool) -> bool:
 	return played or won_at_mount
+
+
+## What a victory start does. "" when `already` (this map has played or settled it: ignore);
+## VICTORY_SETTLE when `seen` (MapSeen.VICTORY: it ran earlier in this game); else VICTORY_PLAY.
+static func victory_start(already: bool, seen: bool) -> String:
+	if already:
+		return ""
+	return VICTORY_SETTLE if seen else VICTORY_PLAY
 
 
 ## A fort's name and tag plates in the frame (`zoom` x world): NodeLogic.fort_label_rects at the label

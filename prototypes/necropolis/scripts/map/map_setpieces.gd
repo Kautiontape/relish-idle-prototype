@@ -17,7 +17,9 @@ extends Node
 ##                 Covington, a green burst at the fort, the chip's counter-garrison draining to
 ##                 0 and flipping to the margin word, a callout.
 ##   victory       vei_result won (or won at map open): every lane runs green toward Vei for 2
-##                 beats, then every dash stops and the victory line shows.
+##                 beats, then every dash stops and the victory line shows. It plays once per
+##                 game (MapSeen VICTORY, per game_id); a later mount of a won game settles
+##                 straight to that end state (dashes stopped, the victory line up).
 ##   build         building_done (or a lot whose level rose while the map was not up, found at mount):
 ##                 a plate above Covington, "Inn built · MINT +0.8/s", the sim's own projection for it
 ##                 (MapModel.proj_store) named by its biggest rate; several builds read as one plate.
@@ -42,6 +44,7 @@ var model: MapModel
 var nodes: MapNodes
 var routes: MapRoutes
 var hud: MapHud
+var seen: MapSeen  # the game's shown-once flags: victory plays once per game
 var valve: MapValve
 var callouts: MapCallouts  # the lane callouts' drawn plates: soft obstacles to the set-piece line
 var cam: MapCamera  # its position and the visible screen place the callouts in the frame
@@ -59,7 +62,7 @@ var _committed := {}  # the valve Covington's stems show at rest
 var _swing := {}  # {from, to, start_ms} while the valve swing runs
 var _valve_rev := -1  # the model.rev the idle valve target was last read at
 var _taken_ids: Array = []  # forts whose fort_flipped this map heard (the router replays the ones it held): note_return's "taken"
-var _won := false  # victory has played (or is playing): once per map
+var _won := false  # victory has played, is playing or was settled: once per map
 var _won_at_mount := false  # the game was already won when the map mounted: its victory is seen, an away_report replays nothing
 var _placed_used := {}  # the _placed keys drawn this frame: the rest are pruned at its end
 var _builds: Array = []  # the finished builds the callout at Covington names: [{lot_id, building_id, level}]
@@ -177,9 +180,13 @@ func _start(p: Dictionary) -> void:
 	var kind := str(p["kind"])
 	var id := str(p["fort_id"])
 	if kind == SetpieceLogic.VICTORY:
-		if _won:
+		var how := SetpieceLogic.victory_start(_won, seen.has(MapSeen.VICTORY))
+		if how == "":
 			return
 		_won = true
+		p["settle"] = how == SetpieceLogic.VICTORY_SETTLE
+		if how == SetpieceLogic.VICTORY_PLAY:
+			seen.mark(MapSeen.VICTORY)
 	elif not model.forts_by_id.has(id):
 		return
 	for q in _active.duplicate():  # the same set piece at the same fort restarts
@@ -212,7 +219,7 @@ func _process(_delta: float) -> void:
 			SetpieceLogic.GARRISON:
 				done = _garrison_tick(p, t, rm, items)
 			SetpieceLogic.VICTORY:
-				done = _victory_tick(t, rm)
+				done = _victory_tick(t, rm or bool(p.get("settle", false)))
 			SetpieceLogic.RETREAT:
 				done = _retreat_tick(p, t, rm, items)
 		if done:

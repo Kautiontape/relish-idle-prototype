@@ -703,6 +703,22 @@ func _victory(t: TestUtil, c: Dictionary) -> void:
 	t.ok(SetpieceLogic.victory_phase(d * 0.99, false) == SetpieceLogic.RUN, "for victory_run_beats (about 2)")
 	t.ok(SetpieceLogic.victory_phase(d, false) == SetpieceLogic.STOP and SetpieceLogic.victory_phase(d * 10.0, false) == SetpieceLogic.STOP, "then stops, and stays stopped")
 	t.ok(SetpieceLogic.victory_u(-1.0) == float(c["victory_u_floor"]) and SetpieceLogic.victory_u(0.9) == 0.9, "a dark lane lights at the floor; a bright one keeps its u")
+	# once per game: the decision, the settle path's end state, and the wiring (source text: the scene scripts name autoloads)
+	t.ok(SetpieceLogic.victory_start(true, false) == "" and SetpieceLogic.victory_start(true, true) == "", "victory: a map that already played or settled it ignores a second start")
+	t.ok(SetpieceLogic.victory_start(false, false) == SetpieceLogic.VICTORY_PLAY, "victory: the first time in a game it plays")
+	t.ok(SetpieceLogic.victory_start(false, true) == SetpieceLogic.VICTORY_SETTLE, "victory: seen in this game, a later mount settles")
+	t.ok(SetpieceLogic.victory_phase(0.0, true) == SetpieceLogic.STOP, "victory: the settle path's end state is STOP at once")
+	var sp := FileAccess.get_file_as_string("%s/map_setpieces.gd" % MAP_DIR)
+	var s0 := sp.find("func _start(")
+	var st := sp.substr(s0, sp.find("\n\n\n", s0) - s0)
+	t.ok(st.contains("SetpieceLogic.victory_start(_won, seen.has(MapSeen.VICTORY))") and st.contains("seen.mark(MapSeen.VICTORY)") and st.contains("p[\"settle\"]"), "_start decides from the seen flag, marks it when the victory plays, and records the settle")
+	var p0 := sp.find("func _process(")
+	var pr := sp.substr(p0, sp.find("\n\n\n", p0) - p0)
+	t.ok(pr.contains("_victory_tick(t, rm or bool(p.get(\"settle\", false)))"), "_process settles a settled victory like reduced motion")
+	t.ok(sp.contains("var seen: MapSeen"), "the set pieces hold the game's seen flags")
+	var wm := FileAccess.get_file_as_string("%s/world_map.gd" % MAP_DIR)
+	var w0 := wm.find("setpieces.seen = seen")
+	t.ok(w0 >= 0 and w0 < wm.find("add_child(setpieces)"), "the world map hands the seen flags over before the set pieces enter the tree")
 
 
 func _reduced(t: TestUtil, c: Dictionary) -> void:

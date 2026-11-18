@@ -1,7 +1,7 @@
 class_name MapSeen
 extends RefCounted
 ## "Shown once" flags for the map's teaching cues (the valve pointer, the first tithe's
-## explanation), kept in a small ConfigFile outside the save: GameState is not ours. The path and
+## explanation, the victory set piece), kept in a small ConfigFile outside the save: GameState is not ours. The path and
 ## whether it may be touched are passed in (a harness session, Game.autosave_enabled false, reads
 ## it as empty and never writes it, so screenshots always show the opening). Flags set in a
 ## session that cannot write are kept in memory for the process, so a cue that was dismissed stays
@@ -11,6 +11,7 @@ const PATH := "user://map_seen.cfg"
 const SECTION := "seen"
 const VALVE := "valve"
 const TITHE := "tithe_explain"
+const VICTORY := "victory"  # the victory set piece has started in this game: a later mount settles to its end state
 const GAME := "game"  # the file's second section: the game the flags belong to
 const ID := "id"
 const PLAYER := "player"  # the file's third section: the player's own choices, not tied to a game
