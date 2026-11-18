@@ -548,7 +548,7 @@
       "join": " · ", "button": "To the realm"
     },
     "queue_text": {
-      "_doc": "The Build tab's queue (view_town().queue and its commands). A gated entry waits in its place (IDLE §5): gate_wait words its gate (wait_slot: a buildable entry past the first queue_max slot-holders, waiting for one), `skipped` any other skip (lot_taken and the like). affordable_in_s (R2) sets the start: 0 now, > 0 a wait, -1 never at today's income (with the row's starved/lever, starved_why). queued_ok reports a queued entry's own affordable_in_s.",
+      "_doc": "The Build tab's queue (view_town().queue and its commands). A gated entry waits in its place (IDLE §5): gate_wait words its gate (wait_slot: a buildable entry past the first queue_max slot-holders, waiting for one), `skipped` any other skip (lot_taken and the like). affordable_in_s (R2) sets the start: 0 now, > 0 a wait, -1 never at today's income (with the row's starved/lever, starved_why). queued_ok (queued_up for an upgrade) reports a queued entry's own row: its gate, less gate_lead (the line already says Queued), or its affordable_in_s.",
       "title": "Queue: builds start on their own, in order, while you're away too",
       "not_queued": "Not queued: {why}.",
       "queue_moved": "The queue moved on (that entry started or changed place): nothing was sent. Look again.",
@@ -571,6 +571,7 @@
       },
       "queued_ok": "Queued {label} on {lot}: {when}.",
       "queued_up": "Queued the upgrade of {label} to Lv {level} on {lot}: {when}.",
+      "gate_lead": "queued: ",
       "slots": "{used} of {max} slots",
       "queued_now": "it starts now",
       "queued_never": "it can't be afforded at today's income yet (see the queue)",

@@ -800,7 +800,8 @@ static func upgrade_entry(b: Dictionary, lot_id: String, st: Dictionary, bcfg: D
 ## What an accepted queue click says: "Queued House on lot 5: it starts now.", or for an upgrade "Queued the upgrade of
 ## Bone Mill to Lv 3 on lot 2: ...", at the level the queue gave it. `row` is the new entry's own row in
 ## view_town().queue ({} when not found), so the "when" reads as that row does in the Queue:
-## - an entry skipped for a gate says the gate (skip_text): "queued: waits for 1 relic: raid a fort";
+## - an entry skipped for a gate says the gate (skip_text), less the gate text's own lead (`gate_lead`, "queued: "),
+##   which the line already says: "Queued Inn on lot 13: waits for Village.";
 ## - else its start, from its affordable_in_s (R2; `a`, the command's, when there's no row): 0 starts now, > 0 a
 ##   wait, -1 never at today's income.
 static func queued_line(e: Dictionary, row: Dictionary, a: float, catalog: Dictionary, st: Dictionary, bview: Dictionary,
@@ -808,7 +809,7 @@ static func queued_line(e: Dictionary, row: Dictionary, a: float, catalog: Dicti
 	var tt: Dictionary = vcfg.get("queue_text", {})
 	var when := ""
 	if String(row.get("status", "")) == "skipped_gate":
-		when = skip_text(row, catalog, st, bview, vcfg)
+		when = skip_text(row, catalog, st, bview, vcfg).trim_prefix(String(tt.get("gate_lead", "")))
 	else:
 		var at := float(row.get("affordable_in_s", a))
 		when = String(tt.get("queued_now", "")) if at == 0.0 else (fmt(String(tt.get("afford_in", "")), {"t": fmt_eta(at, vcfg)})

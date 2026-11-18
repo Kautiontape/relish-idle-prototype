@@ -139,8 +139,8 @@ func _queue_upgrade_click() -> void:
 	t.ok(bool(rc["ok"]) and bool(crow.get("upgrade", false)) and crow.get("building_id", "") == "crypt" and crow.get("status", "") == "skipped_gate"
 		and crow.get("reason", "") == "no_relics", "the Crypt's upgrade queues and waits for its relic (%s; %s)" % [rc.get("reason", ""), str(crow)])
 	var cline := BuildSort.queued_line(ec, crow, float(rc["affordable_in_s"]), cat, st, bview, vcfg)
-	t.ok(cline.begins_with("Queued the upgrade of Crypt to Lv 2 on lot 1: queued: waits for 1 relic") and not cline.contains(String(vcfg["queue_text"]["queued_never"])),
-		"its line names the relic, not today's income: '%s'" % cline)
+	t.ok(cline.begins_with("Queued the upgrade of Crypt to Lv 2 on lot 1: waits for 1 relic") and not cline.contains(String(vcfg["queue_text"]["queued_never"])),
+		"its line names the relic, not today's income, and says queued once: '%s'" % cline)
 	# a Queue click on a free lot queues a build; a second card click on that lot is refused the same way
 	var lot := String((cat["house"]["lots"] as Array)[0])
 	var rb := BuildSort.send_queue(s, _build_entry("house", lot), sent)
@@ -152,6 +152,13 @@ func _queue_upgrade_click() -> void:
 		"a second card Queue on %s before the bind sends nothing (%s)" % [lot, rr["reason"]])
 	t.ok(BuildSort.queued_line(_build_entry("house", lot), q.back(), 0.0, cat, st, bview, vcfg).begins_with("Queued House on %s: " % TownModel.lot_name(lot, vcfg)),
 		"a build's line keeps its words")
+	# a gated build with its funds in hand: the old line judged by affordable_in_s first and said "it starts now"
+	var ei := _build_entry("inn", "lot-13")
+	var ri := BuildSort.send_queue(s, ei, sent)
+	q = s.view_town()["queue"]
+	var iline := BuildSort.queued_line(ei, q.back(), float(ri.get("affordable_in_s", -1.0)), cat, st, bview, vcfg)
+	t.ok(bool(ri["ok"]) and q.back().get("status", "") == "skipped_gate" and iline == "Queued Inn on lot 13: waits for its lot to open at a higher tier.",
+		"a gated build's line names its gate, not 'it starts now' (affordable_in_s %s): '%s'" % [ri.get("affordable_in_s", ""), iline])
 	# the panel's wiring, which no headless test can reach: every Queue goes through _queue_real, which sends with
 	# send_queue on _lots_sent; bind clears it and _free_lot skips it
 	var pb := FileAccess.get_file_as_string("res://scripts/town/panel_build.gd")
