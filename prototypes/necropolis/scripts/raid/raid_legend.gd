@@ -5,8 +5,9 @@ extends Control
 ## it every raid until a fort has been taken (RaidLogic.legend_open_at_start), then collapsed.
 ##
 ## Mouse only: a left press on the header row (open) or on the chip (collapsed) toggles it. No key does.
-## It stops mouse events that land on it, so a click on the legend never moves Relish. Anchored by its
-## bottom-left corner: it grows upward. No autoloads (Palette reads its file when ConfigDb is absent).
+## Only the toggling press is accepted; every other mouse event passes through to the raid (a right
+## press on the legend still starts the trance). Anchored by its bottom-left corner: it grows upward.
+## No autoloads (Palette reads its file when the config is absent).
 
 const L_HEADER := "CONTROLS"
 const L_HIDE := "hide"
@@ -36,7 +37,7 @@ var _hdr_hide_x := 0.0
 
 func _init() -> void:
 	focus_mode = Control.FOCUS_NONE
-	mouse_filter = Control.MOUSE_FILTER_STOP   # a click on the legend never reaches the floor (no move)
+	mouse_filter = Control.MOUSE_FILTER_PASS   # only the toggling press is accepted; everything else reaches the raid
 
 
 ## `cfg` is raid.json's hud.legend; `open` the state to start in.
@@ -113,10 +114,9 @@ func classify(ev: InputEvent) -> bool:
 
 
 func _gui_input(ev: InputEvent) -> void:
-	if ev is InputEventMouseButton:
+	if classify(ev):
 		accept_event()
-		if classify(ev):
-			toggle()
+		toggle()
 
 
 func _draw() -> void:

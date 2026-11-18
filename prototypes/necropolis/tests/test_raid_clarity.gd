@@ -24,13 +24,17 @@ func _legend_tests(t: TestUtil) -> void:
 		"hud.legend is documented, with a 44 px chip and text of at least 12 px")
 	var l := RaidLegend.new()
 	l.setup(cfg, true)
-	t.ok(l.focus_mode == Control.FOCUS_NONE and l.mouse_filter == Control.MOUSE_FILTER_STOP, "no focus; it stops the mouse")
+	t.ok(l.focus_mode == Control.FOCUS_NONE and l.mouse_filter == Control.MOUSE_FILTER_PASS, "no focus; the mouse passes through")
 	t.ok(l.get_child_count() == 0, "no child controls")
 	var open_h := l.size.y
 	var open_w := l.size.x
 	l.position = Vector2(18.0, 300.0)
 	var bottom := l.position.y + l.size.y
-	var on_row2 := Vector2(open_w * 0.5, open_h * 0.5)
+	# row 2's centre from the legend's own layout: pad, header (key+4), gap, row 1 (key+10), gap, half of row 2
+	var kp := float(cfg.get("key_px", 13))
+	var gp := float(cfg.get("gap_px", 8))
+	var row2_y := float(cfg.get("pad_px", 10)) + kp + 4.0 + gp + kp + 10.0 + gp + (kp + 10.0) * 0.5
+	var on_row2 := Vector2(open_w * 0.5, row2_y)
 	t.ok(not l.classify(_mouse(MOUSE_BUTTON_LEFT, on_row2)), "a left press on the rows does not toggle")
 	t.ok(l.classify(_mouse(MOUSE_BUTTON_LEFT, Vector2(open_w - 20.0, 14.0))), "a left press on the header toggles")
 	l.toggle()
@@ -48,6 +52,11 @@ func _legend_tests(t: TestUtil) -> void:
 	l.toggle()
 	t.ok(l.is_open and is_equal_approx(l.size.y, open_h) and is_equal_approx(l.position.y + l.size.y, bottom), "reopened to the same plate, bottom edge fixed")
 	l.free()
+	var leg_src := FileAccess.get_file_as_string("res://scripts/raid/raid_legend.gd")
+	var gi := leg_src.find("func _gui_input")
+	var gbody := leg_src.substr(gi, leg_src.find("\nfunc ", gi + 10) - gi) if gi >= 0 else ""
+	t.ok(gi >= 0 and RegEx.create_from_string("if classify\\(ev\\):\\s*accept_event\\(\\)").search(gbody) != null
+		and gbody.count("accept_event()") == 1, "_gui_input accepts an event only inside `if classify(ev):`")
 	var hud_src := FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd")
 	t.ok(hud_src.contains("Game.state.view_hud().get(\"highest_tier_flipped\", 0)"), "the HUD reads highest_tier_flipped from view_hud()")
 	var i := hud_src.find("RaidLegend.new()")

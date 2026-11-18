@@ -1238,14 +1238,14 @@ static func human_real_s(scene_s: float, trance_s: float, time_scale: float) -> 
 	return scene_s + trance_s * (1.0 / maxf(0.05, time_scale) - 1.0)
 
 
-## Capture mode (D-e; RaidCapture, NOTES-RAID "Capture mode"): where a live run's record goes. `--capture`
-## gives `def_path`, `--capture=<path>` that path; "" is off. It is read from the engine args too, so a
-## player launch can pass it before `--` (BootRule only matches its DEV_ARGS there: the save resumes).
 ## The control legend starts open every raid until a fort has been taken (dungeon-i T1), then collapsed.
 static func legend_open_at_start(highest_tier_flipped: int) -> bool:
 	return highest_tier_flipped <= 0
 
 
+## Capture mode (D-e; RaidCapture, NOTES-RAID "Capture mode"): where a live run's record goes. `--capture`
+## gives `def_path`, `--capture=<path>` that path; "" is off. It is read from the engine args too, so a
+## player launch can pass it before `--` (BootRule only matches its DEV_ARGS there: the save resumes).
 static func capture_path(user_args: PackedStringArray, engine_args: PackedStringArray, def_path: String) -> String:
 	for args in [user_args, engine_args]:
 		for a in args:
