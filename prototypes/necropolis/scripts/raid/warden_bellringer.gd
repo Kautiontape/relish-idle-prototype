@@ -58,7 +58,7 @@ func _phase_now() -> int:
 func _on_phase_change(old: int, new: int) -> void:
 	super._on_phase_change(old, new)
 	# a faster rhythm: pull a slam that is not yet telegraphed in to the new period
-	var tell := WardenLogic.attack_tell(spec.get("attack", {}))
+	var tell := _tell()
 	var b := beat()
 	if b < _next_attack - tell:
 		_next_attack = minf(_next_attack, maxf(b + tell, _last_attack + WardenLogic.period_beats(spec, new)))
@@ -82,7 +82,8 @@ func _contacts() -> Array:
 
 func _step(delta: float) -> void:
 	if _pack_step(delta):   # its pack runs: no tell until a beat after the last falls (one threat at a time)
-		_next_attack = maxf(_next_attack, ceilf(beat()) + WardenLogic.attack_tell(spec.get("attack", {})) + float(spec.get("attack", {}).get("pack_rest_beats", 1.0)))
+		_refresh_tell(false)   # no tell runs through a pack: the next one is laid with the assist's current setting
+		_next_attack = maxf(_next_attack, WardenLogic.after_rest(beat(), _tell(), float(spec.get("attack", {}).get("pack_rest_beats", 1.0))))
 		if _toll_beat_booked:   # a horn over a booked beat's tell: nothing lands, so the beat is not booked either, placed toll or not (telemetry)
 			toll_beats = maxi(0, toll_beats - 1)
 			toll_marks.erase("%.4f" % _tell_for)
@@ -92,12 +93,14 @@ func _step(delta: float) -> void:
 	muffled = WardenLogic.is_muffled(spec, _contacts())
 	var b := beat()
 	var at: Dictionary = spec.get("attack", {})
+	_refresh_tell(WardenLogic.is_tell(b, _next_attack, _tell()))   # a flip applies from the next tell, never inside this one
+	var tell := _tell()
 	var rel0: RaidRelish = raid.relish
 	if rel0 != null and is_instance_valid(rel0) and rel0.alive and _slam_beat < 0.0 \
-			and WardenLogic.is_tell(b, _next_attack, WardenLogic.attack_tell(at)) \
+			and WardenLogic.is_tell(b, _next_attack, tell) \
 			and rel0.global_position.distance_to(global_position) <= WardenLogic.slam_edge_px(spec):
 		raid.danger_targeted()   # her edge warns while the slam tell reaches her
-	if _slam_beat < 0.0 and _tell_for != _next_attack and WardenLogic.is_tell(b, _next_attack, WardenLogic.attack_tell(at)):
+	if _slam_beat < 0.0 and _tell_for != _next_attack and WardenLogic.is_tell(b, _next_attack, tell):
 		_tell_for = _next_attack
 		RaidSound.play("tell")   # once per tell
 		# the toll: a ring where she stands as the tell begins (in its room); stepping out is the answer
@@ -117,7 +120,10 @@ func _step(delta: float) -> void:
 				and room.has_point(rel0.global_position) and rel0.global_position.distance_to(global_position) > slam_reach + rel0.radius:
 			toll_beats += 1
 			_toll_beat_booked = true
-			var budget := (WardenLogic.attack_tell(at) * tempo_s() - float(at.get("toll_react_s", 0.6))) * rel0.speed
+			# the time she has to step out: the tell's length (off: the whole of it, as always; assist on: what is
+			# actually left, as a tell begun late would otherwise be sized for beats it does not have)
+			var left := WardenLogic.lay_len(tell, _next_attack, b) if RaidLogic.assist_on else tell
+			var budget := (left * tempo_s() - float(at.get("toll_react_s", 0.6))) * rel0.speed
 			toll_exit_at = WardenLogic.toll_exit(room, rel0.global_position, global_position, toll_r, rel0.radius,
 				slam_reach + rel0.radius, float(at.get("toll_exit_margin_px", 16.0)), budget)
 			if toll_exit_at != Vector2.INF:
@@ -170,8 +176,7 @@ func _step(delta: float) -> void:
 func _draw_toll(ci: CanvasItem) -> void:
 	var fs := roundi(float(wcfg().get("label_px", 15)) / zoom())
 	if toll_at != Vector2.INF:
-		var at: Dictionary = spec.get("attack", {})
-		var tell := WardenLogic.attack_tell(at)
+		var tell := _tell()
 		var f := 1.0 if Pulse.reduced_motion else clampf(1.0 - (_next_attack - beat()) / maxf(0.01, tell), 0.0, 1.0)
 		var p := toll_at - global_position
 		LineGlow.ring(ci, p, toll_r, Palette.c("danger", 0.45 + 0.45 * f), 2.5 / zoom(), 0.6)
@@ -185,7 +190,7 @@ func _draw_toll(ci: CanvasItem) -> void:
 ## for the links while a tell shows or a muffled slam is out. Reads the allies; changes nothing.
 func _update_braced(b: float, at: Dictionary) -> void:
 	_braced.clear()
-	var showing := (_slam_beat < 0.0 and WardenLogic.is_tell(b, _next_attack, WardenLogic.attack_tell(at))) \
+	var showing := (_slam_beat < 0.0 and WardenLogic.is_tell(b, _next_attack, _tell())) \
 		or (_slam_beat >= 0.0 and _slam_muffled)
 	if not showing or not muffled:
 		return
@@ -248,8 +253,7 @@ func _meter_y() -> float:
 func _clapper_angle() -> float:
 	if not awake:
 		return 0.0
-	var at: Dictionary = spec.get("attack", {})
-	var tell := WardenLogic.attack_tell(at)
+	var tell := _tell()
 	var b := beat()
 	var side := 1.0 if _slams % 2 == 0 else -1.0
 	var struck := float(wcfg().get("clapper_strike_rad", 0.5))
@@ -301,7 +305,7 @@ func _draw_glyph(col: Color) -> void:
 func _draw_telegraph(ci: CanvasItem) -> void:
 	_draw_toll(ci)
 	var at: Dictionary = spec.get("attack", {})
-	var tell := WardenLogic.attack_tell(at)
+	var tell := _tell()
 	var b := beat()
 	var reach := float(at.get("radius_px", 360.0))
 	var band := float(at.get("band_px", 36.0))

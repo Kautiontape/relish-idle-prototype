@@ -85,10 +85,6 @@ func _on_pack_down() -> void:
 	_next_attack = maxf(_next_attack, ceilf(beat() + _tell()) + float(spec.get("attack", {}).get("pack_rest_beats", 0.0)))
 
 
-func _tell() -> float:
-	return WardenLogic.attack_tell(spec.get("attack", {}))
-
-
 func _speed_now() -> float:
 	var phs: Array = spec.get("phases", [])
 	return float((phs[clampi(phase, 0, phs.size() - 1)] as Dictionary).get("speed", 140.0))
@@ -107,6 +103,7 @@ func _hunt() -> Dictionary:
 
 
 func _step(delta: float) -> void:
+	_refresh_tell(_locked)   # a flip applies from the next lunge's tell: a locked tell keeps the length it began with
 	_lunge_flash = maxf(0.0, _lunge_flash - delta * 3.0)
 	if _dashing:
 		_advance_dash(delta)

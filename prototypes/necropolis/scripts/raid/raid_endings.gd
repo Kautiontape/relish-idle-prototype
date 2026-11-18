@@ -2,8 +2,8 @@ class_name RaidEndings
 extends RefCounted
 ## Everything about ending a run and what is banked: checkpoint tracking and snapshots, retreat,
 ## phylactery revives, the result dict, the death beat and the single `finished` emit.
-## RefCounted, not a Node: it has no tree presence or per-frame work (the raid calls
-## `track_position()` from its physics step); it borrows the raid's tree for its timer.
+## RefCounted, not a Node: it has no tree presence (the raid calls `track_position()` and `tick()`, the checkpoint
+## resend check, from its physics step); it borrows the raid's tree for its timers.
 ## `_exit_result` / `_death_result` stay on the raid as overridable hooks (the boss scene
 ## replaces them) and delegate to `build_result` here.
 
@@ -138,12 +138,9 @@ func gap_end(outcome: String) -> void:
 	ended = true
 	_raid.trance.force_end()
 	if _raid.hud != null:
-		_raid.hud.close_retreat()
-		for c in _raid.hud.get_children():
-			if c is RaidDeathCard or c is RaidClearCard:
-				c.queue_free()
-		_raid.hud.show_banner(RaidLogic.gap_banner(), float(_raid.rcfg().get("gap_end", {}).get("banner_s", 4.0)), "danger")
-	_card = null
+		_raid.hud.close_retreat()   # (no death or clear card can be open here: both are made only once pending_exit is set, and that returned above)
+		var gcfg: Dictionary = _raid.rcfg().get("gap_end", {})
+		_raid.hud.show_banner(RaidLogic.gap_banner(gcfg, _raid.is_boss()), float(gcfg.get("banner_s", 4.0)), "danger")
 	_raid.get_tree().create_timer(float(_raid.rcfg().get("gap_end", {}).get("beat_s", 2.5))).timeout.connect(_finish_gap.bind(outcome))
 
 

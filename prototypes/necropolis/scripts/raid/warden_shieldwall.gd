@@ -91,10 +91,6 @@ func _on_phase_change(old: int, new: int) -> void:
 		_next_attack = minf(_next_attack, maxf(b + tell, _last_attack + WardenLogic.period_beats(spec, new)))
 
 
-func _tell() -> float:
-	return WardenLogic.attack_tell(spec.get("attack", {}))
-
-
 ## The bash arc's half-width now, in degrees: the phase's front, wider by `rush_half_deg` through a rush's
 ## tell and bash (the bot and the drawn arc read this).
 func front_half_deg() -> float:
@@ -190,11 +186,13 @@ func hit_from(amount: float, attacker: Node2D) -> void:
 
 func _step(delta: float) -> void:
 	if _pack_step(delta):   # its pack runs: no bash tell until a beat after the last falls (one threat at a time)
-		_next_attack = maxf(_next_attack, ceilf(beat()) + _tell() + float(spec.get("attack", {}).get("pack_rest_beats", 1.0)))
+		_refresh_tell(false)   # no tell runs through a pack: the next one is laid with the assist's current setting
+		_next_attack = maxf(_next_attack, WardenLogic.after_rest(beat(), _tell(), float(spec.get("attack", {}).get("pack_rest_beats", 1.0))))
 		_end_rush(spec.get("attack", {}))   # a horn over a rush's tell: that rush never lands
 	var b := beat()
 	var at: Dictionary = spec.get("attack", {})
 	var ph := WardenLogic.shield_phase(spec, phase)
+	_refresh_tell(WardenLogic.is_tell(b, _next_attack, _tell()))   # a flip applies from the next tell (bash, rush and lane share it), never inside this one
 	var tell := _tell()
 	planted = WardenLogic.is_tell(b, _next_attack, tell)
 	_goal_t -= delta

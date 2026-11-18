@@ -1429,7 +1429,7 @@ func _vs_bell(pos: Vector2, b: RaidBellringer, living: Array, safe_px: float) ->
 func _bell_beats_to_tell(b: RaidBellringer) -> float:
 	if b._slam_beat >= 0.0:
 		return -1.0
-	var tell := WardenLogic.attack_tell(b.spec.get("attack", {}))
+	var tell := b._tell()   # the warden's own (latched) tell length, the one it will lay
 	return (b._next_attack - tell) - b.beat()
 
 

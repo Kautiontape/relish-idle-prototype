@@ -19,7 +19,7 @@ extends RefCounted
 ##   cause: gap} through Game.game_event, as the state does when a gap above idle.gap_s ends the open run; the flag also enables the raid's
 ##   listener in a standalone launch. It touches no state. The raid stops, shows the AWAY TOO LONG banner and emits one result: with the
 ##   fixture a RAID_RESULT exit=retreated, the capture's retreat_by "gap"),
-## --raid-assist (the warned-attack assist on: every warned attack's tell window x raid.json assist.tell_mult, from the next tell laid; the boss
+## --raid-assist (the warned-attack assist on: every warned attack's tell window x raid.json assist.tell_mult, from the next tell a warden lays, never inside a running one; the boss
 ##   scene reads it too, for Vei's weaves; the legend's LONGER WARNINGS row is the same switch, RaidLogic.assist_on),
 ## --raid-shield-lane-every=<n> sets the Shieldwall's attack.rush_lane_every for this run (D-e task 4's candidates).
 ## A RefCounted, not a Node: the raid calls `start()` once the scene is built and `tick()` from

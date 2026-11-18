@@ -21,9 +21,6 @@ const L_OR := "or"
 const L_MOUSE := "RIGHT MOUSE"
 const L_SLOW := "slow time"
 const L_DRAG := "then drag a loop around essence to RAISE undead"
-const L_ASSIST := "LONGER WARNINGS"   # the warned-attack assist's toggle row (RaidLogic.assist_on): "LONGER WARNINGS · off" / "· on"
-const L_OFF := "off"
-const L_ON := "on"
 const CAP_PAD := 7.0    # a key cap's side padding
 const CAP_VPAD := 5.0    # and its top and bottom
 const MIN_PX := 13      # nothing in the legend is set smaller
@@ -36,6 +33,9 @@ var _pad := 10.0
 var _gap := 8.0
 var _alpha := 0.97
 var _chip := Vector2(140.0, 44.0)
+var _l_assist := ""   # the warned-attack assist's toggle row (RaidLogic.assist_on): "<label> · <off|on>", the words from hud.legend
+var _l_off := ""
+var _l_on := ""
 var _header_rect := Rect2()
 var _assist_rect := Rect2()   # the LONGER WARNINGS row's hit band (open only): the plate's width, at least HDR_HIT tall
 var _assist_box := Rect2()    # its drawn cap
@@ -57,6 +57,9 @@ func setup(cfg: Dictionary, open: bool) -> void:
 	_gap = float(cfg.get("gap_px", 8))
 	_alpha = float(cfg.get("plate_alpha", 0.97))
 	_chip = Vector2(float(cfg.get("chip_w", 140)), maxf(44.0, float(cfg.get("chip_h", 44))))
+	_l_assist = str(cfg.get("assist_label", ""))
+	_l_off = str(cfg.get("assist_off", ""))
+	_l_on = str(cfg.get("assist_on", ""))
 	is_open = open
 	_fit()
 
@@ -141,7 +144,7 @@ func classify_assist(ev: InputEvent) -> bool:
 
 
 func _assist_text(on: bool) -> String:
-	return "%s · %s" % [L_ASSIST, L_ON if on else L_OFF]
+	return "%s · %s" % [_l_assist, _l_on if on else _l_off]
 
 
 func _gui_input(ev: InputEvent) -> void:
@@ -150,7 +153,7 @@ func _gui_input(ev: InputEvent) -> void:
 		toggle()
 	elif classify_assist(ev):
 		accept_event()   # swallowed: a left press on the row never moves Relish (the right mouse and Space still reach the trance)
-		RaidLogic.assist_on = not RaidLogic.assist_on   # memory only; applies from the next warned attack's tell
+		RaidLogic.assist_on = not RaidLogic.assist_on   # memory only; applies from the next tell a warden lays, never inside a running one
 		queue_redraw()
 
 

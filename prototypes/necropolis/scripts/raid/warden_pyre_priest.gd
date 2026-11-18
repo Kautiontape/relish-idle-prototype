@@ -112,10 +112,6 @@ func pip_lit(i: int) -> bool:
 	return WardenLogic.pyre_pip_lit(_meter, i, living(), hp / maxf(1.0, max_hp))
 
 
-func _tell() -> float:
-	return WardenLogic.attack_tell(spec.get("attack", {}))
-
-
 ## Beats until the next burn (its tell shows for the last tell_beats of them).
 func beats_to_burn() -> float:
 	return _next_attack - beat()
@@ -235,9 +231,11 @@ func nearest_acolyte(from: Vector2) -> RaidAcolyte:
 
 func _step(delta: float) -> void:
 	if _pack_step(delta):   # its pack runs: no fire tell until a beat after the last falls (one threat at a time)
-		_next_attack = maxf(_next_attack, ceilf(beat()) + _tell() + float(spec.get("attack", {}).get("pack_rest_beats", 1.0)))
+		_refresh_tell(false)   # no tell runs through a pack: the next one is laid with the assist's current setting
+		_next_attack = maxf(_next_attack, WardenLogic.after_rest(beat(), _tell(), float(spec.get("attack", {}).get("pack_rest_beats", 1.0))))
 	var b := beat()
 	var k := WardenLogic.pyre_phase_knobs(spec, phase)
+	_refresh_tell(WardenLogic.is_tell(b, _next_attack, _tell()))   # a flip applies from the next burn's tell, never inside this one
 	var showing := WardenLogic.is_tell(b, _next_attack, _tell())
 	if showing and _tell_for != _next_attack:
 		_tell_for = _next_attack

@@ -281,6 +281,28 @@ func _goal_tests(t: TestUtil) -> void:
 	t.ok(RaidLogic.wrap_break_rows(["a", "b"], ThemeDB.fallback_font, 13, 600.0) == PackedStringArray(["a", "b"]), "short break rows stay one line each")
 	t.ok(RaidLogic.wrap_break_rows(["COUNTER · a big undead with beef 6+ snuffs an acolyte in one blow · you have none: make one at the Crypt slab"], ThemeDB.fallback_font, 13, 656.0).size() >= 2,
 		"the long Pyre-priest counter row wraps")
+	# wrap_chunks keeps " · " chunks whole: the goal block's width (680 less its 12 px insets) at the row size, the COUNTER row
+	var font := ThemeDB.fallback_font
+	var counter := "COUNTER · a big undead with beef 6+ snuffs an acolyte in one blow · you have none: make one at the Crypt slab"
+	var cl := RaidLogic.wrap_chunks(counter, font, 15, 656.0)
+	var kept := false
+	var fits := true
+	for ln in cl:
+		kept = kept or ln.contains("you have none: make one at the Crypt slab")
+		fits = fits and font.get_string_size(ln, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x <= 656.0
+	t.ok(cl.size() >= 2 and kept and fits, "wrap_chunks: the COUNTER row breaks between chunks, 'you have none: make one at the Crypt slab' stays on one line: " + str(cl))
+	t.ok(cl.size() >= 2 and cl[0].ends_with(" ·"), "wrap_chunks: a continued line keeps its ' ·' at the end")
+	t.ok(" ".join(cl).replace(" · ", " ").replace(" ·", "") == counter.replace(" · ", " "), "wrap_chunks: no word lost or reordered")
+	# a chunk wider than the line still breaks at its spaces, every line within the width
+	var longc := "BREAK · " + " ".join(PackedStringArray(["wordy", "chunk", "that", "is", "far", "wider", "than", "any", "one", "line", "can", "hold", "at", "this", "size"])) + " · end"
+	var ll := RaidLogic.wrap_chunks(longc, font, 15, 160.0)
+	var ll_fits := true
+	for ln in ll:
+		ll_fits = ll_fits and font.get_string_size(ln, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x <= 160.0
+	t.ok(ll.size() >= 3 and ll_fits and ll[0] == "BREAK ·" and ll[ll.size() - 1].ends_with("end"), "wrap_chunks: a chunk longer than max_w breaks at spaces, every line within it: " + str(ll))
+	t.ok(RaidLogic.wrap_chunks("", font, 15, 100.0).is_empty() and RaidLogic.wrap_chunks("one", font, 15, 100.0) == PackedStringArray(["one"])
+		and RaidLogic.wrap_chunks("a · b", font, 15, 600.0) == PackedStringArray(["a · b"]), "wrap_chunks: empty, one word, and short chunks sharing a line")
+	t.ok(FileAccess.get_file_as_string("res://scripts/raid/raid_goal_block.gd").contains("RaidLogic.wrap_chunks("), "the goal block wraps its rows with wrap_chunks")
 	var hud_src := FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd")
 	var build_src := _func_src(hud_src, "func build(")
 	t.ok(RegEx.create_from_string("if not boss_mode:\\s*_warden_block = WardenBlock\\.new\\(\\)").search(build_src) != null

@@ -196,9 +196,24 @@ static func attack_tell(attack: Dictionary, key: String = "tell_beats") -> float
 
 
 ## Vei's drawn tell length: the tell `tb`, but never more than the beats left to the hit (a weave laid late, with
-## Relish down through its window, must not draw or count down more time than there is). Draw only.
+## Relish down through its window, must not draw or count down more time than there is), and never below 0 (a lay
+## at or past the hit has no tell left). Draw only (and the Bellringer toll's reach budget, assist on).
 static func lay_len(tb: float, hit_beat: float, beat: float) -> float:
-	return minf(tb, hit_beat - beat)
+	return maxf(0.0, minf(tb, hit_beat - beat))
+
+
+## The first beat a warded attack may land on after a pack rest, stun or phase pull: `rest` beats after the tell
+## that follows beat `beat`, rounded UP to a whole beat so every later hit (last + period) stays on the Pulse.
+## Off, the operand is already a whole number (tell and rest are whole beats), so the ceil changes nothing; with
+## the assist on (a tell of 1.5) the hit lands up to a beat later, always on a beat.
+static func after_rest(beat: float, tell: float, rest: float) -> float:
+	return ceilf(ceilf(beat) + tell + rest)
+
+
+## A warden's current tell length: the fresh read (`attack_tell`, the assist applied) only while it is NOT inside
+## a tell, so a LONGER WARNINGS flip applies from the next tell and never changes a running one.
+static func latch_tell(cur: float, fresh: float, in_tell: bool) -> float:
+	return cur if in_tell else fresh
 
 
 ## True while the telegraph shows: attack_beat - tell_beats <= beat < attack_beat.

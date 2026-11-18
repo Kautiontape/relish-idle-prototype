@@ -10,7 +10,7 @@
     "light_radius_px": 220.0
   },
   "assist": {
-    "_doc": "The warned-attack assist (an accessibility toggle, session memory only, no save field, no loot penalty): off by default. When on, every warned attack's tell window (warning shown to the hit landing) is multiplied by tell_mult: the Bellringer's slam rings and toll, the Huntsman's lunge, the Shieldwall's bash and rush lanes, the Pyre-priest's fire, Vei's weaves. Nothing else changes (damage, the attack beats, RNG). `enabled` is the switch's value at a session's first raid; the CONTROLS legend's LONGER WARNINGS row flips it (--raid-assist turns it on); a change applies from the next tell laid. On, the tell's start and the pack rest are kept, so the first hit after a pack rest, a stun or a phase pull can land up to a beat later (off, nothing changes), and in the short periods a warden has less time between tells (the Shieldwall turns only outside its tell).",
+    "_doc": "The warned-attack assist (an accessibility toggle, session memory only, no save field, no loot penalty): off by default. When on, every warned attack's tell window (warning shown to the hit landing) is multiplied by tell_mult: the Bellringer's slam rings and toll, the Huntsman's lunge, the Shieldwall's bash and rush lanes, the Pyre-priest's fire, Vei's weaves. Nothing else changes (damage, the attack beats, RNG). `enabled` is the switch's value at a session's first raid; the CONTROLS legend's LONGER WARNINGS row flips it (--raid-assist turns it on); a change applies from the next tell a warden lays, never inside a tell already showing (each warden keeps the length its running tell began with). tell_mult is at least 1 (a lower value is raised to 1). On, the first hit after a pack rest, a stun or a phase pull is placed a rest after the longer tell and rounded up to a whole beat, so it can land up to a beat later than off, always on a beat (every later hit keeps the Pulse; off, nothing changes), and in the short periods a warden has less time between tells (the Shieldwall turns only outside its tell).",
     "enabled": false,
     "tell_mult": 1.5
   },
@@ -89,7 +89,10 @@
       "gap_px": 8,
       "plate_alpha": 0.97,
       "chip_w": 140,
-      "chip_h": 44
+      "chip_h": 44,
+      "assist_label": "LONGER WARNINGS",
+      "assist_off": "off",
+      "assist_on": "on"
     },
     "retreat": {
       "_doc": "The retreat panel (RaidRetreatPanel): two columns, RETREAT NOW and IF RELISH FALLS. w is the plate's width; pad its inner margin; title_px/head_px/line_px the title, column-head and line sizes (no text under 13 px); line_h one line's pitch; col_gap the space between the columns; btn_w/btn_h/btn_gap the RETREAT and STAY buttons (btn_h is at least 44, a touch target). The words are RaidLogic.retreat_keep_lines / retreat_fall_lines.",
@@ -131,9 +134,11 @@
     "banner_s": 2.5
   },
   "gap_end": {
-    "_doc": "A gap above idle.gap_s (the machine slept mid-raid) made the state end the run from its last checkpoint (run_ended, cause gap): the raid stops, shows the AWAY TOO LONG banner, and emits its one result beat_s later (a held beat so the banner can be read; the state ignores the result, the run is already ended). banner_s is how long the banner shows (past the beat: the scene is usually gone by then).",
+    "_doc": "A gap above idle.gap_s (the machine slept mid-raid) made the state end the run from its last checkpoint (run_ended, cause gap): the raid stops, shows the AWAY TOO LONG banner, and emits its one result beat_s later (a held beat so the banner can be read; the state ignores the result, the run is already ended). banner_s is how long the banner shows (past the beat: the scene is usually gone by then). banner_text is the raid's banner; banner_text_boss the Vei fight's (a boss run has no checkpoint: the state forfeits it, the party intact and Relish back at Vei's door, StateRuns.end_open), so it says the fight was called off.",
     "beat_s": 2.5,
-    "banner_s": 4.0
+    "banner_s": 4.0,
+    "banner_text": "AWAY TOO LONG · the raid ended at its last checkpoint",
+    "banner_text_boss": "AWAY TOO LONG · the fight with Vei was called off while you were away"
   },
   "death": {
     "_doc": "The death frame (RaidDeathCard): card_s is how long the death beat holds the card before the result goes out (the measuring bot never waits, it keeps the 0.9 s beat; 0 = no card), skip_after_s when a click or SPACE may end it early, fade_s its fade-in (none under reduced motion).",

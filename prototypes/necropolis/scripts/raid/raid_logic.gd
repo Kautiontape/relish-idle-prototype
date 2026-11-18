@@ -9,7 +9,8 @@ extends RefCounted
 # ------------------------------------------------- warned-attack assist ----
 ## "Longer warnings": an optional accessibility switch. Memory only (session lifetime, no save field): `assist_on`
 ## is flipped by the legend's toggle row or the --raid-assist dev flag and read where a warned attack's tell
-## window is sized (WardenLogic.attack_tell), so a change takes effect on the next tell laid. No loot penalty.
+## window is sized (WardenLogic.attack_tell). A flip applies from the next tell a warden lays, never inside a
+## running one (each warden latches its tell length, WardenLogic.latch_tell). No loot penalty.
 static var assist_on := false
 static var assist_mult := 1.5
 static var _assist_booted := false
@@ -17,9 +18,10 @@ static var _assist_booted := false
 
 ## What the boot applies from raid.json's `assist`: [the switch's first value or null to leave it, tell_mult].
 ## `enabled` seeds the switch only on a session's first boot (a later raid keeps what the player chose).
+## tell_mult is at least 1: a lower value would shorten the warnings (0 would remove them).
 static func assist_boot_state(cfg: Dictionary, booted: bool) -> Array:
 	var on = null if booted else bool(cfg.get("enabled", false))
-	return [on, float(cfg.get("tell_mult", 1.5))]
+	return [on, maxf(1.0, float(cfg.get("tell_mult", 1.5)))]
 
 
 ## Called as each raid is built, with raid.json's `assist` block.
@@ -318,9 +320,10 @@ static func gap_leaves_beat(ended: bool, pending_exit: String) -> bool:
 	return ended and pending_exit != ""
 
 
-## The banner a gap-ended raid shows (the glossary's words: "checkpoint" is the banked point).
-static func gap_banner() -> String:
-	return "AWAY TOO LONG · the raid ended at its last checkpoint"
+## The banner a gap-ended run shows, from raid.json's `gap_end` block (the raid's words, or the Vei fight's: a boss
+## run has no checkpoint, the state forfeits it).
+static func gap_banner(gap_cfg: Dictionary, boss := false) -> String:
+	return str(gap_cfg.get("banner_text_boss" if boss else "banner_text", ""))
 
 
 ## What is pending after a checkpoint send (RaidEndings._send_checkpoint): the payload when the state refused it
@@ -650,26 +653,37 @@ const BREAK_ROW_STEP := 22.0       # one wrapped line's height (the font's heigh
 const BREAK_ROW_KEY := "text"      # the break / takes / counter rows' colour key (full value tone)
 
 
-## `text` in lines no wider than `max_w` at `font_px`: whole " · " chunks where they fit, a long chunk
-## broken at spaces (draw only: the StatBlock's DOOR row and the WardenBlock's break rows wrap on their plates).
+## `text` in lines no wider than `max_w` at `font_px`, greedy over its " · " chunks: a chunk that fits on the
+## current line joins it, one that does not starts a new line (a continued line keeps its " ·" at the end), and
+## only a chunk wider than `max_w` on its own is broken, at spaces (draw only: the StatBlock's DOOR row and the
+## WardenBlock's and goal block's break rows wrap on their plates).
 static func wrap_chunks(text: String, font: Font, font_px: int, max_w: float) -> PackedStringArray:
 	var out := PackedStringArray()
 	if text == "":
 		return out
-	var words := PackedStringArray()
 	var chunks := text.split(" · ")
+	var line := ""
 	for i in chunks.size():
+		var piece: String = chunks[i] + (" ·" if i < chunks.size() - 1 else "")
+		if line != "" and font.get_string_size(line + " " + piece, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x <= max_w:
+			line += " " + piece
+			continue
+		if line != "":
+			out.append(line)
+			line = ""
+		if font.get_string_size(piece, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x <= max_w:
+			line = piece
+			continue
+		# a chunk wider than the line: break it at spaces (the " ·" stays on its last word)
 		var ws := chunks[i].split(" ")
 		for j in ws.size():
-			words.append(ws[j] + (" ·" if j == ws.size() - 1 and i < chunks.size() - 1 else ""))
-	var line := ""
-	for wd in words:
-		var trial := wd if line == "" else line + " " + wd
-		if line != "" and font.get_string_size(trial, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x > max_w:
-			out.append(line)
-			line = wd
-		else:
-			line = trial
+			var wd: String = ws[j] + (" ·" if j == ws.size() - 1 and i < chunks.size() - 1 else "")
+			var trial := wd if line == "" else line + " " + wd
+			if line != "" and font.get_string_size(trial, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x > max_w:
+				out.append(line)
+				line = wd
+			else:
+				line = trial
 	if line != "":
 		out.append(line)
 	return out

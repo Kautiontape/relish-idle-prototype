@@ -26,6 +26,7 @@ var flash := 0.0
 var drop_t := -1.0             # >= 0 while a ring is dropping away after a phase change
 
 var _breath_t := 0.0
+var _tell_cur := -1.0          # the current tell length in beats (see _tell); -1 until the first read
 var _pres := {}                # draw only: the sleeping picture's cached geometry (_build_presence)
 var _pres_z := -1.0            # the zoom it was built at
 var _pres_n := -1              # and the meter pips
@@ -56,6 +57,21 @@ var _pack_words: Array = []    # draw only: [{pos, t}] where a pack unit fell to
 
 
 ## Dungeon-only: `p_spec` is `RaidLogic.warden_spec(...)`.
+## This warden's current tell length in beats: the base (assist off: the same every frame) or the assist's longer
+## one, latched so a LONGER WARNINGS flip applies from the next tell and never inside a running one. Every in-tell
+## read and draw uses it; `_refresh_tell` (each _step, once `in_tell` is known) is the only writer after the first read.
+func _tell() -> float:
+	if _tell_cur < 0.0:
+		_tell_cur = WardenLogic.attack_tell(spec.get("attack", {}))
+	return _tell_cur
+
+
+## Take the fresh read unless inside a tell (WardenLogic.latch_tell). `in_tell` is the caller's: a window of the
+## current length (Bellringer, Shieldwall, Pyre-priest) or a locked lunge (Huntsman).
+func _refresh_tell(in_tell: bool) -> void:
+	_tell_cur = WardenLogic.latch_tell(_tell(), WardenLogic.attack_tell(spec.get("attack", {})), in_tell)
+
+
 func configure(p_raid: Node2D, p_spec: Dictionary) -> void:
 	raid = p_raid
 	spec = p_spec
