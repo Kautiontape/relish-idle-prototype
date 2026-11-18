@@ -135,9 +135,8 @@ var hold_mult := 1.0
 ## start and on a load; set_won). While it is set Vei does nothing of her own: no tithe (the clock idles, so no
 ## warning, wave or surge, and start_tithe can't restart it), no shipping or reship (living vei->fort), no retake (a
 ## held fort's zero clock doesn't run; grace and held_for_s still count), and the undead her living destroy stay at the
-## fort as corpses (no dead fort->vei). The player's WAR, the garrisons and the holds run as before, except that
-## (P9, ruling 36) the garrisons no longer drain on to her queue (set_won zeroes _r_drain), so a fort keeps its
-## undead. Not saved: GameState's `won` is.
+## fort as corpses (no dead fort->vei). The player's WAR, the garrisons (their drain included) and the holds run as
+## before. Not saved: GameState's `won` is.
 var won := false
 ## The one-wave need's tunables (E4 step 5, ruling B1 (ii); need_of) and the target rule's tie (_lowest_margin).
 var _need_tol := 0.0  # hold.need_tol: the bisection stops when its bracket is this narrow, mass/s
@@ -227,7 +226,7 @@ func setup(world: Dictionary, tunables: Dictionary) -> void:
 	_k_kill = _tf("k_kill")
 	_k_destroy = _tf("k_destroy")
 	_k_clear = _tf("k_clear")
-	_r_drain = 0.0 if won else _tf("r_drain")  # (P9, ruling 36) beaten, no drain: set_won
+	_r_drain = _tf("r_drain")
 	_lc_dt = NAN  # the _load_cuts exp cache is keyed on dt alone and depends on _r_drain
 	_R_vei = _tf("R_vei")
 	_S_vei = _tf("S_vei")
@@ -411,14 +410,9 @@ func tithe_period() -> float:
 
 
 ## P3b (api-request #21): Vei beaten or not (the `won` field). Beaten, the tithe idles at once (a warning or a wave in
-## flight is dropped), so catch-up clips at no tithe event and no view names a target. P9 (ruling 36, the brief's
-## check): beaten, the garrisons stop draining on to her queue (r_drain 0, every reader of _r_drain at once: the fort
-## paths, the loads, the dispatch's fill), since the won map hides every lane with Vei at an end and pre_vei's forts
-## emptied in 20 min while WAR ran. Unbeaten again (a new game, a load), the config's r_drain.
+## flight is dropped), so catch-up clips at no tithe event and no view names a target.
 func set_won(on: bool) -> void:
 	won = on
-	_r_drain = 0.0 if on else _tf("r_drain")
-	_lc_dt = NAN
 	if on:
 		tithe = _tithe_idle()
 
