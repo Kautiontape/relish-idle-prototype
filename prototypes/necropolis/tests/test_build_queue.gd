@@ -102,12 +102,31 @@ func _slot_rule() -> void:
 	var over := s.cmd_queue_build("watchtower", "lot-08")
 	t.ok(over["reason"] == "queue_full" and _q(s).size() == lmax, "the list at %d: queue_full, even for a gated entry" % lmax)
 	t.ok(s.cmd_queue_build("nope", "lot-08")["reason"] == "queue_full", "with the list full, queue_full comes first, as before")
-	# the slots can pass queue_max when gates clear (no eviction): the town tier and the relics, and every Watchtower holds a slot
+	# Phase I P3 (A14's amendment): when gates clear, the slots go to the first max_len entries no gate holds, in list
+	# order, and the rest wait for a slot (wait_slot), holding nothing. Revert proof: with the walk's slot check taken
+	# out, the slots read 16 and no row reads wait_slot (these three asserts fail)
 	s.town_tier = "town"
 	s.relics = 12
+	_funds(s, 0.0, 190.0)  # bone covers each entry, so after a step (gold's net above 0) none is skipped on bone (ruling 3)
 	var v2 := s.view_town()
-	t.ok(v2["queue_slots"] > mx and (v2["queue"] as Array).size() == lmax, "the tier and relics there: the Watchtowers' gate clears and the slots read %d, over queue_max (nothing is evicted)" % v2["queue_slots"])
+	var vr: Array = v2["queue"]
+	var waits := _col(vr, "reason").count("wait_slot")
+	t.ok(v2["queue_slots"] == mx and vr.size() == lmax and waits == lmax - mx,
+		"the tier and relics there: every gate clears, %d entries hold the %d slots and %d wait for one (%s)" % [v2["queue_slots"], mx, waits, str(_col(vr, "reason"))])
+	var order_ok := true
+	for i in vr.size():
+		order_ok = order_ok and ((vr[i]["status"] != "skipped_gate") == (i < mx)) and ((vr[i]["reason"] == "wait_slot") == (i >= mx))
+	t.ok(order_ok, "in list order: the four Watchtowers ahead and the first four Houses hold them, the last four Houses and the four Watchtowers behind wait (wait_slot)")
 	t.ok(s.cmd_queue_build("house", "lot-09")["reason"] == "queue_full", "and a new entry is refused")
+	s.drain_events()
+	s.tick(s.substep_s())
+	var wo := s.build_queue.slice(mx).map(func(e): return str(e["waited_on"]))
+	t.ok(wo.count("wait_slot") == lmax - mx and s.view_town()["queue_slots"] <= mx,
+		"processing keeps each waiting entry's wait_slot as its waited_on, and the slots stay within %d: %s" % [mx, str(wo)])
+	var gone: bool = s.cmd_unqueue(0)["ok"] and s.cmd_unqueue(0)["ok"]
+	var v3: Array = s.view_town()["queue"]
+	t.ok(gone and v3[mx - 1]["status"] != "skipped_gate" and v3[mx]["reason"] == "wait_slot" and s.view_town()["queue_slots"] == mx,
+		"two entries ahead unqueued: the next waiting entries take their slots in list order (slot %d is %s, the one behind waits)" % [mx, v3[mx - 1]["status"]])
 	# a save keeps a list past queue_max: twelve entries, four gated
 	var p := _mk()
 	_funds(p, 0.0, 0.0)

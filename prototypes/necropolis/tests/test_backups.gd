@@ -498,26 +498,32 @@ func _catchup_hand() -> void:
 	while int(_tend(live)["slots"]) >= 1 and live.t - t0 < 400.0:
 		live.tick(live.substep_s())
 	var t_live := live.t - t0
-	var cu := GameState.new(c)
-	cu.debug_enabled = true
-	cu.save_dir = _dir
-	cu.clock_override = CLOCK + 43200
-	cu.cmd_load("hand", true)
-	cu._catchup.trace = []
-	var step := Catchup.base_dt(cu, 43200.0)
-	while cu.catching_up() and int(_tend(cu)["slots"]) >= 1:
-		cu.tick(cu.substep_s())
-	var t_cu := cu.t - t0
-	var on := false
-	for tr in cu._catchup.trace:
-		on = on or absf(float(tr[0]) + float(tr[1]) - (t0 + want)) < 1e-6
 	t.ok(live.view_backups()["vats"][1]["ready"] and t_live >= want - 1e-9 and t_live - want < live.substep_s() + 1e-9,
 		"live: vat 1 fills %.3f s in (vat_fill_s %.3f) and its hand is back at the next substep's end, %.2f s" % [want, want, t_live])
-	t.ok(absf(t_cu - t_live) <= live.substep_s() + 1e-9,
-		"caught up (%.0f s steps): the hand is back %.3f s in, %.3f s from live, within live's %.1f s substep (the bound before the clip: one step)" % [
-		step, t_cu, t_cu - t_live, live.substep_s()])
-	t.ok(on and float(cu.vats_grow[1]) == 1.0 and absf(t_cu - want) < 1e-6,
-		"a catch-up step ends on the fill (%.6f s in), with the vat at exactly 1 (%s): the float guard" % [want, str(cu.vats_grow[1])])
+	# Phase I P3 (the P2 review's item 3): the 10 s core step of a 12 h catch-up, and the 15 s long step
+	# (idle.catchup_dt_long_s) of a 7-day one, with idle.catchup_dt_long_after_s at 0 so the long step runs from the start
+	var c15: Dictionary = load("res://tests/test_stances.gd").cfgs({"economy.idle.catchup_steps_per_chunk": 1,
+		"economy.idle.catchup_dt_long_after_s": 0.0})
+	for k in [[c, 43200, false, 10.0], [c15, 604800, true, 15.0]]:
+		var cu := GameState.new(k[0])
+		cu.debug_enabled = true
+		cu.save_dir = _dir
+		cu.clock_override = CLOCK + int(k[1])
+		cu.cmd_load("hand", true)
+		cu._catchup.trace = []
+		var step := Catchup.base_dt(cu, float(k[1]), bool(k[2]))
+		t.ok(step == float(k[3]), "(setup) the catch-up's base step is %.0f s (%.2f)" % [float(k[3]), step])
+		while cu.catching_up() and int(_tend(cu)["slots"]) >= 1:
+			cu.tick(cu.substep_s())
+		var t_cu := cu.t - t0
+		var on := false
+		for tr in cu._catchup.trace:
+			on = on or absf(float(tr[0]) + float(tr[1]) - (t0 + want)) < 1e-6
+		t.ok(absf(t_cu - t_live) <= live.substep_s() + 1e-9,
+			"caught up (%.0f s steps): the hand is back %.3f s in, %.3f s from live, within live's %.1f s substep (the bound before the clip: one step)" % [
+			step, t_cu, t_cu - t_live, live.substep_s()])
+		t.ok(on and float(cu.vats_grow[1]) == 1.0 and absf(t_cu - want) < 1e-6,
+			"%.0f s steps: a catch-up step ends on the fill (%.6f s in), with the vat at exactly 1 (%s): the float guard" % [step, want, str(cu.vats_grow[1])])
 
 
 ## The tip's 12 h catch-up identity (TIP's function): the whole state (less the big undead's filled_slots, E3-3's

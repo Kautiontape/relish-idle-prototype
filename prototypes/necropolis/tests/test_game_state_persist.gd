@@ -869,16 +869,26 @@ func _level_cut() -> void:
 		var bx: Dictionary = oss.call(x)
 		bx[bad[0]] = bad[1]
 		t.ok(GameState.new(_cfgs()).from_dict(x) == {"ok": false, "reason": "corrupt"}, "level cut: a %s of %d is still corrupt" % bad)
-	# Phase I P2 (Q-d): the sanity cap, save.level_sanity_mult (2) × the highest max_level (8) = 16. At 16 the cut rule
-	# clamps; past it (17, the review's 1e9, a build_level of 1e9) the save is corrupt, never loaded silently at the top.
-	# Revert proof: with the cap check taken out of SaveIO._town_problem, all three load ok with the Ossuary at L1, and
-	# those three asserts fail
-	t.ok(SaveIO.level_sanity_cap(TestUtil.configs()["buildings"], TestUtil.configs()) == 16.0, "level cut: the sanity cap is 2 × 8 = 16")
+	# Phase I P2 (Q-d): the sanity cap; P3 (the P2 review's items 1-2): a fixed save.level_sanity_max (64), not 2 × the
+	# top max_level. At 64 the cut rule clamps; past it (65, the review's 1e9, a build_level of 1e9) the save is corrupt,
+	# never loaded silently at the top. Revert proof: with the cap check taken out of SaveIO._town_problem, all three
+	# load ok with the Ossuary at L1, and those three asserts fail. The cap follows no ladder: a config with every
+	# max_level cut to 1 keeps it at 64, so an L16 save (above P2's 2 × 1 = 2) still loads, clamped
+	t.ok(SaveIO.level_sanity_cap(TestUtil.configs()) == 64.0, "level cut: the sanity cap is save.level_sanity_max, 64")
+	var cut := TestUtil.configs().duplicate(true)
+	for bid in cut["buildings"]:
+		if cut["buildings"][bid] is Dictionary:
+			cut["buildings"][bid]["max_level"] = 1
+	t.ok(SaveIO.level_sanity_cap(cut) == 64.0, "level cut: the cap is independent of the ladders (every max_level 1: still 64)")
 	var at16 := d.duplicate(true)
 	(oss.call(at16) as Dictionary).merge({"level": 16, "build_level": 16}, true)
 	var n16 := GameState.new(_cfgs())
-	t.ok(n16.from_dict(at16)["ok"] and int(n16.town_sim.buildings["lot-13"]["level"]) == 1, "level cut: an Ossuary at L16 (the cap) loads, clamped to L1")
-	for over in [["level", 17], ["level", 1e9], ["build_level", 1e9]]:
+	t.ok(n16.from_dict(at16)["ok"] and int(n16.town_sim.buildings["lot-13"]["level"]) == 1, "level cut: an Ossuary at L16 loads, clamped to L1")
+	var at64 := d.duplicate(true)
+	(oss.call(at64) as Dictionary).merge({"level": 64, "build_level": 64}, true)
+	var n64 := GameState.new(_cfgs())
+	t.ok(n64.from_dict(at64)["ok"] and int(n64.town_sim.buildings["lot-13"]["level"]) == 1, "level cut: an Ossuary at L64 (the cap) loads, clamped to L1")
+	for over in [["level", 65], ["level", 1e9], ["build_level", 1e9]]:
 		var x := d.duplicate(true)
 		var bx: Dictionary = oss.call(x)
 		bx["level"] = over[1] if over[0] == "level" else 1

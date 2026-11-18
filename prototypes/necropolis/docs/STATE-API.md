@@ -1021,9 +1021,11 @@ Game.state.cmd_cancel_build("lot-05")  # -> {ok: true, reason: "", refund: {gold
   level it would build, below, is past `max_level`); `cost_exceeds_cap` (its gold, bone or relic cost is
   above that store's cap now); then `queue_full` again (v13, Phase I P2's queue rule) for an entry that would hold a
   slot (not `skipped_gate` on the walk with it appended) while `queue_slots` is already at `queue.max_len` (8). A
-  gated entry holds no slot, so it is accepted with the slots full while the list has room. Nothing is evicted: an
-  entry whose gate clears takes its slot back, so `queue_slots` can read above `queue_max`, and only new entries
-  that would hold a slot are refused then.
+  gated entry holds no slot, so it is accepted with the slots full while the list has room. Phase I P3 (§10 A14's
+  amendment): the walk gives the slots to the first `queue.max_len` entries no gate holds, in list order, and any
+  later one shows `skipped_gate` with the reason `wait_slot` ("waits for a slot"; it holds nothing). So
+  `queue_slots` never passes `queue_max`, and a new entry that would hold a slot (the walk with it appended reads
+  it `wait_slot`) is refused.
 - **Accepted as gates** (the run's manager, 2026-11-14: IDLE §5 over this request's first wording; the
   town adapts its UI in Phase I): `needs_tier`, `needs_blueprint`, `needs_building`, `lot_locked`, a
   relic shortfall (`no_relics`), and for an upgrade `under_construction` and `unpaid`. The entry shows
@@ -1811,7 +1813,7 @@ until the first substep.
 | `gold`, `bone`, `bodies`, `bodies_cap` | float | stocks |
 | `queue` | Array[Dictionary] | the build queue in order (v6, E2b-2 T3.2, api-request #3; MECHANICS §4.4): one entry per queued build or upgrade (below). Always present: `[]` when empty, so the town's stand-in switches itself off |
 | `queue_max` | int | `economy.json` `queue.max_len` (8): the slots. A `skipped_gate` entry holds none (v13) |
-| `queue_slots` | int | v13 (Phase I P2): the `queue` rows that hold a slot, every one whose `status` isn't `skipped_gate`. Can read above `queue_max` after gates clear (nothing is evicted); `cmd_queue_build` refuses a new slot-holding entry while it is at or above `queue_max` |
+| `queue_slots` | int | v13 (Phase I P2): the `queue` rows that hold a slot, every one whose `status` isn't `skipped_gate`. At most `queue_max` (Phase I P3, §10 A14's amendment: past the first `queue_max` entries no gate holds, an entry reads `skipped_gate` `wait_slot`); `cmd_queue_build` refuses a new slot-holding entry while it is at `queue_max` |
 | `queue_list_max` | int | v13: the whole list's cap, `queue.max_len` × `queue.list_mult` (2): 16. `cmd_queue_build` refuses any entry once `queue` has this many |
 | `gold_cap`, `bone_cap` | float | the gold and bone caps (v6, E2b-2 T3.2): `gold.cap` / `bone.cap` plus the Market's and the Bone Mill's per-level `gold_cap` / `bone_cap` (MECHANICS §4.3). A store can sit above its cap after the cap drops; it keeps the excess and earns nothing until it is under |
 | `trade_rate` | float | stall sales per second (the town draws trade arcs from it) |
@@ -2848,10 +2850,10 @@ take the router's legacy path (§2.3).
   dropped with a warning (`queue`, above). Nothing is refunded, because the cut levels buy nothing. A save
   within every `max_level` loads unchanged. `SAVE_VERSION` stays 2.
   **The level sanity cap** (Phase I P2, Q-d; `SaveIO.level_sanity_cap`): a `level` or `build_level` above
-  `economy.json` `save.level_sanity_mult` (2) × the highest `max_level` any building has in `buildings.json` (8), so
-  above 16 today, is `corrupt` ("building"), not clamped: a level of 1e9 no longer loads silently at the top. The
-  bound follows the ladder. No config has written a level past its own ladder's top, so 2× leaves a cut room to halve
-  the ladder and refuses what no ladder of this size could have written.
+  `economy.json` `save.level_sanity_max` (64; REQUIRED, no fallback) is `corrupt` ("building"), not clamped: a level
+  of 1e9 no longer loads silently at the top. Phase I P3 (the P2 review's items 1-2): a fixed number, independent of
+  today's ladders (P2's was 2 × the highest `max_level`, 16), so a later config that cuts a ladder by more than half
+  leaves old saves loadable, clamped by the cut rule. 64 is far above any `max_level` the configs have had (8).
 - `stances`: `on` (oldest first) and `hold` (E3 timers: from E3-1, stance id → the seconds left of its hold,
   for each stance held; a key that isn't a stance, or a hold at 0, is dropped on load). From v8 (E3-1) the
   optional `state`: `{stance_id: {active: bool, fired_beat_id: int}}` for each stance whose condition has
@@ -3007,4 +3009,4 @@ no meaningful `saved_at` (it is a state, not a session's save), so neither catch
 | A11 | `view_rates` returns `{rev, rates: {id: …}}` and `view_lanes` returns `{rev, lanes: [...]}`, not MECHANICS' bare map and array. | Every view must carry `rev` (§1.3), and mixing `rev` into an id map would collide with the ids. |
 | A12 | **`to_dict()` writes floats at 15 significant digits**, as `JSON.stringify` prints them. | Godot's JSON parser is not exact for 17-digit floats (about 1 in 10 differs in the last bit), so `to_dict → JSON → from_dict → to_dict` could never be equal. A loaded float differs from the live one by at most 1e-15 relative. |
 | A13 | **Fixtures keep E2/E3 fields as stored values.** `realm.tithe`, `stances.hold` (live from E3-1: the holds left; the fixtures' is empty), `backups.phylactery_charges` and `readout` are saved and restored as is. E1 views show `phylactery_charges` (backups, relish, inventory and both seeds) from the stored value; the rest are read by no E1 view. The fronts are not stored: from E3-5 they are computed from the state (§5.14), and read 0 until then. | A fixture can carry them now, and E2/E3 read them without a save-shape change. |
-| A14 | **A gated queue entry holds no slot** (Phase I P2, the run's manager's ruling 1 of 2026-11-17 22:40, reversible; v13). "Gated" is the walk's `skipped_gate`, every reason included, so an upgrade waiting on its lot's construction (`under_construction`) and one behind a gated entry for its lot hold none either. The list caps at `queue.max_len` × `queue.list_mult`. Nothing is evicted when gates clear. | IDLE §5's "a gated entry holds nothing" now covers the slot too: eight gated entries no longer keep a relic-free build out (town_only's queue jammed at 8.0 h at c15f874), the gated entry stays as the player's intent and the wall's chip, and the list cap stops parking without end. One reason for every gate keeps the rule the walk already computes; a chain of upgrades queued while its lot builds can hold more than 8 entries' worth of building, bounded by the list cap. |
+| A14 | **A gated queue entry holds no slot** (Phase I P2, the run's manager's ruling 1 of 2026-11-17 22:40, reversible; v13). "Gated" is the walk's `skipped_gate`, every reason included, so an upgrade waiting on its lot's construction (`under_construction`) and one behind a gated entry for its lot hold none either. The list caps at `queue.max_len` × `queue.list_mult`. **Amended in Phase I P3** (the run's manager's ruling 1 of 2026-11-18 03:10, its stateless reading accepted the same day; reversible): the walk gives the slots to the first `queue.max_len` entries no gate holds, in list order (a `next` row holds one until it starts), and any later entry no gate holds is `skipped_gate` with the reason `wait_slot` (idle.report.waited_on "when a queue slot came free"), holding nothing. It differs from the ruling's literal form ("a cleared entry waits") in one case: a cleared entry ahead in the list takes the slot and the last slot-holder waits, since unstarted entries hold nothing and list order is the player's priority. No per-entry flag, no save change, the same in live play, catch-up, the view and the command. So `queue.max_len` limits the active queue, and parking can't open more than 8 (at fee92d6 a parking bot held up to 15). | IDLE §5's "a gated entry holds nothing" now covers the slot too: eight gated entries no longer keep a relic-free build out (town_only's queue jammed at 8.0 h at c15f874), the gated entry stays as the player's intent and the wall's chip, and the list cap stops parking without end. One reason for every gate keeps the rule the walk already computes; a chain of upgrades queued while its lot builds can hold more than 8 entries' worth of building, bounded by the list cap. |

@@ -321,7 +321,7 @@ static func _town_problem(tn: Dictionary, cfgs: Dictionary, fort_ids: Dictionary
 	var lot_ids := {}
 	for l in (lots_cfg if lots_cfg is Array else []):
 		lot_ids[str(l.get("id", ""))] = true
-	var sane := level_sanity_cap(bcfg, cfgs)
+	var sane := level_sanity_cap(cfgs)
 	var seen := {}
 	for b in tn["buildings"]:
 		if not lot_ids.has(b["lot_id"]) or seen.has(b["lot_id"]) or not bcfg.has(b["building_id"]):
@@ -357,19 +357,14 @@ static func _town_problem(tn: Dictionary, cfgs: Dictionary, fort_ids: Dictionary
 	return ""
 
 
-## The level sanity cap (Phase I P2, Q-d; STATE-API 9.1): economy.json save.level_sanity_mult × the highest max_level
-## any building has in `bcfg` (buildings.json; at least 1): 16 today. A save level above it is corrupt, not clamped:
-## no config has written a level past its own ladder's top, so the cap leaves a cut room to halve the ladder and
-## refuses what no ladder this size could have written (the E4 close-out review's 1e9). The level is compared as a
-## float, so a level past int's range can't wrap under it. A missing multiplier reads 2 (GameState.REQUIRED has it).
-static func level_sanity_cap(bcfg: Variant, cfgs: Dictionary) -> float:
-	var top := 1
-	if bcfg is Dictionary:
-		for bid in bcfg:
-			if bcfg[bid] is Dictionary:
-				top = maxi(top, int((bcfg[bid] as Dictionary).get("max_level", 1)))
-	var mult := float(((cfgs.get("economy", {}) as Dictionary).get("save", {}) as Dictionary).get("level_sanity_mult", 2.0))
-	return float(top) * mult
+## The level sanity cap (Phase I P2, Q-d; STATE-API 9.1): economy.json save.level_sanity_max (64), a fixed number,
+## REQUIRED (GameState.REQUIRED; no fallback). A save level above it is corrupt, not clamped (the E4 close-out
+## review's 1e9). Phase I P3 (the P2 review's items 1-2): it no longer follows today's ladders (P2's 2 × the top
+## max_level), so a later config that cuts a ladder by more than half leaves old saves loadable (clamped by the cut
+## rule); 64 sits far above any max_level the configs have had (8, P3's depth included). The level is compared as a
+## float, so a level past int's range can't wrap under it.
+static func level_sanity_cap(cfgs: Dictionary) -> float:
+	return float(cfgs["economy"]["save"]["level_sanity_max"])
 
 
 ## The level cut rule (STATE-API 9.1; the E4 final review's must-fix): a config that lowers a building's
@@ -826,7 +821,7 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 	# dropped with a warning, and so is an upgrade to a level past its max_level (the level cut rule: it would
 	# hold its slot as a max_level gate for good) and any past the whole list's cap (Phase I P2's queue rule:
 	# BuildRules.queue_list_max, gated entries and all; before P2, queue.max_len). The slot count isn't checked here:
-	# entries whose gates cleared can hold more than queue.max_len slots, as they can in play
+	# the walk gives the slots (P3's A14 amendment: past queue.max_len an entry no gate holds reads wait_slot)
 	gs.build_queue = []
 	for e in m.get("queue", []):
 		var bid := str(e["building_id"])

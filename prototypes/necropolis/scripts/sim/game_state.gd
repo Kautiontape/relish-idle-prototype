@@ -36,7 +36,7 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	"economy.town.projection_refresh_s", "economy.town.projection_rows_per_call", "economy.town.projection_rows_per_frame",
 	"economy.town.projection_phase", "economy.town.projection_starve_frames", "economy.town.projection_tol.rel",
 	"economy.town.projection_tol.abs", "realm.flip.hold_s", "realm.flip.tier_mult", "economy.morale.death_shock", "vei.loss_backlog_keep",
-	"realm.relish.tide_bias", "economy.queue.max_len", "economy.queue.list_mult", "economy.save.level_sanity_mult",
+	"realm.relish.tide_bias", "economy.queue.max_len", "economy.queue.list_mult", "economy.save.level_sanity_max",
 	"economy.relic_trickle.period_s",
 	"realm.hold.mint_ref", "realm.hold.mint_alpha",  # (E4 step 5, B1: hold_mult)
 	"realm.odds.time_weight", "realm.odds.time_s", "realm.odds.backlog_cap",  # (E4 step 9, option B: win_odds)
@@ -111,7 +111,7 @@ const REPORT_KEYS := ["streams", "stream_labels", "stream_fmt", "backlog_fmt", "
 	"unpaid_upkeep_living_fmt", "afford_living_falling_fmt", "afford_living_falling_last_fmt"]
 ## The reasons a queued build's waited_on can hold (STATE-API §6 queue_started): idle.report.waited_on words each.
 const REPORT_WAITED_ON := ["needs_tier", "lot_locked", "needs_blueprint", "needs_building", "no_relics", "no_gold",
-	"no_bone", "lot_taken", "empty_lot", "under_construction", "unpaid", "cost_exceeds_cap", "upkeep"]
+	"no_bone", "lot_taken", "empty_lot", "under_construction", "unpaid", "cost_exceeds_cap", "upkeep", "wait_slot"]
 ## The mass ledger (scripts/sim/ledger.gd; no class_name, see there).
 const Ledger := preload("res://scripts/sim/ledger.gd")
 ## Husk kinds (loot), STATE-API §1.4.

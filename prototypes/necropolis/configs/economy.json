@@ -23,7 +23,7 @@
   "body_store": { "cap": 200.0 },
   "gold": { "cap": 6500.0 },
   "bone": { "cap": 200.0 },
-  "save": { "_doc": "Phase I P2 (Q-d): the level sanity cap on load (SaveIO._town_problem; STATE-API 9.1). A building's level or build_level above level_sanity_mult x the highest max_level any building has in buildings.json (2 x 8 = 16 today) makes the save corrupt; at or under it, a level above its own building's max_level is clamped (the level cut rule, SaveIO.clamp_levels). The bound follows the ladder: no config has written a level past its own highest max_level, so 2x leaves room for a cut to half the ladder's top and refuses a level no ladder this size could have written (the review's 1e9). Read REQUIRED.", "level_sanity_mult": 2 },
+  "save": { "_doc": "The level sanity cap on load (SaveIO.level_sanity_cap, SaveIO._town_problem; STATE-API 9.1). A building's level or build_level above level_sanity_max makes the save corrupt (the review's 1e9); at or under it, a level above its own building's max_level is clamped (the level cut rule, SaveIO.clamp_levels). Phase I P3 (the P2 review's items 1-2): a fixed number, independent of today's ladders (P2's was 2 x the highest max_level), so a later config that cuts a ladder by more than half leaves old saves loadable; 64 is far above any max_level the configs have had. Read REQUIRED (no fallback).", "level_sanity_max": 64 },
   "queue": { "_doc": "The build queue (IDLE 5, STATE-API 4.3; Phase I P2, the run's manager's ruling 1 of 2026-11-17 22:40). max_len: the entries that hold a slot. A gated entry (skipped_gate, any reason) holds no resources and no slot, so it never keeps a relic-free build out; it stays in the list (the player's intent, and its chip is the visible wall). The whole list, gated entries and all, caps at max_len x list_mult. Both read REQUIRED.", "max_len": 8, "list_mult": 2 },
   "relic_trickle": {"_doc": "E4 step 9, the run's manager's rulings on step 9 (3) (2026-11-17 12:45 and 14:24; MECHANICS 2, the relics row): one relic per period_s of game time while no raidable fort remains, read as every fort at or below the highest tier ever flipped being held (GameState.relic_trickle_paying), paid into the relic store (lost at its cap). For a player walled at a tier. Read REQUIRED by GameState.", "period_s": 43200.0},
   "idle": {
@@ -48,7 +48,8 @@
         "needs_building": "when the building it needs was built", "no_relics": "when the relics came in",
         "no_gold": "when the gold came in", "no_bone": "when the bone came in", "lot_taken": "when its lot came free",
         "empty_lot": "when its lot came free", "under_construction": "when its lot came free", "unpaid": "when it was back at work",
-        "cost_exceeds_cap": "when its cap rose", "upkeep": "when the gold income could pay its upkeep"
+        "cost_exceeds_cap": "when its cap rose", "upkeep": "when the gold income could pay its upkeep",
+        "wait_slot": "when a queue slot came free"
       },
       "refilled_fmt": "{fort} refilled", "raid_fmt": "{fort} refilled: raid it",
       "husk_one_fmt": "{n} husk: raise at the slab", "husks_fmt": "{n} husks: raise at the slab",

@@ -371,8 +371,10 @@ static func queue_list_max(gs: GameState) -> int:
 
 
 ## The walk's rows that hold a slot toward queue_max: every one that isn't `skipped_gate` (Phase I P2, ruling 1). A
-## gated entry holds nothing (no funds, no lot) and no slot; an entry whose gate clears takes a slot again, so the
-## count can pass queue_max then (nothing is evicted: cmd_queue_build only refuses a new one).
+## gated entry holds nothing (no funds, no lot) and no slot. Phase I P3 (A14's amendment, the run's manager's ruling 1
+## of 2026-11-18 03:10, its stateless form accepted): the walk gives the slots to the first queue_max entries no gate
+## holds, in list order (a `next` row holds one until it starts); any later one is `skipped_gate` `wait_slot`. So the
+## count never passes queue_max, and parking can't open more active entries than that.
 static func queue_slots(rows: Array) -> int:
 	var n := 0
 	for r in rows:
@@ -470,7 +472,8 @@ static func queue_levels(gs: GameState, entries: Array) -> Array:
 ## entry that isn't gated is the head: `next` when the gold and bone cover it, and the copy pays and takes
 ## its lot as the start would, so the walk goes on to the next head; else `waiting_funds` (no_gold,
 ## no_bone) and every later entry that isn't gated is `queued`. An upgrade behind an entry for its lot that
-## hasn't started shows that entry's gate (none: queued).
+## hasn't started shows that entry's gate (none: queued). Phase I P3: past the first queue_max entries that aren't
+## gated, an entry is `skipped_gate` `wait_slot` (A14's amendment; queue_slots).
 ## R2 (the E2b-2 vision review; the run's manager): the same walk times each entry's funds, its
 ## `affordable_in_s` (_afford_at): the entries that aren't gated start in queue order, each when the stocks,
 ## grown at queue_net's rates held fixed (each up to its cap) and less what the entries ahead paid at their own
@@ -499,6 +502,8 @@ static func queue_walk(gs: GameState, entries: Array, timed := true) -> Dictiona
 	var tl := {"clock": 0.0, "fund": {"gold": gold, "bone": bone, "relics": float(relics)}, "net": queue_net(gs),
 		"cap": {"gold": gs.town_sim.gold_cap(), "bone": gs.town_sim.bone_cap(), "relics": float(gs._cap_of("relics"))}, "starved": {}} if timed else {}
 	var waits: Array = []
+	var slots := 0  # Phase I P3 (A14's amendment): the rows so far that hold a slot (every one that isn't skipped_gate)
+	var slot_max := queue_max(gs)
 	for i in entries.size():
 		var e: Dictionary = entries[i]
 		var lot_id: String = e["lot_id"]
@@ -507,6 +512,8 @@ static func queue_walk(gs: GameState, entries: Array, timed := true) -> Dictiona
 		var level: int = levels[i]
 		var cost := construction_cost(gs, bid, level)
 		var why := _queue_gate(gs, e, level, cost, lots, pending, relics)
+		if why == "" and slots >= slot_max:
+			why = "wait_slot"  # A14's amendment: past the first max_len entries that aren't gated, an entry waits for a slot
 		var status := "skipped_gate"
 		if why == "":
 			if stopped or (up and pending.has(lot_id)):
@@ -519,6 +526,8 @@ static func queue_walk(gs: GameState, entries: Array, timed := true) -> Dictiona
 				why = "no_bone"
 			else:
 				status = "next"
+		if status != "skipped_gate":
+			slots += 1
 		if status == "next":
 			gold -= float(cost["gold"])
 			bone -= float(cost["bone"])
@@ -741,8 +750,8 @@ static func process_queue(gs: GameState) -> void:
 ## is under construction there; queued entries don't claim lots), lot_too_small; an upgrade's empty_lot (nothing
 ## there or queued) and max_level (the level it would build); cost_exceeds_cap (a gold, bone or relic cost
 ## over that store's cap now; `store` names it and `cap_building` the building that raises it); then queue_full
-## again for an entry that would hold a slot (not skipped_gate on the walk with it appended) while queue_slots
-## already holds queue_max (Phase I P2, ruling 1: a gated entry holds no slot). Gates
+## again for an entry that would hold a slot while queue_slots already holds queue_max (Phase I P2, ruling 1: a gated
+## entry holds no slot; P3: the walk with it appended reads it `wait_slot`). Gates
 ## time or play can clear (the tier, a blueprint, a building, a locked lot, relics, a construction under
 ## way, an unpaid spell) are accepted and show as skipped_gate. Affordability never refuses. R2: the new
 ## entry's affordable_in_s, its row's from the walk (−1.0 on a refusal: no entry), warns at queue time.
@@ -785,10 +794,11 @@ static func queue_build(gs: GameState, building_id: String, lot_id: String) -> D
 				out["cap_level"] = cap_level(gs, store, float(cost[store]))
 	var rows: Array = []
 	if why == "":
-		# the slot rule (Phase I P2): appending changes no row ahead of it (the walk runs in order), so the rows ahead
-		# are today's and the last is the new entry's
+		# the slot rule (Phase I P2; P3's A14 amendment): appending changes no row ahead of it (the walk runs in order),
+		# so the rows ahead are today's and the last is the new entry's. An entry no gate holds while the slots are full
+		# walks as wait_slot; a new one is refused instead (a gated one is accepted: it holds no slot)
 		rows = queue_walk(gs, q + [entry])["rows"]
-		if rows.back()["status"] != "skipped_gate" and queue_slots(rows.slice(0, rows.size() - 1)) >= queue_max(gs):
+		if str(rows.back()["reason"]) == "wait_slot":
 			why = "queue_full"
 	if why != "":
 		out["reason"] = why

@@ -1084,7 +1084,7 @@ func _report_words() -> void:
 	var c := cfgs()
 	var rep: Dictionary = c["economy"]["idle"]["report"]
 	var words: Dictionary = rep["waited_on"]
-	t.ok(words.size() == 13, "idle.report.waited_on has 13 reasons, upkeep (E4 step 4's gate) the 13th (%d: %s)" % [words.size(), str(words.keys())])
+	t.ok(words.size() == 14 and words.has("wait_slot"), "idle.report.waited_on has 14 reasons, upkeep (E4 step 4's gate) the 13th, wait_slot (Phase I P3, A14's amendment) the 14th (%d: %s)" % [words.size(), str(words.keys())])
 	var bad: Array = []
 	for w in words:
 		var why := StateViews._why_started(rep, str(w))
