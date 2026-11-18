@@ -892,6 +892,26 @@ func _payoff(t: TestUtil) -> void:
 	var drainp := ValveLogic.payoff({"backlog": 1000000.0, "diff_ema": -2.0}, {"split": {}, "backlog_diff": -6.0}, k, capcfg, 1000.0)
 	t.ok(float(drainp["now"]["strain"]) >= 0.8 and ValveLogic.payoff_line(drainp, 0.05, capcfg).contains(" · drain "), "a draining side: the drain line, the cap ignored")
 	t.ok(ValveLogic.payoff_line(fp, 0.05).contains(" · odds in ") and ValveLogic.payoff_line(fp, 0.05, {}).contains("% → "), "no odds config: no cap, today's line")
+	# the raid credit (economy P3b review, should-fix 1): the readiness reads min(cap, strain + credit), so a strain in
+	# [cap - credit, cap) already caps both odds; the line compares that credited strain, not the bare one
+	var hold := {"split": {}, "backlog_diff": 0.0}
+	var at75 := {"backlog": 3.0 * k, "diff_ema": 0.0}  # strain b / (b + K) = 0.75 on both sides, holding (no drain)
+	var nc75 := ValveLogic.payoff(at75, hold, k, capcfg, 1000.0)
+	at75["raid_credit"] = 0.075
+	var cr75 := ValveLogic.payoff(at75, hold, k, capcfg, 1000.0)
+	t.near(float(cr75["now"]["strain"]), 0.75, 1e-9, "(setup) strain 0.75")
+	t.ok(is_equal_approx(float(cr75["now"]["credited"]), 0.8) and is_equal_approx(float(cr75["then"]["credited"]), 0.8)
+		and is_equal_approx(float(nc75["now"]["credited"]), 0.75), "each side carries its credited strain, min(cap, strain + credit): 0.8 with 0.075, 0.75 without")
+	var crline := ValveLogic.payoff_line(cr75, 0.05, capcfg)
+	t.ok(crline.contains("past full") and not crline.contains(" · odds in ") and float(cr75["now"]["odds"]) == float(cr75["then"]["odds"]),
+		"strain 0.75 with credit 0.075: both odds capped and equal, so the past-full line (%s), never '%d%% → %d%%'" % [crline,
+		roundi(float(cr75["now"]["odds"]) * 100.0), roundi(float(cr75["then"]["odds"]) * 100.0)])
+	t.ok(ValveLogic.payoff_line(nc75, 0.05, capcfg).contains(" · odds in "), "the same strain with no credit: below the cap, the odds-in line")
+	var at72 := {"backlog": 0.72 / 0.28 * k, "diff_ema": 0.0, "raid_credit": 0.075}  # 0.72 + 0.075 = 0.795 < 0.8
+	t.ok(ValveLogic.payoff_line(ValveLogic.payoff(at72, hold, k, capcfg, 1000.0), 0.05, capcfg).contains(" · odds in "),
+		"strain 0.72 with credit 0.075 stays under the cap: the odds-in line")
+	t.ok(ValveLogic.payoff_line({"now": {"diff": 2.1, "drain_s": -1.0, "odds": 0.5, "strain": 0.85}, "then": {"diff": 2.1, "drain_s": -1.0, "odds": 0.5, "strain": 0.85}},
+		0.05, capcfg).contains("past full"), "a row without `credited` falls back to its strain")
 	t.ok(FileAccess.get_file_as_string("res://scripts/map/map_valve.gd").contains("payoff_line(p, eps, model.realm_cfg.get(\"odds\", {}))"), "the valve passes the odds config")
 	t.ok(ValveLogic.payoff_shown(true, -1.0), "shown while dragging")
 	t.ok(ValveLogic.payoff_shown(false, 0.0) and ValveLogic.payoff_shown(false, float(vc["payoff_hold_s"]) - 0.01), "and for payoff_hold_s after release")
