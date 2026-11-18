@@ -29,7 +29,10 @@ func run() -> int:
 	t.ok(int(res["validated"]) >= 2 and int(res["invalid"]) == 0 and int(res["refused"]) == 0 and int(res["applied"]) == int(res["validated"]),
 		"every raid result passed Results.validate and the real apply_result: %s" % JSON.stringify(res))
 	t.ok(float(sm["ledger_max_err"]) < 1e-6, "the ledger stayed balanced at every row (worst %s)" % String.num_scientific(float(sm["ledger_max_err"])))
-	t.ok(int(sm["reorders"]) >= 1, "the reorder rule moved the soonest-affordable entry to the head (%d times; the first build: %s)" % [
+	# Phase I P3 (ruling 3): the game itself now skips a head no income can pay (at once with its producer unstaffed,
+	# after queue.never_hold_s with it staffed), which is what the bot's reorder rule moved, and entries behind a held
+	# head are timed after it; so the smoke no longer needs a reorder (it read 0 at b6970d2), only reports it
+	t.ok(int(sm["reorders"]) >= 0 and bool(beats["queue_set"]["happened"]), "the reorder rule ran (%d moves; the first build: %s)" % [
 		int(sm["reorders"]), JSON.stringify(sm["mill_first"])])
 	t.ok(str(a["hash"]) == str(b["hash"]), "deterministic: twice from fresh GameStates, the same hash of the summary and the final state (%s, %s)" % [
 		str(a["hash"]).substr(0, 16), str(b["hash"]).substr(0, 16)])

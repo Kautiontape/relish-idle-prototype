@@ -260,7 +260,7 @@ func _husk_policy(c: Dictionary) -> void:
 ## second, third and fourth asserts fail, with and without park_relics (6 FAIL).
 func _fill_skips_gated(c: Dictionary) -> void:
 	for park in [true, false]:
-		var b := Autoplayer._bot("keep_test_fill", c, {"print_rows": false})
+		var b := Autoplayer._bot("keep_test_fill", c, {"print_rows": false, "skip_fill": true})  # P3: the skip fill is the ablation's
 		b.record = true
 		b.park_relics = park
 		b.new_game()
@@ -285,9 +285,39 @@ func _fill_skips_gated(c: Dictionary) -> void:
 			"park %s: %s no_relics entry: %s" % [str(park), "one parked" if park else "no", str(relic)])
 		t.ok(counted == int(tn["queue_max"]) and int(tn["queue_slots"]) <= counted, "park %s: the fill still fills queue_max (%d counted, %d slots)" % [
 			str(park), counted, int(tn["queue_slots"])])
-		t.ok(queued.size() == rows.size() and queued.all(func(e): return bool(e["ok"])),
-			"park %s: a skipped item issues no command (it is read off the walk): %d queue commands, all kept" % [str(park), queued.size()])
+		# a refusal the walk can't see (cost_exceeds_cap: a cost over today's cap) is the fill's normal "a later look";
+		# since P3's ruling 3 a new game's fill passes over never heads (no mill: no bone) and reaches the mill's level 3
+		var kept: Array = queued.filter(func(e): return bool(e["ok"]))
+		var refused: Array = queued.filter(func(e): return not bool(e["ok"]))
+		t.ok(kept.size() == rows.size() and refused.all(func(e): return str(e["reason"]) == "cost_exceeds_cap"),
+			"park %s: a skipped item issues no command (it is read off the walk): %d queue commands, %d kept, the rest cost_exceeds_cap" % [
+			str(park), queued.size(), kept.size()])
 		b.cleanup()
+	# Phase I P3, ruling 2 (the parking fill, the default): the same new game's first fill, then the list's spare room
+	# takes the priority list's next items gated on a lasting gate (Autoplayer.PARK_GATES). The counted entries are the
+	# skip fill's, the slots stay within queue_max, and every parked entry is gated on one of PARK_GATES. Revert proof:
+	# _park not called (no parked entry: the second check fails)
+	var skip := Autoplayer._bot("keep_test_fill", c, {"print_rows": false, "skip_fill": true})
+	skip.new_game()
+	skip._crypt_up = true
+	skip._fill()
+	var base: Array = skip.s.view_town()["queue"].map(func(r): return "%s/%s/%d" % [r["building_id"], r["lot_id"], int(r["level"])])
+	skip.cleanup()
+	var p := Autoplayer._bot("keep_test_fill", c, {"print_rows": false})
+	p.new_game()
+	p._crypt_up = true
+	p._fill()
+	var tp := p.s.view_town()
+	var prow: Array = tp["queue"]
+	var head: Array = prow.slice(0, base.size()).map(func(r): return "%s/%s/%d" % [r["building_id"], r["lot_id"], int(r["level"])])
+	var extra: Array = prow.slice(base.size())
+	var off: Array = extra.filter(func(r): return not (str(r["status"]) == "skipped_gate" and Autoplayer.PARK_GATES.has(str(r["reason"]))))
+	t.ok(p.park_gated and head == base and int(tp["queue_slots"]) <= int(tp["queue_max"]),
+		"parking: the fill's first %d entries are the skip fill's, %d slots of %d" % [base.size(), int(tp["queue_slots"]), int(tp["queue_max"])])
+	t.ok(not extra.is_empty() and off.is_empty() and prow.size() <= int(tp["queue_list_max"]),
+		"parking: %d more parked, each gated on a lasting gate, the list %d of %d: %s" % [extra.size(), prow.size(), int(tp["queue_list_max"]),
+		str(extra.map(func(r): return "%s/%d:%s" % [r["building_id"], int(r["level"]), r["reason"]]))])
+	p.cleanup()
 
 
 static func _queued(gs: GameState, lot: String) -> bool:

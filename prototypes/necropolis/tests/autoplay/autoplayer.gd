@@ -103,6 +103,11 @@ var _banking := false  # bank_bigs' latch: set at the first look that finds gian
 var keep_fronts := true  # E4 step 2: good front bigs stay home (_keepers) and the rest raid; off = the E3 policy
 var _keep: Array = []  # keep_fronts: the keepers' uids at the last look (_place); _raid leaves them home
 var park_relics := true  # Phase I P2 (_fill): keep one no_relics entry parked in the queue (the wall's chip); off = skip every gated item
+## Phase I P3 (the run's manager's ruling 2 of 2026-11-18 03:10): players park gated builds, since it costs nothing, so the
+## bot does too. On (the default), _fill's spare list room takes the priority list's next items that land skipped_gate on a
+## gate time or play clears (_park, PARK_GATES); off is P2's skip fill, the ablation_skip_fill profile's row.
+var park_gated := true
+const PARK_GATES := ["needs_tier", "no_relics", "lot_locked", "needs_blueprint", "needs_building"]
 var _crypt_up := false  # the crypt-level latch (_fill): set at the first look that keeps a big, or finds the crypt full while a husk waits
 var crypt_up_t := -1.0  # when _crypt_up set (s.t), -1 never; it never clears, so it can't churn (the E4 review's item 5)
 ## The keepers' churn (the E4 review's item 5, a report): looks whose keepers changed, keepers dropped while still held
@@ -799,8 +804,8 @@ func _foreman_lot(tn: Dictionary) -> String:
 		elif str(b["building_id"]) == "bone_mill" and mill == "":
 			mill = str(b["lot_id"])
 	var q: Array = tn["queue"]
-	var h := _head(q)
-	var bone_binds := h >= 0 and str(q[h]["status"]) == "waiting_funds" and str(q[h]["reason"]) == "no_bone"
+	var h := _funds_head(q)
+	var bone_binds := h >= 0 and str(q[h]["reason"]) == "no_bone"
 	return mill if bone_binds and mill != "" else market
 
 
@@ -851,7 +856,7 @@ func _husk_kind(ignore_room: bool) -> String:
 	var bu := s.view_big_undead()
 	var tn := s.view_town()
 	var q: Array = tn["queue"]
-	var h := _head(q)
+	var h := _head(q, true)
 	if h >= 0 and float(tn["bone"]) - float(hc["cost"]["bone"]) < float(q[h]["cost"]["bone"]):
 		return ""
 	var short := _short_fronts(bu)
@@ -972,12 +977,48 @@ func _fill() -> void:
 		n += 1 if counts else 0
 		parked = parked or park
 		plan[lot] = [str(it[0]), lv]
+	if park_gated:
+		_park(walk, plan, list_max - m)
 
 
-## The first entry that isn't skipped_gate (the one the queue saves toward), or -1.
-static func _head(q: Array) -> int:
+## Phase I P3, ruling 2 (the parking fill): after the skip fill, up to `room` (the list's spare places, queue_list_max)
+## of `walk`'s next items whose walk row, read with the item appended (no command), is skipped_gate on one of
+## PARK_GATES: each starts when its tier rises, its relics come or its lot opens, as a real player queues what they
+## want. Gated entries hold no slot (A14), so this never keeps a relic-free build out, and the slot rule (A14's
+## amendment) keeps the active queue at queue.max_len however many park. `plan` is _fill's lot plan (updated).
+## The queue-hours probe's QH_PARK=1 bot (Phase I P2, wip/tools-p2/qh_bot.gd), made the default.
+func _park(walk: Array, plan: Dictionary, room: int) -> void:
+	for it in walk:
+		if room <= 0:
+			return
+		var lot: String = it[1]
+		var lv: int = it[2]
+		var cur: Array = plan.get(lot, ["", 0])
+		if (str(cur[0]) != "" and str(cur[0]) != str(it[0])) or int(cur[1]) != lv - 1:
+			continue
+		var row: Dictionary = BuildRules.queue_walk(s, s.build_queue + [{"building_id": str(it[0]), "lot_id": lot,
+			"upgrade": lv > 1, "waited_on": ""}], false)["rows"].back()
+		if not (str(row["status"]) == "skipped_gate" and PARK_GATES.has(str(row["reason"]))):
+			continue
+		if bool(_cmd("queue", [str(it[0]) if lv == 1 else "", lot])["ok"]):
+			plan[lot] = [str(it[0]), lv]
+			room -= 1
+
+
+## The first entry that isn't skipped_gate (the one the queue saves toward), or -1. `never`: a never row (Phase I P3,
+## ruling 3: skipped because no income can pay it) counts too, for the bot's own savings (the craft keeps its bone).
+static func _head(q: Array, never := false) -> int:
 	for i in q.size():
-		if str(q[i]["status"]) != "skipped_gate":
+		if str(q[i]["status"]) != "skipped_gate" or (never and BuildRules.never_row(q[i])):
+			return i
+	return -1
+
+
+## The first entry short of funds: a head waiting on them, or one skipped because no income can pay it (Phase I P3,
+## ruling 3: BuildRules.never_row, which the queue passes over but a player still reads as the store that binds), or -1.
+static func _funds_head(q: Array) -> int:
+	for i in q.size():
+		if str(q[i]["status"]) == "waiting_funds" or BuildRules.never_row(q[i]):
 			return i
 	return -1
 
@@ -1018,8 +1059,8 @@ func _observe() -> void:
 		first["clone"] = s.t
 	var tn := s.view_town()
 	var q: Array = tn["queue"]
-	var h := _head(q)
-	if h >= 0 and str(q[h]["status"]) == "waiting_funds":
+	var h := _funds_head(q)
+	if h >= 0:
 		var why := str(q[h]["reason"])
 		if why == "no_bone" and first["bone_wait_seen"] < 0.0:
 			first["bone_wait_seen"] = s.t
@@ -2271,6 +2312,7 @@ static func _bot(name: String, cfg: Dictionary, o := {}) -> Autoplayer:
 	b.reorder = not bool(o.get("static", false))
 	b.bank_bigs = bool(o.get("bank_bigs", false))
 	b.keep_fronts = not b.bank_bigs and not bool(o.get("raid_all", false))
+	b.park_gated = not bool(o.get("skip_fill", false))
 	b.print_rows = bool(o.get("print_rows", true))
 	return b
 
@@ -2336,6 +2378,8 @@ static func run_profile(name: String, t: TestUtil) -> int:
 			_p_versus(t, name, cfg, {"raid_all": true}, cfg)
 		"ablation_bone":
 			_p_versus(t, name, cfgs("no_bone_prices"), {}, cfg)
+		"ablation_skip_fill":
+			_p_versus(t, name, cfg, {"skip_fill": true}, cfg)
 		"sensitivity":
 			_p_versus(t, name, cfg, {"deaths": "frozen"}, cfg)
 		_:

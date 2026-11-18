@@ -1314,7 +1314,9 @@ upgrade refunds in full and changes nothing else.
 **The build queue** (IDLE §5, E2b-2 T3.2; `BuildRules.queue_walk`, STATE-API §4.3, §5.9). GameState keeps an
 ordered list of entries `{building_id, lot_id, upgrade, waited_on}`, saved. From Phase I P2 (IDLE §5's queue rule)
 `queue.max_len` (8) counts only the entries that hold a slot: a `skipped_gate` entry holds none, and the whole list
-caps at `queue.max_len` × `queue.list_mult` (16).
+caps at `queue.max_len` × `queue.list_mult` (16). Phase I P3 (A14's amendment, STATE-API §10): the walk gives the
+slots to the first `queue.max_len` entries no gate holds, in list order (a `next` row holds one until it starts); any
+later one is `skipped_gate` `wait_slot`, holding nothing, so the slots never pass `queue.max_len`.
 Everything else an entry shows is derived from today's state by one walk, which `view_town().queue`,
 `cmd_queue_build` and the core step's processing all run, so a status always says what the next
 processing does.
@@ -1326,7 +1328,7 @@ processing does.
   relic cost above that store's cap now; it names the store, the building that raises its cap, the first
   in `buildings.json` with that `*_cap` effect, and `cap_level`, the lowest level of that building whose
   cap covers the price: 1 when it isn't built yet, −1 when no level does). Affordability never refuses:
-  it holds the queue.
+  it holds the queue (unless no income can pay it: the walk below).
 - **What it accepts as a gate** (the run's manager, 2026-11-14: IDLE §5 over api-request #3's wording,
   since growth while away is Shawn's ask): `needs_tier`, `needs_blueprint`, `needs_building`,
   `lot_locked`, a relic shortfall (`no_relics`), and for an upgrade a construction under way on its lot
@@ -1357,6 +1359,13 @@ processing does.
   - the first entry that isn't gated is the head. When gold and bone cover it, it is `next`: the copy pays
     its cost and takes its lot as its start will, and the walk goes on to the next head. Otherwise it is
     `waiting_funds` (`no_gold`, `no_bone`) and every later entry that isn't gated is `queued`.
+  - Phase I P3 (ruling 3, "never stalls"; STATE-API §10 A15): a head short of funds that reads −1.0 at the walk's
+    stocks (`BuildRules.head_dry`: `_afford_at` on a timeline from those stocks at `queue_net`'s rates) is
+    `skipped_gate` with its `no_gold` / `no_bone` instead, holding nothing and no slot, and the walk goes on to the
+    next head: at once when that store's producer has no staffed hands (no staffed `mill` job for bone, no staffed
+    `stall` for gold), else once its entry's `never_since` is `queue.never_hold_s` (600 s) old. The core step's
+    processing sets `never_since` the first step a head reads dry and clears it at any step it doesn't, and
+    `Catchup.build_start_s` clips at the hold's end, so a catch-up skips it when live play does.
   - So several affordable entries can start in one step, in order, and build at once on the build job.
 - **The manager's four rules for gated entries:**
   1. **A gated entry never stalls the queue.** The head is the first entry that isn't gated. When a gate

@@ -73,8 +73,19 @@ const _BUILDING_STATES := ["constructing", "active", "idle", "unpaid", "thrift"]
 ## changed at least once (one never changed is inactive and never fired: a save without it, the fixtures').
 const _STANCE_STATE := {"active": _B, "fired_beat_id": _I}
 ## The build queue's entries as the save writes them (E2b-2 T3.2); the top-level `queue` key is optional
-## and `waited_on` within it too (both typed when present).
+## and `waited_on` within it too (both typed when present). Phase I P3 (ruling 3's hold timeout): `never_since`, a
+## float >= 0, optional, written only on a head reading dry (BuildRules.held_out).
 const _QUEUE_ENTRY := {"building_id": _S, "lot_id": _S, "upgrade": _B}
+
+
+## One build-queue entry as the save writes it: never_since only when the entry has one, so a queue with no head
+## reading dry saves as before P3.
+static func _queue_entry_out(e: Dictionary) -> Dictionary:
+	var out := {"building_id": str(e["building_id"]), "lot_id": str(e["lot_id"]), "upgrade": bool(e["upgrade"]),
+		"waited_on": str(e.get("waited_on", ""))}
+	if e.has("never_since"):
+		out["never_since"] = float(e["never_since"])
+	return out
 ## Relish's last walk home (E2b-2 T3.3c, view_relish().returned): relish.returned, optional, written once there is one.
 const _RETURNED := {"fort_id": _S, "cause": _S, "t": _F}
 ## The open run as the save writes it (E2b-2 T3.3c, IDLE I5; optional, written only while a run is open).
@@ -250,10 +261,11 @@ static func problem(m: Dictionary, cfgs: Dictionary) -> String:
 		if not (m["queue"] is Array):
 			return "queue"
 		for e in m["queue"]:
-			if not fits(e, _QUEUE_ENTRY) or (e.has("waited_on") and not fits(e["waited_on"], _S)):
+			if not fits(e, _QUEUE_ENTRY) or (e.has("waited_on") and not fits(e["waited_on"], _S)) \
+					or (e.has("never_since") and not (fits(e["never_since"], _F) and float(e["never_since"]) >= 0.0)):
 				return "queue"
 	if m.has("pending_retreat"):
-		var pr_why := _pending_retreat_problem(m["pending_retreat"], rl, fort_ids)
+		var pr_why := _pending_retreat_problem(m["pending_retreat"], rl, fort_ids, int(m["backups"]["phylactery_charges"]))
 		if pr_why != "":
 			return pr_why
 	var town_why := _town_problem(m["town"], cfgs, fort_ids)
@@ -395,8 +407,10 @@ static func clamp_levels(tn: Dictionary, bcfg: Dictionary) -> Dictionary:
 ## "" if the optional `pending_retreat` (E2b-2 T3.3c; the run open at the save) is sound: its keys typed, a
 ## known kind and outcome (a boss run's always "retreated"), a raid's fort a known fort with Relish saved
 ## at_fort there and a boss's "vei" with her at_vei (as dump writes them), and loot the raid result's
-## validator takes (Results.validate on the retreat result carrying it).
-static func _pending_retreat_problem(pr: Variant, rl: Dictionary, fort_ids: Dictionary) -> String:
+## validator takes (Results.validate on the retreat result carrying it). api-request #20 (Phase I P3): an optional
+## `revived_in_place`, an int from 1 to the save's phylactery `charges` (a raid's only; nothing changes the stock while
+## a run is open, so its checkpoint's count was within it).
+static func _pending_retreat_problem(pr: Variant, rl: Dictionary, fort_ids: Dictionary, charges: int) -> String:
 	if not fits(pr, _PENDING_RETREAT):
 		return "pending_retreat"
 	var raid: bool = pr["kind"] == "raid"
@@ -408,6 +422,9 @@ static func _pending_retreat_problem(pr: Variant, rl: Dictionary, fort_ids: Dict
 		return "pending_retreat fort"
 	if not Results.validate("raid", StateRuns.end_result(pr, pr["loot"], "retreated")).is_empty():
 		return "pending_retreat loot"
+	if pr.has("revived_in_place") and not (raid and fits(pr["revived_in_place"], _I) and int(pr["revived_in_place"]) >= 1
+			and int(pr["revived_in_place"]) <= charges):
+		return "pending_retreat revived"
 	return ""
 
 
@@ -622,8 +639,7 @@ static func dump(gs: GameState) -> Dictionary:
 		"ledger": gs._ledger.to_dict(),
 		"won": gs.won, "stats": gs.stats.duplicate(),
 		"cleared_forts": gs.cleared_forts.keys(), "first_dungeon": gs.first_dungeon_id,
-		"queue": gs.build_queue.map(func(e): return {"building_id": str(e["building_id"]), "lot_id": str(e["lot_id"]),
-			"upgrade": bool(e["upgrade"]), "waited_on": str(e.get("waited_on", ""))}),
+		"queue": gs.build_queue.map(func(e): return _queue_entry_out(e)),
 	}
 	(d["cleared_forts"] as Array).sort()
 	# IDLE I5 (E2b-2 T3.3c): the open run, as the retreat a load ends it with (its last checkpoint); written only
@@ -827,6 +843,8 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 		var bid := str(e["building_id"])
 		var lot_id := str(e["lot_id"])
 		var entry := {"building_id": bid, "lot_id": lot_id, "upgrade": bool(e["upgrade"]), "waited_on": str(e.get("waited_on", ""))}
+		if e.has("never_since"):
+			entry["never_since"] = float(e["never_since"])  # P3, ruling 3's hold timeout (optional: a head reading dry)
 		if not BuildRules.buildings_cfg(gs).has(bid) or BuildRules.lot(gs, lot_id).is_empty():
 			push_warning("SaveIO: dropped a queued %s on %s: not in today's config" % [bid, lot_id])
 		elif entry["upgrade"] and int(BuildRules.queue_levels(gs, gs.build_queue + [entry]).back()) \

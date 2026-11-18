@@ -36,7 +36,7 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	"economy.town.projection_refresh_s", "economy.town.projection_rows_per_call", "economy.town.projection_rows_per_frame",
 	"economy.town.projection_phase", "economy.town.projection_starve_frames", "economy.town.projection_tol.rel",
 	"economy.town.projection_tol.abs", "realm.flip.hold_s", "realm.flip.tier_mult", "economy.morale.death_shock", "vei.loss_backlog_keep",
-	"realm.relish.tide_bias", "economy.queue.max_len", "economy.queue.list_mult", "economy.save.level_sanity_max",
+	"realm.relish.tide_bias", "economy.queue.max_len", "economy.queue.list_mult", "economy.queue.never_hold_s", "economy.save.level_sanity_max",
 	"economy.relic_trickle.period_s",
 	"realm.hold.mint_ref", "realm.hold.mint_alpha",  # (E4 step 5, B1: hold_mult)
 	"realm.odds.time_weight", "realm.odds.time_s", "realm.odds.backlog_cap",  # (E4 step 9, option B: win_odds)
@@ -1140,8 +1140,8 @@ func cmd_abort_dungeon() -> Dictionary:
 ## its last checkpoint. A close, a crash, a load or a gap above idle.gap_s ends the run from it
 ## (StateRuns.end_open). Reasons: no_run, wrong_run, wrong_kind (a boss run banks nothing), catching_up,
 ## invalid, bad_outcome: a dead run's refusals come first.
-func cmd_run_checkpoint(run_id: int, loot: Dictionary, outcome := "retreated") -> Dictionary:
-	return StateRuns.checkpoint(self, run_id, loot, outcome)
+func cmd_run_checkpoint(run_id: int, loot: Dictionary, outcome := "retreated", revived_in_place := 0) -> Dictionary:
+	return StateRuns.checkpoint(self, run_id, loot, outcome, revived_in_place)
 
 
 func view_dungeon_seed(fort_id: String) -> Dictionary:

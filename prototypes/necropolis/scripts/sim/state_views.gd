@@ -1042,12 +1042,16 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 			"odds_from": "%.2f" % odds_from, "odds_to": "%.2f" % odds_to}), "stream", ""))
 	# builds finished, then each queued build that started, with when (since you left) and why
 	var done: Array = []
+	var done_lots: Array[String] = []  # api-request #19 (town-i, Phase I P3): each building_done's lot, as the names
 	for e in evs:
 		if e["type"] == "building_done":
 			done.append(_building_name(gs, rep, str(e["building_id"]), int(e["level"])))
+			done_lots.append(str(e["lot_id"]))
 	if not done.is_empty():
 		var fmt := str(rep["builds_one_fmt"] if done.size() == 1 else rep["builds_fmt"])
-		gains.append(_away_line(fmt.format({"n": _fmt_count(rep, done.size()), "names": str(rep["list_sep"]).join(PackedStringArray(done))}), "build", ""))
+		var line := _away_line(fmt.format({"n": _fmt_count(rep, done.size()), "names": str(rep["list_sep"]).join(PackedStringArray(done))}), "build", "")
+		line["lots"] = done_lots
+		gains.append(line)
 	for e in evs:
 		if e["type"] != "queue_started":
 			continue
@@ -1130,10 +1134,18 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 					stuck = false
 				# "queued" changes nothing: it sits behind a head (the queue never jumps), so it starts only if
 				# that head does, and a head that will be afforded has already cleared `stuck`
+		var never_said := {}  # P3 (ruling 3): the funds reasons (no_gold, no_bone) a skipped never-head's line has named
 		for i in rows.size():
 			var row: Dictionary = rows[i]
 			if row["status"] == "waiting_funds":
 				ready.append(_away_line(afford_text(gs, rep, row, str(w["waits"][i]), BuildRules.queue_net(gs), _move_down_helps(gs, i)), "queue", "queue"))
+			elif BuildRules.never_row(row):
+				# Phase I P3 (ruling 3): a head no income can pay is skipped and holds nothing, so its line is the never
+				# form without the move down (it is passed already): its store's rate and the lever that raises it. Only
+				# the first such entry on each store gets one: the ones behind it name the same rate and lever
+				if not never_said.has(str(row["reason"])):
+					never_said[str(row["reason"])] = true
+					ready.append(_away_line(afford_text(gs, rep, row, str(w["waits"][i]), BuildRules.queue_net(gs), false), "queue", "queue"))
 			elif i == wall and stuck:
 				ready.append(_away_line(afford_text(gs, rep, row, "relics", {}, false), "queue", "queue"))
 			elif i == upk:

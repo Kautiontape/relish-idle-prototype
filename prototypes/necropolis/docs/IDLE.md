@@ -682,12 +682,25 @@ same profile with the game closed.
   - How long a full queue lasts while closed (ruling 3) is measured in BALANCE §5's P2 re-measure (88e18a6):
     pure_idle's 8 finish 1.96 h into its close, and past 16 entries `max_len` isn't the limit. `queue.max_len` stays
     8 (the run's manager, 2026-11-18).
+  - **The slots go in list order** (Phase I P3, A14's amendment, the run's manager's ruling 1 of 2026-11-18): the
+    first `queue.max_len` entries no gate holds get them (a `next` row holds one until it starts), and any later one
+    waits as `skipped_gate` `wait_slot` ("when a queue slot came free"), holding nothing. So parking gated entries
+    can't open more than 8 active builds, and a new entry that would wait for a slot is refused (`queue_full`).
 - **Processing**, every core step, right after the tier check:
   - The queue is processed in order.
   - An entry blocked by an **unmet gate** (blueprint, tier, a building, a locked lot, relics) is flagged
     `skipped_gate` and **skipped**: it holds nothing and starts at its own place once play or time
     clears the gate (the run's manager, 2026-11-14: such entries are accepted, not refused).
   - A head blocked only by **affordability** holds the queue, which saves toward it.
+  - **"Never stalls"** (Phase I P3, ruling 3 of 2026-11-18 and its hold timeout, option (iv); STATE-API §10 A15): a
+    head that no income can pay (its `affordable_in_s` −1.0: its store's net is 0 or below) doesn't hold the queue
+    for good. It is skipped like a gate (`skipped_gate` with its `no_gold` / `no_bone`, holding nothing and no slot)
+    at once when that store's producer has no staffed hands (no staffed Bone Mill for bone, no staffed stall for
+    gold), and after `queue.never_hold_s` (600 s) of reading −1.0 in a row when it has some. A staffed mill fed by
+    convoys reads dry between them, and every wet step restarts the count (the longest dry run measured in the
+    new-game Pit-then-Mill town is 60 s), so it still holds. A mill whose pits eat every body (pits-first, E2b-2)
+    reads dry for good: after 10 min the entries behind it start, and the head keeps its line ("the pits are eating
+    every body. Raise WAR"). A head that reads ≥ 0 again holds again.
 - `cmd_queue_build` rejects with `cost_exceeds_cap` when a cost is above the current store cap, and
   names the building that raises that cap (the Market for gold, the Bone Mill for bone, the Reliquary
   for relics).
@@ -729,22 +742,32 @@ a **"While you were away"** panel. It is ordered **gains, then ready actions, th
     queue's walk gates a relic shortfall (`no_relics`, a `skipped_gate` entry) before any head waits on funds,
     and a gated entry holds nothing. W2's relics wall (below) is what shows it. `kind` `queue`, `target`
     `queue`, so the map can dive to the queue. The
-    queue never skips its head (Shawn's rule: it never stalls or jumps), so this is how the player learns
-    to move a stuck head. The line never names itself or a move that can't help (F1, the run's manager):
+    queue never skips a head that will be afforded (Shawn's rule: it never stalls or jumps), so this is how the
+    player learns to move a stuck head. Phase I P3 (ruling 3, §5's "never stalls"): a head that no income can pay
+    is skipped at once when its producer has no staffed hands, or after `queue.never_hold_s` when it has some, and
+    the entries behind it start; it keeps the same line without the move down (it is passed already), and only
+    the first such entry on a store gets one (a House, then a Well, with no mill: the House's line, since the
+    Well's would repeat it). So with no mill, the move-down forms below come only from a head still inside its
+    hold, which needs its producer staffed (pre_vei's gold, its upkeep over its income: "Inn level 2 can't be
+    afforded at the current income of −0.47/s gold: move it down, or build a Market"). The line never names itself
+    or a move that can't help (F1, the run's manager):
     - **moving it down can't help** (F2): "move it down" is offered only when some other entry could start
       if the stuck one weren't ahead of it, which the report reads off the queue's walk less the stuck entry
       (`BuildRules.queue_walk` on a copy): a row that isn't `skipped_gate` (a gated entry passes the head
       anyway) and has `affordable_in_s` >= 0 (affordable now, or later at the current income). With nothing behind
       it, or only entries stuck on the same store (a House, then a Well: both need bone), or only gated ones, the
       line drops it: "House can't be afforded at the current income of 0/s bone: build a Bone Mill". With a Bone
-      Mill behind it (level 1 is 60 gold, no bone) the move helps: "House can't be afforded at the current income
-      of 0/s bone: move it down, or build a Bone Mill";
+      Mill behind it (level 1 is 60 gold, no bone) the move helped before P3: "House can't be afforded at the
+      current income of 0/s bone: move it down, or build a Bone Mill". Since P3 the House is skipped and the Mill
+      starts on its own;
     - **its store's own producer** (`idle.report.afford_producer`: the Market for gold, the Bone Mill for
       bone; an upgrade counts): what raises the store would be the entry itself, so the line says a fact
       instead, true today (only a mill makes bone, only a Market gold, and a raid gives neither: loot.json
       has relics and no gold or bone): "Bone Mill level 2 can't be afforded at the current income of 0/s bone,
       and nothing else makes bone: move it down", without ": move it down" when moving it down can't help (the same rule). The
-      bone fact holds until P4 makes rot a source of bone.
+      bone fact holds until P4 makes rot a source of bone. Since P3 an unstaffed mill's level is skipped, so it
+      reads the form without the move down; the move-down form needs a staffed mill short of bodies and not
+      pits-first, which the workforce's rot rules out, so only `_report_afford_words` renders it.
     - **the pits eating every body** (E4, the run's manager's A1 day-1 ruling): never on bone while the mill is
       starved `pits_first` (the head row's `starved`), the mill exists and a new one wouldn't help, so the line names
       the bone short and the lever, ahead of the producer form: "Well can't be afforded, 7 bone short at the

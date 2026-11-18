@@ -177,12 +177,14 @@ static func empty_loot() -> Dictionary:
 ## The raid result an ended run applies (IDLE I5; STATE-API §4.5): its `outcome` as the exit, `loot` as the
 ## banked loot, and nothing else the scene would report: no kills, no raises, no chaff, no revives, no party
 ## member lost, and `garrison_mass` equal to the seed's `garrison_in_mass`, so the garrison taken in stays and
-## the fort's undead don't move (§8.3 step 5). `run` is the run ({run_id, seed_rev, fort_id, seed}).
-static func end_result(run: Dictionary, loot: Dictionary, outcome: String) -> Dictionary:
+## the fort's undead don't move (§8.3 step 5). `run` is the run ({run_id, seed_rev, fort_id, seed}). `revived`
+## (api-request #20, Phase I P3): the phylactery revives its last checkpoint recorded, so the writeback spends those
+## charges (apply_result) and a crash after a revive doesn't give the charge back.
+static func end_result(run: Dictionary, loot: Dictionary, outcome: String, revived := 0) -> Dictionary:
 	return {
 		"v": 2, "run_id": int(run["run_id"]), "seed_rev": int(run["seed_rev"]), "fort_id": str(run["fort_id"]),
 		"warden_beaten": outcome == "warden_beaten", "retreated": outcome == "retreated", "relish_died": outcome == "relish_died",
-		"revived_in_place": 0, "killed_living_mass": 0.0, "raised": [], "chaff_mass": 0.0,
+		"revived_in_place": revived, "killed_living_mass": 0.0, "raised": [], "chaff_mass": 0.0,
 		"garrison_mass": float(run.get("seed", {}).get("garrison_in_mass", 0.0)), "party_lost": [], "loot": loot,
 	}
 
@@ -191,8 +193,10 @@ static func end_result(run: Dictionary, loot: Dictionary, outcome: String) -> Di
 ## it would end in now, replacing any earlier checkpoint. A dead run's refusals (no_run, wrong_run) come before
 ## catching_up, so a dungeon scene on an ended run learns it is over; a boss run has nothing to bank (a boss
 ## result carries no loot, §8.2): wrong_kind. Then invalid (Results.validate on a retreat result carrying
-## `loot`) and bad_outcome.
-static func checkpoint(gs: GameState, run_id: int, loot: Dictionary, outcome: String) -> Dictionary:
+## `loot`, or api-request #20's `revived` below 0 or above the seed's min(phylactery_charges,
+## phylactery_max_per_dungeon), the bound apply_result holds a result to) and bad_outcome. `revived`: the phylactery
+## revives so far this run (the raid's live count), kept beside the loot and outcome (pending_of, end_open).
+static func checkpoint(gs: GameState, run_id: int, loot: Dictionary, outcome: String, revived := 0) -> Dictionary:
 	var fail := {"ok": false, "reason": ""}
 	if gs.run.is_empty():
 		fail["reason"] = "no_run"
@@ -202,13 +206,14 @@ static func checkpoint(gs: GameState, run_id: int, loot: Dictionary, outcome: St
 		fail["reason"] = "wrong_kind"
 	elif gs._catchup.active:
 		fail["reason"] = "catching_up"  # (unreachable: no run is open during a catch-up)
-	elif not Results.validate("raid", end_result(gs.run, loot, "retreated")).is_empty():
+	elif not Results.validate("raid", end_result(gs.run, loot, "retreated")).is_empty() or revived < 0 \
+			or revived > revive_cap(gs.run.get("seed", {})):
 		fail["reason"] = "invalid"
 	elif not OUTCOMES.has(outcome):
 		fail["reason"] = "bad_outcome"
 	if fail["reason"] != "":
 		return fail
-	gs.run["checkpoint"] = {"loot": loot_of(loot), "outcome": outcome}
+	gs.run["checkpoint"] = {"loot": loot_of(loot), "outcome": outcome, "revived_in_place": revived}
 	gs.rev += 1
 	return {"ok": true, "reason": ""}
 
@@ -218,12 +223,23 @@ static func checkpoint(gs: GameState, run_id: int, loot: Dictionary, outcome: St
 ## run never has one).
 static func pending_of(gs: GameState) -> Dictionary:
 	var cp: Dictionary = gs.run.get("checkpoint", {})
-	return {
+	var out := {
 		"run_id": int(gs.run["run_id"]), "kind": str(gs.run["kind"]), "fort_id": str(gs.run["fort_id"]),
 		"seed_rev": int(gs.run["seed_rev"]),
 		"loot": (cp["loot"] as Dictionary).duplicate(true) if cp.has("loot") else empty_loot(),
 		"outcome": str(cp.get("outcome", "retreated")),
 	}
+	# api-request #20 (Phase I P3): the checkpoint's revives, written only when there are some, so a save without
+	# one is as before
+	if int(cp.get("revived_in_place", 0)) > 0:
+		out["revived_in_place"] = int(cp["revived_in_place"])
+	return out
+
+
+## api-request #20: the most phylactery revives a run's result may carry, from its seed: min(phylactery_charges,
+## phylactery_max_per_dungeon), apply_result's bound (0 for a seed without them).
+static func revive_cap(sd: Dictionary) -> int:
+	return mini(int(sd.get("phylactery_charges", 0)), int(sd.get("phylactery_max_per_dungeon", 0)))
 
 
 ## Ends the open run from its last checkpoint (IDLE I5): a raid through the normal writeback as a result of
@@ -241,7 +257,7 @@ static func end_open(gs: GameState) -> String:
 		gs.rev += 1
 		return "retreated"
 	gs.run["held"] = false
-	var r := apply_result(gs, "raid", end_result(gs.run, pr["loot"], pr["outcome"]))
+	var r := apply_result(gs, "raid", end_result(gs.run, pr["loot"], pr["outcome"], int(pr.get("revived_in_place", 0))))
 	if not r["ok"]:  # (never: the result is built to pass every check)
 		push_error("StateRuns: an ended run's writeback was refused (%s %s); forfeiting it" % [r["reason"], str(r["errors"])])
 		gs.relish["state"] = "at_fort"
@@ -274,7 +290,7 @@ static func apply_pending(gs: GameState, pr: Dictionary) -> void:
 	var seed_rev := int(pr["seed_rev"])
 	gs.run = {"run_id": run_id, "kind": "raid", "fort_id": fort_id, "seed_rev": seed_rev,
 		"seed": dungeon_seed(gs, fort_id, run_id, seed_rev), "held": false,
-		"checkpoint": {"loot": loot_of(pr["loot"]), "outcome": str(pr["outcome"])}}
+		"checkpoint": {"loot": loot_of(pr["loot"]), "outcome": str(pr["outcome"]), "revived_in_place": int(pr.get("revived_in_place", 0))}}
 	gs.relish["state"] = "in_dungeon"
 	end_open(gs)
 
