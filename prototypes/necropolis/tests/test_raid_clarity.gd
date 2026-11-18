@@ -377,7 +377,14 @@ func _round2_tests(t: TestUtil) -> void:
 	panel_heads.configure(_hr())
 	t.ok(panel_heads.head_keep == "RETREAT NOW" and panel_heads.head_fall == "IF RELISH FALLS", "the panel draws the heads it is configured with")
 	t.ok(panel_heads.title == "LEAVE THE RAID?" and panel_heads.btn_retreat == "RETREAT" and panel_heads.btn_stay == "STAY"
-		and panel_heads.foot == "click to choose · Space or Esc: stay and fight", "the panel's title, buttons and footer are the ones hud.retreat gives it")
+		and panel_heads.foot == "click to choose · Esc: stay and fight · Space raises and puts this away", "the panel's title, buttons and footer are the ones hud.retreat gives it")
+	# Space keeps one meaning (raise): the foot names Esc, not Space, as the stay key. Space still puts the centred plate
+	# away (is_stay_key, raid.gd _unhandled_input) because the plate is centred, swallows a left press, and would sit over the
+	# motes the raise is about to circle; it is the trance's side effect, and the words say so.
+	t.ok(not panel_heads.foot.contains("Space or Esc") and not panel_heads.foot.contains("Space: stay") and panel_heads.foot.contains("Esc: stay and fight")
+		and panel_heads.foot.contains("Space raises"), "the retreat foot teaches Esc as the stay key and Space as raise only")
+	t.ok(ThemeDB.fallback_font.get_string_size(panel_heads.foot, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x <= float(_hr().get("w", 820.0)) - 2.0 * float(_hr().get("pad", 16.0)),
+		"the retreat foot fits the panel's width at 13 px")
 	panel_heads.free()
 	# (_lost_agreement_tests runs from run(): it names its own suite, which the checks below must not inherit)
 	# Stays a source pin: raid_hud.gd and raid_endings.gd name autoloads, so the headless suite cannot load them to

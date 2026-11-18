@@ -531,6 +531,42 @@ static func loss_cause(reason: String, facts: Dictionary, words: Dictionary) -> 
 	return {}
 
 
+## Which vei_loss.change line a lost fight reads: one per cause the card can show, "fallback" for any other. Each is a
+## change that moves the cause (the file:line proofs are in the commit message):
+##   weave           KILLED BY her weave: her thread hits on the beat (vei.gd weave_step), a backup revives Relish (vei_boss.gd try_phylactery)
+##   living          KILLED BY her guards: guards come from the fronts still standing (guard_spawn, vei_boss.gd spawn_guard)
+##   horde_ferried   BREAK: the queue ran out first; FLOOD fills it (realm_sim.gd:666 -> the seed's backlog -> horde0)
+##   fronts_held     FRONTS: the fronts' have is the big undead on them (VeiFronts.have_need); FLOOD adds to Swarm and Raw only
+## `facts`: last_hit_src, fronts_cleared (ids). Returns the key into words.change; "fronts_held_flood" is the fronts line
+## with the FLOOD clause, chosen only when Swarm or Raw is among those that held.
+static func loss_change_key(reason: String, facts: Dictionary) -> String:
+	match reason:
+		"relish_unmade":
+			match str(facts.get("last_hit_src", "")):
+				"weave":
+					return "weave"
+				"living":
+					return "living"
+		"horde_ferried":
+			return "horde_ferried"
+		"fronts_held":
+			var cleared: Array = facts.get("fronts_cleared", [])
+			for id in ["swarm", "raw"]:
+				if not cleared.has(id):
+					return "fronts_held_flood"
+			return "fronts_held"
+	return "fallback"
+
+
+## The loss card's TRY NEXT row: {label, text, key} (the text of loss_change_key from raid.json vei_loss.change).
+static func loss_change(reason: String, facts: Dictionary, words: Dictionary) -> Dictionary:
+	var lines: Dictionary = words.get("change", {})
+	var text := str(lines.get(loss_change_key(reason, facts), lines.get("fallback", "")))
+	if text == "":
+		return {}
+	return {"label": str(words.get("change_label", "")), "text": text, "key": "text"}
+
+
 ## loss_card(seed, spent, party_lost, fight_t, end_reason, keep, death_words) -> Dictionary
 ##   What the Vei loss card prints (D-e close-out), in the win card's frame (`end_card`): time_text, the
 ##   backups spent and the big undead lost (the same keys; on a loss all of the seed's party, MECHANICS §6),

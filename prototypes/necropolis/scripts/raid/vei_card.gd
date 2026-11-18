@@ -83,7 +83,7 @@ static func value_w(cfg: Dictionary) -> float:
 static func rows_for(info: Dictionary, words: Dictionary) -> Array:
 	var rows: Array = []
 	# a loss names its cause first (BossLogic.loss_cause), then the guards' pressure when the break had any (BossLogic.pressure_row)
-	for k in ["cause", "pressure_row"]:
+	for k in ["cause", "pressure_row", "change"]:
 		var extra: Dictionary = info.get(k, {})
 		if not extra.is_empty():
 			rows.append({"label": str(extra["label"]), "text": str(extra["text"]), "key": str(extra.get("key", "text")), "id": k})

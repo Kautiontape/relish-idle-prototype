@@ -783,6 +783,7 @@ func _lose_card() -> void:
 		info["cause"] = BossLogic.loss_cause(end_reason, {"last_hit_src": relish.last_hit_src if relish != null else "", "streak_max": streak_max,
 			"break_beats": int(vcfg().get("break_beats", 8)), "fronts_cleared": _cleared_now(), "fronts_required": VeiFronts.required(vcfg())}, lw)
 		info["pressure_row"] = BossLogic.pressure_row(pressure, float(seed_data.get("living_pool", 0.0)), lw) if phase1_s >= 0.0 else {}
+		info["change"] = BossLogic.loss_change(end_reason, {"last_hit_src": relish.last_hit_src if relish != null else "", "fronts_cleared": _cleared_now()}, lw)
 		info["phyl_total"] = int(seed_data.get("phylactery_charges", 0))
 		info["clones_total"] = int(seed_data.get("clones_ready", 0))
 		_card = VeiCard.new()
