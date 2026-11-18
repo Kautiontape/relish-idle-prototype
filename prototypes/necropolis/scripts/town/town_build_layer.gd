@@ -16,6 +16,9 @@ var row_lots: Array = []
 var ghosts: Array = []
 ## Lot id -> its building's status parts ([[text, oblique]], TownModel.status_of) for the hover tag.
 var statuses: Dictionary = {}
+## The lot whose card is open ("" for none): its hover tag isn't drawn, since the card's first line says the
+## same and the card would cover the tag's tail.
+var card_lot := ""
 
 ## The suggestion's breathing outline: its own node, so only it redraws per frame.
 var _breath: Node2D
@@ -28,6 +31,12 @@ var _last_phase := 0.0
 func set_hover(lot_id: String) -> void:
 	if lot_id != hover_lot:
 		hover_lot = lot_id
+		queue_redraw()
+
+
+func set_card_lot(lot_id: String) -> void:
+	if lot_id != card_lot:
+		card_lot = lot_id
 		queue_redraw()
 
 
@@ -259,7 +268,7 @@ func _text_at(text: String, center: Vector2, size: int, key: String) -> void:
 ## queued there (stacked).
 func _draw_tip() -> void:
 	var y := -1.0
-	var parts: Array = statuses.get(hover_lot, [])
+	var parts: Array = [] if hover_lot == card_lot else statuses.get(hover_lot, [])
 	if not parts.is_empty():
 		y = _status_tag(parts)
 	for e in ghosts:

@@ -161,6 +161,7 @@ func set_status(parts: Array) -> void:
 		else:
 			_status.add_text(String(p[0]))
 	_status.visible = not parts.is_empty()
+	TownUI.set_jargon_tip(_status, " ".join(parts.map(func(p): return String(p[0]))), vcfg)  # "+6.00 mint/s": what mint is
 
 
 ## The inspector form: the panel's inspector widgets are in `insp_host`.
@@ -190,6 +191,7 @@ func _make_row(bid: String) -> Dictionary:
 	queue.custom_minimum_size = Vector2(76, TownUI.MIN_TARGET)
 	queue.pressed.connect(func(): queue_pressed.emit(bid, String(queue.get_meta("lot", ""))))
 	top.add_child(queue)
+	TownGuide.add_lines(v, bid, bcfg, vcfg.get("guide", {}))  # why build it, and how it's used: fixed per building
 	var tags := HBoxContainer.new()
 	tags.add_theme_constant_override("separation", 10)
 	v.add_child(tags)
@@ -204,15 +206,15 @@ func _make_row(bid: String) -> Dictionary:
 		var l := TownUI.label("", 14)
 		cost_row.add_child(l)
 		costs.append(l)
-	var ben := HBoxContainer.new()
-	ben.add_theme_constant_override("separation", 10)
+	var ben := HFlowContainer.new()  # each part wraps whole to the next line ("2 mill jobs" never splits into a sliver)
+	ben.add_theme_constant_override("h_separation", 10)
 	v.add_child(ben)
 	var rates: Array = []
 	for k in 3:
 		var l := TownUI.rate_label("", 14)
 		ben.add_child(l)
 		rates.append(l)
-	var plain := _wrap("", 14, "text_dim")
+	var plain := TownUI.label("", 14, "text_dim")
 	ben.add_child(plain)
 	var reason := _wrap("", 14, "text_dim")
 	v.add_child(reason)
@@ -257,6 +259,7 @@ func _update_row(w: Dictionary, it: Dictionary, lot_id: String, st: Dictionary, 
 	for k in 3:
 		w["rates"][k].visible = k < ben["rates"].size()
 		w["rates"][k].text = String(ben["rates"][k]) if k < ben["rates"].size() else ""
+		TownUI.set_jargon_tip(w["rates"][k], w["rates"][k].text, vcfg)  # "+9.60/s mint now": what mint is
 	w["plain"].text = "  ".join(ben["plain"])
 	w["plain"].visible = not ben["plain"].is_empty()
 	var why := ""

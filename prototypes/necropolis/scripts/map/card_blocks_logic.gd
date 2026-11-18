@@ -52,15 +52,30 @@ static func card_sig(card: Dictionary) -> String:
 	return "|".join(parts)
 
 
-## The fort card, top to bottom: chips, warden, loot, threat in advance, matter.
+## The fort card, top to bottom: chips, state, who comes in (head, count, bring more), raid, retreat,
+## warden, loot, threat in advance, matter.
 ## `backups` is view_backups(), `names` maps big-undead uids to names, `loot_cfg` is configs/loot.json
-## (for the dungeon's loot line).
-static func fort_card(fort: Dictionary, desc: String, backups: Dictionary, names: Dictionary, loot_cfg: Dictionary) -> Dictionary:
+## (for the dungeon's loot line). `party` is view_party(), `raid_cfg` and `econ_cfg` are configs/raid.json
+## and economy.json (who comes in, and the tier's standard party), `tide_bias` is realm.relish.tide_bias,
+## `siege_block` is realm.tithe.siege_block (the siege chip's "blocks 60% of a tithe wave").
+static func fort_card(fort: Dictionary, desc: String, backups: Dictionary, names: Dictionary, loot_cfg: Dictionary,
+		party: Dictionary, raid_cfg: Dictionary, econ_cfg: Dictionary, tide_bias: float, siege_block := 0.0) -> Dictionary:
 	var c := _c()
 	var blocks: Array = []
-	var chips := CardLogic.status_chips(fort, names)
+	var chips := CardLogic.status_chips(fort, names, siege_block)
 	if not chips.is_empty():
 		blocks.append({"kind": "chips", "id": "chips", "chips": chips})
+	var held := bool(fort.get("held", false))
+	blocks.append(_para("state", str(CardLogic.fort_state(fort)["line"]), "text"))
+	var hours := roundi(float(loot_cfg.get("recover_s", 0.0)) / 3600.0)
+	# Who comes in sits above the raid and retreat lines so it fits above the scroll's fold. The
+	# warning for it is the pinned line above DESCEND (RelishLogic.fort_actions), not a block here.
+	var ci := CardLogic.comes_in(fort, party, raid_cfg, econ_cfg)
+	blocks.append(_head("comes_in_head", str(c.get("comes_in_head", ""))))
+	blocks.append(_para("comes_in", CardLogic.comes_in_text(ci), "text"))
+	blocks.append(_para("bring_more", CardLogic.bring_more_text(tide_bias), "text_dim"))
+	blocks.append(_para("raid", str(c.get("raid_again_fmt", "%d")) % hours if held else str(c.get("raid_take", "")), "select"))
+	blocks.append(_para("retreat", str(c.get("retreat_held" if held else "retreat_veis", "")), "text_dim"))
 	var warden: Dictionary = fort.get("warden", {})
 	var lines := CardLogic.warden_lines(warden)
 	blocks.append(_para("warden", str(lines[0]), "text", "mass"))
@@ -74,10 +89,12 @@ static func fort_card(fort: Dictionary, desc: String, backups: Dictionary, names
 		blocks.append(_para("first_clear", CardLogic.first_clear_line(fort), "select"))
 	var threat: Dictionary = fort.get("threat", {})
 	var fr := CardLogic.strength_fracs(threat)
-	blocks.append(_head("threat_head", str(c.get("threat_head", ""))))
-	blocks.append({"kind": "versus", "id": "versus", "text": CardLogic.strength_text(threat), "a": fr[0], "b": fr[1],
-		"known": CardLogic.strength_known(threat)})
-	blocks.append({"kind": "risk", "id": "risk", "label": str(c.get("risk_label", "")), "chip": CardLogic.risk_chip(threat)})
+	# The threat view is still a stub (no strengths, no risk %): the comparison would read "—" and LOW, a lie, so it is omitted.
+	if CardLogic.strength_known(threat) or float(threat.get("risk_pct", -1.0)) >= 0.0:
+		blocks.append(_head("threat_head", str(c.get("threat_head", ""))))
+		blocks.append({"kind": "versus", "id": "versus", "text": CardLogic.strength_text(threat), "a": fr[0], "b": fr[1],
+			"known": CardLogic.strength_known(threat)})
+		blocks.append({"kind": "risk", "id": "risk", "label": str(c.get("risk_label", "")), "chip": CardLogic.risk_chip(threat)})
 	var dl := CardLogic.death_lines(backups.get("death", {}))
 	for i in dl.size():
 		blocks.append(_para("death%d" % i, str(dl[i])))
@@ -108,6 +125,7 @@ static func vei_card(vei: Dictionary, desc: String, party: Array, names: Diction
 	blocks.append(_row("diff", str(c.get("vei_diff_label", "")), MapLogic.fmt_rate(float(vei.get("diff_ema", 0.0))), "rate"))
 	blocks.append(_row("drain", str(c.get("vei_drain_label", "")), str(st["drain_text"]), "mass"))
 	blocks.append(_head("fronts_head", str(c.get("fronts_head", ""))))
+	blocks.append(_para("fronts_hint", str(c.get("fronts_hint", "")), "text_dim"))
 	for r in CardLogic.front_rows(vei.get("fronts", []), names):
 		blocks.append({"kind": "front", "id": "front_%s" % r["id"], "name": r["name"], "count": "%s / %s" % [r["have"], r["need"]],
 			"mark": r["mark"], "cleared": r["cleared"], "assigned": r["assigned"]})

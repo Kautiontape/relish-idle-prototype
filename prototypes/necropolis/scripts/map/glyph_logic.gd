@@ -6,7 +6,8 @@ extends RefCounted
 ##   living         a small arc with a hollow ring head;
 ##   big undead     a diamond outline with a core dot, nested outlines by filled remnant slots;
 ##   cart           map_carts.gd's U-box (haul lanes keep it).
-## Here: the glyph a lane kind carries and where its glyphs stand (one per dash period at the dash
+## The siege and the party draw at mid and near (draws_at), floored in screen px so they still
+## read at the default fit. Here: the glyph a lane kind carries and where its glyphs stand (one per dash period at the dash
 ## centres, so they ride the dashes' anchored phase); the near crossfade weight; the siege arc
 ## outside a fort's rings and Relish's party; the held forts' garrison slots inside the pip ring.
 ## Sizes are world px. Tuning: configs/map_view.json "glyphs" and glyph_fade.
@@ -15,9 +16,6 @@ const NONE := "none"
 const UNDEAD := "undead"
 const LIVING := "living"
 const CART := "cart"
-## Big undead carry no filled remnant slots in the views yet (api-request #6, E3): one each.
-# TODO(api-request #6): view_big_undead entries' filled_slots
-const FILLED_SLOTS_STANDIN := 1
 const STROKES_MAX := 3
 
 
@@ -100,10 +98,9 @@ static func centres(lo: float, hi: float, offset: float, period: float, dash: fl
 # --- big undead ---------------------------------------------------------------------
 
 ## Nested outlines a big undead draws: its filled remnant slots, 1..3. `entry` is a
-## view_big_undead entry; until it carries filled_slots, the stand-in (one outline).
-# TODO(api-request #6): filled_slots lands in E3
+## view_big_undead entry, which always has filled_slots: a big undead draws at least one outline.
 static func stroke_count(entry: Dictionary) -> int:
-	return clampi(int(entry.get("filled_slots", FILLED_SLOTS_STANDIN)), 1, STROKES_MAX)
+	return clampi(int(entry["filled_slots"]), 1, STROKES_MAX)
 
 
 ## The nested outlines' half sizes (centre to tip), outermost first, each big_nest_step smaller.
@@ -119,23 +116,73 @@ static func big_extent(half: float) -> float:
 	return half + _g("big_halo_max_px") * 0.5
 
 
+## Whether the siege and the party draw at a camera tier: mid (where the default fit lands, about
+## 0.55..0.58 zoom) and near; far is the macro read and draws neither.
+static func draws_at(tier: String) -> bool:
+	return tier == "mid" or tier == "near"
+
+
+## A siege big undead's half size (world px) at `zoom`: its world size, but never under
+## big_min_screen_px on screen, so it still reads as a diamond at the default fit. Equal to
+## big_half_px from the zoom where that is already big enough (near and most of mid).
+static func big_half(zoom: float) -> float:
+	return maxf(_g("big_half_px"), _g("big_min_screen_px") / maxf(zoom, 0.001))
+
+
+## A party member's half size (world px) at `zoom`, with its own screen floor (party_min_screen_px).
+static func party_half(zoom: float) -> float:
+	return maxf(_g("party_half_px"), _g("party_min_screen_px") / maxf(zoom, 0.001))
+
+
+## A big undead outline's stroke width (world px) at `zoom`: never under big_min_width_px on screen.
+static func big_width(zoom: float) -> float:
+	return maxf(_g("big_width_px"), _g("big_min_width_px") / maxf(zoom, 0.001))
+
+
+## A big undead's core dot radius (world px) at `zoom`: never under big_core_min_px on screen.
+static func big_core(zoom: float) -> float:
+	return maxf(_g("big_core_r_px"), _g("big_core_min_px") / maxf(zoom, 0.001))
+
+
 ## The siege arc's radius round a fort of `tier`: past the REDIRECT lane ring (fort radius +
 ## redirect_ring_pad_px) and its widest capped halo, then siege_gap_px, then a diamond.
-static func siege_radius(tier: int) -> float:
+static func siege_radius(tier: int, zoom := 1.0) -> float:
 	return MapLogic.fort_radius(tier) + float(MapLogic.cfg().get("redirect_ring_pad_px", 0.0)) \
-		+ float(MapLogic.cfg().get("halo_max_px", 0.0)) * 0.5 + _g("siege_gap_px") + big_extent(_g("big_half_px"))
+		+ float(MapLogic.cfg().get("halo_max_px", 0.0)) * 0.5 + _g("siege_gap_px") + big_extent(big_half(zoom))
 
 
 ## Where `n` sieging big undead stand round the fort at `centre`: on siege_radius, centred on
 ## siege_arc_deg (upper right: clear of the idle chips on the left, the tithe text on the right,
 ## the name below and Relish's standing token above), siege_gap_px apart.
-static func siege_layout(centre: Vector2, tier: int, n: int) -> PackedVector2Array:
+static func siege_layout(centre: Vector2, tier: int, n: int, zoom := 1.0) -> PackedVector2Array:
 	var out := PackedVector2Array()
-	var r := siege_radius(tier)
-	var step := (big_extent(_g("big_half_px")) * 2.0 + _g("siege_gap_px")) / maxf(r, 1.0)
-	var a0 := deg_to_rad(_g("siege_arc_deg")) - step * (n - 1) * 0.5
-	for i in maxi(n, 0):
-		out.append(centre + Vector2.from_angle(a0 + step * i) * r)
+	if n <= 0:
+		return out
+	var ext := big_extent(big_half(zoom))
+	var base := siege_radius(tier, zoom)
+	# Relish stands straight above the fort (map_nodes): her token's marks are screen-px, so huge in
+	# world px at the default fit, and the arc must clear them. The radius is the least one at which
+	# every diamond (edge) stands siege_relish_gap_px (screen) outside relish_clear of her, found by
+	# iterating, since the angular step shrinks as the radius grows.
+	var up := NodeLogic.outer_radius("fort", tier, 0.0) + float(NodeLogic.ncfg()["relish_gap_px"]) + float(NodeLogic.relish_radii(zoom)["halo"])
+	var need := relish_clear(zoom) + ext + _g("siege_relish_gap_px") / maxf(zoom, 0.001)
+	var r := base
+	for _k in 12:
+		var worst := base
+		var a0 := deg_to_rad(_g("siege_arc_deg")) - (ext * 2.0 + _g("siege_gap_px")) / maxf(r, 1.0) * (n - 1) * 0.5
+		for i in n:
+			var a := a0 + (ext * 2.0 + _g("siege_gap_px")) / maxf(r, 1.0) * i
+			var u := Vector2.from_angle(a)
+			var disc := need * need - up * up * u.x * u.x
+			if disc > 0.0:
+				worst = maxf(worst, -up * u.y + sqrt(disc))
+		if is_equal_approx(worst, r):
+			break
+		r = worst
+	var step := (ext * 2.0 + _g("siege_gap_px")) / maxf(r, 1.0)
+	var a1 := deg_to_rad(_g("siege_arc_deg")) - step * (n - 1) * 0.5
+	for i in n:
+		out.append(centre + Vector2.from_angle(a1 + step * i) * r)
 	return out
 
 
@@ -157,7 +204,7 @@ static func relish_clear(zoom: float) -> float:
 ## below her are the node's own rings. Small diamonds, party_gap_px apart, clear of her token.
 static func party_layout(rp: Vector2, heading: float, travelling: bool, n: int, zoom: float) -> PackedVector2Array:
 	var out := PackedVector2Array()
-	var ext := big_extent(_g("party_half_px"))
+	var ext := big_extent(party_half(zoom))
 	var dir := -Vector2.from_angle(heading) if travelling else Vector2(1.0 if _g("party_row_dir") > 0.0 else -1.0, 0.0)
 	var d0 := relish_clear(zoom) + _g("party_gap_px") + ext
 	for k in maxi(n, 0):

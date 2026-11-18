@@ -4,9 +4,9 @@ extends MapNodeLayer
 ## drawing changed: static_sig): the held core, capacity hairline, tier notches, the dark track
 ## with the living / undead / dead arcs, the countable pips, the held re-ink and countdown, the
 ## simulacrum, the raid marker, the selection ring and the labels. Ownership reads by weight, so it
-## survives greyscale: forts your undead hold (held or overrun) draw the outer ring
-## NodeLogic.ring_weight heavy and fill their core (NodeLogic.has_core); hers keep the hairline
-## and an open core. A fort in the model's raid set (MapModel.raid_why: NextLogic.raid_set, ranked
+## survives greyscale: forts you hold (held only, never overrun) draw the outer ring
+## NodeLogic.ring_weight heavy and fill their core (NodeLogic.has_core); hers, contested, emptied
+## and overrun keep the hairline and an open core. A fort in the model's raid set (MapModel.raid_why: NextLogic.raid_set, ranked
 ## and capped at raid_tag_max) carries a ▲ loot pip in `select` on its ring and, at mid and near
 ## zoom, the word "raid": a shape and a word, never colour alone. While the flip set
 ## piece re-inks a fort (ctx.reink), its outer ring is drawn as segments turning from living
@@ -130,8 +130,9 @@ func _static_fort(f: Dictionary) -> void:
 		var at := p + Vector2(0.0, r + float(n["label_off_px"]))
 		var size := int(MapLogic.cfg()["font_label"])
 		text(at, str(f["name"]), size, Palette.c(NodeLogic.fort_label_key(ctx.tier), float(MapLogic.cfg()["node_label_dim_alpha"])), ALIGN_CENTER, size)
-		if NodeLogic.first_dungeon_pulse(f) and ctx.tier != "far":
-			text(at, str(n["label_first_dungeon"]), size, Palette.c("relish"), ALIGN_CENTER, size + float(n["label_line_px"]))
+		var tag := NodeLogic.name_tag(f)
+		if not tag.is_empty() and ctx.tier != "far":
+			text(at, str(tag["text"]), NodeLogic.tag_size(), Palette.c(str(tag["key"])), ALIGN_CENTER, size + float(n["label_line_px"]))
 
 
 ## The flip's re-ink: `total` segments of the outer ring from 12 o'clock clockwise, the first
@@ -176,7 +177,7 @@ func _draw_pulse() -> void:
 		var p := MapModel.to_vec(f["pos"])
 		var r := MapLogic.fort_radius(int(f["tier"]))
 		var mode := NodeLogic.tithe_mode(f)
-		if mode != "":
+		if mode == "wave" or mode == "warning":
 			_tithe(f, p, r + float(n["tithe_off_px"]), mode, w, hw, n)
 		if NodeLogic.first_dungeon_pulse(f):
 			var rr := r + float(n["first_reach_px"]) * ph

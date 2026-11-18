@@ -2,8 +2,10 @@ class_name IdleLogic
 extends RefCounted
 ## Pure logic for the idle surfaces' margins (IDLE section 3; no autoloads, so headless tests
 ## compile it): whether WAR staging supports a held fort (SAFE / THIN / WILL FALL), "WAR supports
-## N of M held forts", and the projection of a dragged valve. Every read is "the real API field
-## when GameState has it, else the stand-in here". Tuning: configs/map_view.json "idle".
+## N of M held forts", and the projection of a dragged valve. Every number is the view's own
+## (view_fort's margin, garrison, garrison_rate and fall_s; view_hud's war_supports;
+## view_projection's); nothing is computed here. Only a margin of "safe" is safe: a held fort whose
+## margin is "" shows no margin word. Tuning: configs/map_view.json "idle".
 
 const SAFE := "safe"
 const THIN := "thin"
@@ -18,21 +20,6 @@ static func cfg() -> Dictionary:
 
 # --- margins -----------------------------------------------------------------------
 
-## safe when support >= margin_safe_ratio x pressure, thin when >= margin_thin_ratio x pressure,
-## else will_fall. No pressure is always safe.
-# TODO(api-request #7): view_fort.margin
-static func margin(support_rate: float, pressure_rate: float, c := {}) -> String:
-	if c.is_empty():
-		c = cfg()
-	if pressure_rate <= 0.0:
-		return SAFE
-	if support_rate >= float(c["margin_safe_ratio"]) * pressure_rate:
-		return SAFE
-	if support_rate >= float(c["margin_thin_ratio"]) * pressure_rate:
-		return THIN
-	return WILL_FALL
-
-
 static func held_forts(forts: Array) -> Array:
 	var out: Array = []
 	for f in forts:
@@ -41,37 +28,9 @@ static func held_forts(forts: Array) -> Array:
 	return out
 
 
-## WAR staging split evenly across the held forts: holding more thins every garrison.
-static func support_per_fort(split_war: float, held_count: int) -> float:
-	return split_war / float(held_count) if held_count > 0 else 0.0
-
-
-## {fort_id: margin} for every held fort at a WAR split (mass/s).
-# TODO(api-request #7): view_fort.margin
-static func margins(forts: Array, split_war: float, c := {}) -> Dictionary:
-	var held := held_forts(forts)
-	var support := support_per_fort(split_war, held.size())
-	var out := {}
-	for f in held:
-		out[str(f["id"])] = margin(support, float(f.get("ship_in", 0.0)), c)
-	return out
-
-
-## {n, m}: m = the held count, n = how many are not will_fall at that split.
-# TODO(api-request #7): view_hud.war_supports
-static func war_supports(split_war: float, held: Array, c := {}) -> Dictionary:
-	var ms := margins(held, split_war, c)
-	var n := 0
-	for id in ms:
-		if ms[id] != WILL_FALL:
-			n += 1
-	return {"n": n, "m": held_forts(held).size()}
-
-
-## Your undead mass at a fort.
-# TODO(api-request #7): view_fort.garrison
+## Your undead mass at a fort: view_fort.garrison.
 static func garrison(f: Dictionary) -> float:
-	return float(f["garrison"]) if f.has("garrison") else float(f.get("undead", 0.0))
+	return float(f.get("garrison", 0.0))
 
 
 ## The garrison as the chip counts it, and as many worker glyphs as the fort draws at near zoom:
@@ -89,36 +48,7 @@ static func garrison_text(f: Dictionary, c := {}) -> String:
 	return str(c["garrison_fmt"]) % MapLogic.fmt_mass(garrison_units(f, c))
 
 
-# --- the fall clock (api-request #13) ------------------------------------------------
-
-## Whether the committed streams are known: after a load the views read 0 until the first substep
-## (STATE-API 5.1), and a 0 WAR split would read as no support at all.
-static func streams_known(hud: Dictionary) -> bool:
-	if ValveLogic.mint_rate(hud) > 0.0:
-		return true
-	for k in ValveLogic.KEYS:
-		if float(hud.get("split", {}).get(k, 0.0)) > 0.0:
-			return true
-	return false
-
-
-## The garrison's net rate at a held fort (mass/s): the view's garrison_rate, else the stand-in
-## support_per_fort - pressure (WAR's even share minus Vei's living arriving), at `split_war`.
-# TODO(api-request #13): view_fort.garrison_rate
-static func garrison_rate(f: Dictionary, split_war: float, held_count: int) -> float:
-	if f.has("garrison_rate"):
-		return float(f["garrison_rate"])
-	return support_per_fort(split_war, held_count) - float(f.get("ship_in", 0.0))
-
-
-## Seconds until a garrison of `g` is gone at `rate`: g / -rate while the rate is negative, else
-## -1.0 (holding).
-# TODO(api-request #13): view_fort.fall_s (this stand-in goes when the view carries it)
-static func fall_after(g: float, rate: float) -> float:
-	if rate >= 0.0:
-		return -1.0
-	return maxf(g, 0.0) / -rate
-
+# --- the fall clock ------------------------------------------------------------------
 
 ## "~40 min", "~2 h", "~1 d" (rounded, never under 1); "" while holding (s < 0).
 static func fmt_fall(s: float, c := {}) -> String:
@@ -133,108 +63,47 @@ static func fmt_fall(s: float, c := {}) -> String:
 	return str(c["fall_d_fmt"]) % maxi(roundi(s / DAY_S), 1)
 
 
-## Every held fort's committed clock, {id: {rate, fall_s}}: the view's garrison_rate and fall_s
-## where it has them, else the stand-ins at the committed WAR split. Before the first substep the
-## stand-in rate is 0 (holding): the streams are not known yet.
-static func committed_clocks(forts: Array, hud: Dictionary) -> Dictionary:
-	var held := held_forts(forts)
-	var war := float(hud.get("split", {}).get("war", 0.0))
-	var known := streams_known(hud)
+## Every held fort's committed clock, {id: {rate, fall_s}}: view_fort's garrison_rate and fall_s
+## (fall_s -1.0 = not falling; during the grace it includes the grace left).
+static func committed_clocks(forts: Array) -> Dictionary:
 	var out := {}
-	for f in held:
-		var rate := garrison_rate(f, war, held.size()) if (known or f.has("garrison_rate")) else 0.0
-		var fall := float(f["fall_s"]) if f.has("fall_s") else fall_after(garrison(f), rate)
-		out[str(f["id"])] = {"rate": rate, "fall_s": fall}
+	for f in held_forts(forts):
+		out[str(f["id"])] = {"rate": float(f.get("garrison_rate", 0.0)), "fall_s": float(f.get("fall_s", -1.0))}
 	return out
 
 
-## The clocks at a dragged valve: each committed rate shifted by the change in WAR's per-fort
-## share (`war_proj` against the committed `war_now`), and its fall from the projection's fall_s
-## when `real` (view_projection) has one, else the stand-in. A real garrison_rate (same two
-## shapes) replaces the shifted rate, and the stand-in fall follows it. `real` may carry fall_s as a
-## {id: float} dict or inside {id: {margin, fall_s}} margins (api-request #13 allows either).
-static func projected_clocks(forts: Array, committed: Dictionary, war_now: float, war_proj: float, real := {}) -> Dictionary:
-	var held := held_forts(forts)
-	var shift := support_per_fort(war_proj, held.size()) - support_per_fort(war_now, held.size())
-	var out := {}
-	for f in held:
-		var id := str(f["id"])
-		var rr = _real_rate(real, id)
-		var rate := float(rr) if rr != null else float(committed.get(id, {}).get("rate", 0.0)) + shift
-		var fall := fall_after(garrison(f), rate)
-		var rf = _real_fall(real, id)
-		if rf != null:
-			fall = float(rf)
-		out[id] = {"rate": rate, "fall_s": fall}
+## The clocks at a dragged valve: the committed ones, with each held fort the projection has
+## (`real_margins`, view_projection's {id: {margin, fall_s, garrison_rate, ...}}) read from it.
+static func projected_clocks(committed: Dictionary, real_margins: Dictionary) -> Dictionary:
+	var out := committed.duplicate()
+	for id in real_margins:
+		out[str(id)] = {"rate": float(real_margins[id].get("garrison_rate", 0.0)), "fall_s": float(real_margins[id].get("fall_s", -1.0))}
 	return out
 
 
-## The projection's own garrison_rate for `id` (api-request #13), in either shape, or null: the
-## chip shows it in place of the stand-in shift, so a real fall_s never sits by a stand-in rate.
-static func _real_rate(real: Dictionary, id: String):
-	if real.get("garrison_rate", null) is Dictionary and real["garrison_rate"].has(id):
-		return real["garrison_rate"][id]
-	var m = real.get("margins", {}).get(id, null)
-	if m is Dictionary and m.has("garrison_rate"):
-		return m["garrison_rate"]
-	return null
-
-
-## The projection's fall_s for `id`, or null.
-# TODO(api-request #13): view_projection fall_s, in either shape (this unwrapping goes with the stand-in)
-static func _real_fall(real: Dictionary, id: String):
-	if real.get("fall_s", null) is Dictionary and real["fall_s"].has(id):
-		return real["fall_s"][id]
-	var m = real.get("margins", {}).get(id, null)
-	if m is Dictionary and m.has("fall_s"):
-		return m["fall_s"]
-	return null
-
-
-## A margins dict with every entry a margin word: {id: "thin"} or {id: {margin, fall_s}} in.
+## A projection's margins as words, {id: "thin"}, from view_projection's {id: {margin, ...}}.
 static func margin_words(ms: Dictionary) -> Dictionary:
 	var out := {}
 	for id in ms:
-		out[id] = str(ms[id].get("margin", "")) if ms[id] is Dictionary else str(ms[id])
+		out[id] = str(ms[id].get("margin", ""))
 	return out
 
 
-## How long a held fort lasts if left alone, in seconds: the smaller of its committed garrison
-## fall_s (when >= 0) and the hold timer held_s_left (when > 0), or -1.0 when neither applies.
-# TODO(api E2b): a support-vs-pressure contest replaces the hold timer; once the view stops counting
-# held_s_left down for held forts, the timer term goes.
-static func fort_horizon(f: Dictionary, clock: Dictionary) -> float:
-	return float(fort_horizon_parts(f, clock)["s"])
-
-
-## fort_horizon and which term won: {s, kind}, kind "fall" (the garrison clock; also on a tie),
-## "hold" (the hold timer is strictly nearer) or "" (neither applies, s = -1).
-static func fort_horizon_parts(f: Dictionary, clock: Dictionary) -> Dictionary:
-	var best := -1.0
-	var kind := ""
-	var fall := float(clock.get("fall_s", -1.0))
-	if fall >= 0.0:
-		best = fall
-		kind = "fall"
-	var timer := float(f.get("held_s_left", 0.0))
-	if timer > 0.0 and (best < 0.0 or timer < best):
-		best = timer
-		kind = "hold"
-	return {"s": best, "kind": kind}
+## How long a held fort lasts if left alone, in seconds: the view's fall_s (the `clock`'s), or
+## -1.0 when it is not falling. The fort itself is not read: view_fort's old hold-timer field is a
+## dead stub (always 0.0) and counts for nothing.
+static func fort_horizon(_f: Dictionary, clock: Dictionary) -> float:
+	return float(clock.get("fall_s", -1.0))
 
 
 ## The chip's parts for a held fort under its name: line one the garrison (an upright count) and
-## its signed rate, line two the margin word and, while falling, "falls in ~2 h" (the fort's
-## horizon, fort_horizon; when the hold timer is the nearer end, line two is HOLD · ends in ~3 min; a SAFE fort with none says "holds").
+## its signed rate, line two the margin word (none for a margin of "") and, while falling, "falls in
+## ~2 h" (the fort's horizon, fort_horizon; a SAFE fort with none says "holds").
 ## {count, rate, word, key, fall}; `clock` is {rate, fall_s}.
 static func chip_parts(f: Dictionary, m: String, clock: Dictionary, c := {}) -> Dictionary:
 	if c.is_empty():
 		c = cfg()
-	var hz := fort_horizon_parts(f, clock)
-	var fall := fmt_fall(float(hz["s"]), c)
-	if str(hz["kind"]) == "hold" and fall != "":  # the timer ends the hold before the garrison falls: say so, not a margin word
-		return {"count": garrison_text(f, c), "rate": MapLogic.fmt_rate(float(clock.get("rate", 0.0))),
-			"word": str(c["hold_word"]), "key": str(c["colors"]["hold"]), "fall": str(c["hold_fmt"]) % fall}
+	var fall := fmt_fall(fort_horizon(f, clock), c)
 	var tail := (str(c["fall_fmt"]) % fall) if fall != "" else ""
 	if tail == "" and m == SAFE:  # a SAFE fort whose clock holds says so: "SAFE · holds"
 		tail = str(c["hold_text"])
@@ -311,6 +180,178 @@ static func chip_place(p: Vector2, r: float, zoom: float, second_line: bool, wid
 	return best
 
 
+## Every held fort's chip rect in world px at `zoom`, {id: Rect2}: the drawn places. `forts` is every
+## fort, each {id, pos (Vector2), r (ring radius), held, second (a tag line under the name), w (chip
+## plate width in screen px, held forts), name_w and tag_w (label text widths in screen px; -1 where
+## that label is not drawn)}. `has_token` says whether Relish's token (`token`, `token_r`) is out.
+## Chips are placed in fort-id order, so a later one avoids the earlier ones and the result is
+## stable from frame to frame. A chip first tries its default (`chip_place`: under the name,
+## clear of the token), then above its ring (chip_ring_gap_px off it: clear of the tithe ring), right
+## of it, left of it (chip_side_gap_px off it: clear of the tithe countdown and the raid word), then
+## under the name slid sideways by each of chip_slide_fracs of its width (right, left), then the
+## same slides on the row above the ring. A place that does not read as its own fort's is dropped
+## (`chip_attached`), as is one over Relish's token; of the rest it takes the first that overlaps no
+## other fort's ring, name or tag plate (the plates NodeLogic.fort_label_rects gives, as
+## MapCallouts._label_rects uses them) and no chip placed before it (hard), nor `nodes` (soft). `nodes` are the non-fort
+## obstacles (`node_obstacles`: Covington and Vei), each {pos, r (disc radius), rects (world-px
+## plates)}. When none is free it takes the least hard overlap, then the least soft; when none is
+## attached, the default.
+static func chip_layout(forts: Array, zoom: float, has_token: bool, token: Vector2, token_r: float, nodes := []) -> Dictionary:
+	var z := maxf(zoom, 0.001)
+	var c := cfg()
+	var gap := float(c["chip_ring_gap_px"]) / z
+	var side := float(c["chip_side_gap_px"]) / z
+	var tr := token_r + float(c["chip_token_pad_px"]) / z
+	var tok := Rect2(token - Vector2(tr, tr), Vector2(tr, tr) * 2.0) if has_token else Rect2()
+	var size := int(MapLogic.cfg()["font_label"])
+	var off := float(NodeLogic.ncfg()["label_off_px"])
+	var plates: Array = []  # {id, rect}: every fort's name and tag plate, in world px
+	var held: Array = []
+	for f in forts:
+		var p: Vector2 = f["pos"]
+		if float(f["name_w"]) >= 0.0:
+			var at := p + Vector2(0.0, float(f["r"]) + off)
+			for pr in NodeLogic.fort_label_rects(float(f["name_w"]), float(f["tag_w"]), size):
+				plates.append({"id": f["id"], "rect": Rect2(at + (pr as Rect2).position / z, (pr as Rect2).size / z)})
+		if bool(f["held"]):
+			held.append(f)
+	held.sort_custom(func(a, b): return str(a["id"]) < str(b["id"]))
+	var out := {}
+	for f in held:
+		var p: Vector2 = f["pos"]
+		var r := float(f["r"])
+		var w := float(f["w"])
+		var others: Array = []
+		for g in forts:
+			if g["id"] != f["id"]:
+				others.append(g["pos"])
+		var base := chip_rect(p, r, z, bool(f["second"]), w)
+		var cands: Array = [chip_place(p, r, z, bool(f["second"]), w, token, token_r, others) if has_token else base]
+		cands.append(Rect2(base.position.x, p.y - r - gap - base.size.y, base.size.x, base.size.y))
+		cands.append(Rect2(p.x + r + side, p.y - base.size.y * 0.5, base.size.x, base.size.y))
+		cands.append(Rect2(p.x - r - side - base.size.x, p.y - base.size.y * 0.5, base.size.x, base.size.y))
+		for frac in c["chip_slide_fracs"]:  # last: under the name, slid right then left by a share of its width
+			cands.append(Rect2(base.position + Vector2(base.size.x * float(frac), 0.0), base.size))
+			cands.append(Rect2(base.position - Vector2(base.size.x * float(frac), 0.0), base.size))
+		for frac in c["chip_slide_fracs"]:  # and last of all, the same slides on the row above the ring
+			var up: Rect2 = cands[1]
+			cands.append(Rect2(up.position + Vector2(up.size.x * float(frac), 0.0), up.size))
+			cands.append(Rect2(up.position - Vector2(up.size.x * float(frac), 0.0), up.size))
+		# attachment is a hard filter: a place that fails it is dropped, never costed
+		var own_plates: Array = []
+		for pl in plates:
+			if pl["id"] == f["id"]:
+				own_plates.append(pl["rect"])
+		var best := -1
+		var best_cost := Vector2(INF, INF)
+		for i in cands.size():
+			if not chip_attached(cands[i], f, forts, z, own_plates) or (has_token and (cands[i] as Rect2).intersects(tok)):
+				continue  # drifted from its fort, or over Relish's token
+			var cost := _chip_cost(cands[i], f, forts, plates, out, tok, has_token, nodes)
+			if cost == Vector2.ZERO:
+				best = i
+				break
+			if cost.x < best_cost.x or (cost.x == best_cost.x and cost.y < best_cost.y):
+				best_cost = cost
+				best = i
+		out[f["id"]] = cands[maxi(best, 0)]  # none attached and clear of the token: the default place (chip_place)
+	return out
+
+
+## Whether a chip place still reads as its own fort's on sight, in screen px: its own gap, the
+## nearer of the gap from the rect to its own ring's edge and to its own name and tag plates
+## (`own_plates`, world-px rects), is at most chip_attach_px, and every other fort's ring edge is at
+## least own gap + chip_attach_margin_px from it.
+static func chip_attached(rect: Rect2, f: Dictionary, forts: Array, zoom: float, own_plates: Array) -> bool:
+	var own := _ring_gap(rect, f["pos"], float(f["r"])) * zoom
+	for pr in own_plates:
+		own = minf(own, _rect_gap(rect, pr) * zoom)
+	if own > float(cfg()["chip_attach_px"]):
+		return false
+	var need := own + float(cfg()["chip_attach_margin_px"])
+	for g in forts:
+		if g["id"] != f["id"] and _ring_gap(rect, g["pos"], float(g["r"])) * zoom < need:
+			return false
+	return true
+
+
+## The gap in world px between two rects; 0 when they touch or overlap.
+static func _rect_gap(a: Rect2, b: Rect2) -> float:
+	var dx := maxf(maxf(a.position.x - b.end.x, b.position.x - a.end.x), 0.0)
+	var dy := maxf(maxf(a.position.y - b.end.y, b.position.y - a.end.y), 0.0)
+	return Vector2(dx, dy).length()
+
+
+## The gap in world px from `rect` to the edge of the ring at `c` (radius `r`); 0 when they touch.
+static func _ring_gap(rect: Rect2, c: Vector2, r: float) -> float:
+	var nearest := Vector2(clampf(c.x, rect.position.x, rect.end.x), clampf(c.y, rect.position.y, rect.end.y))
+	return maxf(nearest.distance_to(c) - r, 0.0)
+
+
+## How wrong a chip place is, as Vector2(hard, soft) in world px squared, compared hard first. Hard:
+## the area it overlaps other forts' rings, name and tag plates, the chips already placed (`placed`,
+## {id: Rect2}) and the token's rect (`tok`). Soft: the area over Covington's and Vei's discs and
+## plates (`nodes`), tolerated where nothing else is free. (0, 0) is clear.
+static func _chip_cost(rect: Rect2, f: Dictionary, forts: Array, plates: Array, placed: Dictionary, tok: Rect2, has_token: bool, nodes: Array) -> Vector2:
+	var soft := 0.0
+	var cost := 0.0
+	for nd in nodes:
+		var np: Vector2 = nd["pos"]
+		var nr := float(nd["r"])
+		if _disc_hits(rect, np, nr):
+			soft += maxf(rect.intersection(Rect2(np - Vector2(nr, nr), Vector2(nr, nr) * 2.0)).get_area(), 1.0)
+		for pr in nd["rects"]:
+			if rect.intersects(pr):
+				soft += rect.intersection(pr).get_area()
+	if has_token and rect.intersects(tok):
+		cost += rect.intersection(tok).get_area()
+	for g in forts:
+		if g["id"] == f["id"]:
+			continue
+		var gp: Vector2 = g["pos"]
+		var gr := float(g["r"])
+		if _disc_hits(rect, gp, gr):
+			cost += maxf(rect.intersection(Rect2(gp - Vector2(gr, gr), Vector2(gr, gr) * 2.0)).get_area(), 1.0)
+	for pl in plates:
+		if pl["id"] != f["id"] and rect.intersects(pl["rect"]):
+			cost += rect.intersection(pl["rect"]).get_area()
+	for id in placed:
+		if rect.intersects(placed[id]):
+			cost += rect.intersection(placed[id]).get_area()
+	return Vector2(cost, soft)
+
+
+## Covington's and Vei's obstacles for `chip_layout`, in world px, from the geometry the node layers
+## draw: Covington's glyph disc (cov_half_px), her name and the valve's stream labels (the rects
+## NodeLogic.valve_label_layout gives, screen px from her centre, so /zoom); Vei's reach disc
+## (NodeLogic.vei_reach) and her "VEI'S DOMAIN" plate (right-aligned, left of her stack, as MapVei
+## draws it). `shares` is the valve's {work, war, flood}; `centroid` the forts' mean position;
+## `text_w` the label widths in screen px keyed war / flood / work / covington / vei; `labels_on`:
+## the stream labels show (not at far zoom).
+static func node_obstacles(cov: Vector2, vei: Vector2, vei_radius: float, backlog: float, shares: Dictionary, centroid: Vector2, zoom: float, labels_on: bool, text_w: Dictionary) -> Array:
+	var z := maxf(zoom, 0.001)
+	var n := NodeLogic.ncfg()
+	var size := int(MapLogic.cfg()["font_label"])
+	var rects: Array = []
+	var lay := NodeLogic.valve_label_layout(NodeLogic.valve_dirs(cov, centroid, vei), NodeLogic.valve_widths(shares), labels_on, z, text_w, float(size))
+	for k in lay:
+		var r: Rect2 = lay[k]["rect"]
+		rects.append(Rect2(cov + r.position / z, r.size / z))
+	var b := NodeLogic.backlog_rings(backlog)
+	var r_out := NodeLogic.vei_struct_radius(vei_radius) + float(n["backlog_first_gap_px"]) + maxi(int(b["rings"]) - 1, 0) * float(n["backlog_step_px"])
+	var vw := float(text_w["vei"])
+	var vp := NodeLogic.label_plate(-vw, vw, size, size * float(n["text_mid_ratio"]))
+	var at := Vector2(vei.x - r_out - float(n["odds_gap_px"]), vei.y)
+	return [{"pos": cov, "r": float(n["cov_half_px"]), "rects": rects},
+		{"pos": vei, "r": NodeLogic.vei_reach(vei_radius, backlog), "rects": [Rect2(at + vp.position / z, vp.size / z)]}]
+
+
+## Whether the disc at `c` (radius `r`) touches `rect`.
+static func _disc_hits(rect: Rect2, c: Vector2, r: float) -> bool:
+	var nearest := Vector2(clampf(c.x, rect.position.x, rect.end.x), clampf(c.y, rect.position.y, rect.end.y))
+	return nearest.distance_to(c) < r
+
+
 ## How much nearer its own fort `p` the rect's centre is than the nearest of `others` (negative: nearer another).
 static func _margin(rect: Rect2, p: Vector2, others: Array) -> float:
 	var own := rect.get_center().distance_to(p)
@@ -329,58 +370,39 @@ static func _nearest_own(rect: Rect2, p: Vector2, others: Array) -> bool:
 	return true
 
 
-## The committed margins: the view's per-fort field where it has one, else the stand-in at the
-## committed WAR split.
-static func committed_margins(forts: Array, hud: Dictionary, c := {}) -> Dictionary:
-	var fallback := margins(forts, float(hud.get("split", {}).get("war", 0.0)), c)
+## The committed margins {id: word} of the held forts: view_fort.margin. A held fort whose margin
+## is "" keeps it: no word, never SAFE.
+static func committed_margins(forts: Array) -> Dictionary:
 	var out := {}
 	for f in held_forts(forts):
-		var id := str(f["id"])
-		out[id] = str(f["margin"]) if (f.has("margin") and str(f["margin"]) != "") else str(fallback.get(id, SAFE))
+		out[str(f["id"])] = str(f.get("margin", ""))
 	return out
 
 
-## The committed "WAR supports N of M": the view's field, else the stand-in at the committed split.
-static func committed_supports(hud: Dictionary, forts: Array, c := {}) -> Dictionary:
-	if hud.has("war_supports"):
-		return hud["war_supports"]
-	return war_supports(float(hud.get("split", {}).get("war", 0.0)), forts, c)
+## The committed "WAR supports N of M": view_hud.war_supports.
+static func committed_supports(hud: Dictionary) -> Dictionary:
+	return hud.get("war_supports", {"n": 0, "m": 0})
 
 
 # --- projection ------------------------------------------------------------------
 
-## What a dragged valve would do: {split, workers_steady, war_supports: {n, m}, margins, clocks}.
-## clocks: {id: {rate, fall_s}}, the committed clocks moved by the dragged WAR share.
-## `state` is the GameState (or anything with view_projection): its real projection wins field
-## by field; without it the stand-in over `forts` answers.
-# TODO(api-request #7): view_projection(valve)
-static func projection(state, hud: Dictionary, valve: Dictionary, forts: Array, c := {}) -> Dictionary:
-	var held := held_forts(forts)
-	var out := ValveLogic.project(hud, valve, held.size())
-	var war: float = out["split"]["war"]
-	out["margins"] = margins(forts, war, c)
-	out["war_supports"] = war_supports(war, held, c)
-	var real := {}
-	if state != null and state.has_method("view_projection"):
-		real = state.view_projection(ValveLogic.normalise(valve))
-		for k in PROJECTION_KEYS:
-			if real.has(k):
-				out[k] = real[k]
-	out["margins"] = margin_words(out["margins"])
-	out["clocks"] = projected_clocks(forts, committed_clocks(forts, hud), float(split_at(state, hud, hud.get("valve", valve), held.size()).get("war", 0.0)),
-		float(out["split"]["war"]), real)
+## What a dragged valve would do, view_projection(valve)'s: {split, workers_steady, war_supports:
+## {n, m}, backlog_diff, margins: {id: word}, clocks: {id: {rate, fall_s}}} (the clocks are the
+## committed ones for a held fort the projection does not carry). `state` is the GameState.
+static func projection(state, valve: Dictionary, forts: Array) -> Dictionary:
+	var real: Dictionary = state.view_projection(ValveLogic.normalise(valve))
+	var out := {}
+	for k in PROJECTION_KEYS:
+		out[k] = real[k]
+	out["margins"] = margin_words(real["margins"])
+	out["clocks"] = projected_clocks(committed_clocks(forts), real["margins"])
 	return out
 
 
-## The split (mass/s) the same projection gives at `valve` (the current valve, for the deltas a
-## drag makes, so a drag back onto it shifts nothing): the real projection's when the state has
-## one with a split, else the stand-in's.
-static func split_at(state, hud: Dictionary, valve: Dictionary, held_count: int) -> Dictionary:
-	if state != null and state.has_method("view_projection"):
-		var real: Dictionary = state.view_projection(ValveLogic.normalise(valve))
-		if real.has("split"):
-			return real["split"]
-	return ValveLogic.project(hud, valve, held_count)["split"]
+## The split (mass/s) view_projection gives at `valve` (the current valve, for the deltas a drag
+## makes, so a drag back onto it shifts nothing).
+static func split_at(state, valve: Dictionary) -> Dictionary:
+	return state.view_projection(ValveLogic.normalise(valve))["split"]
 
 
 ## The projection the valve panel shows: while dragging, the dragged valve's own; otherwise its

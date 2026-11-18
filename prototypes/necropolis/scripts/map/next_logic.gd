@@ -14,7 +14,9 @@ extends RefCounted
 ##   raid     the blueprint ask: the first "first_clear" entry of the same set (the first dungeon's
 ##            included), or the previous pick's target while it is still a first-clear entry;
 ##   plan     the build queue empty (queue, only when view_town carries `queue`), else the
-##            standing objective (default).
+##            standing objective (default), with "Next: <fort>" appended and that fort the click's
+##            target: inp.place, MapModel.next_place (next_place).
+## Every line but the won line and the opening's valve ask names where to go: a fort, Covington or Vei.
 ## Clicks resolve through AwayLogic.action, the same resolver as the away panel's lines.
 ## Tuning and words: configs/map_view.json "next".
 
@@ -109,6 +111,32 @@ static func _why(f: Dictionary, frontier: int, kept: bool, c: Dictionary) -> Str
 	return ""
 
 
+## The place the standing objective points at (the strip's default line): the fort that is still
+## Vei's (not held) on the frontier (frontier_tier of those forts, or the lowest tier among them
+## when none has a first clear left), the nearest to `from_pos` (a fort with no entry in `positions`
+## ranks after those with one), then world order. "" when every fort is held.
+static func next_place(forts: Array, from_pos: Vector2, positions: Dictionary) -> String:
+	var open: Array = forts.filter(func(f): return not bool(f.get("held", false)))
+	if open.is_empty():
+		return ""
+	var tier := frontier_tier(open)
+	if tier == 0:
+		tier = int(open[0].get("tier", 1))
+		for f in open:
+			tier = mini(tier, int(f.get("tier", 1)))
+	var best := ""
+	var best_d := INF
+	for f in open:
+		if int(f.get("tier", 1)) != tier:
+			continue
+		var id := str(f.get("id", ""))
+		var d := from_pos.distance_to(positions[id]) if positions.has(id) else INF
+		if best == "" or d < best_d:
+			best = id
+			best_d = d
+	return best
+
+
 ## A ready fort as the away panel's ready line: {text, kind: "raid", target: fort id}.
 static func ready_line(f: Dictionary, why: String, c := {}) -> Dictionary:
 	if c.is_empty():
@@ -123,11 +151,12 @@ static func ready_line(f: Dictionary, why: String, c := {}) -> Dictionary:
 ##   forts     view_realm().forts (the model's, demo overlay included)
 ##   clocks    {fort id: {rate, fall_s}} (the committed clocks)
 ##   raids     MapModel.raids (raid_set's ranked set): the strip reads it, it does not recompute it
-##   queue     view_town().queue, or null when the view has none
+##   queue     view_town().queue (an Array, [] when empty)
 ##   vei       view_vei()
 ##   readout   MapModel.readout()
 ##   won       view_hud().won
 ##   opening   {text, target} from set_opening_ask ({} or empty text: none)
+##   place     the standing line's fort id (next_place; "" or absent: the line alone)
 ## `prev` is the last pick ({} at first): while its rule still holds and its target still
 ## qualifies, the target is kept (no ping-pong between near-equal candidates), and the fall and
 ## Vei rules keep a kept pick to their exit thresholds (see the header).
@@ -154,10 +183,17 @@ static func choose(inp: Dictionary, prev := {}, c := {}) -> Dictionary:
 	var firsts := raids.filter(func(r): return str(r["why"]) == FIRST_CLEAR)
 	if not firsts.is_empty():
 		return _raid(firsts, prev, c, fort_ids)
-	var queue = inp.get("queue", null)
-	if queue is Array and (queue as Array).is_empty():
+	if (inp["queue"] as Array).is_empty():
 		return _pick(QUEUE, "queue", str(c["queue_text"]), fort_ids)
-	return _pick(DEFAULT, "", HudLogic.objective_text({}), fort_ids)
+	var place := str(inp.get("place", ""))
+	var text := HudLogic.objective_text({})
+	if place != "" and fort_ids.has(place):
+		var named := ""
+		for f in inp.get("forts", []):
+			if str(f["id"]) == place:
+				named = str(f.get("name", place))
+		text = str(c["default_next_fmt"]) % [text, named]
+	return _pick(DEFAULT, place, text, fort_ids)
 
 
 ## The quiet state: at least one held fort, every held fort's committed margin SAFE, none under
@@ -176,8 +212,8 @@ static func quiet(inp: Dictionary, rule: String) -> bool:
 	return true
 
 
-## The leave line, from the smallest IdleLogic.fort_horizon among the held forts (the garrison
-## clock or the hold timer, whichever is nearer): none, every fort holds; at least leave_safe_s,
+## The leave line, from the smallest IdleLogic.fort_horizon among the held forts (the view's
+## fall_s): none, every fort holds; at least leave_safe_s,
 ## "Safe to leave: first fort falls in ~9 h"; under it, "If you leave, Old Sluice falls in ~3 min"
 ## (never called safe). Words in "next".
 static func leave_text(inp: Dictionary, c := {}) -> String:
@@ -231,7 +267,7 @@ static func _pick(rule: String, target: String, text: String, fort_ids: Array) -
 ## under next_fall_warn_s; `prev`'s fort (after a FALL pick) stays under next_fall_warn_s x
 ## next_fall_exit_mult, and gives way only to a fort that falls in under switch_ratio of its time.
 static func _fall(inp: Dictionary, prev: Dictionary, c: Dictionary) -> Dictionary:
-	# garrison fall_s only, not the hold timer: every held fort has a timer of a few minutes, so a timer rule would take over the strip and its advice (raise WAR, send Relish) doesn't apply to it.
+	# the view's fall_s only (the garrison clock; there is no hold timer)
 	var clocks: Dictionary = inp.get("clocks", {})
 	var warn := float(c["next_fall_warn_s"])
 	var kept_id := str(prev.get("target", "")) if str(prev.get("rule", "")) == FALL else ""

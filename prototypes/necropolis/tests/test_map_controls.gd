@@ -7,6 +7,8 @@ extends RefCounted
 const MAP_DIR := "res://scripts/map"
 const NEW_FILES := ["valve_logic.gd", "relish_logic.gd", "map_valve.gd", "map_relish_chip.gd", "map_route_hint.gd", "map_ui.gd"]
 const SIDE := 200.0
+## who comes in, as the sidebar passes it to RelishLogic.fort_actions: 2 + 0 undead, 1 big, no warning
+const CM := {"ci": {"garrison": 2, "starter": 0, "bigs": 1, "total": 3}, "warn": {}}
 
 
 func run() -> int:
@@ -17,6 +19,7 @@ func run() -> int:
 	_percents_and_project(t)
 	_throttle(t)
 	_panel_text(t)
+	_bone_edge(t)
 	_payoff_cost(t)
 	_eta_and_chip(t)
 	_reasons(t)
@@ -79,18 +82,19 @@ func _percents_and_project(t: TestUtil) -> void:
 		"valve": {"work": 0.4, "war": 0.4, "flood": 0.2}, "workers_steady": 60.0}
 	t.near(ValveLogic.mint_rate(hud), 10.0, 1e-9, "mint rate comes from the mint row")
 	t.near(ValveLogic.mint_rate({}), 0.0, 1e-9, "no rates reads 0")
-	var pr := ValveLogic.project(hud, {"work": 0.2, "war": 0.5, "flood": 0.3}, 3)
-	t.near(pr["split"]["work"], 2.0, 1e-9, "split.work = mint x share")
-	t.near(pr["split"]["war"], 5.0, 1e-9, "split.war = mint x share")
-	t.near(pr["split"]["flood"], 3.0, 1e-9, "split.flood = mint x share")
-	t.near(pr["workers_steady"], 30.0, 1e-9, "workers_steady scales by the work share ratio (0.2 / 0.4)")
-	t.ok(pr["war_supports"] == {"n": 0, "m": 3}, "war_supports is the stub {0, held}")
-	var same := ValveLogic.project(hud, hud["valve"])
-	t.near(same["workers_steady"], 60.0, 1e-9, "the committed valve projects the view's own workers_steady")
-	var zero := ValveLogic.project({"rates": [{"id": "mint", "rate": 0.0}], "valve": {"work": 0.0, "war": 1.0, "flood": 0.0}, "workers_steady": 0.0}, {"work": 0.5, "war": 0.5, "flood": 0.0})
-	t.ok(zero["workers_steady"] == 0.0 and zero["split"]["work"] == 0.0, "no mint and no committed work: zeros, no NaN")
-	var e1 := ValveLogic.project({"rates": [{"id": "mint", "rate": 0.0}], "valve": hud["valve"], "workers_steady": 6.0}, hud["valve"])
-	t.ok(ValveLogic.rows(e1, hud["valve"])[0]["rate_text"] == "+0.0/s", "at E1 mint is 0 and every rate reads +0.0/s")
+	# the projection is the view's: a real GameState's view_projection, read through IdleLogic.projection
+	var gs := GameState.new(TestUtil.configs())
+	gs.debug_enabled = true
+	gs.cmd_debug_load_fixture("midgame_2flips")
+	var valve := {"work": 0.2, "war": 0.5, "flood": 0.3}
+	var view := gs.view_projection(ValveLogic.normalise(valve))
+	var pr := IdleLogic.projection(gs, valve, IdleLogic.held_forts(gs.view_realm()["forts"]))
+	t.near(float(pr["split"]["war"]), float(view["split"]["war"]), 1e-9, "split.war is view_projection's")
+	t.near(float(pr["workers_steady"]), float(view["workers_steady"]), 1e-9, "workers_steady is view_projection's")
+	t.ok(pr["war_supports"] == view["war_supports"], "war_supports is view_projection's")
+	t.ok(not FileAccess.get_file_as_string("res://scripts/map/valve_logic.gd").contains("static func project("), "the valve's own projection stand-in is gone")
+	var rows := ValveLogic.rows(pr, valve)
+	t.ok(rows[1]["rate_text"] == MapLogic.fmt_rate(float(view["split"]["war"])), "the WAR row's rate is the view's split.war")
 
 
 func _throttle(t: TestUtil) -> void:
@@ -116,8 +120,7 @@ func _throttle(t: TestUtil) -> void:
 
 func _panel_text(t: TestUtil) -> void:
 	t.suite("map_controls-valve-text")
-	var hud := {"rates": [{"id": "mint", "rate": 5.0}], "valve": {"work": 0.4, "war": 0.4, "flood": 0.2}, "workers_steady": 61.4}
-	var pr := ValveLogic.project(hud, {"work": 0.4, "war": 0.4, "flood": 0.2}, 2)
+	var pr := {"split": {"work": 2.0, "war": 2.0, "flood": 1.0}, "workers_steady": 61.4, "war_supports": {"n": 0, "m": 2}}
 	var rows := ValveLogic.rows(pr, {"work": 0.4, "war": 0.4, "flood": 0.2})
 	t.ok(rows.map(func(r): return r["name"]) == ["WORK", "WAR", "FLOOD"], "rows run WORK, WAR, FLOOD")
 	t.ok(rows.map(func(r): return r["pct_text"]) == ["40%", "40%", "20%"], "shares are integer percentages")
@@ -125,7 +128,49 @@ func _panel_text(t: TestUtil) -> void:
 	t.ok(rows[0]["feed_text"] == "→ workforce" and rows[1]["feed_text"] == "→ the forts" and rows[2]["feed_text"] == "→ Vei's gates", "each stream says what it feeds")
 	t.ok(ValveLogic.workers_text(float(pr["workers_steady"])) == "workers → 61", "workers → 61")
 	t.ok(ValveLogic.supports_text(pr) == "WAR supports 0 of 2 held forts", "the supports line shows when forts are held")
-	t.ok(ValveLogic.supports_text(ValveLogic.project(hud, hud["valve"], 0)) == "", "and is hidden when none is held")
+	t.ok(ValveLogic.supports_text({"war_supports": {"n": 0, "m": 0}}) == "", "and is hidden when none is held")
+
+
+## The valve marks where bone starts (view_hud.bone_war_share) and says so while the stall is live.
+func _bone_edge(t: TestUtil) -> void:
+	t.suite("map_controls-valve-bone-edge")
+	var seg := ValveLogic.bone_tick(0.54, SIDE)
+	t.ok(seg.size() == 2, "a share inside 0..1 has a tick")
+	var a: Vector2 = seg[0]
+	var b: Vector2 = seg[1]
+	t.ok(is_equal_approx(a.y, b.y) and is_equal_approx(a.y, ValveLogic.height(SIDE) * 0.46), "the tick is level, 0.54 of the way up to WAR: y = %.1f" % a.y)
+	t.ok(is_equal_approx(b.x - a.x, SIDE * 0.46), "its length is the triangle's width there (%.1f)" % (b.x - a.x))
+	t.ok(absf(float(ValveLogic.bary_of(a, SIDE)["war"]) - 0.54) < 1e-4 and absf(float(ValveLogic.bary_of(b, SIDE)["war"]) - 0.54) < 1e-4, "both ends sit at WAR share 0.54")
+	t.ok(ValveLogic.is_inside(a, SIDE) and ValveLogic.is_inside(b, SIDE), "and on the triangle's edges")
+	t.ok(ValveLogic.bone_tick(0.0, SIDE).is_empty() and ValveLogic.bone_tick(1.0, SIDE).is_empty() and ValveLogic.bone_tick(-0.2, SIDE).is_empty(), "no edge (0, 1 or none): no tick")
+	# the edge is a new game's: marked (tick, label, drag line) only while no fort has been taken
+	t.ok(is_equal_approx(ValveLogic.bone_edge({"bone_war_share": 0.54, "highest_tier_flipped": 0}), 0.54), "no fort taken: the edge is marked")
+	t.ok(ValveLogic.bone_edge({"bone_war_share": 0.54, "highest_tier_flipped": 1}) == 0.0, "a fort taken: the edge is stale, none marked")
+	var late := ValveLogic.bone_edge({"bone_war_share": 0.54, "highest_tier_flipped": 2})
+	t.ok(ValveLogic.bone_tick(late, SIDE).is_empty() and ValveLogic.bone_readout(false, "Raise WAR", true, 0.1, late) == "", "late: no tick and no below-edge line")
+	t.ok(ValveLogic.bone_readout(true, "Raise WAR", false, 0.8, late) == "Raise WAR: the pits eat every body", "but a live stall's lever line stays, whatever the tier")
+	var lever := "Raise WAR"
+	t.ok(ValveLogic.bone_readout(true, lever, false, 0.8, 0.54) == "Raise WAR: the pits eat every body", "a live stall carries the lever line")
+	t.ok(ValveLogic.bone_readout(true, lever, true, 0.3, 0.54) == "Raise WAR: the pits eat every body", "and keeps it while dragging (one line)")
+	t.ok(ValveLogic.bone_readout(false, lever, false, 0.2, 0.54) == "", "no stall, no drag: nothing, even below the edge")
+	t.ok(ValveLogic.bone_readout(false, lever, true, 0.3, 0.54) == "below the bone edge", "dragging under the edge says so")
+	t.ok(ValveLogic.bone_readout(false, lever, true, 0.54, 0.54) == "" and ValveLogic.bone_readout(false, lever, true, 0.7, 0.54) == "", "at or above the edge: nothing")
+	t.ok(ValveLogic.bone_readout(false, lever, true, 0.3, 0.0) == "", "no edge from the view: nothing")
+	var c: Dictionary = MapLogic.cfg()["controls"]
+	t.ok(str(c["valve_bone_label"]) == "bone", "the tick's tiny label")
+	var plate := Palette.c("ground").lightened(float(MapLogic.cfg()["panel_bg_lighten"]))
+	var pa := float(c["valve_plate_alpha"])
+	var bright := ""
+	for k in Palette.keys():
+		if bright == "" or MapLogic.luminance(Palette.c(k)) > MapLogic.luminance(Palette.c(bright)):
+			bright = k
+	var through := Palette.c("ground").lerp(Palette.c(bright), 1.0 - pa)
+	var under := plate.lerp(through, 1.0 - pa)
+	for key in [str(MapLogic.cfg()["bone_line"]["key"]), str(c["valve_bone_label_key"])]:
+		for g in [plate, under]:
+			var r := MapLogic.contrast_ratio(Palette.c(key), g)
+			t.ok(r >= 4.5, "valve text in %s reads 4.5:1 on the valve plate (%.1f)" % [key, r])
+	t.ok(float(c["valve_bone_tick_w_px"]) >= 1.0, "the tick is at least 1 px")
 
 
 func _payoff_cost(t: TestUtil) -> void:
@@ -178,6 +223,11 @@ func _eta_and_chip(t: TestUtil) -> void:
 	t.ok(RelishLogic.fmt_eta(6.6) == "0:07" and RelishLogic.fmt_eta(-3.0) == "0:00", "rounds up, and never negative")
 	t.near(RelishLogic.eta_s(440.0, 220.0), 2.0, 1e-9, "distance / travel_speed")
 	t.near(RelishLogic.eta_s(440.0, 0.0), 0.0, 1e-9, "no speed: 0, no divide by zero")
+	var gw := {"greywall": "Greywall", "covington": "Covington"}
+	var ret := {"type": "relish_returned", "fort_id": "greywall", "cause": "retaken", "t": 90.0}
+	t.ok(RelishLogic.returned_toast(ret, gw) == "Vei retook Greywall. Relish is walking home.", "relish_returned toasts the retake in the glossary's words")
+	t.ok(RelishLogic.returned_toast({"type": "fort_retaken", "fort_id": "greywall"}, gw) == "", "another event type: no toast")
+	t.ok(RelishLogic.returned_toast({"type": "relish_returned", "fort_id": "nowhere", "cause": "retaken"}, gw) == "", "an unknown fort: no toast")
 	var names := {"covington": "Covington", "old-sluice": "Old Sluice", "ashgate": "Ashgate"}
 	t.ok(RelishLogic.chip_text({"state": "home", "at": "covington"}, names) == "Relish · home (Covington)", "chip: home")
 	t.ok(RelishLogic.chip_text({"state": "at_fort", "at": "old-sluice"}, names) == "Relish · at Old Sluice", "chip: at a fort")
@@ -235,29 +285,29 @@ func _actions(t: TestUtil) -> void:
 	var names := {"old-sluice": "Old Sluice", "ashgate": "Ashgate"}
 	var auto := {"target": "auto", "current": "old-sluice", "convoys": []}
 	var home := {"state": "home", "at": "covington", "target": "", "eta_s": -1.0}
-	var a := RelishLogic.fort_actions(_fort("ashgate", false, "not_at_fort"), home, auto, names)
+	var a := RelishLogic.fort_actions(_fort("ashgate", false, "not_at_fort"), home, auto, names, CM)
 	t.ok(_acts(a) == ["move", "descend", "haul"], "from home: MOVE, DESCEND, HAUL FROM HERE")
 	t.ok(a.filter(func(i): return i["act"] == "descend")[0]["enabled"] == false, "DESCEND is disabled")
 	t.ok(a.any(func(i): return i["kind"] == "line" and i["text"] == "Relish must stand here first. MOVE her."), "and says why in words")
 	t.ok(a.any(func(i): return i["text"] == "Haul: Old Sluice (auto)"), "the haul line names the auto pick")
 	t.ok(a.any(func(i): return i["text"] == "HAUL FROM HERE"), "the haul button")
 	var trav := {"state": "travelling", "at": "covington", "target": "ashgate", "eta_s": 3.6}
-	var b := RelishLogic.fort_actions(_fort("ashgate", false, "not_at_fort"), trav, auto, names)
+	var b := RelishLogic.fort_actions(_fort("ashgate", false, "not_at_fort"), trav, auto, names, CM)
 	t.ok(_acts(b) == ["cancel", "descend", "haul"], "heading here: CANCEL replaces MOVE")
 	t.ok(b.any(func(i): return i["kind"] == "line" and i["text"] == "on her way · 0:04"), "with 'on her way · 0:04'")
-	var other := RelishLogic.fort_actions(_fort("old-sluice", false, "not_at_fort"), trav, auto, names)
+	var other := RelishLogic.fort_actions(_fort("old-sluice", false, "not_at_fort"), trav, auto, names, CM)
 	t.ok(_acts(other) == ["move", "descend", "haul"], "heading elsewhere: another fort's card still has MOVE")
 	var there := {"state": "at_fort", "at": "ashgate", "target": "", "eta_s": -1.0}
-	var c := RelishLogic.fort_actions(_fort("ashgate", true, ""), there, auto, names)
+	var c := RelishLogic.fort_actions(_fort("ashgate", true, ""), there, auto, names, CM)
 	t.ok(_acts(c) == ["descend", "haul"], "arrived: no MOVE button")
 	t.ok(c.any(func(i): return i["text"] == "Relish is here"), "it says 'Relish is here'")
 	t.ok(c.filter(func(i): return i["act"] == "descend")[0]["enabled"] == true, "DESCEND is enabled when can_descend")
 	t.ok(not c.any(func(i): return i["kind"] == "line" and i["text"].begins_with("Relish must")), "and shows no reason")
-	var busy := RelishLogic.fort_actions(_fort("ashgate", false, "busy"), there, auto, names)
+	var busy := RelishLogic.fort_actions(_fort("ashgate", false, "busy"), there, auto, names, CM)
 	t.ok(busy.any(func(i): return i["text"] == "A run is already open"), "busy reason in words")
-	var dead := RelishLogic.fort_actions(_fort("ashgate", false, "dead"), {"state": "dead", "at": "covington"}, auto, names)
+	var dead := RelishLogic.fort_actions(_fort("ashgate", false, "dead"), {"state": "dead", "at": "covington"}, auto, names, CM)
 	t.ok(dead.any(func(i): return i["text"] == "Relish is dead"), "dead reason in words")
-	var set := RelishLogic.fort_actions(_fort("ashgate", true, ""), there, {"target": "ashgate", "current": "ashgate", "convoys": []}, names)
+	var set := RelishLogic.fort_actions(_fort("ashgate", true, ""), there, {"target": "ashgate", "current": "ashgate", "convoys": []}, names, CM)
 	t.ok(_acts(set) == ["descend", "haul_auto"], "a set target shows BACK TO AUTO")
 	t.ok(set.any(func(i): return i["text"] == "Haul: Ashgate (set)"), "'Haul: Ashgate (set)'")
 	t.ok(RelishLogic.haul_line({"target": "auto", "current": ""}, names) == "Haul: none yet (auto)", "auto with no pick yet")
@@ -268,7 +318,15 @@ func _actions(t: TestUtil) -> void:
 	var v2 := RelishLogic.vei_actions({"can_begin": true, "reason": ""}, {"state": "at_vei", "at": "vei"})
 	t.ok(_acts(v2) == ["begin"] and v2.filter(func(i): return i["act"] == "begin")[0]["enabled"] == true, "at Vei's gates: BEGIN enabled")
 	t.ok(RelishLogic.actions_sig(a) != RelishLogic.actions_sig(c), "the structure key changes with the layout")
-	t.ok(RelishLogic.actions_sig(b) == RelishLogic.actions_sig(RelishLogic.fort_actions(_fort("ashgate", false, "not_at_fort"), {"state": "travelling", "at": "covington", "target": "ashgate", "eta_s": 2.1}, auto, names)), "but not with a ticking ETA")
+	t.ok(RelishLogic.actions_sig(b) == RelishLogic.actions_sig(RelishLogic.fort_actions(_fort("ashgate", false, "not_at_fort"), {"state": "travelling", "at": "covington", "target": "ashgate", "eta_s": 2.1}, auto, names, CM)), "but not with a ticking ETA")
+	# the line above DESCEND: the count, or the warning in its key; the structure key ignores text and key
+	var di := c.find_custom(func(i): return i["act"] == "descend")
+	t.ok(di > 0 and c[di - 1]["kind"] == "line" and c[di - 1]["text"] == "2 undead and 1 big undead come in" and not c[di - 1].has("key"), "a count line directly above DESCEND")
+	var warned := RelishLogic.fort_actions(_fort("ashgate", true, ""), there, auto, names,
+		{"ci": {"garrison": 0, "starter": 0, "bigs": 0, "total": 0}, "warn": {"text": "No undead come in. X", "key": "danger"}})
+	var wdi := warned.find_custom(func(i): return i["act"] == "descend")
+	t.ok(warned[wdi - 1]["text"] == "No undead come in. X" and warned[wdi - 1]["key"] == "danger", "the warning replaces the count, with its key")
+	t.ok(RelishLogic.actions_sig(warned) == RelishLogic.actions_sig(c), "the structure key ignores the line's text and key")
 
 
 func _routes(t: TestUtil) -> void:
@@ -343,7 +401,7 @@ func _real_state(t: TestUtil) -> void:
 	t.ok(rel["state"] == "at_fort" and rel["at"] == "old-sluice", "she arrives at the fort")
 	var d1: Dictionary = s.view_realm()["forts"].filter(func(f): return f["id"] == "old-sluice")[0]
 	t.ok(d1["can_descend"], "DESCEND is enabled once she has arrived")
-	var acts := RelishLogic.fort_actions(d1, rel, s.view_town()["haul"], names)
+	var acts := RelishLogic.fort_actions(d1, rel, s.view_town()["haul"], names, CM)
 	t.ok(_acts(acts) == ["descend", "haul"] and acts.filter(func(i): return i["act"] == "descend")[0]["enabled"], "the card's actions reflect it")
 	t.ok(s.cmd_move_relish("covington")["ok"], "GO HOME is cmd_move_relish('covington')")
 	t.ok(s.view_relish()["target"] == "covington", "and she heads there")

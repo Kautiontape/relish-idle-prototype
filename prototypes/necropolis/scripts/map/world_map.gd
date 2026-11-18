@@ -5,6 +5,7 @@ extends Control
 ## Reads views through the model and sends commands through GameState; nothing else.
 ## Debug flags (harness sessions only, i.e. any --fixture): --valve=w,war,f  --select=<id>
 ## --teleport=<id>  --map-clicks=...  --lanes=demo  --nodes=demo  --away=demo  --lanes-report
+## --hover=x,y (rest the cursor at screen px x,y so a tooltip opens; give --frames enough to cover the tooltip delay).
 ## --skip-time=S (once at boot: cmd_debug_skip_time(S) seconds of sim, e.g. past a tithe wave).
 
 signal finished(result: Dictionary)
@@ -56,6 +57,7 @@ func _ready() -> void:
 	model.nodes_demo = Game.state.debug_enabled and OS.get_cmdline_user_args().has("--nodes=demo")
 	model.flip_cfg = ConfigDb.data.get("realm", {}).get("flip", {})
 	model.realm_cfg = ConfigDb.data.get("realm", {})
+	model.slab_cfg = ConfigDb.data.get("town", {}).get("slab", {})
 	model.idle_cap = float(ConfigDb.data.get("economy", {}).get("worker", {}).get("idle_cap", 0.0))
 	_apply_valve_arg()
 	_apply_skip_arg()
@@ -73,14 +75,18 @@ func _ready() -> void:
 	opening.refresh()
 	tithe_explain.open_pending()
 	_fit()
+	var returned := setpieces.note_return(_arrive_from)  # "taken by you" or "stays Vei's", before the set pieces go live
 	var ease_s := _begin_arrival()
 	if ease_s > 0.0:  # the set pieces play once the camera has eased out to the map
-		get_tree().create_timer(ease_s).timeout.connect(setpieces.go_live.bind(_arrive_from))
+		get_tree().create_timer(ease_s).timeout.connect(setpieces.go_live)
 	else:
-		setpieces.go_live(_arrive_from)
+		setpieces.go_live()
+	if returned == SetpieceLogic.TAKEN:
+		_show_taken(_arrive_from, ease_s)
 	hud.inset_changed.connect(func(_inset: float) -> void: _refit())  # the bar's sizes settle a frame later
-	away.open_if_shown()
+	setpieces.note_mount(away.open_if_shown())  # builds finished while away from the map get their callout, unless the away report lists them
 	_replay_clicks()
+	_hover_arg()
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--select="):
 			_select(arg.trim_prefix("--select="))
@@ -144,7 +150,12 @@ func _build_ui() -> void:
 	valve.model = model
 	valve.toast.connect(hud.show_toast)
 	layer.add_child(valve)
+	var legend := MapLegend.new()  # the fort rings' key, just above the valve
+	legend.model = model
+	legend.valve = valve
+	layer.add_child(legend)
 	chip = MapRelishChip.new()
+	legend.chip = chip
 	chip.model = model
 	chip.hud = hud
 	hud.chip = chip
@@ -153,14 +164,14 @@ func _build_ui() -> void:
 	layer.add_child(chip)
 	sidebar = MapSidebar.new()
 	sidebar.model = model
+	sidebar.hud = hud
 	sidebar.dive.connect(_dive)
 	sidebar.toast.connect(hud.show_toast)
 	layer.add_child(sidebar)
 	callouts_view.card = sidebar  # the callouts keep off the open card
 	hud.next_chosen.connect(_act_on)
 	seen = MapSeen.new(MapSeen.PATH, Game.autosave_enabled)  # outside the save; a harness session reads it empty and never writes it
-	# TODO(api-request #18): no view carries a game id, so an earlier game time than a flag's mark means a new game
-	seen.reconcile(float(model.hud.get("t", 0.0)), float(OpeningLogic.cfg()["seen_new_game_s"]))
+	seen.reconcile(str(model.hud.get("game_id", "")))  # the flags belong to one game
 	opening = MapOpening.new()
 	opening.model = model
 	opening.hud = hud
@@ -173,6 +184,7 @@ func _build_ui() -> void:
 	tithe_explain.cam = cam
 	tithe_explain.hud = hud
 	tithe_explain.seen = seen
+	tithe_explain.card = sidebar  # the plate keeps off the open card
 	tithe_explain.toast.connect(hud.show_toast)
 	layer.add_child(tithe_explain)
 	Game.game_event.connect(tithe_explain.on_event)
@@ -182,6 +194,7 @@ func _build_ui() -> void:
 	away.acted.connect(_act_on)
 	layer.add_child(away)
 	Game.game_event.connect(away.on_event)
+	Game.game_event.connect(_on_game_event)
 	setpieces = MapSetpieces.new()
 	setpieces.name = "Setpieces"
 	setpieces.model = model
@@ -191,6 +204,13 @@ func _build_ui() -> void:
 	setpieces.valve = valve
 	setpieces.layer = setpiece_layer
 	add_child(setpieces)
+
+
+## relish_returned: Vei retook the fort Relish stood at and she walks home (one toast line).
+func _on_game_event(ev: Dictionary) -> void:
+	var msg := RelishLogic.returned_toast(ev, model.names)
+	if msg != "":
+		hud.show_toast(msg)
 
 
 ## Pan, wheel zoom and click-select, in screen (viewport) coordinates. The HUD and the sidebar
@@ -229,13 +249,28 @@ func _begin_arrival() -> float:
 	return float(tl["zoom_s"])
 
 
+## A fort the raid just took: once the camera has eased out (`wait_s`), its card opens and the camera
+## comes to it, so the HELD chip with Vei's grace countdown (draining) and the "taken by you" line are
+## on screen together. Skipped if the player has already moved the camera.
+func _show_taken(id: String, wait_s: float) -> void:
+	if wait_s > 0.0:
+		await get_tree().create_timer(wait_s).timeout
+	if is_inside_tree() and not cam.user_moved:
+		_act_on({"kind": "fort", "id": id})
+
+
 ## The router's dive (router contract: dive_to(node_id, duration_s) -> Signal): the camera zooms
 ## into the node and the whole HUD (top bar, strip, chip, sidebar, valve, callouts, toasts, away
 ## panel, tithe card) fades out over hud_fade_s inside that time, so the router's snapshot (taken
 ## once the signal fires) has none of it. The signal fires when the zoom ends.
 func dive_to(node_id: String, duration_s: float) -> Signal:
-	var t := TransitionLogic.dive_target(cam.zoom.x, model.node_pos(node_id), TransitionLogic.cfg(),
-		float(MapLogic.cfg()["zoom_min"]), float(MapLogic.cfg()["zoom_max"]))
+	var t := {}
+	if model.forts_by_id.has(node_id):  # a fort: its ring ends centred and large, for the dungeon's first room to pick up
+		t = TransitionLogic.dive_fort_target(int(model.fort(node_id)["tier"]), model.node_pos(node_id), get_viewport_rect().size,
+			cam.zoom.x, TransitionLogic.cfg(), float(MapLogic.cfg()["zoom_min"]))
+	else:
+		t = TransitionLogic.dive_target(cam.zoom.x, model.node_pos(node_id), TransitionLogic.cfg(),
+			float(MapLogic.cfg()["zoom_min"]), float(MapLogic.cfg()["zoom_max"]))
 	cam.begin_dive(t["zoom"], t["centre"], duration_s)
 	_fade_hud(TransitionLogic.IN, TransitionLogic.hud_fade_len(TransitionLogic.cfg(), MapTransition.slow(), duration_s))
 	return cam.move_done
@@ -312,6 +347,7 @@ func _act_on(a: Dictionary) -> void:
 ## Leaves the map for `node_id`'s scene (the router: a fort id begins its dungeon, "vei" the boss
 ## fight, "covington" opens the town). The map never moves Relish through this.
 func _dive(node_id: String) -> void:
+	SetpieceLogic.note_dive(node_id, bool(model.fort(node_id).get("held", false)))  # so a held fort raided again is not "taken" on return
 	finished.emit({"v": 2, "teleport_to": node_id})
 
 
@@ -374,6 +410,28 @@ func _replay_clicks() -> void:
 				if not bool(st.get("hold", false)):
 					_inject_click(to, false)
 				await _frames(gap)
+
+
+## Debug only: `--hover=x,y` rests the real cursor at screen px x,y (so a control's tooltip opens):
+## warps the mouse there after map_hover_wait_frames, then sends a plain motion event so the GUI sees it.
+func _hover_arg() -> void:
+	if not Game.state.debug_enabled:
+		return
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--hover="):
+			var p := arg.trim_prefix("--hover=").split(",")
+			if p.size() != 2:
+				return
+			var pos := Vector2(float(p[0]), float(p[1]))
+			await _frames(int(MapLogic.cfg()["map_hover_wait_frames"]))
+			if not is_inside_tree():
+				return
+			Input.warp_mouse(pos)
+			var e := InputEventMouseMotion.new()
+			e.position = pos
+			e.global_position = pos
+			Input.parse_input_event(e)
+			return
 
 
 func _frames(n: int) -> void:

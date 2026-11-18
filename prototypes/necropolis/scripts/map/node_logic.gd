@@ -9,7 +9,8 @@ extends RefCounted
 const COVINGTON := "covington"
 const MATTERS := ["living", "undead", "dead"]
 ## A fort's state glyph when it is not held (held forts show their margin: IdleLogic's safe / thin
-## / will_fall).
+## / will_fall), or HELD when a held fort has no margin.
+const HELD := "held"
 const HERS := "hers"
 const OVERRUN := "overrun"
 const CONTESTED := "contested"
@@ -22,6 +23,12 @@ static func ncfg() -> Dictionary:
 
 static func _n(key: String) -> float:
 	return float(ncfg().get(key, 0.0))
+
+
+## The node labels' texts, keyed war / flood / work / covington / vei (configs/map_view.json
+## "node_names"): the one source the layers draw from and IdleLogic's obstacles are measured from.
+static func node_names() -> Dictionary:
+	return MapLogic.cfg().get("node_names", {})
 
 
 ## LineGlow's stroke stack for one glowing line, with every halo pulled toward the core by the
@@ -122,10 +129,11 @@ static func controller(f: Dictionary) -> String:
 
 
 ## The one glanceable state a fort shows (its centre glyph). Held: its margin, `margin` (the
-## model's margin_of, so it always agrees with the chip): safe, thin or will_fall; "" or anything
-## else counts as safe, IdleLogic's committed fallback. Not held, a side is present at
+## model's margin_of, so it always agrees with the chip): safe, thin or will_fall. Only "safe" is
+## safe: "" or anything else is HELD, held with no margin to show (never SAFE). Not held, a side is present at
 ## state_present_frac of capacity or more (the mass that rounds to one pip):
-##   overrun    your undead present and the living not: yours inside, not flipped;
+##   overrun    your undead present and the living not: still Vei's (never taken in a raid), so it
+##              draws like hers, contested and emptied: the hairline ring, no core;
 ##   contested  both sides present, and the undead at least contested_frac of the living, or
 ##              both at contested_floor_frac of capacity or more;
 ##   hers       otherwise, when the living are present;
@@ -133,7 +141,7 @@ static func controller(f: Dictionary) -> String:
 ## Held beats everything; overrun and contested never overlap; contested beats hers.
 static func fort_state(f: Dictionary, margin: String) -> String:
 	if bool(f.get("held", false)):
-		return margin if margin == IdleLogic.THIN or margin == IdleLogic.WILL_FALL else IdleLogic.SAFE
+		return margin if margin in [IdleLogic.SAFE, IdleLogic.THIN, IdleLogic.WILL_FALL] else HELD
 	var cap := maxf(float(f.get("cap", 0.0)), 0.0)
 	var u := float(f.get("undead", 0.0))
 	var l := float(f.get("living", 0.0))
@@ -150,9 +158,9 @@ static func fort_state(f: Dictionary, margin: String) -> String:
 	return EMPTIED
 
 
-## Ownership by weight, so it survives greyscale: forts your undead hold, held (any margin) or
-## overrun (your garrison inside, not yet flipped), draw the outer ring held_ring_weight times the
-## hairline. Hers, contested and emptied keep the hairline (1).
+## Ownership by weight, so it survives greyscale: forts you hold (held, any margin: you broke the
+## warden in a raid) draw the outer ring held_ring_weight times the hairline. Hers, contested,
+## emptied and overrun (your undead inside, never taken) keep the hairline (1).
 ## In the overview tiers (nodes.overview_tiers: every tier below near) it is held_overview_mult
 ## heavier again, so ownership reads in greyscale at a glance.
 static func ring_weight(state: String, zoom_tier := "") -> float:
@@ -172,15 +180,15 @@ static func fort_label_key(zoom_tier: String) -> String:
 	return "text" if is_overview(zoom_tier) else "text_dim"
 
 
-## The same forts fill their inner core; hers, contested and emptied stay open. (Held and overrun
-## still differ: the held re-ink and countdown ring, and the diamond against the square.)
+## The same forts fill their inner core; hers, contested, emptied and overrun stay open.
 static func has_core(state: String) -> bool:
 	return yours(state)
 
 
-## Your undead hold the fort: held at any margin, or overrun.
+## You hold the fort: held at any margin. Overrun is not yours (it is Vei's until you break its
+## warden in a raid).
 static func yours(state: String) -> bool:
-	return state in [IdleLogic.SAFE, IdleLogic.THIN, IdleLogic.WILL_FALL, OVERRUN]
+	return state in [IdleLogic.SAFE, IdleLogic.THIN, IdleLogic.WILL_FALL, HELD]
 
 
 ## The state glyph's alpha on the forts' beat (`w`: Pulse.wave at their hop). MapNodes sets it as
@@ -191,7 +199,7 @@ static func state_alpha(w: float) -> float:
 
 ## What a fort's static rings draw, quantized to static_sig_steps of a turn so sub-pixel drift (a
 ## few bodies, a second of the held countdown) does not redraw it: the pip layout, each matter's
-## arc, held and its countdown sweep, a simulacrum, the first-dungeon label, tier and name, the
+## arc, held and its countdown sweep, a simulacrum, the name tag's text (name_tag), tier and name, the
 ## ring's weight and core (from the fort's `state`, NodeLogic.fort_state) and the raid marker
 ## (`raid`: MapModel.raid_why for the fort, its why in the model's raid set or "").
 ## MapNodes redraws a fort's static layer only when this (or the zoom, selection or light) changes.
@@ -200,13 +208,14 @@ static func fort_static_sig(f: Dictionary, flip: Dictionary, state := "", raid :
 	var fr := arc_fracs(f)
 	return [pip_layout(f), roundi(fr["living"] * steps), roundi(fr["undead"] * steps), roundi(fr["dead"] * steps),
 		bool(f.get("held", false)), roundi(held_fraction(f, flip) * steps), float(f.get("simulacrum_charges", 0.0)) > 0.0,
-		first_dungeon_pulse(f), int(f.get("tier", 1)), str(f.get("name", "")), ring_weight(state, zoom_tier), has_core(state),
+		str(name_tag(f).get("text", "")), int(f.get("tier", 1)), str(f.get("name", "")), ring_weight(state, zoom_tier), has_core(state),
 		raid != ""]
 
 
 ## A tithe is on its way to this fort (targeted, or the wave is on): the glyph's triangle badge.
 static func tithe_badge(f: Dictionary) -> bool:
-	return tithe_mode(f) != ""
+	var m := tithe_mode(f)
+	return m == "warning" or m == "wave"
 
 
 ## Half the state glyph's extent in world px at `zoom`: state_glyph_px on screen at every zoom.
@@ -220,24 +229,33 @@ static func grace_total(flip: Dictionary, tier: int) -> float:
 	return float(flip.get("hold_s", 0.0)) * (1.0 + float(flip.get("tier_mult", 0.0)) * tier)
 
 
-## The held countdown's sweep, 0..1: held_s_left / grace_total (0 when not held).
+## The held countdown's sweep, 0..1: grace_s_left / grace_total (0 when not held). grace_s_left is
+## the seconds of grace left after you take a fort; at 0 Vei contests it (the fort is not lost).
 static func held_fraction(f: Dictionary, flip: Dictionary) -> float:
 	if not bool(f.get("held", false)):
 		return 0.0
 	var g := grace_total(flip, int(f.get("tier", 1)))
 	if g <= 0.0:
 		return 0.0
-	return clampf(float(f.get("held_s_left", 0.0)) / g, 0.0, 1.0)
+	return clampf(float(f.get("grace_s_left", 0.0)) / g, 0.0, 1.0)
 
 
-## "wave" while the tithe wave is on this fort, "warning" while it is targeted, else "".
+## "wave" while the tithe wave is on this fort, "warning" while it is targeted, "next" while it is
+## only Vei's next pick, else "".
 static func tithe_mode(f: Dictionary) -> String:
 	var t: Dictionary = f.get("tithe", {})
 	if bool(t.get("wave_active", false)):
 		return "wave"
 	if bool(t.get("targeted", false)):
 		return "warning"
+	if bool(t.get("next", false)):
+		return "next"
 	return ""
+
+
+## The fort is Vei's next tithe pick (not yet warned): the quiet hollow triangle, no ring.
+static func tithe_next(f: Dictionary) -> bool:
+	return tithe_mode(f) == "next"
 
 
 ## The tithe countdown's sweep, 0..1: eta_s / tithe_warning_s (0 for eta_s < 0, the API's "none").
@@ -258,6 +276,46 @@ static func fmt_eta(eta_s: float) -> String:
 ## The first-dungeon fort pulses (its first clear still pays a blueprint).
 static func first_dungeon_pulse(f: Dictionary) -> bool:
 	return bool(f.get("first_dungeon", false)) and bool(f.get("first_clear", false))
+
+
+## The one line under a fort's name, {text, key} (key: a Palette key), or {} for none:
+##   the first dungeon (its first clear still pays a blueprint): relish;
+##   retaken (not held, flipped before: Vei took it back): danger;
+##   overrun (not held, your undead inside, never taken): `label_tag_keys.overrun` (text).
+## Drawn at tag_size() px, at least the name's.
+static func name_tag(f: Dictionary) -> Dictionary:
+	var n := ncfg()
+	var keys: Dictionary = n["label_tag_keys"]
+	if first_dungeon_pulse(f):
+		return {"text": str(n["label_first_dungeon"]), "key": str(keys["first"])}
+	if not bool(f.get("held", false)):
+		if int(f.get("flipped_count", 0)) > 0:
+			return {"text": str(n["label_retaken"]), "key": str(keys["retaken"])}
+		if fort_state(f, "") == OVERRUN:
+			return {"text": str(n["label_overrun"]), "key": str(keys["overrun"])}
+	return {}
+
+
+## The tag line's font size in screen px (the name's is font_label).
+static func tag_size() -> int:
+	return int(_n("label_tag_px"))
+
+
+## A label's plate in screen px around its anchor, as MapNodeLayer.draw_label draws it: the text of
+## width `w` starting at x, its baseline `dy` below the anchor, `size` px tall.
+static func label_plate(x: float, w: float, size: int, dy: float) -> Rect2:
+	var pad := _n("plate_pad_px")
+	return Rect2(x - pad, dy - size * _n("plate_ascent"), w + pad * 2.0, size * _n("plate_height"))
+
+
+## The plates a fort's labels cover, in screen px around the label anchor (the fort's position plus
+## r + label_off_px down): its name (baseline `size`), and, when `tag_w` >= 0, its tag line under it
+## (baseline `size` + label_line_px). Both are centred. The lane callouts keep clear of them.
+static func fort_label_rects(name_w: float, tag_w: float, size: int) -> Array:
+	var out: Array = [label_plate(-name_w * 0.5, name_w, size, float(size))]
+	if tag_w >= 0.0:
+		out.append(label_plate(-tag_w * 0.5, tag_w, tag_size(), float(size) + _n("label_line_px")))
+	return out
 
 
 ## Fort name labels: shown at mid and near zoom; at far zoom only forts of label_far_min_tier+.
@@ -607,9 +665,22 @@ static func demo_overlay(forts: Array, vei: Dictionary, hud: Dictionary, relish:
 			var f: Dictionary = by_id[held["fort"]]
 			f["held"] = true
 			f["flipped_count"] = 1
-			f["held_s_left"] = float(held["frac"]) * grace_total(flip, int(f["tier"]))
+			f["grace_s_left"] = float(held["frac"]) * grace_total(flip, int(f["tier"]))
 			f["ship_in"] = float(held.get("ship_in", 0.0))  # the idle surfaces' pressure and garrison
 			f["undead"] = float(held.get("undead", f.get("undead", 0.0)))
+			# the view's hold readouts, written out as the economy would give them
+			f["garrison"] = f["undead"]
+			f["margin"] = str(held.get("margin", ""))
+			f["garrison_rate"] = float(held.get("garrison_rate", 0.0))
+			f["fall_s"] = float(held.get("fall_s", -1.0))
+	var supports := 0
+	var held_n := 0
+	for f in forts:
+		if bool(f.get("held", false)):
+			held_n += 1
+			if str(f.get("margin", "")) != IdleLogic.WILL_FALL:
+				supports += 1
+	hud["war_supports"] = {"n": supports, "m": held_n}
 	for mt in d.get("matter", []):  # fort state glyphs: an overrun, a contested and an emptied fort
 		if by_id.has(mt.get("fort", "")):
 			var mf: Dictionary = by_id[mt["fort"]]

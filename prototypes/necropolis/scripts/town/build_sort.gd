@@ -195,6 +195,8 @@ static func _chip(id: String, views: Dictionary, names: Dictionary, ncfg: Dictio
 				return String(chips.get("tithe_unknown", ""))
 			return fmt(String(chips.get("tithe", "")), {"fort": names.get(target, target)})
 		"front":
+			if not vei_in_sight(views, ncfg):
+				return ""
 			for f in views.get("vei", {}).get("fronts", []):
 				var need := float(f.get("need", 0.0))
 				if need > 0.0 and float(f.get("have", 0.0)) < need:
@@ -225,6 +227,15 @@ static func _chip(id: String, views: Dictionary, names: Dictionary, ncfg: Dictio
 				return String(chips.get("morale", ""))
 			return ""
 	return ""
+
+
+## Whether Vei is in sight, so her fronts are a need worth a chip (V-e): a fort of needs.front_sight_tier or
+## above has been taken (view_hud.highest_tier_flipped), or Relish stands at Vei's gate. Before that a day-1
+## town would read "the giants front is short (5 of 26)" about a fight a new player can't reach for days.
+static func vei_in_sight(views: Dictionary, ncfg: Dictionary) -> bool:
+	if String((views.get("relish", {}) as Dictionary).get("state", "")) == "at_vei":
+		return true
+	return int((views.get("hud", {}) as Dictionary).get("highest_tier_flipped", 0)) >= int(ncfg.get("front_sight_tier", 1))
 
 
 ## A starved stream (`resource` = a `shortage_fix` key): its net rate is <= 0 and its producer is not
@@ -726,8 +737,10 @@ static func autoplay_why(views: Dictionary, cfgs: Dictionary) -> String:
 
 
 ## A row can be queued: not gated and it has a lot to take.
-static func can_queue(row: Dictionary, vcfg: Dictionary) -> bool:
-	return not is_gated(row, vcfg) and not (row.get("lots", []) as Array).is_empty()
+## Whether a catalog row offers Queue: a free lot fits it and it isn't a built unique building. A gated row
+## queues too (the T3.2 ruling, IDLE §5): it waits in its place for its tier, blueprint, building or relics.
+static func can_queue(row: Dictionary, _vcfg: Dictionary) -> bool:
+	return not (row.get("lots", []) as Array).is_empty() and String(row.get("reason", "")) != "unique"
 
 
 ## {lot id: size} from view_town's lots (a lot the view doesn't list is absent: nearest_lot sorts it last).
@@ -835,6 +848,19 @@ static func relic_text(row: Dictionary, st: Dictionary, bview: Dictionary, vcfg:
 	if float((row.get("cost", {}) as Dictionary).get("relics", 0.0)) <= float(st.get("relics", 0.0)) + 0.0001:
 		return ""
 	return reason_text("no_relics", row, st, bview, vcfg)
+
+
+## A blocked upgrade's refusal in words (`u` is inspect()'s upgrade: reason, cost, level), followed by its unmet
+## relic cost when gold or bone is short first, so "needs 1 relic: raid a fort" is always said.
+static func upgrade_reason(u: Dictionary, st: Dictionary, bview: Dictionary, vcfg: Dictionary) -> String:
+	var reason := String(u.get("reason", ""))
+	var row := {"cost": u.get("cost", {}), "level": int(u.get("level", 0))}
+	var why := reason_text(reason, row, st, bview, vcfg)
+	if reason in ["no_gold", "no_bone"]:
+		var rel := relic_text(row, st, bview, vcfg)
+		if rel != "":
+			why += String((vcfg.get("shortage_text", {}) as Dictionary).get("also", "; ")) + rel
+	return why
 
 
 ## A blocked row's refusal in words (reason_text), followed by its unmet relic cost when the reason
@@ -994,6 +1020,9 @@ static func inspect(entry: Dictionary, st: Dictionary, bcfg: Dictionary, bview: 
 	var up: Dictionary = entry.get("upkeep", {})
 	return {
 		"building_id": bid, "label": label_of(bid, bview), "flavour": String(bview.get(bid, {}).get("flavour", "")),
+		# what it does for you → the loop, and how it's used (TownGuide; view.guide)
+		"purpose": TownGuide.why(bid, vcfg.get("guide", {})), "use": TownGuide.how(bid, bcfg, vcfg.get("guide", {})),
+		"use_key": TownGuide.how_key(bid, vcfg.get("guide", {})),
 		"level": level, "max_level": max_level, "state": state,
 		"level_text": fmt(String(vcfg.get("level_text", "")), {"level": level, "max": max_level}),
 		"state_text": fmt(tpl, {"pct": int(round(float(entry.get("progress", 0.0)) * 100.0))}),
@@ -1119,6 +1148,84 @@ static func entry_reason(e: Dictionary, catalog: Dictionary, st: Dictionary, bvi
 	return reason_text(reason, row, st, bview, vcfg)
 
 
+## Whether the real queue's list is full, so no Queue button can add to it: the list against `queue_list_max` (the
+## whole list's cap). Whether one more slot-holding entry fits (`queue_slots` against `queue_max`) depends on the
+## entry, since a gated one holds no slot: the command's queue_full refusal says that, never a count of ours. A view
+## without `queue_list_max` is never full by our count.
+static func queue_list_full(town: Dictionary) -> bool:
+	return town.has("queue_list_max") and (town.get("queue", []) as Array).size() >= int(town["queue_list_max"])
+
+
+## "Queue: 3 of 8 slots": the slot-holding entries (`queue_slots`) against `queue_max`; "" when the view lacks either.
+static func queue_slots_text(town: Dictionary, vcfg: Dictionary) -> String:
+	if not town.has("queue_max") or not town.has("queue_slots"):
+		return ""
+	return fmt(String((vcfg.get("queue_text", {}) as Dictionary).get("slots", "")), {"used": int(town["queue_slots"]), "max": int(town["queue_max"])})
+
+
+## cmd_reorder_queue's order for moving entry `index` by `delta` (±1) in a queue of `n`: `order[k]` is the old index
+## at position k. Out of range: the identity.
+static func swap_order(n: int, index: int, delta: int) -> Array:
+	var order: Array = range(n)
+	var j := index + delta
+	if index >= 0 and index < n and j >= 0 and j < n:
+		order[index] = j
+		order[j] = index
+	return order
+
+
+## The index in `live` (view_town().queue now) of the entry shown at `index` in `shown` (the queue the rows were
+## drawn from at the last bind), matched by building, lot and upgrade, and the same occurrence among equal entries
+## (two upgrades of one lot). -1 when it is no longer there (it started, or an earlier click took it): the click is
+## then dropped, never sent to whatever entry moved into its index (the M2 review's should-fix 1).
+static func live_index(shown: Array, index: int, live: Array) -> int:
+	if index < 0 or index >= shown.size():
+		return -1
+	var k := _queue_key(shown[index])
+	var nth := 0
+	for i in index:
+		if _queue_key(shown[i]) == k:
+			nth += 1
+	for i in live.size():
+		if _queue_key(live[i]) == k:
+			if nth == 0:
+				return i
+			nth -= 1
+	return -1
+
+
+static func _queue_key(e: Dictionary) -> String:
+	return "%s|%s|%s" % [String(e.get("building_id", "")), String(e.get("lot_id", "")), str(bool(e.get("upgrade", false)))]
+
+
+## Whether queue entry `e` is held by a gate it waits out in its place (IDLE §5: a tier, a blueprint, a building,
+## relics, a locked lot; queue_text.gate_wait), not skipped for good (lot_taken and the like).
+static func is_gate_wait(e: Dictionary, vcfg: Dictionary) -> bool:
+	return String(e.get("status", "")) == "skipped_gate" \
+		and ((vcfg.get("queue_text", {}) as Dictionary).get("gate_wait", {}) as Dictionary).has(String(e.get("reason", "")))
+
+
+## A skipped entry's line: "queued: waits for Village" for a gate it waits out (gate_wait), else "skipped: <why>".
+static func skip_text(e: Dictionary, catalog: Dictionary, st: Dictionary, bview: Dictionary, vcfg: Dictionary) -> String:
+	var qt: Dictionary = vcfg.get("queue_text", {})
+	var reason := String(e.get("reason", ""))
+	if not is_gate_wait(e, vcfg):
+		return fmt(String(qt.get("skipped", "")), {"why": entry_reason(e, catalog, st, bview, vcfg)})
+	var row: Dictionary = catalog.get(String(e.get("building_id", "")), {})
+	var req: Dictionary = row.get("requires", {})
+	var bp := String(req.get("blueprint", ""))
+	var need := int((e.get("cost", {}) as Dictionary).get("relics", 0))
+	var n := need - int(st.get("relics", 0.0))
+	if n <= 0:
+		n = need  # the relics held are spoken for by entries ahead of it: it waits for its own cost
+
+	var tt: Dictionary = vcfg.get("shortage_text", {})
+	return fmt(String((qt["gate_wait"] as Dictionary)[reason]), {
+		"tier": String(req.get("tier", "")).capitalize(), "label": label_of(bp if bp != "" else String(e.get("building_id", "")), bview),
+		"building": label_of(String(req.get("building", "")), bview), "n": n,
+		"unit": String(tt.get("unit_relics_one" if n == 1 else "unit_relics", "relics"))})
+
+
 ## The queue as canvas ghosts, same entries and numbers as the panel: [{lot_id, number (1-based),
 ## building_id, upgrade, level, status, shape: "ring" (next) | "hold" (waiting_funds, "||") | "struck"
 ## (skipped_gate) | "plain" (queued), text: the shortage or gate text (shown on hover)}].
@@ -1127,11 +1234,12 @@ static func ghosts(entries: Array, catalog: Dictionary, st: Dictionary, bview: D
 	var out: Array = []
 	for i in entries.size():
 		var e: Dictionary = entries[i]
+		var waits := is_gate_wait(e, vcfg)  # a gate it waits out is a plain queued ghost with its wait as the text
 		out.append({
 			"lot_id": String(e.get("lot_id", "")), "number": i + 1, "building_id": String(e.get("building_id", "")),
 			"upgrade": bool(e.get("upgrade", false)), "level": int(e.get("level", 1)), "status": String(e.get("status", "queued")),
-			"shape": String(shapes.get(String(e.get("status", "queued")), "plain")),
-			"text": entry_reason(e, catalog, st, bview, vcfg),
+			"shape": "plain" if waits else String(shapes.get(String(e.get("status", "queued")), "plain")),
+			"text": skip_text(e, catalog, st, bview, vcfg) if waits else entry_reason(e, catalog, st, bview, vcfg),
 		})
 	return out
 
@@ -1192,7 +1300,14 @@ static func queue_etas(entries: Array, st: Dictionary, catalog: Dictionary, town
 		for k in acc:
 			acc[k] = float(acc[k]) + float(cost.get(k, 0.0))
 		var start := String(qt.get("eta_now", ""))
-		if status != "next":
+		if e.has("affordable_in_s") and status != "next":  # the view's own walk (R2), at today's net rates
+			var a := float(e["affordable_in_s"])
+			if a < 0.0:
+				out.append(never_text(e, vcfg))
+				continue
+			start = fmt(String(qt.get("eta_head" if status == "waiting_funds" else "eta_later", "")), {"t": fmt_eta(a, vcfg)}) \
+				if a > 0.0 else String(qt.get("eta_later_now", ""))
+		elif status != "next":
 			var wait := 0.0
 			var stuck := ""
 			for k in ["gold", "bone"]:
@@ -1218,6 +1333,24 @@ static func queue_etas(entries: Array, st: Dictionary, catalog: Dictionary, town
 			else fmt(String(qt.get("eta_work", "")), {"work": int(ceil(work))})
 		out.append(start + String(qt.get("eta_sep", " · ")) + build)
 	return out
+
+
+## A queue entry the view says is never affordable at today's income (`affordable_in_s` −1.0): "can't be afforded
+## at today's bone income: the pits take every body before the Bone Mill: raise WAR on the map", from its `short`
+## store and its own `starved` reason (queue_text.starved_why); one with nothing short (queued behind such a head)
+## reads eta_behind.
+static func never_text(e: Dictionary, vcfg: Dictionary) -> String:
+	var qt: Dictionary = vcfg.get("queue_text", {})
+	var store := ""
+	for k in ["gold", "bone"]:
+		if float((e.get("short", {}) as Dictionary).get(k, 0.0)) > 0.0001:
+			store = k
+			break
+	if store == "":
+		return String(qt.get("eta_behind", ""))
+	var t := fmt(String(qt.get("afford_never", "")), {"store": store})
+	var why := String((qt.get("starved_why", {}) as Dictionary).get(String(e.get("starved", "")), ""))
+	return t + (": " + why if why != "" else "")
 
 
 ## The live build throughput, measured from the views (not a sim formula): on each observe(), every

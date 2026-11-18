@@ -100,9 +100,11 @@ static func kept_reason(town: Dictionary, hud: Dictionary, steady: float, kept_n
 ## instead; one the relics held can't pay for (BuildSort.relic_blocked) is never named while a relic-free job
 ## item is buildable. A new build's gain is the catalog row's `projected` rates (api-request #9, oblique, "now") or
 ## else its job count; an upgrade's, the building's jobs per level. "10 idle: no job building affordable;
-## mustering to WAR" (or "waiting at the crypt" while nobody musters) only when no job build or upgrade can
-## be paid for. [] when the idle hands are no need.
-static func idle_parts(views: Dictionary, vcfg: Dictionary, bview: Dictionary, bcfg: Dictionary, tab: Dictionary = {}) -> Array:
+## mustering to FLOOD (Vei's queue)" (muster_to's name; or "waiting at the crypt" while nobody musters) only when no job build or upgrade can
+## be paid for. [] when the idle hands are no need. `short` (the HUD cell, whose width clips the full line; the
+## tooltip keeps it whole): the job count as the gain and hud.text's `_short` templates, with no "or let them muster".
+static func idle_parts(views: Dictionary, vcfg: Dictionary, bview: Dictionary, bcfg: Dictionary, tab: Dictionary = {},
+		short := false) -> Array:
 	var hcfg: Dictionary = vcfg.get("hud", {})
 	var need := BuildSort.idle_need(views, vcfg.get("needs", {}), bcfg)
 	if need.is_empty():
@@ -141,16 +143,48 @@ static func idle_parts(views: Dictionary, vcfg: Dictionary, bview: Dictionary, b
 		var row: Dictionary = best["row"]
 		var bid := String(row.get("building_id", ""))
 		var gain: Array = []
-		if not bool(row.get("upgrade", false)) and row.get("projected") is Dictionary:
+		if not short and not bool(row.get("upgrade", false)) and row.get("projected") is Dictionary:
 			var rt := BuildSort.rate_texts(row["projected"], vcfg)
 			if not rt.is_empty():
 				gain = [[", ".join(rt), true]]
 		if gain.is_empty():
 			gain = [[BuildSort.fmt(_t(hcfg, "idle_jobs"), {"n": BuildSort.job_slots(bid, bcfg)}), false]]
-		return fill_parts(_t(hcfg, "idle_upgrade" if bool(row.get("upgrade", false)) else "idle_build"),
+		var key := "idle_upgrade" if bool(row.get("upgrade", false)) else "idle_build"
+		if short and (hcfg.get("text", {}) as Dictionary).has(key + "_short"):
+			key += "_short"
+		return fill_parts(_t(hcfg, key),
 			{"n": str(n), "label": BuildSort.label_of(bid, bview), "level": int(row.get("level", 0)), "gain": gain})
 	var mustering := float(views.get("town", {}).get("workers", {}).get("muster", 0.0)) > 0.0
-	return [[BuildSort.fmt(_t(hcfg, "idle_none" if mustering else "idle_none_wait"), {"n": n}), false]]
+	var key := "idle_none" if mustering else "idle_none_wait"
+	if short and mustering and (hcfg.get("text", {}) as Dictionary).has("idle_none_short"):
+		key = "idle_none_short"  # the cell: muster_word ("idle → FLOOD") already stands before it
+	return [[BuildSort.fmt(_t(hcfg, key), {"n": n, "to": muster_name(views, vcfg)}), false]]
+
+
+## Where the idle muster goes now: view_hud.split.muster_to, else view_town.workers.muster_to ("flood", Vei's
+## queue, or "war" while the Muster stance acts). "flood" when neither view says: it is the rule without the stance.
+static func muster_to(views: Dictionary) -> String:
+	var to := String(((views.get("hud", {}) as Dictionary).get("split", {}) as Dictionary).get("muster_to", ""))
+	if to == "":
+		to = String(((views.get("town", {}) as Dictionary).get("workers", {}) as Dictionary).get("muster_to", "flood"))
+	return to
+
+
+## The muster's destination as the valve names it, with where that is: "FLOOD (Vei's queue)" / "WAR (your forts)"
+## (town.json view.muster_names).
+static func muster_name(views: Dictionary, vcfg: Dictionary) -> String:
+	var to := muster_to(views)
+	return String((vcfg.get("muster_names", {}) as Dictionary).get(to, to.to_upper()))
+
+
+## The workers cell's word after the muster rate, "idle → FLOOD", and its tooltip (hud.text muster_word / muster_tip).
+static func muster_word(views: Dictionary, hcfg: Dictionary) -> String:
+	var to := muster_to(views)
+	return String(((hcfg.get("text", {}) as Dictionary).get("muster_word", {}) as Dictionary).get(to, "→ " + to.to_upper()))
+
+
+static func muster_tip(views: Dictionary, hcfg: Dictionary) -> String:
+	return String(((hcfg.get("text", {}) as Dictionary).get("muster_tip", {}) as Dictionary).get(muster_to(views), ""))
 
 
 ## `tpl` with each `{key}` replaced by vars[key]: a String (upright) or parts [[text, oblique]].
@@ -196,7 +230,7 @@ static func parts_text(parts: Array) -> String:
 	return s
 
 
-## "+0.07/s" (the oblique part); the upright "→ WAR" is `text.war`.
+## "+0.07/s" (the oblique part); the upright word after it is muster_word(), which names where it goes.
 static func war_text(rate: float, hcfg: Dictionary) -> String:
 	return net_text(rate, hcfg)
 
@@ -332,10 +366,16 @@ static func stuck_line(id: String, fix: String, views: Dictionary, hcfg: Diction
 		if net < 0.0 and not is_flat(net, hcfg):
 			return BuildSort.fmt(String(tx.get("upkeep", "")), vars)
 		var staffed := 0.0
+		var cause := ""  # the producer's own reason (view_town buildings[].starved, STATE-API §5.9)
 		for b in views.get("town", {}).get("buildings", []):
 			if String(b.get("building_id", "")) == fix:
 				staffed += float(b.get("staffed", 0.0))
-		if staffed > 0.0:  # it has hands but nothing to work on: name the input it lacks
+				if String(b.get("starved", "")) != "":
+					cause = String(b["starved"])
+		if staffed > 0.0:  # it has hands but nothing to work on: the sim's cause when it gives one, else the input it lacks
+			var sw: Dictionary = tx.get("starved_why", {})
+			if sw.has(cause):
+				return BuildSort.fmt(String(sw[cause]), vars)
 			vars["input"] = String((hcfg.get("producer_input", {}) as Dictionary).get(fix, ""))
 			return BuildSort.fmt(String(tx.get("starved", "")), vars)
 		return BuildSort.fmt(String(tx.get("unstaffed", "")), vars)

@@ -34,6 +34,15 @@ static func reason_text(reason: String) -> String:
 	return str(_c().get("reason_fallback", "%s")) % reason
 
 
+## The toast for a relish_returned event {fort_id, cause: "retaken"}: Vei retook the fort Relish stood
+## at and she walks home. "" for any other event or a fort the map does not know (`names`: node id
+## -> display name).
+static func returned_toast(ev: Dictionary, names: Dictionary) -> String:
+	if str(ev.get("type", "")) != "relish_returned" or not names.has(str(ev.get("fort_id", ""))):
+		return ""
+	return str(_c()["returned_fmt"]) % HudLogic.node_name(str(ev["fort_id"]), names)
+
+
 # --- the chip --------------------------------------------------------------------
 
 ## Whether Relish stands at node `id` (in its dungeon or the boss fight counts).
@@ -81,8 +90,11 @@ static func chip_buttons(relish: Dictionary) -> Dictionary:
 
 # --- the card's actions ----------------------------------------------------------
 
-static func _line(text: String) -> Dictionary:
-	return {"kind": "line", "text": text, "act": "", "enabled": true}
+static func _line(text: String, key := "") -> Dictionary:
+	var out := {"kind": "line", "text": text, "act": "", "enabled": true}
+	if key != "":
+		out["key"] = key
+	return out
 
 
 static func _button(text: String, act: String, enabled := true) -> Dictionary:
@@ -111,10 +123,17 @@ static func move_items(relish: Dictionary, id: String, here_text: String) -> Arr
 ## The fort card's actions, in order: MOVE / CANCEL / "Relish is here", DESCEND (disabled with
 ## its reason in words), the haul line and its button. Items: {kind: "line"|"button", text, act, enabled}.
 ## `act` is "move", "cancel", "descend", "haul" or "haul_auto".
-static func fort_actions(fort: Dictionary, relish: Dictionary, haul: Dictionary, names: Dictionary) -> Array:
+## `comes` is {ci: CardLogic.comes_in(), warn: CardLogic.comes_in_warning()}: the line above DESCEND
+## is the warning (with its key) when there is one, else the count of who comes in.
+static func fort_actions(fort: Dictionary, relish: Dictionary, haul: Dictionary, names: Dictionary, comes: Dictionary) -> Array:
 	var id := str(fort.get("id", ""))
 	var out := move_items(relish, id, "Relish is here")
 	var can := bool(fort.get("can_descend", false))
+	var warn: Dictionary = comes.get("warn", {})
+	if not warn.is_empty():
+		out.append(_line(str(warn["text"]), str(warn["key"])))
+	else:
+		out.append(_line(CardLogic.comes_count_text(comes.get("ci", {"garrison": 0, "starter": 0, "bigs": 0}))))
 	out.append(_button("DESCEND", "descend", can))
 	if not can and str(fort.get("reason", "")) != "":
 		out.append(_line(reason_text(str(fort["reason"]))))
@@ -131,6 +150,9 @@ static func fort_actions(fort: Dictionary, relish: Dictionary, haul: Dictionary,
 static func vei_actions(vei: Dictionary, relish: Dictionary) -> Array:
 	var out := move_items(relish, "vei", "Relish is at Vei's gates")
 	var can := bool(vei.get("can_begin", false))
+	var short := CardLogic.fronts_short_text(vei)
+	if short != "":
+		out.append(_line(short, "danger"))
 	out.append(_button("BEGIN THE FINAL TEST", "begin", can))
 	if not can and str(vei.get("reason", "")) != "":
 		out.append(_line(reason_text(str(vei["reason"]))))

@@ -13,10 +13,11 @@ const FIRST_FLIP := "first_flip"
 const TITHE := "tithe"
 const GARRISON := "garrison"
 const VICTORY := "victory"
-const KINDS := [VALVE, FLIP, FIRST_FLIP, TITHE, GARRISON, VICTORY]
+const RETREAT := "retreat"  # back from a raid that left the fort Vei's: one callout line
+const KINDS := [VALVE, FLIP, FIRST_FLIP, TITHE, GARRISON, VICTORY, RETREAT]
+const TAKEN := "taken"  # return_kind: the raid took the fort (its set piece is FLIP or FIRST_FLIP)
 const RUN := "run"    # victory: every lane green, running toward Vei
 const STOP := "stop"  # victory: every dash frozen, the victory line up
-const ANY_FORT := "*"  # the `seen` bucket for events that name no fort (relish_died)
 const NONE := Vector2(-1.0, -1.0)  # no band this frame
 
 
@@ -117,6 +118,50 @@ static func first_flip_text(fort_name: String) -> String:
 	return _s("first_flip_fmt") % fort_name
 
 
+## The map's last dive into a fort: {fort, held} (held when Relish dove), or {}. Static so it
+## outlives the map scene, which is freed during the raid (as MapHud._next does).
+static var _last_dive := {}
+
+
+## The map dove into `fort_id` (an empty id, for Covington or Vei, records nothing to match) while the
+## fort was `held` or not. Only the last dive is kept.
+static func note_dive(fort_id: String, held: bool) -> void:
+	_last_dive = {"fort": fort_id, "held": held}
+
+
+## What the map says on mounting after a scene: TAKEN, RETREAT or "" (no line). `arrive_from` is the
+## node just left, `fort` its view (empty for Covington, Vei or none), `taken_event` whether the
+## router replayed this fort's fort_flipped, `relish` view_relish, `dive` note_dive's record (default
+## the last one). A real event is always taken. Without one, a fort held within its grace counts as
+## taken (the no-snapshot swap can deliver fort_flipped after the map mounts), unless it was already
+## held when Relish dove: that raid took nothing, so it says nothing. No record for this fort (a
+## harness teleport that never dove from the map) allows the fallback. A fort still Vei's with Relish
+## alive is a retreat (she keeps what she found); a death, a held fort past its grace and any other
+## scene say nothing.
+static func return_kind(arrive_from: String, fort: Dictionary, taken_event: bool, relish: Dictionary, dive := _last_dive) -> String:
+	if arrive_from == "" or fort.is_empty() or str(fort.get("id", "")) != arrive_from:
+		return ""
+	if taken_event:
+		return TAKEN
+	var held := bool(fort.get("held", false))
+	if held:
+		var was_held := str(dive.get("fort", "")) == arrive_from and bool(dive.get("held", false))
+		return TAKEN if float(fort.get("grace_s_left", 0.0)) > 0.0 and not was_held else ""
+	if float(relish.get("dead_s_left", 0.0)) > 0.0 or str(relish.get("state", "")) == "dead":
+		return ""
+	return RETREAT
+
+
+## The return line for `kind` (TAKEN or RETREAT) at a fort named `fort_name`; "" for any other kind.
+static func return_text(kind: String, fort_name: String) -> String:
+	match kind:
+		TAKEN:
+			return _s("taken_fmt") % fort_name
+		RETREAT:
+			return _s("retreat_fmt") % fort_name
+	return ""
+
+
 ## The first flip's green ripple at the fort's beat `phase` (Pulse.phase at its hops): {reach
 ## (0..1 of ripple_reach_px), alpha} while t < ripple_beats; {} after it and under reduced motion.
 static func ripple(phase: float, t: float, reduced: bool) -> Dictionary:
@@ -197,30 +242,9 @@ static func garrison_from_event(ev: Dictionary) -> Dictionary:
 	return {"fort_id": str(ev.get("fort_id", "")), "n": maxi(roundi(float(ev.get("killed_mass", 0.0))), 0)}
 
 
-## The stand-in until that event is emitted: the map arrived from `arrive_from`'s dungeon, the fort
-## is held, its raid banked loot, and neither a flip nor the real event came for it. {fort_id,
-## n: -1} (no number to show), else {}. `seen`: fort id -> {event type: true} since the map opened
-## (ANY_FORT holds relish_died). loot_banked fires on every writeback, a death or a retreat too, so
-## it also needs the fort's counter-garrison gone (living <= garrison_clear_eps; a real clear
-## zeroes it) and no relish_died.
-# TODO(api-request #10): drop this once apply_result emits counter_garrison_cleared.
-static func garrison_stand_in(arrive_from: String, forts_by_id: Dictionary, seen: Dictionary) -> Dictionary:
-	var f: Dictionary = forts_by_id.get(arrive_from, {})
-	if f.is_empty() or not bool(f.get("held", false)):
-		return {}
-	var s: Dictionary = seen.get(arrive_from, {})
-	if not s.has("loot_banked") or s.has("fort_flipped") or s.has("counter_garrison_cleared"):
-		return {}
-	if (seen.get(ANY_FORT, {}) as Dictionary).has("relish_died"):
-		return {}
-	if float(f.get("living", INF)) > float(cfg()["garrison_clear_eps"]):
-		return {}
-	return {"fort_id": arrive_from, "n": -1}
-
-
-## The callout: "Garrison cleared: −N living", or the stand-in's words without N (n < 0).
+## The callout: "Vei's living routed: −N".
 static func garrison_text(n: int) -> String:
-	return _s("garrison_standin_text") if n < 0 else _s("garrison_fmt") % MapLogic.fmt_mass(n)
+	return _s("garrison_fmt") % MapLogic.fmt_mass(n)
 
 
 ## Her counter-garrison as the chip counts it down, x (0..1) of the way through the drain: n at
@@ -229,12 +253,12 @@ static func drain_count(n: int, x: float) -> int:
 	return clampi(ceili(n * (1.0 - clampf(x, 0.0, 1.0))), 0, n)
 
 
-## The garrison set piece `t` beats in, for a counter-garrison of `n` (-1: the stand-in, unknown):
+## The garrison set piece `t` beats in, for a counter-garrison of `n`:
 ##   pulse    0..1, the WAR band from Covington to the fort (-1: none);
 ##   burst    0..1, the green rings at the fort once the pulse lands (-1: none);
 ##   ring     true: the burst's still ring (reduced motion);
-##   chip     the chip's line two: {} the live chip; {text, key, squash} her counter draining to 0
-##            (or the cleared word without n), then flipping (squash 1 -> 0) to {live: true,
+##   chip     the chip's line two: {} the live chip; {text, key, squash} her counter draining to 0,
+##            then flipping (squash 1 -> 0) to {live: true,
 ##            squash 0 -> 1}, the live margin word;
 ##   callout  its alpha; done.
 ## Reduced motion: the end state at once (the live word, the callout, the still ring).
@@ -258,18 +282,162 @@ static func garrison(t: float, n: int, reduced: bool) -> Dictionary:
 	if u < _n("garrison_burst_beats"):
 		out["burst"] = u / _n("garrison_burst_beats")
 	out["callout"] = callout_alpha(u, cb, false)
-	var text := _s("garrison_cleared_word")
-	var key := _s("garrison_cleared_key")
-	if n >= 0:
-		text = _s("garrison_counter_fmt") % MapLogic.fmt_mass(drain_count(n, u / db))
-		key = "living"
+	var text := _s("garrison_counter_fmt") % MapLogic.fmt_mass(drain_count(n, u / db))
 	if u < db:
-		out["chip"] = {"text": text, "key": key, "squash": 1.0}
+		out["chip"] = {"text": text, "key": "living", "squash": 1.0}
 	elif u < db + fb * 0.5:
-		out["chip"] = {"text": text, "key": key, "squash": 1.0 - (u - db) / (fb * 0.5)}
+		out["chip"] = {"text": text, "key": "living", "squash": 1.0 - (u - db) / (fb * 0.5)}
 	elif u < db + fb:
 		out["chip"] = {"live": true, "squash": (u - db - fb * 0.5) / (fb * 0.5)}
 	return out
+
+
+# --- a finished build (the callout at Covington) ----------------------------------------------
+# The sim's own projection (view_catalog's `projected`, view_town's `upgrade_projected`) is the
+# honest number, but it moves on to the next level once a build is done, so the model keeps the
+# last real one it read per pending build in a store: {"lot:level": {building_id, rates}}.
+
+static func proj_key(lot_id: String, level: int) -> String:
+	return "%s:%d" % [lot_id, level]
+
+
+## Built lots from view_town().buildings: {lot_id: {building_id, level}}. A first build under way is
+## level 0 and an upgrade under way still reads its old level, so a level only rises on `done`.
+static func lot_levels(buildings: Array) -> Dictionary:
+	var out := {}
+	for b in buildings:
+		out[str(b["lot_id"])] = {"building_id": str(b["building_id"]), "level": int(b["level"])}
+	return out
+
+
+## The builds that finished between two snapshots of lot_levels: a lot whose level rose, or whose
+## building changed, [{lot_id, building_id, level}] by lot id. A level-0 lot has built nothing yet.
+static func rises(before: Dictionary, now: Dictionary) -> Array:
+	var out: Array = []
+	var ids := now.keys()
+	ids.sort()
+	for id in ids:
+		var n: Dictionary = now[id]
+		if int(n["level"]) < 1:
+			continue
+		var b: Dictionary = before.get(id, {})
+		if b.is_empty() or str(b["building_id"]) != str(n["building_id"]) or int(n["level"]) > int(b["level"]):
+			out.append({"lot_id": str(id), "building_id": str(n["building_id"]), "level": int(n["level"])})
+	return out
+
+
+## The mount's `rises` to announce: none when the away panel opens for this return (the away
+## report already lists the builds that finished, so a callout would say them twice).
+static func mount_builds(mount_rises: Array, away_opens: bool) -> Array:
+	return [] if away_opens else mount_rises
+
+
+## Whether a catalog read is worth its cost: a build is queued or under construction.
+static func has_pending(town: Dictionary) -> bool:
+	if not (town.get("queue", []) as Array).is_empty():
+		return true
+	for b in town.get("buildings", []):
+		if str(b.get("state", "")) == "constructing":
+			return true
+	return false
+
+
+## The new builds (not upgrades) waiting or under way, whose projection the catalog holds by
+## building id: queued rows, and a first build under construction. [{lot_id, building_id, level: 1}].
+static func pending_new(town: Dictionary) -> Array:
+	var out: Array = []
+	for q in town.get("queue", []):
+		if not bool(q.get("upgrade", false)) and str(q.get("lot_id", "")) != "":
+			out.append({"lot_id": str(q["lot_id"]), "building_id": str(q["building_id"]), "level": 1})
+	for b in town.get("buildings", []):
+		if str(b.get("state", "")) == "constructing" and int(b["level"]) == 0:
+			out.append({"lot_id": str(b["lot_id"]), "building_id": str(b["building_id"]), "level": 1})
+	return out
+
+
+## Stores each built lot's upgrade_projected at the lot's next level. An empty one (cold, or the lot
+## is constructing) never overwrites the last real value.
+static func note_upgrades(store: Dictionary, buildings: Array) -> void:
+	for b in buildings:
+		var p: Dictionary = b.get("upgrade_projected", {})
+		if not p.is_empty():
+			store[proj_key(str(b["lot_id"]), int(b["level"]) + 1)] = {"building_id": str(b["building_id"]), "rates": p.duplicate()}
+
+
+## Stores the catalog's `projected` for each pending new build (by building id) at its lot, level 1;
+## an empty row keeps what was stored.
+static func note_catalog(store: Dictionary, pending: Array, rows: Array) -> void:
+	for p in pending:
+		for r in rows:
+			if str(r.get("building_id", "")) == str(p["building_id"]):
+				var rates: Dictionary = r.get("projected", {})
+				if not rates.is_empty():
+					store[proj_key(str(p["lot_id"]), int(p["level"]))] = {"building_id": str(p["building_id"]), "rates": rates.duplicate()}
+				break
+
+
+## The stored rates of `building_id` on `lot_id` at `level`: {} when none (or another building's).
+static func projection_for(store: Dictionary, lot_id: String, building_id: String, level: int) -> Dictionary:
+	var e: Dictionary = store.get(proj_key(lot_id, level), {})
+	if e.is_empty() or str(e["building_id"]) != building_id:
+		return {}
+	return e["rates"]
+
+
+## `build` joins the callout's builds unless that lot and level is already in it (the router
+## re-emits a building_done it held while the map mounted, and the mount's diff found the same one).
+static func add_build(builds: Array, build: Dictionary) -> Array:
+	for b in builds:
+		if str(b["lot_id"]) == str(build["lot_id"]) and int(b["level"]) == int(build["level"]):
+			return builds
+	return builds + [build]
+
+
+## The stream with the biggest |change| among build_rate_ids (the HUD's own streams, so work, war
+## and flood, which are the mint again, and corpses and backlog, which have no label, never lead):
+## {id, delta}, or {} when none reaches build_eps. A tie goes to the earlier stream.
+static func biggest(rates: Dictionary) -> Dictionary:
+	var best := {}
+	for id in cfg()["build_rate_ids"]:
+		var d := float(rates.get(id, 0.0))
+		if absf(d) >= _n("build_eps") and (best.is_empty() or absf(d) > absf(float(best["delta"]))):
+			best = {"id": str(id), "delta": d}
+	return best
+
+
+## The callout's line: "Inn built · MINT +0.8/s"; several builds, rates summed: "2 builds: Inn ·
+## Bakery · MINT +1.1/s"; with no recorded projection (or every change under build_eps) the
+## builds alone. `names` maps a building id to its label (buildings_view.json).
+static func build_text(builds: Array, store: Dictionary, names: Dictionary) -> String:
+	var labels: Array = []
+	var sum := {}
+	for b in builds:
+		var id := str(b["building_id"])
+		labels.append(str(names.get(id, id.capitalize())))
+		var rates := projection_for(store, str(b["lot_id"]), id, int(b["level"]))
+		for k in rates:
+			sum[k] = float(sum.get(k, 0.0)) + float(rates[k])
+	var sep := _s("build_sep")
+	var head := _s("build_one_fmt") % labels[0] if labels.size() == 1 else _s("build_many_fmt") % [labels.size(), sep.join(labels)]
+	var big := biggest(sum)
+	if big.is_empty():
+		return head
+	return "%s%s%s %s" % [head, sep, str(HudLogic.LABELS.get(big["id"], str(big["id"]).to_upper())), MapLogic.fmt_rate(float(big["delta"]))]
+
+
+## The line's runs by font (AwayLogic.spans): the signed rate is the rate face, the rest labels.
+static func build_spans(text: String) -> Array:
+	return AwayLogic.spans(text)
+
+
+## The plate's alpha `t` beats in: full, fading over the last callout_fade_beats; under reduced
+## motion full until it is gone.
+static func build_alpha(t: float, reduced: bool) -> float:
+	return callout_alpha(t, _n("build_beats"), reduced)
+
+
+static func build_done(t: float) -> bool:
+	return t >= _n("build_beats")
 
 
 # --- victory --------------------------------------------------------------------------------

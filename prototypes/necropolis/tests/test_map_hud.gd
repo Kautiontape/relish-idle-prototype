@@ -12,6 +12,8 @@ func run() -> int:
 	_contrast(t)
 	_bar(t)
 	_status(t)
+	_tithe_line(t)
+	_bone_line(t)
 	_callout_text(t)
 	_callout_rows(t)
 	_placement(t)
@@ -20,7 +22,85 @@ func run() -> int:
 	_one_source(t)
 	_fit(t)
 	_wrap(t)
+	_clarity(t)
 	return t.failures
+
+
+## C2: the run's goal shows until a fort is taken; the jargon words have config tooltips; nothing
+## on the map says "drown Vei".
+func _clarity(t: TestUtil) -> void:
+	t.suite("map_hud-clarity")
+	t.ok(HudLogic.goal_shown({"highest_tier_flipped": 0}), "no fort taken: the goal shows")
+	t.ok(HudLogic.goal_shown({}), "a view without the field reads as a new game")
+	t.ok(not HudLogic.goal_shown({"highest_tier_flipped": 1}), "a fort taken: the goal is gone")
+	t.ok(not HudLogic.goal_shown({"highest_tier_flipped": 0, "won": true}), "won: no goal line")
+	var goal := HudLogic.goal_text()
+	t.ok(goal.contains("take Vei's forts") and goal.contains("necropolis") and goal.contains("FLOOD clogs her queue") and goal.contains("raises your odds"), "the goal line states the run and FLOOD: " + goal)
+	t.ok(not goal.to_lower().contains("drown"), "no 'drown Vei' on the goal line")
+	for id in ["mint", "odds", "strain", "drain", "work", "war", "flood"]:
+		t.ok(HudLogic.tip(id) != "", "%s has a tooltip line" % id)
+	t.ok(HudLogic.tip("nothing") == "", "an unknown word has none")
+	t.ok(HudLogic.tip("mint").contains("Raising Pit"), "MINT says where undead come from")
+	var mint_line := "Mint: the undead your Raising Pits make each second. The map's valve splits it into WORK (your town's jobs), WAR (your forts) and FLOOD (Vei's queue)."
+	var war_line := "WAR sends undead to your forts, spread by distance, with Relish's fort drawing 3× its share. FLOOD sends them into Vei's queue, which raises your odds against her."
+	t.ok(HudLogic.tip("mint") == mint_line, "the mint tip is the glossary's line verbatim")
+	t.ok(not MapLogic.cfg()["clarity"].has("valve_tip"), "the mint line lives under clarity.tips.mint only")
+	var valve_src := FileAccess.get_file_as_string("res://scripts/map/map_valve.gd")
+	t.ok(valve_src.contains("tooltip_text = HudLogic.tip(\"mint\")") and not valve_src.contains("valve_tip"), "the valve's tooltip is the mint line (HudLogic.tip(\"mint\"))")
+	t.ok(HudLogic.tip("war") == war_line and HudLogic.tip("flood") == war_line, "the WAR and FLOOD tips are the glossary's full line verbatim")
+	t.ok(HudLogic.tip("strain") == "How backed up Vei's queue is. ▲ means it's growing (FLOOD is clogging it); ▼ means she's working it down.", "the STRAIN tip is the glossary's line verbatim")
+	t.ok(HudLogic.tip("drain") == "How long until Vei's queue empties at this rate. ∞ means it isn't emptying.", "the DRAIN tip is the glossary's line verbatim")
+	t.ok(HudLogic.tip("odds") == "Your chance to beat Vei if you faced her now. It grows with time and with her clogged queue.", "the ODDS tip is the glossary's line verbatim")
+	t.ok(HudLogic.tip("work") == "WORK: your town's jobs", "the WORK tip stands")
+	# the legend: clear of the chip and the valve, collapses with no room, unchanged with plenty
+	var chip := Rect2(12, 200, 330, 35)
+	var valve := Rect2(12, 512, 400, 300)
+	var roomy := HudLogic.legend_place(chip, valve, 12.0, 490.0, 240.0, 200.0, 40.0, true, false, 10.0)
+	t.ok(roomy["mode"] == "full" and is_equal_approx((roomy["rect"] as Rect2).end.y, 502.0) and (roomy["rect"] as Rect2).position.y >= chip.end.y + 10.0, "plenty of room: full, just above the valve, under the chip")
+	var tight := HudLogic.legend_place(chip, valve, 12.0, 490.0, 330.0, 250.0, 40.0, true, false, 10.0)
+	t.ok(tight["mode"] == "closed" and not (tight["rect"] as Rect2).intersects(chip) and not (tight["rect"] as Rect2).intersects(valve), "no room for full: collapsed, clear of both")
+	var clicked := HudLogic.legend_place(chip, valve, 12.0, 490.0, 330.0, 250.0, 40.0, true, true, 10.0)
+	t.ok(clicked["mode"] == "compact" and (clicked["rect"] as Rect2).position.y >= chip.end.y + 10.0 and (clicked["rect"] as Rect2).end.y <= valve.position.y - 10.0, "a click expands it compactly, clear of both")
+	var nohope := HudLogic.legend_place(chip, valve, 12.0, 490.0, 330.0, 280.0, 40.0, true, true, 10.0)
+	t.ok(nohope["mode"] == "closed", "not even compact fits: collapsed")
+	var tall_chip := HudLogic.legend_place(Rect2(12, 200, 330, 120), valve, 12.0, 490.0, 300.0, 250.0, 40.0, true, false, 10.0)
+	t.ok(tall_chip["mode"] == "closed", "a taller chip takes the room: collapsed")
+	var far_chip := HudLogic.legend_place(Rect2(900, 200, 330, 120), valve, 12.0, 490.0, 300.0, 250.0, 40.0, true, false, 10.0)
+	t.ok(far_chip["mode"] == "full", "a chip beside the legend's columns does not bound it")
+	t.ok(HudLogic.legend_place(chip, valve, 12.0, 490.0, 300.0, 250.0, 40.0, false, false, 10.0)["mode"] == "closed", "not wanted open: the button")
+	t.ok(not JSON.stringify(MapLogic.cfg().get("opening", {})).to_lower().contains("drown"), "the opening's lines do not say drown")
+	# the card rises to the screen's top only where the HUD's plates leave it room
+	t.ok(HudLogic.sidebar_top(1600.0, 338.0, 1000.0, 12.0, 150.0, 12.0) == 12.0, "1600 wide, plates end at 1000: the card starts at the top")
+	t.ok(HudLogic.sidebar_top(1280.0, 338.0, 1000.0, 12.0, 150.0, 12.0) == 150.0, "1280 wide: the plates reach the card's column, so it starts under them")
+	t.ok(HudLogic.sidebar_top(1600.0, 338.0, 1255.0, 12.0, 150.0, 12.0) == 150.0, "the gap is kept clear of the plates")
+	# the fort legend: open until a fort is taken, then a button; the player's click stands
+	t.ok(HudLogic.legend_open({"highest_tier_flipped": 0}, -1), "legend open on a new game")
+	t.ok(not HudLogic.legend_open({"highest_tier_flipped": 2}, -1), "legend collapsed once a fort is taken")
+	t.ok(HudLogic.legend_open({"highest_tier_flipped": 2}, 1), "a click opens it afterwards")
+	t.ok(not HudLogic.legend_open({"highest_tier_flipped": 0}, 0), "a click closes it on day 1")
+	t.ok(HudLogic.legend_glyph_state("held") == IdleLogic.SAFE and HudLogic.legend_glyph_state("overrun") == NodeLogic.OVERRUN and HudLogic.legend_glyph_state("hers") == NodeLogic.HERS and HudLogic.legend_glyph_state("retaken") == NodeLogic.HERS, "each legend row draws the map's own state glyph")
+	var lc: Dictionary = MapLogic.cfg()["clarity"]["legend"]
+	t.ok((lc["rows"] as Array).size() == 4, "four states in the legend")
+	var lplate := Palette.c("ground").lightened(float(MapLogic.cfg()["panel_bg_lighten"]))
+	lplate.a = float(lc["plate_alpha"])
+	var lbright := ""
+	for k in Palette.keys():
+		if lbright == "" or MapLogic.luminance(Palette.c(k)) > MapLogic.luminance(Palette.c(lbright)):
+			lbright = k
+	var lthrough := Palette.c(lbright).lerp(lplate, lplate.a)  # the brightest key showing through the plate's alpha
+	for row in lc["rows"]:
+		for key in [str(row["key"]), "text_dim"]:
+			var lr := MapLogic.contrast_ratio(Palette.c(key), lthrough)
+			t.ok(lr >= 4.5, "legend %s (%s) reads %.1f:1 on its plate (>= 4.5)" % [row["word"], key, lr])
+	t.ok(int(MapLogic.cfg()["font_label"]) >= 12, "legend text is at least 12 px")
+	# the goal's plate is the bar's: its text reads 4.5:1 over the brightest key showing through
+	var a := float(MapLogic.cfg()["topbar_plate_alpha"])
+	var bright := ""
+	for k in Palette.keys():
+		if bright == "" or MapLogic.luminance(Palette.c(k)) > MapLogic.luminance(Palette.c(bright)):
+			bright = k
+	var through := Palette.c("ground").lerp(Palette.c(bright), 1.0 - a)
+	t.ok(MapLogic.contrast_ratio(Palette.c("text"), through) >= 4.5, "the goal's text reads 4.5:1 on the strip's plate")
 
 
 func _type(t: TestUtil) -> void:
@@ -77,6 +157,46 @@ func _contrast(t: TestUtil) -> void:
 			t.ok(r >= 4.5, "%s on %s is %.1f:1 (>= 4.5)" % [key, g, r])
 
 
+## The BONE item's pits-first warning: the mill's stall, or the queue head that can never be afforded.
+func _bone_line(t: TestUtil) -> void:
+	t.suite("map_hud-bone-line")
+	var pits := {"starved": "pits_first", "lever": "raise_war"}
+	var none := {"starved": "", "lever": ""}
+	var bodies := {"starved": "no_bodies", "lever": ""}
+	var names := {"inn": "Inn"}
+	var stalled := {"building_id": "inn", "level": 1, "status": "waiting_funds", "reason": "no_bone", "affordable_in_s": -1.0,
+		"short": {"gold": 0.0, "bone": 6.2}, "starved": "pits_first", "lever": "raise_war"}
+	t.ok(HudLogic.bone_line(none, {}, names) == "", "no stall: nothing to say")
+	t.ok(HudLogic.bone_line({}, {}, names) == "", "no mill row: nothing to say")
+	t.ok(HudLogic.bone_line(pits, {}, names) == "no bone: the pits eat every body. Raise WAR", "mill pits_first: the stall and the lever, as config words: " + HudLogic.bone_line(pits, {}, names))
+	var head := HudLogic.bone_line(pits, stalled, names)
+	t.ok(head == "Inn: never, 7 bone short. The pits eat every body: raise WAR", "a stalled head is named with a never ETA and what it lacks: " + head)
+	t.ok(not head.contains(":0") and not head.contains(" in ") and not head.contains("m "), "a never ETA carries no number of time")
+	t.ok(HudLogic.bone_line(none, stalled, names) == head, "the head alone (the mill row between steps) reads the same")
+	var timed := stalled.duplicate()
+	timed["affordable_in_s"] = 90.0
+	timed["starved"] = ""
+	timed["lever"] = ""
+	t.ok(HudLogic.bone_line(pits, timed, names) == "no bone: the pits eat every body. Raise WAR", "a timed wait is not a stall: the mill's line stands")
+	t.ok(HudLogic.bone_line(bodies, {}, names) == "", "no_bodies is not pits first: no raise WAR line")
+	var bod_head := stalled.duplicate()
+	bod_head["starved"] = "no_bodies"
+	bod_head["lever"] = ""
+	t.ok(HudLogic.bone_line(bodies, bod_head, names) == "", "a no_bodies head says nothing either")
+	t.ok(HudLogic.bone_line(pits, stalled, {}).begins_with("Inn: never"), "no name table: the id, capitalised")
+	var bl: Dictionary = MapLogic.cfg()["bone_line"]
+	t.ok(HudLogic.lever_text("raise_war") == "Raise WAR" and bl["levers"]["raise_war"] == "Raise WAR", "the lever's words come from config, keyed by the view's lever")
+	var cfg := MapLogic.cfg()
+	var a := float(cfg["topbar_plate_alpha"])
+	var bright := ""
+	for k in Palette.keys():
+		if bright == "" or MapLogic.luminance(Palette.c(k)) > MapLogic.luminance(Palette.c(bright)):
+			bright = k
+	var through := Palette.c("ground").lerp(Palette.c(bright), 1.0 - a)
+	var r := MapLogic.contrast_ratio(Palette.c(str(bl["key"])), through)
+	t.ok(r >= 4.5, "the bone warning (%s) reads 4.5:1 on the bar plate (%.1f)" % [bl["key"], r])
+
+
 func _hud(rates: Array, extra := {}) -> Dictionary:
 	var d := {"rates": rates, "odds": 0.0, "sign": 0, "drain_s": -1.0, "time_scale": 1.0, "won": false}
 	d.merge(extra, true)
@@ -111,6 +231,23 @@ func _bar(t: TestUtil) -> void:
 	t.ok(full[1]["capped"], "over cap counts as at cap")
 	t.ok(not full[2]["capped"] and full[2]["stock_text"] == "99,999", "uncapped never marks")
 	t.ok(HudLogic.rate_items({}).is_empty(), "no rates, no items")
+
+
+func _tithe_line(t: TestUtil) -> void:
+	t.suite("map_hud-tithe-line")
+	var names := {"ashgate": "Ashgate"}
+	var wave := HudLogic.tithe_line({"target": "ashgate", "eta_s": 0.0, "warning": false, "wave_active": true, "next_target": "greywall", "next_s": 900.0}, names)
+	t.ok(wave["text"] == "Tithe wave at Ashgate now" and wave["fort_id"] == "ashgate", "wave running")
+	var warn := HudLogic.tithe_line({"target": "ashgate", "eta_s": 105.0, "warning": true, "wave_active": false, "next_target": "ashgate", "next_s": 105.0}, names)
+	t.ok(warn["text"] == "Tithe wave at Ashgate in 1:45" and warn["fort_id"] == "ashgate", "warning with its ETA")
+	var nxt := HudLogic.tithe_line({"target": "", "eta_s": -1.0, "warning": false, "wave_active": false, "next_target": "ashgate", "next_s": 750.0}, names)
+	t.ok(nxt["text"] == "Next tithe: Ashgate in 12:30" and nxt["fort_id"] == "ashgate", "next pick with next_s")
+	var far := HudLogic.tithe_line({"next_target": "ashgate", "next_s": 5430.0}, names)
+	t.ok(far["text"] == "Next tithe: Ashgate in 1h 30m", "an hour out reads Nh Mm")
+	t.ok(HudLogic.tithe_line({"next_target": "greywall", "next_s": 60.0}, names)["text"] == "Next tithe: Greywall in 1:00", "an unnamed fort falls back to its id")
+	var none := {"text": "", "fort_id": ""}
+	t.ok(HudLogic.tithe_line({"target": "", "eta_s": -1.0, "next_target": "", "next_s": -1.0}, names) == none, "before Vei's clock: nothing")
+	t.ok(HudLogic.tithe_line({"next_target": "ashgate", "next_s": -1.0}, names) == none and HudLogic.tithe_line({}, names) == none, "no next_s or an empty view: nothing")
 
 
 func _status(t: TestUtil) -> void:
@@ -248,6 +385,27 @@ func _placement(t: TestUtil) -> void:
 	var far: Array = [[Rect2(0, 0, 10, 10)], [Rect2(500, 500, 10, 10)]]
 	t.ok(HudLogic.place(far, 5, 4.0) == [0, 0], "well-separated plates all place")
 	t.ok(HudLogic.place([], 5, 4.0).is_empty(), "nothing in, nothing out")
+	# a callout candidate over a fort's name label is rejected for the next candidate (C2 item 3)
+	var anchor := Vector2(300, 300)
+	var lab_rects := NodeLogic.fort_label_rects(60.0, -1.0, 12)
+	t.ok(lab_rects.size() == 1, "a fort with no tag has one label rect")
+	var lab: Rect2 = lab_rects[0]
+	lab.position += anchor
+	var over := Rect2(lab.position + Vector2(5, 2), Vector2(80, 20))
+	var clear := Rect2(lab.position + Vector2(0, 80), Vector2(80, 20))
+	t.ok(over.intersects(lab), "the first candidate sits on the label")
+	t.ok(HudLogic.place([[over, clear]], 5, 4.0, [lab]) == [1], "the candidate over a label is rejected for the next")
+	t.ok(HudLogic.place([[over]], 5, 4.0, [lab]) == [-1], "no clear candidate: the callout is skipped")
+	# the tag's plate is occupied too: a rect under the name but over the tag line is rejected
+	var two := NodeLogic.fort_label_rects(60.0, 140.0, 12)
+	t.ok(two.size() == 2, "a tagged fort has a name rect and a tag rect")
+	t.ok(two[1].position.y > two[0].position.y and two[1].size.x > two[0].size.x, "the tag plate sits under the name and is wider here")
+	t.ok(HudLogic.place([[two[1].grow(-2.0)]], 5, 0.0, two) == [-1], "a candidate over the tag plate is rejected")
+	# the rects are the plates draw_label draws: pad, ascent and height from the nodes config
+	var n := NodeLogic.ncfg()
+	var want := Rect2(-30.0 - float(n["plate_pad_px"]), 12.0 - 12.0 * float(n["plate_ascent"]), 60.0 + 2.0 * float(n["plate_pad_px"]), 12.0 * float(n["plate_height"]))
+	t.ok(lab_rects[0].is_equal_approx(want), "the name's rect is draw_label's plate for dy = font size")
+	t.ok(NodeLogic.label_plate(-30.0, 60.0, 12, 12.0).is_equal_approx(want), "label_plate is what draw_label draws")
 
 
 ## The top bar and Vei's node read one MapModel.readout(): identical odds, sign and drain, with

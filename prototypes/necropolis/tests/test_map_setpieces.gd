@@ -1,8 +1,8 @@
 extends RefCounted
 ## Tests for setpiece_logic.gd (the map's set pieces on the tempo): the valve swing's widths over
 ## its beat, the re-ink's segment order and completion, the tithe tide's band from Vei to the
-## fort, victory's run-then-stop, the garrison timeline and its two sources (the real event with
-## N, the stand-in without), first-flip detection, reduced motion going straight to each end
+## fort, victory's run-then-stop, the garrison timeline and its source (the real event, with
+## N), first-flip detection, reduced motion going straight to each end
 ## state, the clock and the debug flags; plus a source check on the set-piece scripts. No autoloads.
 
 const MAP_DIR := "res://scripts/map"
@@ -20,9 +20,12 @@ func run() -> int:
 	_valve(t, c)
 	_reink(t, c)
 	_first_flip(t)
+	_return(t, c)
+	_words(t)
 	_tide(t, c)
 	_garrison(t, c)
 	_sources_of_garrison(t, c)
+	_builds(t, c)
 	_victory(t, c)
 	_reduced(t, c)
 	_debug(t, c)
@@ -84,6 +87,76 @@ func _reink(t: TestUtil, c: Dictionary) -> void:
 	t.ok(not SetpieceLogic.reink_done(d * 0.9, false), "the glyph waits for the ring")
 
 
+## The map's line when it mounts after a dungeon: taken (the fort_flipped event, or a fort that is now
+## held within its grace) or retreat (still Vei's, Relish alive), in the glossary's words.
+func _return(t: TestUtil, c: Dictionary) -> void:
+	t.suite("map_setpieces-return")
+	var vei_fort := {"id": "ashgate", "name": "Ashgate", "held": false, "grace_s_left": 0.0}
+	var held_fort := {"id": "ashgate", "name": "Ashgate", "held": true, "grace_s_left": 400.0}
+	var alive := {"dead_s_left": 0.0, "state": "at_fort"}
+	t.ok(SetpieceLogic.return_kind("ashgate", held_fort, true, alive) == SetpieceLogic.TAKEN, "the fort_flipped event: taken")
+	t.ok(SetpieceLogic.return_kind("ashgate", held_fort, false, alive) == SetpieceLogic.TAKEN, "no event, but the fort is held in its grace and we came from it: taken")
+	t.ok(SetpieceLogic.return_kind("ashgate", vei_fort, true, alive) == SetpieceLogic.TAKEN, "the event wins over a view that has not caught up")
+	t.ok(SetpieceLogic.return_kind("ashgate", vei_fort, false, alive) == SetpieceLogic.RETREAT, "still Vei's after the raid: a retreat")
+	t.ok(SetpieceLogic.return_kind("ashgate", vei_fort, false, {"dead_s_left": 30.0, "state": "dead"}) == "", "she died: not a retreat, you did not keep everything")
+	t.ok(SetpieceLogic.return_kind("ashgate", {"id": "ashgate", "held": true, "grace_s_left": 0.0}, false, alive) == "", "an old held fort raided again with no flip: nothing taken, nothing to say")
+	# the dive record: a held fort raided again is not taken, whatever its grace
+	var was_held := {"fort": "ashgate", "held": true}
+	var was_vei := {"fort": "ashgate", "held": false}
+	t.ok(SetpieceLogic.return_kind("ashgate", held_fort, false, alive, was_held) == "", "held at the dive, held in grace now, no event: nothing taken, no line (not a retreat either: the fort is not Vei's)")
+	t.ok(SetpieceLogic.return_kind("ashgate", held_fort, false, alive, was_vei) == SetpieceLogic.TAKEN, "Vei's at the dive, held in grace now, no event yet: taken (the late-event path)")
+	t.ok(SetpieceLogic.return_kind("ashgate", held_fort, false, alive, {}) == SetpieceLogic.TAKEN, "no dive record: the grace fallback stands")
+	t.ok(SetpieceLogic.return_kind("ashgate", held_fort, true, alive, was_held) == SetpieceLogic.TAKEN, "a real event is taken whatever the dive record says")
+	t.ok(SetpieceLogic.return_kind("ashgate", held_fort, false, alive, {"fort": "bellmoor", "held": true}) == SetpieceLogic.TAKEN, "a dive record for another fort is ignored")
+	var saved: Dictionary = SetpieceLogic._last_dive
+	SetpieceLogic.note_dive("ashgate", true)
+	t.ok(SetpieceLogic.return_kind("ashgate", held_fort, false, alive) == "", "the default record is the last dive")
+	SetpieceLogic.note_dive("bellmoor", false)
+	t.ok(SetpieceLogic._last_dive == {"fort": "bellmoor", "held": false} and SetpieceLogic.return_kind("ashgate", held_fort, false, alive) == SetpieceLogic.TAKEN, "only the last dive is kept")
+	SetpieceLogic._last_dive = saved
+	t.ok(SetpieceLogic.return_kind("covington", {}, false, alive) == "" and SetpieceLogic.return_kind("", {}, false, alive) == "", "back from town: no line")
+	t.ok(SetpieceLogic.return_kind("vei", {}, true, alive) == "", "back from Vei: no line")
+	t.ok(SetpieceLogic.return_text(SetpieceLogic.TAKEN, "Ashgate") == "Ashgate taken by you", "taken line")
+	t.ok(SetpieceLogic.return_text(SetpieceLogic.RETREAT, "Ashgate") == "Ashgate stays Vei's: you kept everything you found", "retreat line")
+	t.ok(SetpieceLogic.return_text("", "Ashgate") == "", "no kind, no line")
+	t.ok(SetpieceLogic.KINDS.has(SetpieceLogic.RETREAT), "the retreat line is a set piece (debug trigger)")
+	t.ok(float(c["callout_beats"]) > 0.0, "the line's time is configured")
+	var src := FileAccess.get_file_as_string("%s/map_setpieces.gd" % MAP_DIR)
+	t.ok(src.contains("SetpieceLogic.return_kind(") and src.contains("func note_return("), "MapSetpieces decides the return line through the pure function")
+	var wm := FileAccess.get_file_as_string("res://scripts/map/world_map.gd")
+	t.ok(wm.contains("setpieces.note_return("), "world_map hands the arrival's fort to the set pieces")
+	t.ok(wm.contains("SetpieceLogic.note_dive(node_id,") and wm.find("SetpieceLogic.note_dive(") < wm.find("finished.emit({\"v\": 2, \"teleport_to\""), "world_map records the dive (held or not) before it leaves")
+
+
+## No displayed config string says flip or cleared: the player's word for winning a fort is taken
+## (briefs/glossary.md). Config KEYS and event names keep their names; only values are scanned.
+## EXEMPT lists value paths that are not player-facing (none today).
+const EXEMPT: Array[String] = []
+
+
+func _words(t: TestUtil) -> void:
+	t.suite("map_setpieces-words")
+	var re := RegEx.new()
+	re.compile("(?i)\\b(flip|flips|flipped|flipping|clear|clears|cleared)\\b")
+	var bad: Array = []
+	_scan(TestUtil.load_json("res://configs/map_view.json"), "", re, bad)
+	for b in bad:
+		t.ok(false, "player-facing string uses flip/cleared: %s" % b)
+	t.ok(bad.is_empty(), "no displayed map_view string says flip or cleared (%d)" % bad.size())
+	t.ok(str(SetpieceLogic.cfg()["taken_fmt"]).contains("taken") and str(SetpieceLogic.cfg()["retreat_fmt"]).contains("Vei's"), "the new lines are config text")
+
+
+func _scan(v: Variant, path: String, re: RegEx, bad: Array) -> void:
+	if v is Dictionary:
+		for k in v:
+			_scan(v[k], "%s.%s" % [path, k], re, bad)
+	elif v is Array:
+		for i in v.size():
+			_scan(v[i], "%s[%d]" % [path, i], re, bad)
+	elif v is String and re.search(v) != null and not EXEMPT.has(path):
+		bad.append("%s = \"%s\"" % [path, v])
+
+
 func _first_flip(t: TestUtil) -> void:
 	var forts := [{"id": "a", "flipped_count": 0}, {"id": "b", "flipped_count": 0}]
 	t.ok(SetpieceLogic.first_flip("a", forts), "the views before the flip: no fort ever flipped")
@@ -93,7 +166,7 @@ func _first_flip(t: TestUtil) -> void:
 	forts[0]["flipped_count"] = 2
 	t.ok(not SetpieceLogic.first_flip("a", forts), "a re-flip is not the first")
 	t.ok(SetpieceLogic.first_flip("x", [{"id": "x"}]), "a missing count is 0")
-	t.ok(SetpieceLogic.first_flip_text("Old Sluice") == "First flip: Old Sluice is yours", "the first flip's callout")
+	t.ok(SetpieceLogic.first_flip_text("Old Sluice") == "Old Sluice taken by you: your first fort", "the first fort's callout says taken")
 	var c := SetpieceLogic.cfg()
 	t.ok(not SetpieceLogic.ripple(0.3, 0.5, false).is_empty() and SetpieceLogic.ripple(0.3, float(c["ripple_beats"]), false).is_empty(), "the ripple runs for ripple_beats")
 	t.ok(SetpieceLogic.ripple(0.0, 0.5, false)["alpha"] > SetpieceLogic.ripple(0.8, 0.5, false)["alpha"], "the ripple fades as it spreads on the beat")
@@ -163,33 +236,125 @@ func _garrison(t: TestUtil, c: Dictionary) -> void:
 	t.ok(SetpieceLogic.garrison(pb + 0.1, 12, false)["callout"] == 1.0 and SetpieceLogic.garrison(0.5 * pb, 12, false)["callout"] == 0.0, "the callout shows from the landing")
 	var end := maxf(pb + float(c["garrison_burst_beats"]), maxf(pb + db + fb, pb + float(c["garrison_callout_beats"])))
 	t.ok(not SetpieceLogic.garrison(end - 0.01, 12, false)["done"] and SetpieceLogic.garrison(end, 12, false)["done"], "it ends when the callout, burst and flip are all over")
-	var si := SetpieceLogic.garrison(pb + db * 0.5, -1, false)
-	t.ok(str(si["chip"]["text"]) == str(c["garrison_cleared_word"]) and str(si["chip"]["key"]) == str(c["garrison_cleared_key"]), "the stand-in has no number: the cleared word, then the flip")
 	t.ok(SetpieceLogic.drain_count(12, 0.0) == 12 and SetpieceLogic.drain_count(12, 1.0) == 0 and SetpieceLogic.drain_count(12, 0.99) == 1, "the drain hits 0 only at its end")
 
 
 func _sources_of_garrison(t: TestUtil, c: Dictionary) -> void:
 	var real := SetpieceLogic.garrison_from_event({"type": "counter_garrison_cleared", "fort_id": "ashgate", "killed_mass": 23.6})
 	t.ok(real == {"fort_id": "ashgate", "n": 24}, "the real event gives its fort and N")
-	t.ok(SetpieceLogic.garrison_text(int(real["n"])) == "Garrison cleared: −24 living", "the real event's callout shows N")
+	t.ok(SetpieceLogic.garrison_text(int(real["n"])) == str(c["garrison_fmt"]) % MapLogic.fmt_mass(24), "the real event's callout shows N")
 	t.ok(SetpieceLogic.garrison_from_event({"type": "loot_banked", "fort_id": "ashgate"}).is_empty(), "another event is not the source")
-	var forts := {"ashgate": {"id": "ashgate", "held": true, "living": 0.0}, "vespers": {"id": "vespers", "held": false}}
-	var seen := {"ashgate": {"loot_banked": true}}
-	var si := SetpieceLogic.garrison_stand_in("ashgate", forts, seen)
-	t.ok(si == {"fort_id": "ashgate", "n": -1}, "the stand-in: back from a held fort's raid that banked loot, no N")
-	t.ok(SetpieceLogic.garrison_text(-1) == str(c["garrison_standin_text"]) and not SetpieceLogic.garrison_text(-1).contains("living"), "the stand-in's callout has no number")
-	t.ok(SetpieceLogic.garrison_stand_in("ashgate", forts, {"ashgate": {"loot_banked": true, "fort_flipped": true}}).is_empty(), "a flip is the flip's set piece, not this")
-	t.ok(SetpieceLogic.garrison_stand_in("ashgate", forts, {"ashgate": {"loot_banked": true, "counter_garrison_cleared": true}}).is_empty(), "the real event replaces the stand-in")
-	t.ok(SetpieceLogic.garrison_stand_in("ashgate", forts, {}).is_empty(), "no raid banked: nothing")
-	t.ok(SetpieceLogic.garrison_stand_in("vespers", forts, {"vespers": {"loot_banked": true}}).is_empty(), "a fort that is not held: nothing")
-	var eps := float(c["garrison_clear_eps"])
-	var alive := {"ashgate": {"id": "ashgate", "held": true, "living": 40.0}}
-	t.ok(SetpieceLogic.garrison_stand_in("ashgate", alive, seen).is_empty(), "a retreat with garrison left alive: nothing")
-	t.ok(SetpieceLogic.garrison_stand_in("ashgate", {"ashgate": {"held": true, "living": eps * 0.5}}, seen) == {"fort_id": "ashgate", "n": -1}, "living within the eps counts as cleared")
-	t.ok(SetpieceLogic.garrison_stand_in("ashgate", {"ashgate": {"held": true, "living": eps * 2.0}}, seen).is_empty(), "living over the eps is not cleared")
-	t.ok(SetpieceLogic.garrison_stand_in("ashgate", forts, {"ashgate": {"loot_banked": true}, SetpieceLogic.ANY_FORT: {"relish_died": true}}).is_empty(), "a death return: nothing, even with the garrison gone")
-	t.ok(SetpieceLogic.garrison_stand_in("ashgate", {"ashgate": {"held": true}}, seen).is_empty(), "no living figure in the model: nothing")
-	t.ok(SetpieceLogic.garrison_stand_in("", forts, seen).is_empty() and SetpieceLogic.garrison_stand_in("covington", forts, seen).is_empty(), "back from the town or nowhere: nothing")
+	# the real event drives the set piece: the event's N is the chip's starting count
+	var pb := float(c["garrison_pulse_beats"])
+	var first := SetpieceLogic.garrison(pb + 0.01, int(real["n"]), false)
+	t.ok(str(first["chip"]["text"]) == str(c["garrison_counter_fmt"]) % MapLogic.fmt_mass(24), "the chip counts down from the event's N")
+	var src := FileAccess.get_file_as_string("%s/map_setpieces.gd" % MAP_DIR)
+	t.ok(src.contains("\"counter_garrison_cleared\":") and src.contains("SetpieceLogic.garrison_from_event(ev)") and src.contains("_add(SetpieceLogic.GARRISON"), "MapSetpieces starts the garrison piece from the real event")
+	t.ok(not src.contains("stand_in") and not src.contains("_standin"), "and no stand-in path is left")
+
+
+## A finished build's callout at Covington: the projection store (by lot and level, only ever
+## overwritten by a real value), the level-rise diff, the away-report skip, the text, its time.
+func _builds(t: TestUtil, c: Dictionary) -> void:
+	t.suite("map_setpieces-builds")
+	var names := {"inn": "Inn", "bakery": "Bakery", "bone_mill": "Bone Mill"}
+	var eps := float(c["build_eps"])
+	t.ok(SetpieceLogic.proj_key("lot-13", 2) == "lot-13:2", "a projection is keyed by lot and level")
+	# the store: queued new builds from the catalog, built lots' upgrades from view_town, never overwritten by {}
+	var store := {}
+	var town := {"queue": [{"building_id": "inn", "lot_id": "lot-13", "upgrade": false, "level": 1},
+			{"building_id": "house", "lot_id": "lot-05", "upgrade": true, "level": 2}],
+		"buildings": [{"lot_id": "lot-05", "building_id": "house", "level": 1, "state": "active", "upgrade_projected": {"gold": 0.4, "bodies": -0.1}},
+			{"lot_id": "lot-06", "building_id": "well", "level": 1, "state": "active", "upgrade_projected": {}},
+			{"lot_id": "lot-14", "building_id": "bakery", "level": 0, "state": "constructing", "upgrade_projected": {}}]}
+	var pend := SetpieceLogic.pending_new(town)
+	t.ok(pend.size() == 2 and pend[0] == {"lot_id": "lot-13", "building_id": "inn", "level": 1} and pend[1] == {"lot_id": "lot-14", "building_id": "bakery", "level": 1},
+		"pending new builds: the queued ones and a first build under construction, at level 1 (an upgrade reads view_town)")
+	t.ok(SetpieceLogic.has_pending(town) and not SetpieceLogic.has_pending({"queue": [], "buildings": [{"lot_id": "lot-05", "building_id": "house", "level": 1, "state": "active"}]}),
+		"a catalog read is wanted only while a build is queued or under construction")
+	SetpieceLogic.note_upgrades(store, town["buildings"])
+	t.ok(SetpieceLogic.projection_for(store, "lot-05", "house", 2) == {"gold": 0.4, "bodies": -0.1}, "an upgrade's projection is stored at the lot's next level")
+	t.ok(SetpieceLogic.projection_for(store, "lot-06", "well", 2).is_empty(), "an empty upgrade_projected stores nothing")
+	var rows := [{"building_id": "inn", "projected": {"mint": 0.8}}, {"building_id": "bakery", "projected": {}}, {"building_id": "house", "projected": {"gold": 9.0}}]
+	SetpieceLogic.note_catalog(store, pend, rows)
+	t.ok(SetpieceLogic.projection_for(store, "lot-13", "inn", 1) == {"mint": 0.8}, "a new build's projection comes from its catalog row, at lot:1")
+	t.ok(SetpieceLogic.projection_for(store, "lot-14", "bakery", 1).is_empty(), "a still-cold (empty) catalog row stores nothing")
+	t.ok(SetpieceLogic.projection_for(store, "lot-13", "bakery", 1).is_empty(), "a projection of another building on that lot is not used")
+	# the last good value survives: the build starts (the lot reads {} while constructing) and the catalog goes cold
+	var constructing := [{"lot_id": "lot-05", "building_id": "house", "level": 1, "state": "constructing", "upgrade_projected": {}}]
+	SetpieceLogic.note_upgrades(store, constructing)
+	SetpieceLogic.note_catalog(store, pend, [{"building_id": "inn", "projected": {}}])
+	t.ok(SetpieceLogic.projection_for(store, "lot-05", "house", 2) == {"gold": 0.4, "bodies": -0.1}, "an upgrade's last projection stays while it constructs")
+	t.ok(SetpieceLogic.projection_for(store, "lot-13", "inn", 1) == {"mint": 0.8}, "and a new build's when its row goes cold")
+	SetpieceLogic.note_catalog(store, pend, [{"building_id": "inn", "projected": {"mint": 1.1}}])
+	t.ok(SetpieceLogic.projection_for(store, "lot-13", "inn", 1) == {"mint": 1.1}, "a newer real value replaces the old one")
+	t.ok(SetpieceLogic.projection_for(store, "lot-05", "house", 3).is_empty(), "the projection moves on to the next level: level 3 has none")
+
+	# the level-rise diff
+	var snap := SetpieceLogic.lot_levels([{"lot_id": "lot-05", "building_id": "house", "level": 1}, {"lot_id": "lot-06", "building_id": "well", "level": 1}])
+	t.ok(snap == {"lot-05": {"building_id": "house", "level": 1}, "lot-06": {"building_id": "well", "level": 1}}, "built levels by lot")
+	var now := SetpieceLogic.lot_levels([{"lot_id": "lot-05", "building_id": "house", "level": 2}, {"lot_id": "lot-06", "building_id": "well", "level": 1},
+		{"lot_id": "lot-13", "building_id": "inn", "level": 1}, {"lot_id": "lot-14", "building_id": "bakery", "level": 0}])
+	var rise := SetpieceLogic.rises(snap, now)
+	t.ok(rise == [{"lot_id": "lot-05", "building_id": "house", "level": 2}, {"lot_id": "lot-13", "building_id": "inn", "level": 1}], "an upgrade and a new building rose; a level-0 first build and an unchanged lot did not")
+	t.ok(SetpieceLogic.rises(now, now).is_empty(), "nothing rose, nothing announced")
+	var swapped := SetpieceLogic.rises(snap, SetpieceLogic.lot_levels([{"lot_id": "lot-06", "building_id": "bakery", "level": 1}]))
+	t.ok(swapped == [{"lot_id": "lot-06", "building_id": "bakery", "level": 1}], "another building on the lot at the same level is a rise")
+	t.ok(SetpieceLogic.mount_builds(rise, false).size() == 2, "on mount the diff is announced")
+	t.ok(SetpieceLogic.mount_builds(rise, true).is_empty(), "but not when the away panel opens for this return: its report already lists the builds")
+	t.ok(AwayLogic.should_open(null, false, {"shown": true, "rev": 1}, -1) and not AwayLogic.should_open(null, false, {"shown": false}, -1), "the skip's test is AwayLogic.should_open: the report is shown")
+	t.ok(SetpieceLogic.add_build([], {"lot_id": "lot-13", "building_id": "inn", "level": 1}).size() == 1
+		and SetpieceLogic.add_build([{"lot_id": "lot-13", "building_id": "inn", "level": 1}], {"lot_id": "lot-13", "building_id": "inn", "level": 1}).size() == 1,
+		"the same lot and level (an event the router re-emitted after the mount's diff) joins the callout once")
+
+	# the text
+	var inn := {"lot_id": "lot-13", "building_id": "inn", "level": 1}
+	var bakery := {"lot_id": "lot-14", "building_id": "bakery", "level": 1}
+	var s2 := {}
+	SetpieceLogic.note_catalog(s2, [{"lot_id": "lot-13", "building_id": "inn", "level": 1}, {"lot_id": "lot-14", "building_id": "bakery", "level": 1}],
+		[{"building_id": "inn", "projected": {"mint": 0.8, "gold": -0.05, "corpses": 5.0}}, {"building_id": "bakery", "projected": {"mint": 0.3, "gold": 0.1}}])
+	t.ok(SetpieceLogic.build_text([inn], s2, names) == "Inn built · MINT +0.8/s", "one build: its name and its biggest rate, signed: %s" % SetpieceLogic.build_text([inn], s2, names))
+	t.ok(SetpieceLogic.build_text([inn, bakery], s2, names) == "2 builds: Inn · Bakery · MINT +1.1/s", "several: the names, the rates summed: %s" % SetpieceLogic.build_text([inn, bakery], s2, names))
+	var s3 := {}
+	SetpieceLogic.note_catalog(s3, [{"lot_id": "lot-13", "building_id": "inn", "level": 1}], [{"building_id": "inn", "projected": {"mint": 0.1, "gold": -0.6, "backlog": -50.0}}])
+	t.ok(SetpieceLogic.build_text([inn], s3, names) == "Inn built · GOLD −0.6/s", "a fall is signed with the minus, and a stream with no label (backlog) never leads")
+	t.ok(SetpieceLogic.build_text([inn], {}, names) == "Inn built", "no recorded projection: just the build")
+	t.ok(SetpieceLogic.build_text([inn, bakery], {}, names) == "2 builds: Inn · Bakery", "several with none recorded: just the list")
+	var s4 := {}
+	SetpieceLogic.note_catalog(s4, [{"lot_id": "lot-13", "building_id": "inn", "level": 1}], [{"building_id": "inn", "projected": {"mint": eps * 0.5, "gold": -eps * 0.9}}])
+	t.ok(SetpieceLogic.build_text([inn], s4, names) == "Inn built", "every |delta| under the eps: just the build")
+	t.ok(SetpieceLogic.build_text([{"lot_id": "lot-20", "building_id": "bone_mill", "level": 1}], {}, names) == "Bone Mill built", "a name with a space")
+	t.ok(SetpieceLogic.build_text([{"lot_id": "lot-20", "building_id": "stables", "level": 1}], {}, names) == "Stables built", "an id with no label is capitalised")
+	var bid := SetpieceLogic.biggest({"gold": -0.3, "mint": 0.3})
+	t.ok(str(bid["id"]) == "mint", "a tie goes to the first stream in the HUD's order")
+	t.ok((c["build_rate_ids"] as Array).all(func(id): return HudLogic.LABELS.has(id)), "the streams a callout can name are the HUD's own (HudLogic.LABELS)")
+	# the runs: rates oblique, the rest labels
+	var spans := SetpieceLogic.build_spans("Inn built · MINT +0.8/s")
+	t.ok(spans.size() == 2 and spans[0]["kind"] == "label" and spans[1] == {"text": "+0.8/s", "kind": "rate"}, "the signed rate is its own run (the rate face): %s" % str(spans))
+
+	# the time
+	var d := float(c["build_beats"])
+	t.ok(SetpieceLogic.build_alpha(0.0, false) == 1.0 and SetpieceLogic.build_alpha(d * 0.5, false) == 1.0, "the plate holds full for most of its time")
+	t.ok(SetpieceLogic.build_alpha(d - float(c["callout_fade_beats"]) * 0.5, false) < 1.0 and SetpieceLogic.build_alpha(d, false) == 0.0, "then fades out by build_beats")
+	t.ok(SetpieceLogic.build_alpha(d - 0.01, true) == 1.0 and SetpieceLogic.build_alpha(d, true) == 0.0, "reduced motion: it appears and disappears, no fade")
+	t.ok(SetpieceLogic.build_done(d) and not SetpieceLogic.build_done(d * 0.99), "it lasts build_beats")
+
+	# 4.5:1 over its plate, the way the node labels are tested: the brightest palette key behind it at worst
+	var bright_key := ""
+	for k in Palette.keys():
+		if bright_key == "" or MapLogic.luminance(Palette.c(k)) > MapLogic.luminance(Palette.c(bright_key)):
+			bright_key = k
+	var plate := NodeLogic.label_plate_color()
+	for under_key in [bright_key, "undead", "living", "vei"]:
+		var under := Palette.c("ground").lerp(Palette.c(under_key), 1.0 - plate.a)
+		for key in ["build_label_key", "build_rate_key"]:
+			var r := MapLogic.contrast_ratio(Palette.c(str(c[key])), under)
+			t.ok(r >= 4.5, "%s (%s) on its plate over %s: %.2f:1 (>= 4.5)" % [key, c[key], under_key, r])
+	t.ok(int(c["build_font"]) >= 12, "the callout's type is at least 12 px")
+	var src := FileAccess.get_file_as_string("%s/map_setpieces.gd" % MAP_DIR)
+	t.ok(src.contains("\"building_done\":") and src.contains("SetpieceLogic.add_build(") and src.contains("model.mount_rises"), "MapSetpieces takes the live event and the mount's diff through one path")
+	var lay := FileAccess.get_file_as_string("%s/map_setpiece_layer.gd" % MAP_DIR)
+	t.ok(lay.contains("\"runs\"") and lay.contains("MapType.rate_font()"), "the layer draws a runs plate with the rate face")
 
 
 func _victory(t: TestUtil, c: Dictionary) -> void:

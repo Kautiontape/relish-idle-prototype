@@ -88,6 +88,33 @@ func show_card(card: Dictionary) -> void:
 		_update(_refs[i], card["blocks"][i])
 
 
+## The bottom edge of every block, in this card's frame, from the controls' minimum sizes (a layout
+## pass behind a text change would give stale positions): the sidebar ends a scrolled card's visible
+## area on one of these (CardLogic.snap_bottom), so no line is cut at the fold.
+func block_bottoms() -> Array:
+	var out: Array = []
+	var gap := float(get_theme_constant("separation"))
+	var y := 0.0
+	for c in get_children():
+		var ctl := c as Control
+		if not ctl.visible:
+			continue
+		if ctl == _body:
+			var bgap := float(_body.get_theme_constant("separation"))
+			var by := y
+			for b in _body.get_children():
+				if (b as Control).visible:
+					by += (b as Control).get_combined_minimum_size().y
+					out.append(by)
+					by += bgap
+			y = by - bgap
+		else:
+			y += ctl.get_combined_minimum_size().y
+			out.append(y)
+		y += gap
+	return out
+
+
 static func _put(l: Label, text: String) -> void:
 	if l.text != text:
 		l.text = text
@@ -101,6 +128,11 @@ static func _wrap(l: Label) -> Label:
 	l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	l.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	return l
+
+
+## What a para's style depends on: its face and colour key (the structure signature ignores both).
+static func _para_style(blk: Dictionary) -> String:
+	return "%s:%s" % [blk["face"], blk["key"]]
 
 
 static func _face(l: Label, face: String, key: String) -> void:
@@ -133,6 +165,7 @@ func _build(blk: Dictionary) -> Dictionary:
 			_face(l, str(blk["face"]), str(blk["key"]))
 			_body.add_child(l)
 			refs["label"] = l
+			refs["para_style"] = _para_style(blk)
 		"chips":
 			var f := HFlowContainer.new()
 			f.add_theme_constant_override("h_separation", int(cards["chip_gap_px"]))
@@ -263,6 +296,10 @@ func _update(refs: Dictionary, blk: Dictionary) -> void:
 			_put(refs["label"], str(blk["text"]))
 		"para":
 			_put(refs["label"], str(blk["text"]))
+			var style := _para_style(blk)  # a para's colour can change under the same id
+			if refs.get("para_style", "") != style:
+				refs["para_style"] = style
+				_face(refs["label"], str(blk["face"]), str(blk["key"]))
 		"chips":
 			for i in (blk["chips"] as Array).size():
 				var chip: Dictionary = refs["chips"][i]

@@ -12,6 +12,34 @@ static var _oblique: FontVariation = null
 static var _bold: FontVariation = null
 
 
+## A refused command's line: a `catching_up` refusal is a wait, not an error (C-c), so it reads as its own
+## words, "Catching up on your time away: try again in a moment."; any other reason reads `refused`.
+static func refusal(reason: String, why: String, refused: String) -> String:
+	if reason == "catching_up" and why != "":
+		return why.substr(0, 1).to_upper() + why.substr(1) + "."
+	return refused
+
+
+## The glossary's line for each jargon word `text` uses (`vcfg` is town.json's view; its guide.jargon: mint,
+## husk, phylactery; case ignored), one per line; "" when it uses none. A label's tooltip, wherever the word shows.
+static func jargon_tip(text: String, vcfg: Dictionary) -> String:
+	var j: Dictionary = vcfg.get("guide", {}).get("jargon", {})
+	var out := PackedStringArray()
+	for w in j:
+		if text.findn(String(w)) >= 0:
+			out.append(String(j[w]))
+	return "\n".join(out)
+
+
+## Sets `c`'s tooltip to jargon_tip(`text`, `vcfg`); a Label (which ignores the mouse by default) takes the
+## mouse while it has one.
+static func set_jargon_tip(c: Control, text: String, vcfg: Dictionary) -> void:
+	var tip := jargon_tip(text, vcfg)
+	if c.tooltip_text != tip:
+		c.tooltip_text = tip
+		c.mouse_filter = Control.MOUSE_FILTER_STOP if tip != "" or not (c is Label) else Control.MOUSE_FILTER_IGNORE
+
+
 ## Flat panel: `ground` fill, `contour` border.
 static func panel_box() -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()

@@ -19,6 +19,10 @@ var _panel: PanelContainer
 var _body: VBoxContainer
 var _frame: Control
 var _rev := -1
+var _tithe_box: VBoxContainer
+var _tithe_label: Label
+var _tithe_text := ""
+var _tithe_action := {"kind": "none"}
 
 
 func _ready() -> void:
@@ -44,11 +48,14 @@ func _ready() -> void:
 	visible = false
 
 
-## Opens when the report says shown and this session hasn't closed it.
-func open_if_shown() -> void:
+## Opens when the report says shown and this session hasn't closed it. Returns whether it opened (the
+## builds' callout skips a mount whose report lists the builds that finished).
+func open_if_shown() -> bool:
 	var rep := _report()
 	if AwayLogic.should_open(model.state, demo, rep, _closed_rev):
 		_open(rep)
+		return true
+	return false
 
 
 ## The away_report event: a new report, shown even if the last one was closed.
@@ -87,6 +94,7 @@ func _open(rep: Dictionary) -> void:
 		_body.add_child(_label(str(sec["title"]), "text_dim"))
 		for line in sec["lines"]:
 			_body.add_child(_ready_row(line) if sec["key"] != "gains" and line["action"]["kind"] != "none" else _line_row(line["spans"]))
+	_build_tithe_row(int(c["section_sep_px"]))
 	_body.add_child(_spacer(int(c["section_sep_px"])))
 	var b := Button.new()
 	b.text = str(c["dismiss"])
@@ -96,6 +104,58 @@ func _open(rep: Dictionary) -> void:
 	b.pressed.connect(_dismiss)
 	_body.add_child(b)
 	visible = true
+
+
+## The tithe telegraph line, its own row after the sections: a button like a ready line whose text
+## and action _process re-reads from the model's view_vei each frame (hidden while it has nothing).
+func _build_tithe_row(gap: int) -> void:
+	var c := AwayLogic.cfg()
+	_tithe_box = VBoxContainer.new()
+	_tithe_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_tithe_box.add_theme_constant_override("separation", int(c["sep_px"]))
+	_tithe_box.add_child(_spacer(gap))
+	var b := Button.new()
+	b.custom_minimum_size.y = float(c["line_min_h_px"])
+	b.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	MapUi.style_button(b)
+	_tithe_label = _label("", "text")
+	_tithe_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_tithe_label.offset_left = float(c["line_pad_px"])
+	_tithe_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	b.add_child(_tithe_label)
+	var hint := _label(str(c["ready_hint"]), "select")
+	hint.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hint.offset_right = -float(c["line_pad_px"])
+	b.add_child(hint)
+	b.pressed.connect(func(): _act(_tithe_action))
+	_tithe_box.add_child(b)
+	_body.add_child(_tithe_box)
+	_tithe_box.visible = false
+	_tithe_text = " "  # not a line the telegraph can produce, so the first refresh sets the row
+	_refresh_tithe()
+
+
+func _process(_delta: float) -> void:
+	if visible and _tithe_box != null:
+		_refresh_tithe()
+
+
+## Reads the telegraph from the model (not the report), so the ETA ticks while the panel is open.
+## Text is set only when it changes.
+func _refresh_tithe() -> void:
+	var names := {}
+	for id in model.forts_by_id:
+		names[id] = str(model.forts_by_id[id].get("name", id))
+	var l := AwayLogic.tithe_line(model.vei.get("tithe", {}), names, model.forts_by_id.keys())
+	_tithe_action = l["action"]
+	var text := str(l["text"])
+	if text == _tithe_text:
+		return
+	_tithe_text = text
+	_tithe_label.text = text
+	_tithe_box.visible = text != ""
 
 
 func _label(s: String, color_key: String) -> Label:

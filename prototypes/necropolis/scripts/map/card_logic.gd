@@ -15,6 +15,17 @@ static func _table(name: String) -> Dictionary:
 	return _c().get(name, {})
 
 
+## Where a card taller than `room` ends its visible area: the bottom of the last block (`bottoms`,
+## each block's bottom edge in the card's frame) that fits, so no line is cut at the fold; `room`
+## itself when no block fits.
+static func snap_bottom(bottoms: Array, room: float) -> float:
+	var best := -1.0
+	for b in bottoms:
+		if float(b) <= room and float(b) > best:
+			best = float(b)
+	return best if best > 0.0 else room
+
+
 ## "m:ss" from seconds, ceiling so "0:00 left" never shows while time remains.
 static func fmt_clock(s: float) -> String:
 	var n := maxi(ceili(s), 0)
@@ -120,18 +131,20 @@ static func death_lines(death: Dictionary) -> Array:
 # --- status chips ------------------------------------------------------------------------
 
 ## The fort's status chips, each {text, key}. `names` maps big-undead uids to names (a siege
-## uid with no name shows as itself).
-static func status_chips(fort: Dictionary, names: Dictionary) -> Array:
+## uid with no name shows as itself). `siege_block` is realm.json tithe.siege_block, the share of a
+## tithe wave a siege there blocks (0: not given, the siege chip makes no claim).
+static func status_chips(fort: Dictionary, names: Dictionary, siege_block := 0.0) -> Array:
 	var ch := _table("chips")
 	var keys := _table("chip_keys")
 	var out: Array = []
-	if bool(fort.get("held", false)):
-		out.append(held_chip(fort))
+	out.append(fort_state(fort)["chip"])
 	var tithe: Dictionary = fort.get("tithe", {})
 	if bool(tithe.get("wave_active", false)):
 		out.append({"text": str(ch.get("tithe_now", "")), "key": keys.get("tithe", "text")})
 	elif bool(tithe.get("targeted", false)) and float(tithe.get("eta_s", -1.0)) >= 0.0:
 		out.append({"text": str(ch.get("tithe_in_fmt", "%s")) % fmt_clock(float(tithe["eta_s"])), "key": keys.get("tithe", "text")})
+	elif bool(tithe.get("next", false)) and float(tithe.get("next_s", -1.0)) >= 0.0:
+		out.append({"text": str(ch.get("tithe_next_fmt", "%s")) % fmt_clock(float(tithe["next_s"])), "key": keys.get("tithe_next", "text_dim")})
 	if bool(fort.get("relish_here", false)):
 		var parts: Array = [str(ch.get("relish_here", ""))]
 		if bool(fort.get("tide", false)):
@@ -145,6 +158,11 @@ static func status_chips(fort: Dictionary, names: Dictionary) -> Array:
 		for u in siege:
 			who.append(str(names.get(str(u), str(u))))
 		out.append({"text": str(ch.get("siege_fmt", "%s")) % ", ".join(who), "key": keys.get("siege", "text")})
+		# what siege does: it blocks a share of a tithe wave and kills nothing; a second at the same fort adds nothing
+		if siege_block > 0.0:
+			out.append({"text": str(ch.get("siege_blocks_fmt", "%d")) % roundi(siege_block * 100.0), "key": keys.get("siege", "text")})
+			if siege.size() > 1:
+				out.append({"text": str(ch.get("siege_second", "")), "key": keys.get("siege", "text")})
 	var charges := float(fort.get("simulacrum_charges", 0.0))
 	if charges > 0.0:
 		out.append({"text": str(ch.get("simulacrum_fmt", "%s")) % MapLogic.fmt_mass(charges), "key": keys.get("simulacrum", "text")})
@@ -153,16 +171,35 @@ static func status_chips(fort: Dictionary, names: Dictionary) -> Array:
 	return out
 
 
-## The held chip. While view_fort has `margin` (api-request #7, the two pools) a hold no longer
-## lapses on a timer, so it reads the garrison and its margin, "garrison 64 · SAFE", in the
-## margin's colour; until then, the grace countdown "HELD · 6:14 left".
+## The fort's owner in the glossary's words: {state ("held" / "retaken" / "veis"), chip {text, key},
+## line (how it got that way and what to do next)}. Retaken is a Vei's fort the player once held
+## (flipped_count > 0); a Vei's fort with undead inside and no living (NodeLogic's overrun) says so.
+static func fort_state(fort: Dictionary) -> Dictionary:
+	var ch := _table("chips")
+	var keys := _table("chip_keys")
+	var words := _table("state")
+	if bool(fort.get("held", false)):
+		return {"state": "held", "chip": held_chip(fort),
+			"line": str(words.get("held_grace" if float(fort.get("grace_s_left", 0.0)) > 0.0 else "held_contested", ""))}
+	if int(fort.get("flipped_count", 0)) > 0:
+		return {"state": "retaken", "chip": {"text": str(ch.get("retaken", "")), "key": keys.get("retaken", "text")},
+			"line": str(words.get("retaken", ""))}
+	var overrun := NodeLogic.fort_state(fort, "") == NodeLogic.OVERRUN
+	return {"state": "veis", "chip": {"text": str(ch.get("veis", "")), "key": keys.get("veis", "text")},
+		"line": str(words.get("veis_overrun" if overrun else "veis", ""))}
+
+
+## The held chip. While the grace clock runs, "HELD · Vei contests in 6:14" (the hold's own colour);
+## after it, with a margin, "HELD · 64 undead · SAFE" in the margin's colour; with none, "HELD".
 static func held_chip(fort: Dictionary) -> Dictionary:
+	if float(fort.get("grace_s_left", 0.0)) > 0.0:
+		return {"text": str(_table("chips").get("held_fmt", "%s")) % fmt_clock(float(fort["grace_s_left"])),
+			"key": _table("chip_keys").get("held", "text")}
 	var m := str(fort.get("margin", ""))
-	if fort.has("margin") and m != "":
+	if m != "":
 		return {"text": str(_c().get("held_margin_fmt", "%s %s")) % [MapLogic.fmt_mass(IdleLogic.garrison_units(fort)), IdleLogic.word(m)],
 			"key": IdleLogic.color_key(m)}
-	return {"text": str(_table("chips").get("held_fmt", "%s")) % fmt_clock(float(fort.get("held_s_left", 0.0))),
-		"key": _table("chip_keys").get("held", "text")}
+	return {"text": str(_table("chips").get("held_bare", "HELD")), "key": _table("chip_keys").get("held", "text")}
 
 
 # --- Vei -----------------------------------------------------------------------------------
@@ -207,12 +244,85 @@ static func fronts_met_text(vei: Dictionary) -> String:
 
 ## The BEGIN dialog's text: repeats the odds, the sign and the drain time ("∞" when holding,
 ## "queue empty" with no backlog) from MapModel.readout(), as the top bar and Vei's node read them.
-static func confirm_text(readout: Dictionary) -> String:
+## With the fronts short (`vei.fronts_met` < `fronts_required`) the shortfall sentence follows on its own line.
+static func confirm_text(readout: Dictionary, vei: Dictionary = {}) -> String:
 	var st := HudLogic.status(readout)
 	var sign := int(st["sign"])
-	return str(_c().get("confirm_fmt", "%d %s %s")) % [roundi(clampf(float(readout.get("odds", 0.0)), 0.0, 1.0) * 100.0),
+	var text := str(_c().get("confirm_fmt", "%d %s %s")) % [roundi(clampf(float(readout.get("odds", 0.0)), 0.0, 1.0) * 100.0),
 		"%s %s" % [st["sign_text"], sign_word(sign)] if sign != 0 else sign_word(0),
 		st["drain_text"]]
+	var short := fronts_short_text(vei)
+	return text + "\n" + short if short != "" else text
+
+
+## "Fronts met 1 of 3 required: Vei will likely win. Assign big undead to the open fronts." while the
+## fronts met are fewer than required, else "".
+static func fronts_short_text(vei: Dictionary) -> String:
+	var met := int(vei.get("fronts_met", 0))
+	var need := int(vei.get("fronts_required", 0))
+	return str(_c().get("fronts_short_fmt", "%d %d")) % [met, need] if met < need else ""
+
+
+# --- who comes into a raid ---------------------------------------------------------------
+
+## Who comes in with Relish at fort `fort`: {garrison, starter, bigs, total}. The garrison is the
+## fort's undead over raid mass.garrison_mass_div (up to garrison_max; `undead`, not `garrison`, which
+## is 0 unless held), the starter party is the first dungeon's only, the bigs are `party.party`
+## (view_party()). The same formula as GameState._garrison and _starter_units.
+static func comes_in(fort: Dictionary, party: Dictionary, raid_cfg: Dictionary, econ_cfg: Dictionary) -> Dictionary:
+	var mass: Dictionary = raid_cfg.get("mass", {})
+	var garrison := clampi(int(float(fort.get("undead", 0.0)) / float(mass.get("garrison_mass_div", 10.0))), 0, int(mass.get("garrison_max", 12)))
+	var starter := int(econ_cfg.get("opening", {}).get("starter_party", 0)) if bool(fort.get("first_dungeon", false)) else 0
+	var bigs := (party.get("party", []) as Array).size()
+	return {"garrison": garrison, "starter": starter, "bigs": bigs, "total": garrison + starter + bigs}
+
+
+## The standard party of tier `tier` (clamped 1..4): {undead, bigs}, from raid autopilot.party_profiles.
+## "Standard party" is raid.json autopilot.party_profiles: dungeon-owned (BALANCE 3's calibration
+## party), the one source on purpose. If dungeon retunes it, the warning moves with it.
+static func profile(tier: int, raid_cfg: Dictionary) -> Dictionary:
+	var p: Dictionary = raid_cfg.get("autopilot", {}).get("party_profiles", {}).get(str(clampi(tier, 1, 4)), {})
+	return {"undead": int(p.get("garrison_units", 0)) + int(p.get("starter_units", 0)), "bigs": (p.get("party", []) as Array).size()}
+
+
+## The warning before a raid: {text, key}, or {}. Nobody coming in is "danger"; a party under the
+## tier's standard is "select" (the big-undead part is dropped when the standard has none).
+## With nobody coming in, corpse piles decide: a raid builds them when the fort's `dead` is over
+## cards.comes_pile_min_dead (raid.gd's `dead > 0.05`), and Relish can raise undead from them
+## ("select": a way forward); with none the raid can't be won ("danger").
+static func comes_in_warning(ci: Dictionary, prof: Dictionary, tier: int, dead: float) -> Dictionary:
+	if int(ci.get("total", 0)) == 0:
+		if dead > float(_c().get("comes_pile_min_dead", 0.05)):
+			return {"text": str(_c().get("comes_none_piles", "")), "key": "select"}
+		return {"text": str(_c().get("comes_none", "")), "key": "danger"}
+	var u := int(prof.get("undead", 0))
+	var b := int(prof.get("bigs", 0))
+	if int(ci.get("garrison", 0)) + int(ci.get("starter", 0)) < u or int(ci.get("bigs", 0)) < b:
+		var t := clampi(tier, 1, 4)
+		var text := (str(_c().get("comes_below_fmt", "%d %d %d")) % [t, u, b]) if b > 0 else (str(_c().get("comes_below_no_bigs_fmt", "%d %d")) % [t, u])
+		return {"text": text, "key": "select"}
+	return {}
+
+
+## "11 come in: garrison 2 (WAR) · starter 8 · big undead 1".
+static func comes_in_text(ci: Dictionary) -> String:
+	return str(_c().get("comes_in_fmt", "%d %d %d %d")) % [ci["total"], ci["garrison"], ci["starter"], ci["bigs"]]
+
+
+## The tide bias as the card says it: 3.0 reads "3", 2.5 reads "2.5".
+static func bring_more_text(tide_bias: float) -> String:
+	var word := str(roundi(tide_bias)) if is_equal_approx(tide_bias, roundf(tide_bias)) else String.num(tide_bias)
+	return str(_c().get("bring_more_fmt", "%s")) % word
+
+
+## The pinned count line: "8 undead and 1 big undead come in".
+static func comes_count_text(ci: Dictionary) -> String:
+	return str(_c().get("comes_count_fmt", "%d %d")) % [int(ci["garrison"]) + int(ci["starter"]), ci["bigs"]]
+
+
+## The descend dialog's text: the warning line, a blank line, then the ask.
+static func descend_confirm_text(warn: Dictionary) -> String:
+	return "%s\n\n%s" % [str(warn.get("text", "")), str(_c().get("descend_confirm_ask", ""))]
 
 
 ## The odds summary pinned beside BEGIN (out of the card's scroll): "Your odds 61% ▲ gaining ·

@@ -12,9 +12,17 @@ var raid: Node = null
 var _title: Label
 var _stats: StatBlock
 var _hint: Label
+var _hint2: Label      # the idle hint's second line (dungeon only)
+var _hint_plate: ColorRect = null   # the hint's ground plate, bottom-centre, inside the danger frame
+var _hp_fitted := false   # the hint plate's cached fit: what it was fitted to (show flag, hint text, sub-line text)
+var _hp_show := false
+var _hp_text := ""
+var _hp_sub := ""
 var _meter: Control
 var _exit_btn: Control = null       # dungeon only
-var _dialog: ConfirmationDialog = null
+var _retreat: RaidRetreatPanel = null   # dungeon only: the retreat choice (mouse only; Space never confirms)
+var _retreat_t := 0.0               # the open retreat panel's lines refresh clock
+var _legend: RaidLegend = null     # dungeon only: the control legend (open until a fort is taken, then a chip)
 var _flash: ColorRect
 var _flash_t := -1.0
 var _banner: Label
@@ -22,17 +30,26 @@ var _banner_t := -1.0
 var _banner_plate: ColorRect = null   # a dark plate fitted to the banner's lines (walls run under it)
 var _banner_live := Callable()        # recomputes the banner's text while it shows (the last chance)
 var _banner_live_t := 0.0
+var _scene_s := 0.0                  # scene seconds since the HUD was built (slows with the trance)
+var _undead_cue_shown := false       # T2: the undead cue shows once per run
+var _first_mote_cue_shown := false   # T2: the first-mote cue shows once per run
+var _cue_queue: Array = []           # T2: cues waiting behind a banner: [text, secs, color_key, waited_real_s]
 var _warden_block: Control = null   # dungeon only: the awake warden's break meter
 var _pointers: Node2D = null        # dungeon only: the pointer to the nearest floor loot
 var _push: PushLine = null          # dungeon only: the push-or-retreat line under the RETREAT button
 var _push_t := 1.0
+var _goal_block: RaidGoalBlock = null   # T4, dungeon only: the goal / route / how-to-break rows while no warden block shows
+var _goal_t := 1.0
+var _route_len := -1                # hops from the spawn's room to the warden's room, plus one (-1: not measured yet)
+var _hops_left := -1                # hops from Relish's room to the warden's (kept through a doorway band)
 var _risk := {}                     # the UNBANKED counts, for the push line
 var exit_pos := Vector2.INF         # the nearest exit's inner point (the Pointers' EXIT chevron)
 var _banner_top := 70.0
-var _loot_key := []              # [banked, found_loot, carried, on the floor] the BANKED/UNBANKED lines show
+var _clearing := false              # the clear card is up: BANKED is the win, nothing is unbanked (on_clear)
+var _clear_counts := {}             # the win's loot counts, for BANKED while _clearing
+var _loot_key := []            # [banked, found_loot, carried, on the floor] the BANKED/UNBANKED lines show
 var _door_prompt: Label = null    # D-e task 6: the held door's plate prompt, while she can send a big (its row is the StatBlock's DOOR)
 var _door_text := ""             # the DOOR row's text as last wrapped
-const RETREAT_TEXT := "Retreat through this exit? Your loot is banked and the fort does not flip."
 # boss extras
 var _boss_block: Control = null
 var boss_info: Dictionary = {}   # the boss's hud_info(), built once a frame in refresh() (BossBlock reads it)
@@ -57,15 +74,14 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		_door_prompt = _mk_label(self, 17, Palette.c("text"))
 		_door_prompt.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 		_door_prompt.anchor_top = 1.0
-		_door_prompt.offset_top = -92.0
-		_door_prompt.offset_bottom = -64.0
+		# its top and bottom come from the hint's fitted plate (_fit_hint_plate), which refits it with the plate
 		_door_prompt.offset_left = 0.0
 		_door_prompt.offset_right = 0.0
 		_door_prompt.grow_horizontal = Control.GROW_DIRECTION_BOTH   # sized to its text, centred
 		_door_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		# its own dark plate, as the banner has: the map's walls never run through the trade it names
 		var pplate := StyleBoxFlat.new()
-		pplate.bg_color = Palette.c("ground", 0.86)
+		pplate.bg_color = Palette.c("ground", float(raid.rcfg().get("hud", {}).get("door_plate_alpha", 0.86)))
 		pplate.content_margin_left = 10.0
 		pplate.content_margin_right = 10.0
 		pplate.content_margin_top = 3.0
@@ -73,8 +89,22 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		_door_prompt.add_theme_stylebox_override("normal", pplate)
 		_door_prompt.visible = false
 
+	if not boss_mode:
+		# the control legend (T1): open until a fort has been taken, then a chip; bottom-left, 8 px over the trance meter
+		var open_legend := RaidLogic.legend_open_at_start(int(Game.state.view_hud().get("highest_tier_flipped", 0)))
+		_legend = RaidLegend.new()
+		_legend.setup(ConfigDb.data.get("raid", {}).get("hud", {}).get("legend", {}), open_legend)
+		add_child(_legend)
+		_legend.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+		_legend.anchor_top = 1.0
+		var lsz := _legend.size
+		_legend.offset_left = 18.0
+		_legend.offset_right = 18.0 + lsz.x
+		_legend.offset_bottom = -54.0
+		_legend.offset_top = -54.0 - lsz.y
+
 	_banner_plate = ColorRect.new()
-	_banner_plate.color = Palette.c("ground", 0.72)
+	_banner_plate.color = Palette.c("ground", float(raid.rcfg().get("hud", {}).get("banner_plate_alpha", 0.94)))
 	_banner_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_banner_plate.visible = false
 	add_child(_banner_plate)
@@ -91,15 +121,33 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_banner.visible = false
 
-	_hint = _mk_label(self, 19, Palette.c("text"))
-	_hint.text = "HOLD SPACE — TRACE A CIRCLE"
+	_hint_plate = ColorRect.new()   # fitted to the hint's visible lines by _fit_hint_plate
+	_hint_plate.color = Palette.c("ground", float(raid.rcfg().get("hud", {}).get("hint", {}).get("plate_alpha", 0.96)))
+	_hint_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hint_plate.visible = false
+	add_child(_hint_plate)
+	_hint_plate.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_hint_plate.anchor_top = 1.0
+	var hint_cfg: Dictionary = raid.rcfg().get("hud", {}).get("hint", {})
+	_hint = _mk_label(self, int(hint_cfg.get("font_px", 19)), Palette.c("text"))
+	_hint.text = RaidLogic.HINT_IDLE
 	_hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	_hint.anchor_top = 1.0
 	_hint.offset_top = -52.0
 	_hint.offset_bottom = -24.0
-	_hint.offset_left = -260.0
-	_hint.offset_right = 260.0
+	_hint.offset_left = -380.0
+	_hint.offset_right = 380.0
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# the idle hint's second line (RaidLogic.hint_sub_text): under the first, dim, until the first raise
+	_hint2 = _mk_label(self, int(hint_cfg.get("sub_font_px", 15)), Palette.c("text_dim"))
+	_hint2.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_hint2.anchor_top = 1.0
+	_hint2.offset_top = -24.0
+	_hint2.offset_bottom = -4.0
+	_hint2.offset_left = -380.0
+	_hint2.offset_right = 380.0
+	_hint2.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hint2.visible = false
 
 	_meter = TranceMeter.new()
 	_meter.raid = p_raid
@@ -125,6 +173,18 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		_warden_block.offset_right = 340.0
 		_warden_block.offset_top = 10.0
 		_warden_block.offset_bottom = 72.0
+		# T4: the goal block, in the same spot while no warden block shows (before the wake, after it falls, a held raid)
+		_goal_block = RaidGoalBlock.new()
+		_goal_block.visible = false
+		_goal_block.plate_alpha = float(_goal_cfg(p_raid).get("plate_alpha", 0.96))
+		add_child(_goal_block)
+		_goal_block.set_anchors_preset(Control.PRESET_CENTER_TOP)
+		_goal_block.anchor_left = 0.5
+		_goal_block.anchor_right = 0.5
+		_goal_block.offset_left = -340.0
+		_goal_block.offset_right = 340.0
+		_goal_block.offset_top = 10.0
+		_goal_block.offset_bottom = 10.0
 
 	if not boss_mode:   # there is no retreat from the Vei fight
 		_exit_btn = ExitButton.new()
@@ -147,12 +207,12 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		_push.offset_top = 64.0
 		_push.offset_bottom = 88.0
 
-		_dialog = ConfirmationDialog.new()
-		_dialog.title = "Retreat"
-		_dialog.dialog_text = RETREAT_TEXT
-		_dialog.get_ok_button().text = "Retreat"
-		_dialog.confirmed.connect(func() -> void: raid.try_retreat())
-		add_child(_dialog)
+		_retreat = RaidRetreatPanel.new()
+		_retreat.configure(raid.rcfg().get("hud", {}).get("retreat", {}))
+		_retreat.chosen.connect(func(go: bool) -> void:
+			if go:
+				raid.endings.try_retreat("click"))
+		add_child(_retreat)
 
 	_flash = ColorRect.new()
 	_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -198,10 +258,16 @@ func _mk_label(parent: Node, size: int, color: Color) -> Label:
 func _process(_delta: float) -> void:
 	if raid == null:
 		return
+	_scene_s += _delta
 	refresh()
+	_fit_hint_plate()
+	_tick_cues()
 	if _warden_block != null:
-		# the banner steps down under the warden's block while it shows
-		var top := _banner_top + ((14.0 + (_warden_block as WardenBlock).extra_h) if _warden_block.visible else 0.0)
+		if _goal_block != null:
+			_tick_goal(_delta_real())
+		# the banner steps down under whichever top-centre block shows (the goal block's height, or the warden's)
+		var blk := top_block_rect()
+		var top := RaidLogic.banner_top(_banner_top, blk.size.y > 0.0, blk.size.y)
 		if _banner.offset_top != top:
 			_banner.offset_top = top
 			_fit_banner_plate()
@@ -269,6 +335,17 @@ func refresh() -> void:
 		var rc: Dictionary = raid.ledger_v2.raised_counts()
 		st.raised_text = "%d chaff · %d soldier · %d elite" % [rc["chaff"], rc["soldier"], rc["elite"]]
 	_hint.visible = not raid.first_raise_done and not raid._ended
+	if _legend != null:
+		_legend.visible = not raid._ended
+	if retreat_open() and (raid._ended or not exit_enabled()):
+		_retreat.close()   # she walked off the exit (or the run ended): the choice is gone
+		_retreat_t = 0.0
+	elif retreat_open():
+		# not modal: a pickup while it shows changes what a retreat pays, so its lines follow, 4 times a second
+		_retreat_t += _delta_real()
+		if _retreat_t >= 0.25:
+			_retreat_t = 0.0
+			_retreat.refresh_lines(_retreat_lines())
 	if _door_prompt != null:
 		var dr: String = raid.held_door.row_text()
 		if dr != _door_text:
@@ -280,7 +357,7 @@ func refresh() -> void:
 			_door_prompt.text = dp
 		_door_prompt.visible = dp != ""
 	if not raid.is_boss():
-		st.phyl = raid.phylactery_left()
+		st.set_phyl(raid.phylactery_left())
 		st.phyl_word = RaidLogic.phylactery_word(st.phyl)
 		if st.phyl_word != "":
 			# no revive is a state, not a mood: `danger` whatever her hp (the halo's dashes say it in the world)
@@ -294,6 +371,9 @@ func refresh() -> void:
 			_loot_key = [raid.endings.banked, raid.found_loot, carried, floor_n]
 			var bk: Dictionary = RaidLogic.loot_counts(raid.endings.banked)
 			var ub: Dictionary = RaidLogic.unbanked(raid.found_loot, carried, raid.endings.banked)
+			if _clearing:   # the win is banked: what the clear card shows, and nothing at stake
+				bk = _clear_counts
+				ub = RaidLogic.loot_counts(RaidLogic.empty_loot())
 			st.banked_text = RaidLogic.loot_line(bk)
 			st.unbanked_text = RaidLogic.loot_line(ub)
 			_risk = ub
@@ -305,16 +385,171 @@ func refresh() -> void:
 		if _push != null and _push_t >= 0.25:
 			_push_t = 0.0
 			_update_push()
-		if raid.exit_hint_ready():
-			_hint.text = "AT EXIT · RETREAT banks your loot"
+		var at_exit: bool = raid.exit_hint_ready()
+		_hint.text = RaidLogic.hint_text(raid.trance_active, at_exit)
+		if at_exit:
 			_hint.visible = true
-		else:
-			_hint.text = "HOLD SPACE — TRACE A CIRCLE"
+		_hint2.text = RaidLogic.hint_sub_text(raid.trance_active, at_exit, raid.first_raise_done)
+		_hint2.visible = _hint.visible and _hint2.text != ""
+		# the "your undead fight on their own" cue (once per run)
+		if not _undead_cue_shown:
+			var alive := 0
+			for a in raid.allies:
+				if is_instance_valid(a) and a.alive:
+					alive += 1
+			var cues: Dictionary = raid.rcfg().get("hud", {}).get("cues", {})
+			if RaidLogic.undead_cue_due(_undead_cue_shown, raid.kills, _scene_s, float(cues.get("undead_delay_s", 5.0)), alive):
+				_undead_cue_shown = true
+				show_cue(RaidLogic.CUE_UNDEAD, float(cues.get("undead_s", 3.5)), "undead")
 	st.queue_redraw()
 
 
 func _delta_real() -> float:
 	return get_process_delta_time() / maxf(0.05, Engine.time_scale)
+
+
+static func _goal_cfg(r: Node) -> Dictionary:
+	return r.rcfg().get("hud", {}).get("goal", {})
+
+
+## T4: the awake warden the WardenBlock shows (null while dormant, dead or absent).
+func _awake_warden() -> RaidWarden:
+	if raid.warden_run == null:
+		return null
+	var w = raid.warden_run.warden
+	if w == null or not is_instance_valid(w) or not w.alive or not w.awake:
+		return null
+	return w
+
+
+## T4: the goal block shows while no WardenBlock does and the run lives; its rows are rebuilt four times a
+## second (and set only when they change). While it is hidden (the warden awake, the run ended) nothing is
+## rebuilt, and the first frame it may show again rebuilds at once.
+func _tick_goal(dt: float) -> void:
+	if raid._ended or _awake_warden() != null:
+		_goal_block.visible = false
+		_goal_t = 1.0
+		return
+	_goal_t += dt
+	if _goal_t >= 0.25:
+		_goal_t = 0.0
+		_update_goal()
+	_goal_block.visible = _goal_block.height > 0.0
+
+
+## The HUD's screen rects that cover the world's top: the fort's title and StatBlock (top-left) and the
+## top-centre block. A sleeping warden's name plate under one of them moves below its ring.
+func occluder_rects() -> Array:
+	var out: Array = []
+	if _stats != null and _stats.is_visible_in_tree():
+		out.append((_stats.get_parent() as Control).get_global_rect())
+	var tb := top_block_rect()
+	if tb.has_area():
+		out.append(tb)
+	return out
+
+
+## The screen rect of the top-centre block that shows (the goal block, else the warden's): empty when neither
+## does. The banner steps down under it and the edge chevrons stay clear of it (RaidLogic.edge_clear_of).
+func top_block_rect() -> Rect2:
+	if _goal_block != null and _goal_block.visible:
+		return Rect2(_goal_block.global_position, Vector2(_goal_block.size.x, _goal_block.height))
+	if _warden_block != null and _warden_block.visible:
+		return Rect2(_warden_block.global_position, Vector2(_warden_block.size.x, RaidLogic.TOP_BLOCK_BASE_H + (_warden_block as WardenBlock).extra_h))
+	return Rect2()
+
+
+## The rows: the goal line, then (warden alive) the route and how to break it, or (warden down) the chest;
+## a held raid keeps only its goal. Plus the no-army row when nothing can be raised.
+func _update_goal() -> void:
+	var g := _goal_cfg(raid)
+	var wr: RaidWardenRun = raid.warden_run
+	var held: bool = raid.held
+	var w = wr.warden if wr != null else null
+	var alive: bool = w != null and is_instance_valid(w) and w.alive
+	var s := {"held": held, "fort_name": raid.fort_name(), "warden_alive": alive, "warden_name": "",
+		"route_text": "", "break_rows": [], "chest": wr != null and wr.chest != null, "no_army": false,
+		"goal_px": int(g.get("goal_px", 17)), "route_px": int(g.get("route_px", 14)), "row_px": int(g.get("row_px", 13))}
+	if not held and alive:
+		var sp: Dictionary = w.spec
+		s["warden_name"] = str(sp.get("name", ""))
+		s["route_text"] = _route_text()
+		s["break_rows"] = break_rows(raid, sp, int(w.meter_n))
+	elif not held and wr != null:
+		s["warden_name"] = wr.warden_name
+	s["no_army"] = (held or alive or s["chest"]) and _no_army()   # the row follows a goal row only
+	# the sleeping warden's ring must stay clear: compact rows while the block's FULL rect (measured with the full
+	# rows even when compact shows, so it cannot flicker) meets the ring's screen rect
+	var full_rows := RaidLogic.goal_rows(s)
+	var vw := get_viewport().get_visible_rect().size.x
+	var full := Rect2(Vector2(vw * 0.5 + _goal_block.offset_left, _goal_block.offset_top),
+		Vector2(_goal_block.offset_right - _goal_block.offset_left, _goal_block.height_for(full_rows)))
+	s["compact"] = alive and not held and RaidLogic.goal_compact(full, _sleeping_ring_rect(w))
+	_goal_block.set_rows(RaidLogic.goal_rows(s) if s["compact"] else full_rows)
+
+
+## The screen rect of the sleeping warden's ring and glyph (RaidLogic.warden_ring_rect, through the canvas
+## transform so it follows the camera); empty while it is awake, down or absent.
+func _sleeping_ring_rect(w: Variant) -> Rect2:
+	if w == null or not is_instance_valid(w) or not w.alive or w.awake:
+		return Rect2()
+	var xf: Transform2D = (w as Node2D).get_global_transform_with_canvas()
+	return RaidLogic.warden_ring_rect(xf.origin, xf.get_scale().x, float(w.radius), w.wcfg().get("presence", {}))
+
+
+## The break line, the takes line (when something multiplies a blow) and the counter line for a warden's spec.
+static func break_rows(raid: Node, sp: Dictionary, meter_n := -1) -> Array:
+	# the pips the player sees are the warden node's meter_n (its bands; the Pyre-priest adds acolyte pips);
+	# the config's meter_pips only when there is no node
+	var pips := meter_n if meter_n > 0 else int(raid.rcfg().get("wardens", {}).get("meter_pips", 12))
+	var rows: Array = [WardenLogic.break_line(sp, pips)]
+	var tk := WardenLogic.takes_line(sp)
+	if tk != "":
+		rows.append(tk)
+	var stat := str((sp.get("weak_point", {}) as Dictionary).get("stat", ""))
+	# the bigs the warden's own counter checks count (RaidLogic.counter_party_values): not the one spent on the door's plate
+	var hd = raid.held_door
+	var vals: Array = RaidLogic.counter_party_values(raid.allies, stat, hd.holder if hd != null and hd.committed() else null)
+	rows.append(WardenLogic.counter_line(sp, vals))
+	return rows
+
+
+## "room 2 of 4 · the warden is 2 rooms on · next door NE": the route's length from the spawn's room, the hops left
+## from Relish's room (kept through a doorway band) and the compass word of the next step of the walk to the warden.
+func _route_text() -> String:
+	var lay: Dictionary = raid.layout
+	var rel: RaidRelish = raid.relish
+	var wroom := int(lay.get("warden_room", -1))
+	if rel == null or lay.is_empty() or wroom < 0 or not lay.has("room_hops"):
+		return ""
+	var hops: Array = lay["room_hops"]
+	if _route_len < 0:
+		var sr := RaidLogic.room_of(lay, lay.get("spawn", rel.global_position))
+		if sr >= 0:
+			_route_len = maxi(0, int((hops[sr] as Array)[wroom]) + 1)   # 0: no walk from the spawn's room (the line drops "room n of m")
+	var rf := RaidLogic.room_of(lay, rel.global_position)
+	if rf >= 0:
+		_hops_left = int((hops[rf] as Array)[wroom])
+	if _route_len < 0 or _hops_left < 0:
+		return ""
+	var goal: Vector2 = ((lay["rooms"] as Array)[wroom] as Rect2).get_center()
+	var step := LayoutLogic.waypoint(lay, rel.global_position, goal, rel.radius)
+	return RaidLogic.route_line(_route_len, _hops_left, RaidLogic.compass(step - rel.global_position))
+
+
+## Nothing to raise with: no undead alive, no loose or carried essence, no unstirred corpse pile.
+func _no_army() -> bool:
+	var alive := 0
+	for a in raid.allies:
+		if is_instance_valid(a) and a.alive:
+			alive += 1
+	var carried: int = raid.carried_count()
+	var loose := maxi(0, raid.get_tree().get_node_count_in_group("raid_essence") - carried)
+	var piles := 0
+	for o in raid.get_tree().get_nodes_in_group("raid_piles"):
+		if is_instance_valid(o) and not o._stirred and o._shrink < 0.0:
+			piles += 1
+	return RaidLogic.no_army(alive, loose, carried, piles)
 
 
 ## The push-or-retreat line, 4 times a second and on the frame UNBANKED changes: the living left,
@@ -349,7 +584,7 @@ func _update_push() -> void:
 		if rf >= 0 and rt >= 0 and lay.has("room_hops"):
 			hops = int(((lay["room_hops"] as Array)[rf] as Array)[rt])
 	_push.set_text(RaidLogic.push_line(raid.enemies.size(), word, hops, _risk, at_exit,
-		raid.endings.rooms_seen(), (lay.get("rooms", []) as Array).size()))
+		raid.endings.rooms_seen(), (lay.get("rooms", []) as Array).size(), not _clearing))
 
 
 ## Width the push line may use without running under the warden's block (narrow windows wrap it).
@@ -358,7 +593,51 @@ func _push_room() -> float:
 	if _warden_block != null and _warden_block.visible:
 		var block_right := _warden_block.global_position.x + _warden_block.size.x
 		room = minf(room, _push.global_position.x + _push.size.x - block_right - 12.0)
+	if _goal_block != null and _goal_block.visible:
+		var goal_right := _goal_block.global_position.x + _goal_block.size.x
+		room = minf(room, _push.global_position.x + _push.size.x - goal_right - 12.0)
 	return maxf(160.0, room)
+
+
+## The hint's plate: the visible hint lines stacked up from `hint.bottom_px` above the screen bottom (clear of the
+## danger frame's inner edge, 10 px in), a ground plate fitted to them. Refit only when what shows changes.
+func _fit_hint_plate() -> void:
+	if _hint_plate == null:
+		return
+	var show := _hint.visible and _hint.text != ""
+	var sub := show and _hint2.visible and _hint2.text != ""
+	var sub_text := _hint2.text if sub else ""
+	if _hp_fitted and show == _hp_show and _hint.text == _hp_text and sub_text == _hp_sub:
+		return
+	_hp_fitted = true
+	_hp_show = show
+	_hp_text = _hint.text
+	_hp_sub = sub_text
+	_hint_plate.visible = show
+	var hc: Dictionary = raid.rcfg().get("hud", {}).get("hint", {})
+	var bottom_px := float(hc.get("bottom_px", 24))
+	var top := -bottom_px   # the plate's top (its bottom while the hint is hidden): the held door's prompt sits over it
+	if show:
+		var f := ThemeDB.fallback_font
+		var hpx := int(hc.get("font_px", 19))
+		var spx := int(hc.get("sub_font_px", 15))
+		var L := RaidLogic.hint_plate_layout(bottom_px, float(hc.get("pad_px", 14)), float(hc.get("gap_px", 4)),
+			f.get_string_size(_hint.text, HORIZONTAL_ALIGNMENT_LEFT, -1, hpx).x, _hint.get_line_height(),
+			f.get_string_size(sub_text, HORIZONTAL_ALIGNMENT_LEFT, -1, spx).x if sub else 0.0, _hint2.get_line_height() if sub else 0.0)
+		if sub:
+			_hint2.offset_bottom = L["sub_bottom"]
+			_hint2.offset_top = L["sub_top"]
+		_hint.offset_bottom = L["hint_bottom"]
+		_hint.offset_top = L["hint_top"]
+		_hint_plate.offset_left = L["plate_left"]
+		_hint_plate.offset_right = L["plate_right"]
+		_hint_plate.offset_top = L["plate_top"]
+		_hint_plate.offset_bottom = L["plate_bottom"]
+		top = L["plate_top"]
+	if _door_prompt != null:
+		# over the plate (not a hand-computed offset): refitted whenever the plate is
+		_door_prompt.offset_bottom = top - float(hc.get("door_gap_px", 8))
+		_door_prompt.offset_top = _door_prompt.offset_bottom - float(hc.get("door_prompt_h", 28))
 
 
 ## The banner's plate: the widest line plus a margin, as tall as its lines, centred under it.
@@ -394,14 +673,65 @@ func flash(color: Color) -> void:
 	_flash_t = 0.0
 
 
+## The warden is beaten and the clear card is up (RaidWardenRun.on_chest_opened, not the measuring bot): the HUD
+## must not contradict the win. The banner under the card is hidden (and none shows after), BANKED reads the win's
+## loot counts, UNBANKED reads none with no stakes row, and the push line drops its "at risk" clause.
+func on_clear(win_counts: Dictionary) -> void:
+	_clearing = true
+	_clear_counts = win_counts
+	_banner_t = -1.0
+	_banner_live = Callable()
+	_cue_queue.clear()
+	_banner.visible = false
+	if _banner_plate != null:
+		_banner_plate.visible = false
+	_loot_key = []   # refresh() rebuilds BANKED/UNBANKED from the win on its next pass
+	_push_t = 1.0
+
+
 ## A plain banner line for `secs` seconds (warden wake, last chance, victory).
 func show_banner(text: String, secs: float, color_key := "relish") -> void:
+	if _clearing:
+		return
 	_banner_live = Callable()
 	_banner.text = text
 	_banner.add_theme_color_override("font_color", Palette.c(color_key))
 	_banner.visible = true
 	_banner_t = secs
 	_fit_banner_plate()
+
+
+## An onboarding cue (T2): shown at once when no banner is up; otherwise it waits in a small queue and
+## shows when the banner hides, and is dropped after hud.cues.max_wait_s real seconds. A cue never
+## replaces a visible banner. Long cues break at their " · " so they fit the banner's width.
+func show_cue(text: String, secs: float, color_key: String) -> void:
+	if _banner_t < 0.0:
+		show_banner(text.replace(" · ", "\n"), secs, color_key)
+		return
+	_cue_queue.append([text, secs, color_key, 0.0])
+
+
+func _tick_cues() -> void:
+	if _cue_queue.is_empty():
+		return
+	if _banner_t < 0.0:
+		var c: Array = _cue_queue.pop_front()
+		show_banner(str(c[0]).replace(" · ", "\n"), float(c[1]), str(c[2]))
+		return
+	var max_wait := float(raid.rcfg().get("hud", {}).get("cues", {}).get("max_wait_s", 6.0))
+	var dt := _delta_real()
+	for i in range(_cue_queue.size() - 1, -1, -1):
+		_cue_queue[i][3] = float(_cue_queue[i][3]) + dt
+		if float(_cue_queue[i][3]) >= max_wait:
+			_cue_queue.remove_at(i)
+
+
+## The first essence mote to join Relish's slots (the raid calls this from carry_add): the cue, once.
+func on_first_carry() -> void:
+	if _first_mote_cue_shown:
+		return
+	_first_mote_cue_shown = true
+	show_cue(RaidLogic.CUE_FIRST_MOTE, float(raid.rcfg().get("hud", {}).get("cues", {}).get("first_mote_s", 4.0)), "essence")
 
 
 ## A banner whose text `provider` recomputes 4 times a second while it shows (the last chance's
@@ -432,35 +762,35 @@ func exit_enabled() -> bool:
 ## `text` in lines no wider than `max_w` at `font_px`: whole " · " chunks where they fit, a long chunk
 ## broken at spaces (draw only: the StatBlock's DOOR row wraps on its plate).
 static func wrap_chunks(text: String, font: Font, font_px: int, max_w: float) -> PackedStringArray:
-	var out := PackedStringArray()
-	if text == "":
-		return out
-	var words := PackedStringArray()
-	var chunks := text.split(" · ")
-	for i in chunks.size():
-		var ws := chunks[i].split(" ")
-		for j in ws.size():
-			words.append(ws[j] + (" ·" if j == ws.size() - 1 and i < chunks.size() - 1 else ""))
-	var line := ""
-	for wd in words:
-		var trial := wd if line == "" else line + " " + wd
-		if line != "" and font.get_string_size(trial, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x > max_w:
-			out.append(line)
-			line = wd
-		else:
-			line = trial
-	if line != "":
-		out.append(line)
-	return out
+	return RaidLogic.wrap_chunks(text, font, font_px, max_w)   # the one wrap, headless-testable in RaidLogic
 
 
 func open_exit_dialog() -> void:
-	if _dialog == null or raid._ended or not exit_enabled():
+	if _retreat == null or raid._ended or not exit_enabled():
 		return
+	_retreat.open(_retreat_lines())
+
+
+## The retreat panel's lines now: what a retreat pays (found loot and carried essence) and what stays. A big
+## spent on the held door is lost, said by its state (on the plate, or shut in at the cache).
+func _retreat_lines() -> Array:
 	var hd = raid.held_door
-	# a big spent on the held door is lost, said by its state (on the plate, or shut in at the cache)
-	_dialog.dialog_text = RETREAT_TEXT + (RaidLogic.held_door_retreat_line(hd.state, hd.holder_name) if hd != null else "")
-	_dialog.popup_centered()
+	var keep := RaidLogic.loot_counts(RaidLogic.loot_snapshot(raid.found_loot, raid.carried_count()))
+	# the right column reads what the death card reads (RaidEndings.death_inputs, death_next_row, the revive rule)
+	var di: Dictionary = raid.endings.death_inputs()
+	return [RaidLogic.retreat_keep_lines(raid.held, keep,
+			RaidLogic.held_door_retreat_line(hd.state, hd.holder_name) if hd != null else ""),
+		RaidLogic.retreat_fall_lines(raid.endings.phylactery_left(), di["unbanked"], int(di["party_n"]), RaidLogic.death_next_row(raid.seed_data), str(di["shut"]))]
+
+
+## The retreat panel shows (the raid closes it on a stay key: Space, right mouse, Esc).
+func retreat_open() -> bool:
+	return _retreat != null and _retreat.is_open()
+
+
+func close_retreat() -> void:
+	if _retreat != null:
+		_retreat.close()
 
 
 ## Standalone runs: show the emitted result so the scene is testable by itself.
@@ -496,6 +826,8 @@ class StatBlock:
 	var ward := [0, 0, 0, 0]
 	var raised_text := ""
 	var phyl := 0
+	var phyl_meaning := PackedStringArray()   # its dim meaning rows (RaidLogic.phylactery_meaning), kept by set_phyl
+	var phyl_extra := 0      # rows its meaning takes beyond one
 	var phyl_word := ""      # "NO REVIVE · death ends the run" at 0 charges (RaidLogic.phylactery_word)
 	var phyl_tone: Color = Palette.c("danger")   # the NO REVIVE words: `danger` whenever no charge is left
 	var banked_text := ""
@@ -509,7 +841,7 @@ class StatBlock:
 	var _pip := 7.0
 	var _row_max := 24
 	var _col := 92.0
-	var plate_alpha := 0.86
+	var plate_alpha := 0.96
 	var show_key := false
 	var door_lines := PackedStringArray()   # D-e task 6: the held door's DOOR row, wrapped (empty: no row)
 	var door_tone: Color = Palette.c("text")
@@ -521,8 +853,8 @@ class StatBlock:
 		_lab = int(c.get("label_px", 13))
 		_val = int(c.get("value_px", 15))
 		_row_max = int(c.get("pip_row_max", 24))
-		plate_alpha = float(c.get("plate_alpha", 0.86))
-		var rows := 3.0 if boss else 12.0   # living, essence, raised | + 4 ward rows, phylactery, banked, unbanked, stakes
+		plate_alpha = float(c.get("plate_alpha", 0.96))
+		var rows := 3.0 if boss else 14.0   # living, essence, raised | + 4 ward rows, essence meaning, phylactery, its meaning, banked, unbanked, stakes
 		custom_minimum_size = Vector2(420.0, rows * _row + 8.0)
 
 	## The floor-loot key (two rows under the stakes) shows while something lies on the floor.
@@ -542,8 +874,19 @@ class StatBlock:
 	func value_w() -> float:
 		return 420.0 - _col - 8.0
 
+	## The PHYLACT. count: its meaning is one row, or two with none left (RaidLogic.phylactery_meaning).
+	func set_phyl(n: int) -> void:
+		if n == phyl and not phyl_meaning.is_empty():
+			return   # called every frame: nothing to rebuild while the count holds
+		phyl = n
+		phyl_meaning = RaidLogic.phylactery_meaning(n)
+		var extra := phyl_meaning.size() - 1
+		if extra != phyl_extra:
+			phyl_extra = extra
+			_fit()
+
 	func _fit() -> void:
-		custom_minimum_size = Vector2(420.0, (12.0 + (2.0 if show_key else 0.0) + float(door_lines.size())) * _row + 8.0)
+		custom_minimum_size = Vector2(420.0, (14.0 + float(phyl_extra) + (2.0 if show_key else 0.0) + float(door_lines.size())) * _row + 8.0)
 
 	## A floor glyph as the pickups draw it (RaidLoot.floor_glyph shapes), small, at `p`.
 	func _key_glyph(p: Vector2, shape: String, col: Color) -> void:
@@ -564,9 +907,9 @@ class StatBlock:
 		for k in [["relic", "relic"], ["remnant", "remnant"], ["husk", "husk"], ["blueprint", "blueprint"]]:
 			var g := RaidLoot.floor_glyph(str(k[0]), false)
 			_key_glyph(Vector2(x + 6.0, y - 4.0), str(g["shape"]), Palette.c(str(g["key"])))
-			draw_string(f, Vector2(x + 16.0, y), str(k[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Palette.c("text_dim"))
-			x += 22.0 + f.get_string_size(str(k[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
-		draw_string(f, Vector2(6.0, y + _row), "grey ×9 = a corpse pile (the bodies in it): walk close, it gives essence", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Palette.c("text_dim"))
+			draw_string(f, Vector2(x + 16.0, y), str(k[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Palette.c("text_dim"))
+			x += 22.0 + f.get_string_size(str(k[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+		draw_string(f, Vector2(6.0, y + _row), RaidLogic.KEY_PILE_LINE, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Palette.c("text_dim"))
 
 	func _label(y: float, text: String) -> void:
 		draw_string(ThemeDB.fallback_font, Vector2(6, y), text, HORIZONTAL_ALIGNMENT_LEFT, _col, _lab, Palette.c("text_dim"))
@@ -581,7 +924,7 @@ class StatBlock:
 	func _pips(x: float, y: float, n: int, filled: int, col: Color, r: float, diamond := false) -> float:
 		var step := r * 2.0 + 3.0
 		var dim := col
-		dim.a = 0.6
+		dim.a = 0.8   # a hollow pip's outline: a line, held at 3:1 over the plate by the contrast test
 		for i in n:
 			var p := Vector2(x + r + step * i, y)
 			if diamond:
@@ -627,6 +970,8 @@ class StatBlock:
 			if loose > 0:
 				_value(ex + 6.0 + 60.0, y, "+%d loose" % loose)
 			y += _row
+			draw_string(ThemeDB.fallback_font, Vector2(_col, y), RaidLogic.ESSENCE_MEANING, HORIZONTAL_ALIGNMENT_LEFT, -1, _lab, Palette.c("text_dim"))
+			y += _row
 		_label(y, "RAISED")
 		_value(_col, y, raised_text)
 		y += _row
@@ -642,6 +987,10 @@ class StatBlock:
 				if cut >= 0:
 					draw_string(ThemeDB.fallback_font, Vector2(hx, y), phyl_word.substr(cut), HORIZONTAL_ALIGNMENT_LEFT, -1, _lab, Palette.c("text_dim"))
 			y += _row
+			# what a phylactery charge is (RaidLogic.phylactery_meaning), dim, as the ESSENCE row's meaning line
+			for ml in phyl_meaning:
+				draw_string(ThemeDB.fallback_font, Vector2(_col, y), ml, HORIZONTAL_ALIGNMENT_LEFT, -1, _lab, Palette.c("text_dim"))
+				y += _row
 			# zero kinds are hidden; nothing at all is one dim word
 			_label(y, "BANKED")
 			_value(_col, y, banked_text if banked_text != "" else "none", null if banked_text != "" else Palette.c("text_dim"))
@@ -738,6 +1087,10 @@ class WardenBlock:
 	var _t := 0.0
 	var extra_h := 0.0   # the Huntsman's third row (what a catch costs) and a pack's row make the block taller
 	var _key3 := -1
+	var _rows_t := 1.0
+	var break_rows: Array = []   # T4: the break / takes / counter lines (RaidHud.break_rows), drawn under the existing rows
+	var break_lines := PackedStringArray()   # those rows wrapped to the plate (RaidLogic.wrap_break_rows): what is drawn and counted in extra_h
+	var _wrap_w := -1.0
 
 	func _warden() -> RaidWarden:
 		if raid == null or raid.warden_run == null:
@@ -753,13 +1106,26 @@ class WardenBlock:
 		if show != visible:
 			visible = show
 			_key = -1
+			_rows_t = 1.0
 		if not show:
 			return
 		_t += d / maxf(0.05, Engine.time_scale)
-		var eh := (20.0 if w is RaidHuntsman else 0.0) + (20.0 if w.spec.has("pack") else 0.0)
+		# T4: how it breaks, as rows at the bottom (4 times a second: the counter row follows the party)
+		_rows_t += d / maxf(0.05, Engine.time_scale)
+		if _rows_t >= 0.25:
+			_rows_t = 0.0
+			var nr := RaidHud.break_rows(raid, w.spec, int(w.meter_n))
+			if nr != break_rows or size.x != _wrap_w:
+				# the rows wrap to the plate's inner width, once per change (not per frame)
+				break_rows = nr
+				_wrap_w = size.x
+				break_lines = RaidLogic.wrap_break_rows(nr, ThemeDB.fallback_font, RaidLogic.BREAK_ROW_PX, size.x - 2.0 * RaidLogic.WARDEN_BLOCK_INSET)
+				_key = -1
+		var eh := (20.0 if w is RaidHuntsman else 0.0) + (20.0 if w.spec.has("pack") else 0.0) \
+			+ (RaidLogic.BREAK_ROW_STEP * break_lines.size() + 6.0 if not break_lines.is_empty() else 0.0)
 		if eh != extra_h:
 			extra_h = eh
-			offset_bottom = offset_top + 62.0 + eh
+			offset_bottom = offset_top + RaidLogic.TOP_BLOCK_BASE_H + eh
 			_key = -1
 		var k := w.meter_lit() | (w.phase << 6) | (w.weak_taken << 9)
 		var k2 := 0
@@ -815,7 +1181,7 @@ class WardenBlock:
 		var w := _warden()
 		if w == null:
 			return
-		draw_rect(Rect2(Vector2.ZERO, size), Palette.c("ground", 0.62))
+		draw_rect(Rect2(Vector2.ZERO, size), Palette.c("ground", float(raid.rcfg().get("hud", {}).get("warden_plate_alpha", 0.96))))
 		var x0 := 12.0
 		var px0 := 150.0
 		var y := 26.0
@@ -845,7 +1211,7 @@ class WardenBlock:
 				draw_arc(p, r - 0.6, 0.0, TAU, 14, Palette.c("undead"), 1.6)
 				draw_line(p + Vector2(-r * 0.7, r * 0.7), p + Vector2(r * 0.7, -r * 0.7), Palette.c("undead"), 1.6)
 			else:
-				draw_arc(p, r - 0.6, 0.0, TAU, 14, Palette.c("text_dim", 0.6), 1.3)
+				draw_arc(p, r - 0.6, 0.0, TAU, 14, Palette.c("text_dim", 0.8), 1.3)
 			x += 16.0
 		x = _text(x + 2.0, y, "%d/%d" % [lit, w.meter_n], 15)
 		y += 26.0
@@ -884,7 +1250,7 @@ class WardenBlock:
 				if i < hw.catches:
 					draw_colored_polygon(pts, Palette.c("danger"))
 				else:
-					draw_polyline(pts, Palette.c("text_dim", 0.6), 1.3)
+					draw_polyline(pts, Palette.c("text_dim", 0.8), 1.3)
 				cx += 16.0
 			var x5 := cx + 2.0
 			if hw.catches > 0:
@@ -920,6 +1286,11 @@ class WardenBlock:
 			if pp.essence_burned > 0:
 				_text(x9 + 12.0, y, "burned %d essence" % pp.essence_burned, 13, "danger")
 		_pack_row(w, x0, y + (44.0 if hw != null else 22.0))
+		# the new rows sit under the last of the existing ones (the Huntsman's catch row, a pack's row)
+		var ry := y + 22.0 * ((1.0 if hw != null else 0.0) + (1.0 if w.spec.has("pack") else 0.0))
+		for line in break_lines:
+			ry += RaidLogic.BREAK_ROW_STEP
+			_text(x0, ry, str(line), RaidLogic.BREAK_ROW_PX, "text_dim")
 
 
 ## Screen-space pointers over the world (a Node2D: it takes no input). The loot pointer: a faint
@@ -935,8 +1306,10 @@ class Pointers:
 	var _loot: Node2D = null
 	var _chev := PackedVector2Array([Vector2.ZERO, Vector2.ZERO, Vector2.ZERO])
 	var _ep := Vector2.INF      # the off-screen exit's screen point (INF: no EXIT chevron)
+	var _wp := Vector2.INF      # the off-screen warden's screen point (INF: no WARDEN chevron)
 	var _sp := Vector2.INF      # the nearest pickup's screen point (INF: none)
 	var _from := Vector2.INF    # the HUD's "N on the floor" anchor
+	var _block := Rect2()       # the top-centre block (goal or warden) a chevron must stay clear of
 
 	func _process(d: float) -> void:
 		var raid = hud.raid if hud != null else null
@@ -957,11 +1330,20 @@ class Pointers:
 			ep = xf * hud.exit_pos
 			if inner.has_point(ep):
 				ep = Vector2.INF   # on screen: its lips and sigil already say where it is
+		var wp := Vector2.INF   # T4: the warden (dormant or awake) while it is off screen
+		var wd = raid.warden_run.warden if raid.warden_run != null else null
+		if wd != null and is_instance_valid(wd) and wd.alive:
+			wp = xf * (wd as Node2D).global_position
+			if inner.has_point(wp):
+				wp = Vector2.INF
 		var sp := Vector2.INF
 		if _loot != null and is_instance_valid(_loot) and _loot.is_in_group("raid_pickups"):
 			sp = xf * _loot.global_position
 		var from := hud.floor_anchor() if sp != Vector2.INF else Vector2.INF
-		if ep != _ep or sp != _sp or from != _from:
+		var blk := hud.top_block_rect()
+		if ep != _ep or sp != _sp or from != _from or wp != _wp or blk != _block:
+			_block = blk
+			_wp = wp
 			_ep = ep
 			_sp = sp
 			_from = from
@@ -986,21 +1368,28 @@ class Pointers:
 		var tx := INF if absf(dir.x) < 0.0001 else ((view.x - m) - c.x) / absf(dir.x)
 		var ty := INF if absf(dir.y) < 0.0001 else ((view.y - m) - c.y) / absf(dir.y)
 		var p := c + dir * minf(tx, ty)
+		var f := ThemeDB.fallback_font
+		var tw := f.get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+		var lp := p - dir * 26.0 - Vector2(tw * 0.5, -5.0)
+		# a chevron or label under the top-centre block moves to just below it, so it stays visible
+		var q := RaidLogic.edge_clear_of(p, Rect2(lp + Vector2(0.0, -13.0), Vector2(tw, 16.0)), _block, view)
+		if q != p:
+			p = q
+			lp = p - dir * 26.0 - Vector2(tw * 0.5, -5.0)
 		_chev[0] = p + dir * 12.0
 		_chev[1] = p - dir * 6.0 + dir.orthogonal() * 10.0
 		_chev[2] = p - dir * 6.0 - dir.orthogonal() * 10.0
 		draw_colored_polygon(_chev, Palette.c("ground", 0.8))
 		draw_polyline(_chev, col, 2.0)
 		draw_line(_chev[2], _chev[0], col, 2.0)
-		var f := ThemeDB.fallback_font
-		var tw := f.get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
-		var lp := p - dir * 26.0 - Vector2(tw * 0.5, -5.0)
 		draw_string(f, lp, word, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, col)
 
 	func _draw() -> void:
 		var view := get_viewport_rect().size
 		if _ep != Vector2.INF:
 			_edge(_ep, view, Palette.c("relish"), "EXIT")
+		if _wp != Vector2.INF:
+			_edge(_wp, view, Palette.c("vei"), "WARDEN")
 		if _sp == Vector2.INF:
 			return
 		if Rect2(Vector2.ZERO, view).grow(-30.0).has_point(_sp):
@@ -1031,7 +1420,7 @@ class PushLine:
 	func _line(f: Font, y: float, s: String) -> void:
 		var w := f.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
 		var x := size.x - w
-		draw_rect(Rect2(Vector2(x - 10.0, y - 3.0), Vector2(w + 12.0, 28.0)), Palette.c("ground", float(ConfigDb.data.get("raid", {}).get("hud", {}).get("plate_alpha", 0.86))))
+		draw_rect(Rect2(Vector2(x - 10.0, y - 3.0), Vector2(w + 12.0, 28.0)), Palette.c("ground", float(ConfigDb.data.get("raid", {}).get("hud", {}).get("plate_alpha", 0.96))))
 		draw_string(f, Vector2(x - 2.0, y + 17.0), s, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Palette.c("text"))
 
 	func _draw() -> void:
@@ -1059,6 +1448,10 @@ class ExitButton:
 	extends Control
 	var hud: RaidHud = null
 	var _hover := false
+
+	func _init() -> void:
+		# PASS: only its own left press is accepted below; a right press (the trance) or a dragged loop reaches the raid
+		mouse_filter = Control.MOUSE_FILTER_PASS
 
 	func _ready() -> void:
 		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND

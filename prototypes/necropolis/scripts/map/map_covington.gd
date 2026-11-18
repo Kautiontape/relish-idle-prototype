@@ -55,9 +55,9 @@ func _valve(cp: Vector2, hw: float, n: Dictionary) -> void:
 		var a0 := dw.angle() + PI
 		glow_arc(c, hr, a0, a0 + deg_to_rad(float(n["valve_hook_sweep_deg"])), col, maxf(widths["work"], hw), glow, cap)
 	var size := int(MapLogic.cfg()["font_label"])
-	var names := {"war": "WAR", "flood": "FLOOD", "work": "WORK", "covington": "COVINGTON"}
+	var names := NodeLogic.node_names()
 	var text_w := {}
-	for k in names:
+	for k in ["war", "flood", "work", "covington"]:
 		text_w[k] = ThemeDB.fallback_font.get_string_size(names[k], HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
 	var lay := NodeLogic.valve_label_layout(dirs, widths, ctx.tier != "far", ctx.zoom, text_w, float(size))
 	var dim := Palette.c("undead", float(MapLogic.cfg()["node_label_dim_alpha"]))

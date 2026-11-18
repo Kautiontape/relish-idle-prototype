@@ -223,14 +223,36 @@ func on_chest_opened(c: RaidChest) -> void:
 	_raid.found_loot = RaidLogic.merge_loot(_raid.found_loot, _raid.chest_loot())
 	e.ended = true
 	e.pending_exit = RaidLogic.pending_on("chest_opened")
+	# the win's loot (what build_result pays below), checkpointed and saved now: a crash in the beat resumes as the win
+	e.checkpoint_ending(RaidLogic.result_loot("warden_beaten", false, _raid.found_loot, _raid.carried_count(), e.banked))
 	_raid.trance.force_end()
 	var wc: Dictionary = _raid.rcfg().get("wardens", {})
 	RaidFx.ring(_raid.fx_root, c.global_position, Palette.c("vei"), 120.0, 0.9, 5.0)
 	RaidFx.ring(_raid.fx_root, _raid.relish.global_position, Palette.c("relish"), 80.0, 0.8, 4.0)
-	_raid.hud.show_banner("THE WARDEN IS BEATEN · loot banked", float(wc.get("victory_s", 1.5)) + 1.0, "vei")
 	if _raid._standalone:
 		print("RAID_WARDEN chest opened")
-	_raid.get_tree().create_timer(float(wc.get("victory_s", 1.5))).timeout.connect(func() -> void:
+	var cards: Array = []   # the clear card, freed with the win (a standalone result panel replaces it)
+	var finish_win := func() -> void:
 		if not is_instance_valid(_raid):
-			return
-		e.finish(e.build_result("warden_beaten")))
+			return   # the scene was freed during the beat
+		for k in cards:
+			if is_instance_valid(k):
+				k.queue_free()
+		# the card's path finishes with the result frozen at chest open (e.win_result); the bot has none and builds it now
+		e.finish(e.win_result if not e.win_result.is_empty() else e.build_result("warden_beaten"))   # finish guards a double: the card's click and its timer both land here
+	if RaidAutopilot.enabled():   # the measuring bot never sees the card: the banner and the victory_s beat, as before
+		_raid.hud.show_banner("THE WARDEN IS BEATEN · loot banked", float(wc.get("victory_s", 1.5)) + 1.0, "vei")
+		_raid.get_tree().create_timer(float(wc.get("victory_s", 1.5))).timeout.connect(finish_win)
+		return
+	# everyone else: the clear card names what was won; a click/SPACE or `clear.card_s` ends it
+	# the win is built ONCE, now (the chest's loot is merged): the card, the HUD and the emit all read this one dict,
+	# so motes drifting into her slots during the card change nothing. A window close emits it too (close_request).
+	e.win_result = e.build_result("warden_beaten")
+	var won := RaidLogic.loot_counts(e.win_result["loot"])
+	_raid.hud.on_clear(won)
+	var card := RaidClearCard.new()
+	_raid.hud.add_child(card)
+	cards.append(card)
+	card.setup(RaidLogic.clear_card_title(_raid.fort_name()), RaidLogic.clear_card_rows(warden_name, won))
+	card.dismissed.connect(finish_win)
+	_raid.get_tree().create_timer(float(_raid.rcfg().get("clear", {}).get("card_s", 12.0))).timeout.connect(finish_win)

@@ -297,6 +297,8 @@ func open_card(lot_id: String) -> void:
 	_card_status()
 	card.open()
 	_place_card()
+	if _build != null:
+		_build.set_card_lot(lot_id)
 
 
 ## The card's inspector form opens with the building's status line (the model's, as on hover).
@@ -309,6 +311,8 @@ func _card_status() -> void:
 func close_card() -> void:
 	_card_lot = ""
 	card.close()
+	if _build != null:
+		_build.set_card_lot("")
 
 
 ## Beside the lot (right of it, else left), top-aligned and kept inside this view.
@@ -508,14 +512,10 @@ func _legend() -> void:
 ## Small upright text on a ground plate (like the labels) so street lines and agents behind it
 ## never cut the letters. A badge with open slots draws in `text`, a full one in `text_dim`.
 func _badges(b: Dictionary) -> void:
-	var lines: Array = []
-	if String(b.get("badge", "")) != "":
-		lines.append([String(b["badge"]), "text" if int(b.get("short", 0)) > 0 else "text_dim"])
-	if String(b.get("away", "")) != "":
-		lines.append([String(b["away"]), "text_dim"])
+	var bc: Dictionary = _v.get("badge", {})
+	var lines := TownModel.badge_lines(b, String(bc.get("sep", " · ")))
 	if lines.is_empty():
 		return
-	var bc: Dictionary = _v.get("badge", {})
 	var font := ThemeDB.fallback_font
 	var fs := maxi(int(bc.get("px", TownUI.MIN_TEXT)), TownUI.MIN_TEXT)
 	var gap := float(bc.get("gap_px", 2.0))

@@ -18,7 +18,7 @@
   "raising_pit": {
     "label": "Raising Pit",
     "flavour": "Bodies in, workers out. The council calls it urban renewal.",
-    "benefit": "raising pit: more mint; pit jobs burn bodies",
+    "benefit": "turns hauled bodies into undead, your mint: jobs, WAR and FLOOD",
     "ink": "undead", "light_by": "staffing", "serves": ["mint"],
     "strokes": [
       [[0.925, 0.864], [0.904, 0.899], [0.844, 0.93], [0.75, 0.956], [0.631, 0.972], [0.5, 0.977], [0.369, 0.972], [0.25, 0.956], [0.156, 0.93], [0.096, 0.899], [0.075, 0.864], [0.096, 0.829], [0.156, 0.797], [0.25, 0.772], [0.369, 0.756], [0.5, 0.75], [0.631, 0.756], [0.75, 0.772], [0.844, 0.797], [0.904, 0.829], [0.925, 0.864]],
@@ -50,7 +50,7 @@
   "market": {
     "label": "Market",
     "flavour": "Undead at the counter, living at the till. Haggling is brief: one side has nowhere to be.",
-    "benefit": "stall jobs: gold from trade",
+    "benefit": "stall jobs: your living buy, gold for every build",
     "ink": "undead", "light_by": "staffing", "serves": ["gold"],
     "strokes": [
       [[0.062, 0.523], [0.062, 1.0]],
@@ -145,7 +145,7 @@
   "forge": {
     "label": "Forge",
     "flavour": "Hammers that never tire, swung by arms that never did.",
-    "benefit": "forge jobs; forge levels need relics",
+    "benefit": "smiths toughen all your undead; each step needs relics",
     "ink": "undead", "light_by": "staffing", "serves": ["quality"],
     "strokes": [
       [[0.062, 0.5], [0.062, 1.0], [0.613, 1.0], [0.613, 0.5]],

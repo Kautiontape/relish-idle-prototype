@@ -137,23 +137,6 @@ static func mint_rate(hud: Dictionary) -> float:
 	return 0.0
 
 
-## What the dragged valve would do: {split, workers_steady, war_supports: {n, m}}.
-## split = mint x share; workers_steady is the view's, scaled by the WORK share against the
-## committed one (unscaled when that is 0: there is nothing to scale from); war_supports is a stub.
-# TODO(api-request #7): view_projection(valve)
-static func project(hud: Dictionary, valve: Dictionary, held_count := 0) -> Dictionary:
-	var v := normalise(valve)
-	var mint := mint_rate(hud)
-	var split := {}
-	for k in KEYS:
-		split[k] = mint * v[k]
-	var steady := float(hud.get("workers_steady", 0.0))
-	var cur_work := float(hud.get("valve", {}).get("work", 0.0))
-	if cur_work > EPS:
-		steady *= v["work"] / cur_work
-	return {"split": split, "workers_steady": steady, "war_supports": {"n": 0, "m": held_count}}
-
-
 # --- sending ---------------------------------------------------------------------
 
 ## The throttle for commands during a drag: at most `hz` per second, and always on release.
@@ -182,14 +165,13 @@ static func rows(proj: Dictionary, valve: Dictionary) -> Array:
 	return out
 
 
-## The workforce the town actually settles at: the view's workers_steady_kept when it has one (not
-## while dragging: that is the committed valve's), else min(slots + idle_cap, steady), the idle
-## beyond the cap mustering to WAR (MECHANICS 4.1). `slots` sums view_town().jobs' slots;
-## `idle_cap` is economy.json worker.idle_cap.
-# TODO(api-request #12): view_hud.workers_steady_kept
+## The workforce the town actually settles at: view_hud.workers_steady_kept. While dragging that
+## is the committed valve's, and view_projection carries only workers_steady, so the dragged
+## valve's is min(slots + idle_cap, steady), the idle beyond the cap mustering to WAR (MECHANICS
+## 4.1). `slots` sums view_town().jobs' slots; `idle_cap` is economy.json worker.idle_cap.
 static func workers_kept(steady: float, hud: Dictionary, slots: int, idle_cap: float, dragging := false) -> float:
-	if hud.has("workers_steady_kept") and not dragging:
-		return float(hud["workers_steady_kept"])
+	if not dragging:
+		return float(hud.get("workers_steady_kept", 0.0))
 	return minf(float(slots) + idle_cap, steady)
 
 
@@ -200,19 +182,12 @@ static func workers_text(kept: float) -> String:
 
 # --- WAR overflow ------------------------------------------------------------------
 
-## WAR that overflows to Vei once every WAR target is capped (mass/s): while dragging, the
-## projection's split.war_overflow when it has one; else view_hud.war_overflow; else the
-## war:covington:vei lane's rate (that lane exists only while the overflow is > 0); else 0.
-# TODO(api E2b): view_hud.war_overflow, view_projection(valve).split.war_overflow
-static func war_overflow(hud: Dictionary, lanes: Array, proj: Dictionary, dragging: bool) -> float:
-	if dragging and proj.get("split", {}).has("war_overflow"):
-		return float(proj["split"]["war_overflow"])
-	if hud.has("war_overflow"):
-		return float(hud["war_overflow"])
-	for r in lanes:
-		if str(r.get("kind", "")) == "war" and str(r.get("from", "")) == "covington" and str(r.get("to", "")) == "vei":
-			return float(r.get("rate", 0.0))
-	return 0.0
+## WAR that overflows to Vei once every WAR target is capped (mass/s, STATE-API 5.1 and 5.10):
+## the dragged valve's view_projection split.war_overflow while dragging, else view_hud.war_overflow.
+static func war_overflow(hud: Dictionary, proj: Dictionary, dragging: bool) -> float:
+	if dragging:
+		return float(proj.get("split", {}).get("war_overflow", 0.0))
+	return float(hud.get("war_overflow", 0.0))
 
 
 ## The WAR row's overflow line, {rate: "+3.1/s", text: "overflows to Vei"}, or {} with none.
@@ -224,17 +199,9 @@ static func overflow_parts(overflow: float) -> Dictionary:
 
 # --- the payoff ---------------------------------------------------------------------
 
-## Vei's differential (mass/s) at a dragged valve: view_projection(valve).backlog_diff when the
-## projection has it; else the stand-in diff_ema + Δflood + Δwar x war_drain_frac, the deltas
-## measured between this projection's split and the same projection at the current valve
-## (`base_split`), so a drag back onto the current valve changes nothing.
-# TODO(api-request #7): view_projection(valve).backlog_diff
-static func diff_at(diff_ema: float, proj: Dictionary, base_split: Dictionary, war_drain_frac: float) -> float:
-	if proj.has("backlog_diff"):
-		return float(proj["backlog_diff"])
-	var split: Dictionary = proj.get("split", {})
-	return diff_ema + (float(split.get("flood", 0.0)) - float(base_split.get("flood", 0.0))) \
-		+ (float(split.get("war", 0.0)) - float(base_split.get("war", 0.0))) * war_drain_frac
+## Vei's differential (mass/s) at a dragged valve: view_projection(valve).backlog_diff.
+static func diff_at(proj: Dictionary) -> float:
+	return float(proj.get("backlog_diff", 0.0))
 
 
 ## Drain time at a differential: backlog / -diff while it shrinks, else -1.0 (holding, "∞").
@@ -256,12 +223,12 @@ static func odds_at(backlog: float, diff: float, window_s: float, k: float, odds
 
 ## Now against the dragged valve: {now: {diff, drain_s, odds}, then: {...}}. Both sides use the
 ## same formulas; `now` is the current differential (diff_ema), `then` diff_at's. `odds_cfg` and `age_s` as odds_at.
-static func payoff(vei: Dictionary, proj: Dictionary, base_split: Dictionary, k: float, odds_cfg := {}, age_s := 0.0) -> Dictionary:
+static func payoff(vei: Dictionary, proj: Dictionary, k: float, odds_cfg := {}, age_s := 0.0) -> Dictionary:
 	var c := _c()
 	var backlog := float(vei.get("backlog", 0.0))
 	var window := float(c["drain_window_s"])
 	var out := {}
-	var diffs := {"now": float(vei.get("diff_ema", 0.0)), "then": diff_at(float(vei.get("diff_ema", 0.0)), proj, base_split, float(c["war_drain_frac"]))}
+	var diffs := {"now": float(vei.get("diff_ema", 0.0)), "then": diff_at(proj)}
 	for side in diffs:
 		var d: float = diffs[side]
 		out[side] = {"diff": d, "drain_s": drain_at(backlog, d), "odds": odds_at(backlog, d, window, k, odds_cfg, age_s)}
@@ -372,6 +339,40 @@ static func now_ring_pos(cur: Vector2, target: Vector2) -> Vector2:
 	if cur.distance_to(target) < off:
 		return target + Vector2(1.0, -1.0).normalized() * off
 	return cur
+
+
+# --- the bone edge ------------------------------------------------------------------
+
+## The bone edge to mark: view_hud.bone_war_share while no fort has been taken (highest_tier_flipped
+## is 0, the new game's edge); 0.0 (no edge) once the game has moved on and the edge is stale.
+static func bone_edge(hud: Dictionary) -> float:
+	if int(hud.get("highest_tier_flipped", 0)) != 0:
+		return 0.0
+	return float(hud.get("bone_war_share", 0.0))
+
+
+## The tick that marks WAR share `edge` (view_hud.bone_war_share) in the triangle's frame: the
+## level segment [left, right] across the triangle where WAR = edge, below it the pits eat every
+## body. [] when there is no edge (not inside 0..1).
+static func bone_tick(edge: float, side: float) -> Array:
+	if edge <= 0.0 or edge >= 1.0:
+		return []
+	var c := corners(side)
+	var apex: Vector2 = c["war"]
+	var left: Vector2 = (c["work"] as Vector2).lerp(apex, edge)
+	var right: Vector2 = (c["flood"] as Vector2).lerp(apex, edge)
+	return [left, right]
+
+
+## The valve readout's bone line: while the pits-first stall is live, the lever ("Raise WAR: the pits
+## eat every body"); else, while dragging with WAR under the edge, "below the bone edge"; else "".
+static func bone_readout(stalled: bool, lever_text: String, dragging: bool, war_share: float, edge: float) -> String:
+	var c := _c()
+	if stalled:
+		return str(c["valve_bone_stall_fmt"]) % lever_text
+	if dragging and edge > 0.0 and war_share < edge:
+		return str(c["valve_bone_below_text"])
+	return ""
 
 
 ## "WAR supports 0 of 3 held forts", or "" when no fort is held.

@@ -1,10 +1,12 @@
 extends PanelContainer
 ## Top strip. Streams, not stockpiles (law 10): one cell per stream (workers, living, gold, bone,
 ## bodies), each led by its signed oblique net rate with a sign glyph, then the in/out split, then
-## the upright stock with its cap bar and "full in" readout; morale with its factors; the tier and
-## what the next one needs; the Return button. A bottleneck line under it names what is stuck. The
+## the upright stock, and its cap bar with the "full in" readout beside it; morale with its factors; the tier
+## and what the next one needs; the Return button, with the essence count and what it pays for under it. A
+## bottleneck line under it names what is stuck. The
 ## workers cell also names the unspent hands and their best use ("10 idle: build a Forge (+2 jobs)
-## or let them muster") next to "→ WAR", and why the town keeps fewer than its steady state.
+## or let them muster") next to the muster's rate and destination ("+0.07/s idle → FLOOD"), and why the town keeps
+## fewer than its steady state.
 ## All logic is HudModel's; this only lays out labels and reuses them on every bind.
 
 signal command_issued
@@ -43,6 +45,7 @@ var _morale_bar: CapBar
 var _morale_line: Label
 var _stuck: Label
 var _return: Button
+var _essence: Label  # "essence 14: for backups" under the Return button; its tooltip is view.guide.essence_line
 var _next_lit := false
 
 
@@ -68,9 +71,18 @@ func _ready() -> void:
 	row.add_child(_make_tier())
 	_return = TownUI.button("Return to the realm")
 	_return.custom_minimum_size = Vector2(float(_hcfg.get("return_w_px", 170.0)), TownUI.MIN_TARGET)
-	_return.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_return.pressed.connect(func(): return_pressed.emit())
-	row.add_child(_return)
+	var ret_col := VBoxContainer.new()  # the Return button, and under it the essence count with what it pays for
+	ret_col.alignment = BoxContainer.ALIGNMENT_CENTER
+	ret_col.add_theme_constant_override("separation", 2)
+	ret_col.add_child(_return)
+	var guide: Dictionary = _vcfg.get("guide", {})
+	_essence = TownUI.label("", int(_hcfg.get("split_px", 12)), "text_dim")
+	_essence.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_essence.mouse_filter = Control.MOUSE_FILTER_STOP
+	_essence.tooltip_text = String(guide.get("essence_line", ""))  # Shawn's checklist item 11, where essence first shows
+	ret_col.add_child(_essence)
+	row.add_child(ret_col)
 	var foot := HBoxContainer.new()
 	foot.add_theme_constant_override("separation", 10)
 	rows.add_child(foot)
@@ -110,13 +122,13 @@ func _make_cell(id: String) -> Control:
 	var war_rate: Label = null
 	var war_word: Label = null
 	var idle_line: RichTextLabel = null
-	if id == "workers":  # the surplus past what the town keeps, "+0.07/s → WAR", and the idle hands' best use
+	if id == "workers":  # the idle muster past what the town keeps, "+0.07/s idle → FLOOD", and the idle hands' best use
 		war_row = HBoxContainer.new()
 		war_row.add_theme_constant_override("separation", 4)
 		war_row.mouse_filter = Control.MOUSE_FILTER_STOP  # the idle line is clipped: its tooltip carries it whole
 		war_rate = TownUI.rate_label("", int(_hcfg.get("split_px", 12)), "text_dim")
 		war_row.add_child(war_rate)
-		war_word = TownUI.label(String((_hcfg.get("text", {}) as Dictionary).get("war", "")), int(_hcfg.get("split_px", 12)), "text_dim")
+		war_word = TownUI.label("", int(_hcfg.get("split_px", 12)), "text_dim")  # HudModel.muster_word, on bind
 		war_row.add_child(war_word)
 		idle_line = TownUI.parts_label(int(_hcfg.get("split_px", 12)), "text")
 		war_row.add_child(idle_line)
@@ -132,9 +144,23 @@ func _make_cell(id: String) -> Control:
 	var bc: Dictionary = _vcfg.get("cap_bar", {})
 	bar.custom_minimum_size = Vector2(float(bc.get("w_px", 120.0)), float(bc.get("h_px", 6.0)))
 	bar.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	col.add_child(bar)
+	var note: Label = null
+	if id == "workers":
+		col.add_child(bar)
+	else:  # the store's note ("full in 11.8 h") rides the bar's row, so a four-digit stock line keeps its tail
+		var bar_row := HBoxContainer.new()
+		bar_row.add_theme_constant_override("separation", 6)
+		bar.custom_minimum_size.x = float(bc.get("min_w_px", 24.0))
+		bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		bar.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		bar_row.add_child(bar)
+		note = TownUI.label("", int(_hcfg.get("split_px", 12)), "text")
+		note.mouse_filter = Control.MOUSE_FILTER_STOP
+		bar_row.add_child(note)
+		col.add_child(bar_row)
+		stock.mouse_filter = Control.MOUSE_FILTER_STOP
 	_cells[id] = {"net": net, "split": split, "stock": stock, "bar": bar, "war_row": war_row, "war_rate": war_rate,
-		"war_word": war_word, "idle": idle_line}
+		"war_word": war_word, "idle": idle_line, "note": note}
 	return col
 
 
@@ -196,6 +222,8 @@ func bind(views: Dictionary) -> void:
 		_bind_cell(String(id), _cells[id], town, hud, rates.get(id, {}), views)
 	_bind_morale(town)
 	_tier.text = String(town.get("tier", "")).capitalize()
+	_essence.text = BuildSort.fmt(String(_vcfg.get("guide", {}).get("essence_short", "")),
+		{"n": int(views.get("inventory", {}).get("essence", 0))})
 	var nl := HudModel.next_line(views, _hcfg, _bview)
 	_next.text = String(nl["text"])
 	var lit: bool = nl["relics"]  # the relic wall: a lit colour, words not colour alone, and a way out
@@ -230,15 +258,18 @@ func _bind_cell(id: String, c: Dictionary, town: Dictionary, hud: Dictionary, fl
 			"  (%s)" % why if why != "" else ""]
 		c["stock"].tooltip_text = c["stock"].text
 		var war := HudModel.surplus_rate(town, steady, kept, _hcfg)
-		var idle := HudModel.idle_parts(views, _vcfg, _bview, _bcfg, _tab)
+		var idle := HudModel.idle_parts(views, _vcfg, _bview, _bcfg, _tab, true)  # the cell's short line
+		var whole := HudModel.parts_text(HudModel.idle_parts(views, _vcfg, _bview, _bcfg, _tab))  # the tooltip's
 		(c["war_row"] as Control).visible = war > 0.0 or not idle.is_empty()
 		(c["war_rate"] as Label).visible = war > 0.0
 		(c["war_word"] as Label).visible = war > 0.0
 		(c["war_rate"] as Label).text = HudModel.war_text(war, _hcfg)
+		(c["war_word"] as Label).text = HudModel.muster_word(views, _hcfg)
 		TownUI.set_parts(c["idle"], idle)
 		(c["idle"] as Control).visible = not idle.is_empty()
-		(c["war_row"] as Control).tooltip_text = HudModel.parts_text(idle)
-		(c["idle"] as Control).tooltip_text = HudModel.parts_text(idle)
+		var tip := "\n".join(PackedStringArray([HudModel.muster_tip(views, _hcfg) if war > 0.0 else "", whole].filter(func(x): return x != "")))
+		(c["war_row"] as Control).tooltip_text = tip
+		(c["idle"] as Control).tooltip_text = tip
 	elif id == "living":
 		split = HudModel.split_text([["in", float(town.get("migrants", inn))], ["out", -float(town.get("departures", out))]], _hcfg)
 		c["stock"].text = "%d / %d" % [roundi(float(town.get("living", 0.0))), roundi(float(town.get("living_cap", 0.0)))]
@@ -249,7 +280,10 @@ func _bind_cell(id: String, c: Dictionary, town: Dictionary, hud: Dictionary, fl
 		if id == "bodies" and cap < 0.0:
 			cap = float(town.get("bodies_cap", -1.0))
 		var note := HudModel.store_text(stock, cap, net, _hcfg)
-		c["stock"].text = "%d%s%s" % [roundi(stock), "" if cap < 0.0 else " / %d" % roundi(cap), "  " + note if note != "" else ""]
+		c["stock"].text = "%d%s" % [roundi(stock), "" if cap < 0.0 else " / %d" % roundi(cap)]
+		c["note"].text = note
+		c["stock"].tooltip_text = "%s  %s" % [c["stock"].text, note] if note != "" else c["stock"].text
+		c["note"].tooltip_text = c["stock"].tooltip_text
 		_set_bar(c["bar"], BuildSort.fill(stock, cap), -1.0)
 	c["split"].text = split
 

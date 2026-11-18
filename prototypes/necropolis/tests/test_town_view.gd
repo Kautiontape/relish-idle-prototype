@@ -1532,6 +1532,13 @@ func _build_needs(day1: Dictionary) -> void:
 	v = _need_views(day1)
 	v["vei"]["fronts"] = [{"id": "raw", "need": 0.0, "have": 0.0}, {"id": "giants", "need": 24.0, "have": 26.5},
 		{"id": "swarm", "need": 30.0, "have": 12.0}]
+	# V-e: no front chip until Vei is in sight (a fort of front_sight_tier taken, or Relish at her gate)
+	v["hud"]["highest_tier_flipped"] = int(vcfg["needs"]["front_sight_tier"]) - 1
+	t.ok(_need_ids(v).is_empty(), "build needs: a short front is no chip while Vei is out of sight (highest tier taken %d)" % v["hud"]["highest_tier_flipped"])
+	v["relish"]["state"] = "at_vei"
+	t.ok(_need_ids(v).has("front"), "build needs: Relish at Vei's gate brings Vei in sight")
+	v["relish"]["state"] = "idle"
+	v["hud"]["highest_tier_flipped"] = int(vcfg["needs"]["front_sight_tier"])
 	n = BuildSort.needs(v, FORTS, vcfg)
 	t.ok(_need_ids(v) == ["front"] and n[0]["chip"].contains("swarm") and n[0]["chip"].contains("12 of 30"),
 		"build needs: the first short front (need > 0, have < need) is named: %s" % n[0]["chip"])
@@ -1649,7 +1656,9 @@ func _build_sort(day1: Dictionary) -> void:
 	t.ok(real.size() == cat.size() - built_unique, "build sort: the day1 catalog keeps all %d rows but the %d built unique" % [cat.size(), built_unique])
 	t.ok(BuildSort.can_queue(_row("house", true, "", ["lot-05"]), vcfg), "build sort: a buildable row can be queued")
 	t.ok(BuildSort.can_queue(_row("house", false, "no_gold", ["lot-05"]), vcfg), "build sort: an unaffordable row can be queued")
-	t.ok(not BuildSort.can_queue(_row("inn", false, "needs_tier", ["lot-05"]), vcfg), "build sort: a gated row cannot be queued")
+	t.ok(BuildSort.can_queue(_row("inn", false, "needs_tier", ["lot-05"]), vcfg), "build sort: a gated row can be queued (it waits for its tier)")
+	t.ok(not BuildSort.can_queue(_row("inn", false, "needs_tier", []), vcfg), "build sort: a row with no free lot can't be queued")
+	t.ok(not BuildSort.can_queue(_row("crypt", false, "unique", ["lot-05"]), vcfg), "build sort: a built unique building can't be queued")
 	t.ok(not BuildSort.can_queue(_row("house", false, "no_lot", []), vcfg), "build sort: a row with no free lot cannot be queued")
 
 
@@ -1668,7 +1677,7 @@ func _build_reasons(day1: Dictionary) -> void:
 		t.ok(txt != "" and txt != r and not txt.contains("_") and not txt.contains("{"), "reason '%s' has human text: %s" % [r, txt])
 	for r in vcfg["reasons"]:
 		if r != "_unknown":
-			t.ok(r in ALL_REASONS or r in ["no_cost"], "view.reasons.%s is a documented reason id (no_cost is the town's own: past level_costs)" % r)
+			t.ok(r in ALL_REASONS or r in ["no_cost", "catching_up", "wait_slot"], "view.reasons.%s is a documented reason id (no_cost is the town's own: past level_costs; catching_up is every command's, STATE-API §4; wait_slot is economy P3's queue reason, worded before it lands)" % r)
 	t.ok(BuildSort.reason_text("needs_tier", row, st, bv, vcfg) == "needs Village tier", "reason: needs_tier uses requires.tier")
 	t.ok(BuildSort.reason_text("needs_blueprint", row, st, bv, vcfg) == "needs the Embalmer blueprint: dungeon loot", "reason: needs_blueprint names the blueprint")
 	t.ok(BuildSort.reason_text("needs_building", row, st, bv, vcfg) == "needs a House first", "reason: needs_building names the building")
@@ -1740,7 +1749,10 @@ func _build_queue(day1: Dictionary) -> void:
 	var real_q: Array = [{"building_id": "inn", "lot_id": "lot-06"}]
 	t.ok(TownStandins.queue_entries({"queue": real_q}, local) == real_q and TownStandins.queue_entries({"queue": []}, local).is_empty(),
 		"queue: with a real `queue` key (even empty) the view's entries are shown, never the local ones")
-	t.ok(String(vcfg["queue_text"].get("no_commands", "")) == "queue commands: coming", "queue: the add path says queue commands are coming once the view has a queue")
+	var pb := FileAccess.get_file_as_string("res://scripts/town/panel_build.gd")  # panel_build needs the Game autoload: read its source
+	t.ok(pb.contains("Game.state.cmd_queue_build(") and pb.contains("Game.state.cmd_unqueue(") and pb.contains("Game.state.cmd_reorder_queue(")
+		and not vcfg["queue_text"].has("no_commands"),
+		"queue: with the view's queue the Build tab calls cmd_queue_build, cmd_unqueue and cmd_reorder_queue (no 'coming' text)")
 	var q := TownStandins.BuildQueue.new(3, vcfg["cap_buildings"])
 	var ctx := _qctx()
 	var r := q.add(_entry("house", "lot-05"), ctx)
@@ -2015,9 +2027,9 @@ func _build_ghosts(day1: Dictionary) -> void:
 	t.ok(g.size() == 3, "ghosts: one per queue entry")
 	t.ok(g.map(func(x): return x["number"]) == [1, 2, 3] and g.map(func(x): return x["lot_id"]) == ["lot-05", "lot-06", "lot-07"],
 		"ghosts: numbers are the queue positions, on the entry's lot")
-	t.ok(g.map(func(x): return x["shape"]) == ["hold", "struck", "plain"] and g.map(func(x): return x["status"]) == ["waiting_funds", "skipped_gate", "queued"],
-		"ghosts: a waiting head holds, a gated entry is struck, the rest are plain (%s)" % str(g.map(func(x): return x["shape"])))
-	t.ok((g[0]["text"].begins_with("needs ") or g[0]["text"].contains("isn't flowing")) and g[1]["text"].begins_with("needs Village tier"),
+	t.ok(g.map(func(x): return x["shape"]) == ["hold", "plain", "plain"] and g.map(func(x): return x["status"]) == ["waiting_funds", "skipped_gate", "queued"],
+		"ghosts: a waiting head holds; a gated entry waits in its place, plain; the rest are plain (%s)" % str(g.map(func(x): return x["shape"])))
+	t.ok((g[0]["text"].begins_with("needs ") or g[0]["text"].contains("isn't flowing")) and g[1]["text"] == "queued: waits for Village",
 		"ghosts: hover text is the shortage (%s) and the gate (%s)" % [g[0]["text"], g[1]["text"]])
 	t.ok(g[2]["text"] == "", "ghosts: a plain queued entry has no hover text")
 	q.entries = [_entry("well", "lot-07")]
@@ -3242,7 +3254,8 @@ func _kept(day1: Dictionary) -> void:
 	t.ok(HudModel.surplus_rate(town, 60.0, 60.0, h) == 0.0, "surplus: hidden when steady does not exceed kept")
 	town["workers"].erase("muster_steady")
 	t.ok(HudModel.surplus_rate(town, 87.8, 60.0, h) == 0.0, "surplus: hidden when no muster rate is known")
-	t.ok(HudModel.war_text(0.069, h) == "+0.07/s" and h["text"]["war"] == "\u2192 WAR", "surplus: signed rate, upright '→ WAR'")
+	t.ok(HudModel.war_text(0.069, h) == "+0.07/s" and HudModel.muster_word({}, h) == "idle \u2192 FLOOD",
+		"surplus: signed rate, then where the muster goes, upright (FLOOD without the Muster stance: '%s')" % HudModel.muster_word({}, h))
 
 
 func _vrow(id: String, count: int, gold := 10.0) -> Dictionary:
@@ -3367,7 +3380,7 @@ func _hud_idle(day1: Dictionary) -> void:
 	var none: Array = rows.duplicate(true)
 	none[1]["can_build"] = false
 	none[1]["reason"] = "no_gold"
-	t.ok(HudModel.parts_text(HudModel.idle_parts(mk.call(10.0, 0.1, none), vcfg, bv, bc)) == "10 idle: no job building affordable; mustering to WAR",
+	t.ok(HudModel.parts_text(HudModel.idle_parts(mk.call(10.0, 0.1, none), vcfg, bv, bc)) == "10 idle: no job building affordable; mustering to FLOOD (Vei's queue)",
 		"hud idle: nothing to build while mustering")
 	t.ok(HudModel.parts_text(HudModel.idle_parts(mk.call(6.0, 0.0, none), vcfg, bv, bc)) == "6 idle: no job building affordable; waiting at the crypt",
 		"hud idle: nothing to build and no muster: they wait")
@@ -3482,7 +3495,7 @@ func _relic_gate(mid: Dictionary) -> void:
 	for m in miss:
 		sum += int(bc[m]["cost"]["relics"])
 	var g := BuildSort.relic_gate(mid, items, st, bv, vcfg)
-	var want := "Gated by relics: %s. You have %d. Relics come from dungeons." % [
+	var want := "Needs relics: %s. You have %d: raid a fort for more." % [
 		" · ".join(miss.map(func(m): return "%s %d%s" % [BuildSort.label_of(String(m), bv), int(bc[m]["cost"]["relics"]), ""])), int(st["relics"])]
 	want = want.replace("Walls and Gate 2", "Walls and Gate 2 ✓")  # 3 held: Walls is affordable, the Chapel then is not
 	t.ok(sum > int(st["relics"]) and g.get("ids", []) == miss and g.get("text", "") == want,
@@ -3496,13 +3509,13 @@ func _relic_gate(mid: Dictionary) -> void:
 	one["hud"]["relics"] = 0
 	one["inventory"]["relics"] = 0
 	var g1 := BuildSort.relic_gate(one, BuildSort.sort_rows(one["catalog"]["buildings"], BuildSort.needs(one, {}, vcfg, bv, bc), bv, vcfg), BuildSort.stocks(one), bv, vcfg)
-	t.ok(String(g1.get("text", "")).begins_with("Gated by relics: Walls and Gate 2. You have 0."), "relic gate: one building, its own cost, no mark (%s)" % g1.get("text", ""))
+	t.ok(String(g1.get("text", "")).begins_with("Needs relics: Walls and Gate 2. You have 0:"), "relic gate: one building, its own cost, no mark (%s)" % g1.get("text", ""))
 	var placed: Dictionary = one.duplicate(true)
 	placed["town"]["buildings"].append({"lot_id": "lot-23", "building_id": "walls", "level": 0, "state": "constructing", "progress": 0.1})
 	t.ok(BuildSort.relic_gate(placed, [], BuildSort.stocks(placed), bv, vcfg).is_empty(), "relic gate: a missing building already placed is not asked for")
 	var top := [{"row": {"building_id": "forge", "cost": {"gold": 0.0, "bone": 0.0, "relics": 1}}, "need": "idle_hands", "rank": 0}]
 	var g2 := BuildSort.relic_gate({"town": {"next_tier": {}}}, top, {"relics": 0.0}, bv, vcfg)
-	t.ok(g2.get("ids", []) == ["forge"] and String(g2.get("text", "")).begins_with("Gated by relics: Forge 1. You have 0."),
+	t.ok(g2.get("ids", []) == ["forge"] and String(g2.get("text", "")).begins_with("Needs relics: Forge 1. You have 0:"),
 		"relic gate: the top need-serving row blocked by relics pins too (%s)" % g2.get("text", ""))
 	t.ok(BuildSort.relic_gate({"town": {"next_tier": {}}}, top, {"relics": 1.0}, bv, vcfg).is_empty(), "relic gate: a top row it can pay for, no pin")
 	t.ok(String(vcfg["relic_gate"]["button"]) == "To the realm", "relic gate: the pinned row's button says To the realm")
@@ -4117,7 +4130,7 @@ func _fix3a_hud(day1: Dictionary) -> void:
 	var p: Array = HudModel.idle_parts(mk.call(rows, 1000.0), vcfg, bv, bc)
 	t.ok(HudModel.parts_text(p) == "10 idle: upgrade the Market to L2 (+%d jobs) or let them muster" % BuildSort.job_slots("market", bc) and p.size() == 1,
 		"hud idle: the best use is a job upgrade, the Build tab's suggestion (%s)" % HudModel.parts_text(p))
-	t.ok(HudModel.parts_text(HudModel.idle_parts(mk.call(rows, 10.0), vcfg, bv, bc)) == "10 idle: no job building affordable; mustering to WAR",
+	t.ok(HudModel.parts_text(HudModel.idle_parts(mk.call(rows, 10.0), vcfg, bv, bc)) == "10 idle: no job building affordable; mustering to FLOOD (Vei's queue)",
 		"hud idle: an upgrade that can't be paid for is no job building affordable")
 	# a suggestion with no jobs (the tier's House) leaves the line on the first buildable job item
 	var jrows := [_row("house", true, "", ["lot-05"]), _row("charnel_house", true, "", ["lot-06"]), _row("market", false, "no_gold", ["lot-08"])]
@@ -4675,8 +4688,8 @@ func _fix3b_cache() -> void:
 	var shell := _read_src("res://scripts/town/covington.gd")
 	t.ok(shell.contains("func project_staffing(order: Array, extra := {})") and shell.contains("view_staffing_projection"),
 		"covington: owns project_staffing, which calls the projection view when GameState has it")
-	t.ok(shell.contains("int(_last_views.get(\"town\", {}).get(\"rev\", -1))") and shell.contains("_hops_cache.fetch(0,"),
-		"covington: the stand-in is keyed on the fetched town rev, the lot hops are computed once")
+	t.ok(shell.contains("_staff_cache.fetch(int(s.rev),") and not shell.contains("TownStandins.project(") and shell.contains("_hops_cache.fetch(0,"),
+		"covington: the projection is the real view, keyed on GameState's rev (the #16 stand-in is retired); the lot hops are computed once")
 	t.ok(shell.contains("RevCache"), "covington: caches the projections and the lot hops by rev")
 
 
@@ -5142,9 +5155,9 @@ func _td1_relics(mid: Dictionary) -> void:
 		var st := BuildSort.stocks(v)
 		var items := BuildSort.sort_rows(v["catalog"]["buildings"], BuildSort.needs(v, {}, vcfg, bv, bc), bv, vcfg)
 		return String(BuildSort.relic_gate(v, items, st, bv, vcfg).get("text", ""))
-	t.ok(pin.call(m3) == "Gated by relics: Walls and Gate 2 ✓ · Chapel of Vats 2. You have 3. Relics come from dungeons.", "pin: per building, Walls marked as affordable (%s)" % pin.call(m3))
+	t.ok(pin.call(m3) == "Needs relics: Walls and Gate 2 ✓ · Chapel of Vats 2. You have 3: raid a fort for more.", "pin: per building, Walls marked as affordable (%s)" % pin.call(m3))
 	var m0 := _with_relics(mid, 0, true)
-	t.ok(pin.call(m0) == "Gated by relics: Walls and Gate 2 · Chapel of Vats 2. You have 0. Relics come from dungeons.", "pin: with none, no building is marked (%s)" % pin.call(m0))
+	t.ok(pin.call(m0) == "Needs relics: Walls and Gate 2 · Chapel of Vats 2. You have 0: raid a fort for more.", "pin: with none, no building is marked (%s)" % pin.call(m0))
 	t.ok(pin.call(_with_relics(mid, 4, true)) == "", "pin: enough for both, no pin")
 	t.ok(String(vcfg["relic_gate"]["mark_ok"]) == "✓" and String(vcfg["relic_gate"]["button"]) == "To the realm", "pin: the mark and the To the realm button are town.json texts")
 
@@ -5258,9 +5271,12 @@ func _td1_placeholders(day1: Dictionary, mid: Dictionary, pre: Dictionary) -> vo
 	t.ok(ct["raise_note"] == "preview: nothing is spent and no big undead rises yet", "raise: the note before the hold (%s)" % ct["raise_note"])
 	t.ok(ct["risen_stub"] == "coming: raised undead join the town in a later build", "raise: the after-line (%s)" % ct["risen_stub"])
 	t.ok(float(ct["stub_line_s"]) > 0.0 and float(ct["stub_line_s"]) <= 10.0, "raise: the after-line clears a few seconds after the rings settle (%s s)" % ct["stub_line_s"])
-	t.ok(slab.has("raise_wired") and slab["raise_wired"] == false, "raise: slab.raise_wired is false while the raise is a stub (STANDIN)")
-	t.ok(CryptLogic.raise_is_preview(slab, false), "raise: a stub raise is a preview")
-	t.ok(not CryptLogic.raise_is_preview(slab, true), "raise: once a raise returned a creature, the note goes away")
+	t.ok(slab.has("raise_wired") and slab["raise_wired"] == true and not CryptLogic.raise_is_preview(slab, false),
+		"raise: E3 made the raise real, so slab.raise_wired is on and the preview note never shows (town-i M2)")
+	var stub: Dictionary = slab.duplicate()
+	stub["raise_wired"] = false
+	t.ok(CryptLogic.raise_is_preview(stub, false), "raise: unwired, a raise that returned nothing yet is a preview")
+	t.ok(not CryptLogic.raise_is_preview(stub, true), "raise: once a raise returned a creature, the note goes away")
 	var wired: Dictionary = slab.duplicate()
 	wired["raise_wired"] = true
 	t.ok(not CryptLogic.raise_is_preview(wired, false), "raise: a wired raise needs no note")
@@ -5271,8 +5287,11 @@ func _td1_placeholders(day1: Dictionary, mid: Dictionary, pre: Dictionary) -> vo
 	# backups: the stub outcome/respawn line and the ladder step say 'coming'
 	var tx: Dictionary = vcfg["backups"]
 	var clone := {"outcome": "clone", "respawn_s": 0.0, "loses": []}
-	t.ok(tx.has("numbers_wired") and tx["numbers_wired"] == false, "backups: numbers_wired is false while the view is a stub (STANDIN)")
-	t.ok(BackupsModel.numbers_pending(clone, tx), "backups: a clone with respawn 0 on a stub view reads as pending")
+	t.ok(tx.has("numbers_wired") and tx["numbers_wired"] == true and not BackupsModel.numbers_pending(clone, tx),
+		"backups: E3 made the death numbers real, so numbers_wired is on and nothing reads as pending (town-i M2)")
+	tx = tx.duplicate()
+	tx["numbers_wired"] = false
+	t.ok(BackupsModel.numbers_pending(clone, tx), "backups: unwired, a clone with respawn 0 reads as pending")
 	t.ok(BackupsModel.numbers_pending({"outcome": "unmade", "respawn_s": 600.0}, tx) == false, "backups: a real wait (respawn_s > 0) shows the view is live")
 	t.ok(BackupsModel.numbers_pending({"outcome": "phylactery", "respawn_s": 0.0}, tx) == false, "backups: a phylactery outcome shows the view is live")
 	var live: Dictionary = tx.duplicate()
@@ -5283,7 +5302,8 @@ func _td1_placeholders(day1: Dictionary, mid: Dictionary, pre: Dictionary) -> vo
 	t.ok(BackupsModel.ladder_now_text(tx, true) == "now · numbers coming" and BackupsModel.ladder_now_text(tx, false) == "now", "backups: the ladder's current step says numbers coming")
 	t.ok(BackupsModel.death_sig({"backups": {"death": clone}}) != BackupsModel.death_sig({"backups": {"death": {"outcome": "clone", "respawn_s": 60.0, "loses": []}}}), "backups: a live respawn moves the death signature")
 	# foreman: a 'coming' note by the button and on the placed line
-	t.ok(ct["foreman_coming"] == "coming: a foreman boosts its building in a later build", "foreman: the coming note (%s)" % ct["foreman_coming"])
+	t.ok(not String(ct["foreman_coming"]).contains("coming") and String(ct["foreman_coming"]).contains("speed") and String(ct["foreman_coming"]).contains("morale"),
+		"foreman: the note says what a foreman does (E3-3: speed on job output, presence on morale), not 'coming' (%s)" % ct["foreman_coming"])
 	t.ok(CryptLogic.place_note("town:lot-04", ct) == ct["foreman_coming"] and CryptLogic.place_note("crypt", ct) == "" and CryptLogic.place_note("fort:x", ct) == "",
 		"foreman: only a foreman place carries the note")
 	# no dev tags in any text a player reads

@@ -16,31 +16,30 @@ static func cfg() -> Dictionary:
 	return MapLogic.cfg().get("idle", {}).get("away", {})
 
 
-## The report to show. `demo` (the --away=demo report) wins when given; else view_away when the
-## state has it; else nothing ({shown: false}).
-# TODO(api-request #7): view_away()
+## The report to show: `demo` (the --away=demo debug report) when given, else the state's
+## view_away(); with no state, nothing ({shown: false}).
 static func report(state, demo := {}) -> Dictionary:
 	if not demo.is_empty():
 		return demo
-	if state != null and state.has_method("view_away"):
+	if state != null:
 		return state.view_away()
 	return {"shown": false}
 
 
 ## Whether the panel opens for this report. With the real view_away, `shown` is the only
-## authority (its rev moves every substep); on the stand-in path (the demo, or a state without
-## view_away) the closed rev is compared too.
+## authority (its rev moves every substep); for the demo report (or no state) the closed rev is
+## compared too.
 static func should_open(state, demo: bool, rep: Dictionary, closed_rev: int) -> bool:
 	if not bool(rep.get("shown", false)):
 		return false
-	if demo or state == null or not state.has_method("view_away"):
+	if demo or state == null:
 		return int(rep.get("rev", 0)) != closed_rev
 	return true
 
 
-## Dismisses through the API when the state has it (a ready line acts as DISMISS does).
+## Dismisses through cmd_dismiss_away (a ready line acts as DISMISS does).
 static func dismiss(state) -> void:
-	if state != null and state.has_method("cmd_dismiss_away"):  # TODO(api-request #7)
+	if state != null:
 		state.cmd_dismiss_away()
 
 
@@ -91,13 +90,16 @@ static func losses_count(losses: Array) -> String:
 ## [{key, title, lines: [{text, spans, action}]}]}. Sections run gains, ready, losses; gains and
 ## ready are left out when empty, losses always show ("Nothing lost." when there are none) and lead
 ## with their count ("2 forts lost"). Ready and loss lines carry their target's action (a lost
-## fort is clickable like a ready one); gains lines and the count do nothing.
-static func build(rep: Dictionary, fort_ids: Array) -> Dictionary:
+## fort is clickable like a ready one); gains lines and the count do nothing. `tithe` is the live
+## telegraph line after the sections: {text, fort_id, action} from HudLogic.tithe_line(vei_tithe,
+## names) (the panel re-reads it each frame; "" text means no line), its action the same resolver.
+static func build(rep: Dictionary, fort_ids: Array, vei_tithe := {}, names := {}) -> Dictionary:
 	var c := cfg()
 	var out := {
 		"away": str(c.get("away_fmt", "%s")) % duration_text(float(rep.get("away_s", 0.0))),
 		"capped": str(c.get("capped_text", "")) if bool(rep.get("capped", false)) else "",
 		"sections": [],
+		"tithe": tithe_line(vei_tithe, names, fort_ids),
 	}
 	for key in ["gains", "ready", "losses"]:
 		var lines: Array = []
@@ -113,6 +115,13 @@ static func build(rep: Dictionary, fort_ids: Array) -> Dictionary:
 		if not lines.is_empty():
 			out["sections"].append({"key": key, "title": str(c.get(key + "_title", "")), "lines": lines})
 	return out
+
+
+## The tithe telegraph as an away line: HudLogic.tithe_line plus the click's action.
+static func tithe_line(vei_tithe: Dictionary, names: Dictionary, fort_ids: Array) -> Dictionary:
+	var l := HudLogic.tithe_line(vei_tithe, names)
+	l["action"] = action(str(l["fort_id"]), fort_ids)
+	return l
 
 
 ## A line split into runs by font: "rate" (a signed number with /s: oblique, light), "mass" (a

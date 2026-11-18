@@ -246,7 +246,7 @@ static func slam_crosses(dist: float, r_prev: float, r_now: float, band_px: floa
 ## scaled by the weak point's dmg_mult. With the risk lever on (`lever`: WardenLogic.lever_on; D-d/E Step
 ## 4b, the counter is the soak; the chain no longer soaks a slam there) a muffled slam does not reach
 ## Relish at all; below it (t1, the first dungeon) she takes the scaled slam as at 5b70259.
-static func slam_damage(sp: Dictionary, target: String, beef: float, muffled: bool, lever := true) -> float:
+static func slam_damage(sp: Dictionary, target: String, beef: float, muffled: bool, lever: bool) -> float:
 	if target == "relish" and muffled and lever:
 		return 0.0
 	var at: Dictionary = sp.get("attack", {})
@@ -256,6 +256,14 @@ static func slam_damage(sp: Dictionary, target: String, beef: float, muffled: bo
 	if muffled:
 		d *= float((sp.get("weak_point", {}) as Dictionary).get("dmg_mult", 1.0))
 	return d
+
+
+## How far the slam's ring really reaches: its radius plus half its band (the same edge slam_crosses uses).
+## The tell's edge warning and the toll's "beyond the slam" test read this, so the warning is on wherever the
+## slam can land (it stopped at the bare radius, 18 px short of the ring's outer edge).
+static func slam_edge_px(sp: Dictionary) -> float:
+	var at: Dictionary = sp.get("attack", {})
+	return float(at.get("radius_px", 360.0)) + float(at.get("band_px", 36.0)) * 0.5
 
 
 ## Contacts are [{beef}]: big undead touching the bell. Muffled when any has beef >= threshold.
@@ -635,6 +643,59 @@ static func _ordinal(n: int) -> String:
 
 static func _num(v: float) -> String:
 	return str(int(v)) if is_equal_approx(v, roundf(v)) else str(snappedf(v, 0.01))
+
+
+# ---------------------------------------------------- how to break it (T4) ---
+## How the warden is beaten, in words (the WardenBlock's and the GoalBlock's lines). Every number is read
+## from the spec (built from raid.json), never retyped.
+## The break rule: its meter's pips are the strength to take off, and the chest it drops takes the fort.
+static func break_line(_sp: Dictionary, meter_pips: int) -> String:
+	return "BREAK IT · your undead's blows take its %d pips, then open the chest it drops" % meter_pips
+
+
+## What multiplies a blow on it, from the spec: "TAKES ×2.5 while stunned (an intercepted lunge stuns it)"
+## and the like. Parts join with " · ": the archetype's own, then its pack's. "" when nothing does.
+static func takes_line(sp: Dictionary) -> String:
+	var parts: PackedStringArray = []
+	var wp: Dictionary = sp.get("weak_point", {})
+	var at: Dictionary = sp.get("attack", {})
+	match str(sp.get("archetype", "")):
+		"huntsman":
+			parts.append("×%s while stunned (an intercepted lunge stuns it)" % _num(float(wp.get("stun_dmg_mult", 1.0))))
+		"shieldwall":
+			parts.append("×%s on its shield · ×%s from behind" % [_num(float(at.get("front_mult", 0.1))), _num(float(at.get("back_mult", 1.0)))])
+		"pyre_priest":
+			if acolyte_count(sp) > 0:
+				parts.append("×%s while an acolyte stands" % _num(float(at.get("ward_mult", 1.0))))
+	var pk: Dictionary = sp.get("pack", {})
+	if not pk.is_empty() and int(pk.get("size", 0)) > 0:
+		parts.append("×%s while its %s stand" % [_num(float(pk.get("ward_mult", 1.0))), str(pk.get("name", "pack"))])
+	return "" if parts.is_empty() else "TAKES " + " · ".join(parts)
+
+
+## The counter: which big undead breaks it and whether the party has one. `party_values` are the party bigs'
+## values of the weak point's stat (RaidLogic.unit_stat): none at all, none that meets it, or k that do.
+static func counter_line(sp: Dictionary, party_values: Array) -> String:
+	var wp: Dictionary = sp.get("weak_point", {})
+	var thr := float(wp.get("threshold", 0.0))
+	var verb := ""
+	match str(wp.get("effect", "")):
+		"muffle":
+			verb = "muffles its slams"
+		"intercept":
+			verb = "intercepts its lunge"
+		"flank":
+			verb = "flanks it from behind"
+		"snuff":
+			verb = "snuffs an acolyte in one blow"
+	var s := "COUNTER · a big undead with %s %d+ %s" % [str(wp.get("stat", "")), int(thr), verb]
+	if party_values.is_empty():
+		return s + " · you have none: make one at the Crypt slab"   # circles raise chaff to elites; only the slab makes bigs
+	var k := 0
+	for v in party_values:
+		if float(v) >= thr:
+			k += 1
+	return s + (" · none in your party: make one at the Crypt slab" if k == 0 else " · %d in your party" % k)
 
 
 # ------------------------------------------------------------- pyre-priest ---
