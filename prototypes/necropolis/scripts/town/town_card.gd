@@ -205,15 +205,15 @@ func _make_row(bid: String) -> Dictionary:
 		var l := TownUI.label("", 14)
 		cost_row.add_child(l)
 		costs.append(l)
-	var ben := HBoxContainer.new()
-	ben.add_theme_constant_override("separation", 10)
+	var ben := HFlowContainer.new()  # each part wraps whole to the next line ("2 mill jobs" never splits into a sliver)
+	ben.add_theme_constant_override("h_separation", 10)
 	v.add_child(ben)
 	var rates: Array = []
 	for k in 3:
 		var l := TownUI.rate_label("", 14)
 		ben.add_child(l)
 		rates.append(l)
-	var plain := _wrap("", 14, "text_dim")
+	var plain := TownUI.label("", 14, "text_dim")
 	ben.add_child(plain)
 	var reason := _wrap("", 14, "text_dim")
 	v.add_child(reason)

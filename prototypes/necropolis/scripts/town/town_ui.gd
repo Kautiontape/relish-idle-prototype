@@ -12,6 +12,14 @@ static var _oblique: FontVariation = null
 static var _bold: FontVariation = null
 
 
+## A refused command's line: a `catching_up` refusal is a wait, not an error (C-c), so it reads as its own
+## words, "Catching up on your time away: try again in a moment."; any other reason reads `refused`.
+static func refusal(reason: String, why: String, refused: String) -> String:
+	if reason == "catching_up" and why != "":
+		return why.substr(0, 1).to_upper() + why.substr(1) + "."
+	return refused
+
+
 ## Flat panel: `ground` fill, `contour` border.
 static func panel_box() -> StyleBoxFlat:
 	var sb := StyleBoxFlat.new()

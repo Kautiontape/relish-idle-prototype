@@ -569,6 +569,18 @@ static func row_width(n: int, size: float, gap: float, group_gap: float, group: 
 	return o[n - 1] + size
 
 
+## The lines under a building, [[text, palette key]]: its count badge (`text` while short of hands, else
+## `text_dim`), with the crypt's "Relish away: slab idle" joined onto the same line by `sep`. One line, not two:
+## a second line under the crypt sat on the Market foreman's diamond, which stands on the Market's front facing it.
+static func badge_lines(b: Dictionary, sep: String) -> Array:
+	var badge := String(b.get("badge", ""))
+	var away := String(b.get("away", ""))
+	if badge == "" and away == "":
+		return []
+	var key := "text" if badge != "" and int(b.get("short", 0)) > 0 else "text_dim"
+	return [[badge + (sep if badge != "" and away != "" else "") + away, key]]
+
+
 ## "lot 5" for "lot-05": the lot as a player reads it. `vcfg.lot_name` is the format ({n} = the lot's
 ## number, no leading zeros). An id with no number reads as its tail ("lot x"); "" stays "".
 static func lot_name(lot_id: String, vcfg: Dictionary) -> String:
