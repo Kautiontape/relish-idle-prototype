@@ -221,17 +221,32 @@ static func odds_at(backlog: float, diff: float, window_s: float, k: float, odds
 		float(odds_cfg.get("time_s", 0.0)), float(odds_cfg.get("backlog_cap", 1.0)))
 
 
+## The first-attempt odds on a readiness and the backups: readiness / (1 + exp(-(backups - mid) / scale)); scale <= 0
+## is a step (readiness at or past mid, else 0). Mirror of GameState.first_odds_of (economy cff0ecc); once P3 is merged,
+## call that instead.
+static func first_odds_of(readiness: float, backups: int, mid: float, scale: float) -> float:
+	if scale <= 0.0:
+		return readiness if float(backups) >= mid else 0.0
+	return readiness / (1.0 + exp(-(float(backups) - mid) / scale))
+
+
 ## Now against the dragged valve: {now: {diff, drain_s, odds}, then: {...}}. Both sides use the
 ## same formulas; `now` is the current differential (diff_ema), `then` diff_at's. `odds_cfg` and `age_s` as odds_at.
+## When `vei` carries `backups` and `odds_cfg` both backups_mid and backups_scale, each side's odds are first_odds_of
+## on its readiness (what the player reads); otherwise the readiness itself (before Phase I P3's odds split).
 static func payoff(vei: Dictionary, proj: Dictionary, k: float, odds_cfg := {}, age_s := 0.0) -> Dictionary:
 	var c := _c()
 	var backlog := float(vei.get("backlog", 0.0))
 	var window := float(c["drain_window_s"])
 	var out := {}
+	var split := vei.has("backups") and odds_cfg.has("backups_mid") and odds_cfg.has("backups_scale")
 	var diffs := {"now": float(vei.get("diff_ema", 0.0)), "then": diff_at(proj)}
 	for side in diffs:
 		var d: float = diffs[side]
-		out[side] = {"diff": d, "drain_s": drain_at(backlog, d), "odds": odds_at(backlog, d, window, k, odds_cfg, age_s)}
+		var o := odds_at(backlog, d, window, k, odds_cfg, age_s)
+		if split:
+			o = first_odds_of(o, int(vei["backups"]), float(odds_cfg["backups_mid"]), float(odds_cfg["backups_scale"]))
+		out[side] = {"diff": d, "drain_s": drain_at(backlog, d), "odds": o}
 	return out
 
 

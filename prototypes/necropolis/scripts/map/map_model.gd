@@ -263,8 +263,11 @@ func _update_margin_sig() -> void:
 
 ## Whether they are winning: the one reading the top bar and Vei's node both draw. Odds, sign and
 ## drain_s come from view_hud, the backlog from view_vei; the demo overlay writes the same two.
+## `odds` is what the player reads (Phase I P3: the first-attempt estimate); `readiness` is what decisions read (the old
+## win odds; view_hud's `odds` when it has no `readiness`, before P3); `backups` is view_hud's, -1 when unknown.
 func readout() -> Dictionary:
-	return {"odds": float(hud.get("odds", 0.0)), "sign": int(hud.get("sign", 0)),
+	return {"odds": float(hud.get("odds", 0.0)), "readiness": float(hud.get("readiness", hud.get("odds", 0.0))),
+		"backups": int(hud.get("backups", -1)), "sign": int(hud.get("sign", 0)),
 		"drain_s": float(hud.get("drain_s", -1.0)), "backlog": float(vei.get("backlog", 0.0))}
 
 

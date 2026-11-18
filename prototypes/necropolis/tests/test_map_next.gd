@@ -608,6 +608,12 @@ func _next(t: TestUtil) -> void:
 	t.ok(v4["rule"] == "vei" and v4["text"] == "Vei can be faced: your odds 61%", "can_begin: Vei (%s)" % v4["text"])
 	t.ok(NextLogic.choose(_inp({"readout": {"odds": float(c["next_vei_odds"])}}))["rule"] == "vei", "odds at next_vei_odds: Vei")
 	t.ok(NextLogic.choose(_inp({"readout": {"odds": float(c["next_vei_odds"]) - 0.01}}))["rule"] == "default", "under it, no")
+	# Phase I P3's odds split: the decision reads readiness, the text the shown odds
+	var sp := NextLogic.choose(_inp({"readout": {"odds": 0.05, "readiness": 0.62}}))
+	t.ok(sp["rule"] == "vei" and sp["text"] == "Vei can be faced: your odds 5%", "readiness 0.62 / odds 0.05: in reach, the text shows 5%% (%s)" % sp["text"])
+	t.ok(NextLogic.choose(_inp({"readout": {"odds": 0.9, "readiness": 0.5}}))["rule"] == "default", "readiness 0.5 / odds 0.9: not in reach")
+	t.ok(NextLogic.choose(_inp({"readout": {"odds": 0.58, "readiness": 0.58}}), {"rule": "vei", "target": "vei"})["rule"] == "vei"
+		and NextLogic.choose(_inp({"readout": {"odds": 0.9, "readiness": 0.54}}), {"rule": "vei", "target": "vei"})["rule"] != "vei", "the exit hysteresis reads readiness too")
 	# 4. the plan: the empty queue, else the standing objective
 	t.ok(NextLogic.choose(_inp({"queue": []}))["rule"] == "queue", "an empty queue")
 	t.ok(NextLogic.choose(_inp({"queue": [{"building_id": "pit"}]}))["rule"] != "queue", "a queued build: not this rule")
@@ -821,6 +827,28 @@ func _payoff(t: TestUtil) -> void:
 	var falling := ValveLogic.payoff({"backlog": 1000.0, "diff_ema": -2.0}, {"split": {"work": 12.0, "war": 8.0, "flood": 0.0}, "backlog_diff": -6.0}, k)
 	var fl := ValveLogic.payoff_line(falling, 0.05)
 	t.ok(fl.contains(" · drain ") and fl.contains("▼"), "a shrinking queue is ▼ and shows the drain (%s)" % fl)
+	# Phase I P3: the ground clot reads readiness (view_vei's), falling back to odds
+	var gfv := GroundForces.new(TestUtil.load_json("res://configs/ground.json").get("forces", {}))
+	t.ok(gfv.vortex({"odds": 0.0, "readiness": 0.6, "sign": 1}) == gfv.vortex({"odds": 0.6, "sign": 1}) and gfv.vortex({"odds": 0.6, "sign": 1}) != Vector4.ZERO,
+		"the vortex strength reads readiness, falling back to odds")
+	t.ok(gfv.vortex({"odds": 0.9, "readiness": 0.0, "sign": 1}) == Vector4.ZERO, "a shown odds alone does not draw the clot")
+	# Phase I P3: first_odds_of, and the payoff's projection through it
+	for r in [[8, 0.453], [4, 0.139], [2, 0.053], [0, 0.010]]:
+		t.near(ValveLogic.first_odds_of(0.6118, int(r[0]), 7.15, 1.76), float(r[1]), 1e-3, "first_odds_of at backups %d" % int(r[0]))
+	t.ok(ValveLogic.first_odds_of(0.6, 7, 7.15, 0.0) == 0.0 and ValveLogic.first_odds_of(0.6, 8, 7.15, 0.0) == 0.6, "scale 0: a step at mid")
+	t.ok(ValveLogic.first_odds_of(0.6, 100, 7.15, 1.76) <= 0.6 and ValveLogic.first_odds_of(0.6, -5, 7.15, 1.76) <= 0.6, "never above the readiness")
+	var ocfg := {"time_weight": 0.4, "time_s": 3600.0, "backlog_cap": 1.0}
+	var proj := {"split": {"work": 4.0, "war": 9.0, "flood": 7.0}, "backlog_diff": 6.1}
+	var plain := ValveLogic.payoff(vei, proj, k, ocfg, 1000.0)
+	t.ok(plain == ValveLogic.payoff({"backlog": 18000.0, "diff_ema": 2.1, "backups": 4}, proj, k, ocfg, 1000.0), "no backups_mid/scale: the readiness as before")
+	var withcfg := ocfg.duplicate()
+	withcfg["backups_mid"] = 7.15
+	withcfg["backups_scale"] = 1.76
+	t.ok(ValveLogic.payoff(vei, proj, k, withcfg, 1000.0) == plain, "no backups in the vei dict: the readiness as before")
+	var fo := ValveLogic.payoff({"backlog": 18000.0, "diff_ema": 2.1, "backups": 4}, proj, k, withcfg, 1000.0)
+	for side in ["now", "then"]:
+		t.near(float(fo[side]["odds"]), ValveLogic.first_odds_of(float(plain[side]["odds"]), 4, 7.15, 1.76), 1e-12, "%s: first odds on that side's readiness" % side)
+	t.ok(float(fo["now"]["odds"]) < float(plain["now"]["odds"]) and fo["now"]["diff"] == plain["now"]["diff"], "the shown odds are lower, the differential unchanged")
 	t.ok(ValveLogic.payoff_shown(true, -1.0), "shown while dragging")
 	t.ok(ValveLogic.payoff_shown(false, 0.0) and ValveLogic.payoff_shown(false, float(vc["payoff_hold_s"]) - 0.01), "and for payoff_hold_s after release")
 	t.ok(not ValveLogic.payoff_shown(false, float(vc["payoff_hold_s"])) and not ValveLogic.payoff_shown(false, -1.0), "then hidden; never shown before a drag")

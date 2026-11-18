@@ -251,7 +251,8 @@ static func _vei_in_reach(inp: Dictionary, prev: Dictionary, c: Dictionary) -> b
 	if bool(inp.get("vei", {}).get("can_begin", false)):
 		return true
 	var bar := float(c["next_vei_odds_exit"] if str(prev.get("rule", "")) == VEI else c["next_vei_odds"])
-	return float(inp.get("readout", {}).get("odds", 0.0)) >= bar
+	var ro: Dictionary = inp.get("readout", {})
+	return float(ro.get("readiness", ro.get("odds", 0.0))) >= bar  # a decision: the readiness, not the shown odds
 
 
 static func _vei(inp: Dictionary, c: Dictionary, fort_ids: Array) -> Dictionary:

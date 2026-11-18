@@ -41,7 +41,7 @@ func lane_weight(kind: String, u: float) -> float:
 ## only circulates.
 func vortex(vei: Dictionary) -> Vector4:
 	var v := _sub("vortex")
-	var s := clampf(float(vei.get("odds", 0.0)) / maxf(1e-3, float(v.get("full_odds", 0.8))), 0.0, 1.0)
+	var s := clampf(float(vei.get("readiness", vei.get("odds", 0.0))) / maxf(1e-3, float(v.get("full_odds", 0.8))), 0.0, 1.0)
 	if s < float(v.get("min_strength", 0.02)):
 		return Vector4.ZERO
 	var r: Array = v.get("radius_px", [150.0, 420.0])

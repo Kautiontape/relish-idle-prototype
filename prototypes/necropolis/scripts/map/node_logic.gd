@@ -916,6 +916,8 @@ static func demo_overlay(forts: Array, vei: Dictionary, hud: Dictionary, relish:
 		hud["sign"] = int(vd["sign"])
 		hud["drain_s"] = float(vd["drain_s"])
 		hud["odds"] = float(vd["odds"])
+		if hud.has("readiness"):  # (after P3 the demo's reading stands for both, as before the split)
+			hud["readiness"] = float(vd["odds"])
 
 
 ## Overlays a siege and Relish's party (in place) so one near-zoom shot shows the big undead on
