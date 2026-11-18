@@ -453,7 +453,7 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 			["warden_bellringer", ["word_muffled", "word_tolled", "word_toll", "word_braced"], ["\"MUFFLED\"", "\"BRACED\"", "\"TOLL\""]],
 			["warden_huntsman", ["word_intercepted"], ["\"INTERCEPTED\""]],
 			["warden_shieldwall", ["shield_bash", "shield_rush", "shield_pinned", "shield_pin_broken", "shield_flank", "shield_glance", "word_flanked"], ["\"BASH\"", "\"GLANCE\"", "\"PINNED\"", "\"FLANK\""]],
-			["warden_pyre_priest", ["exposed_banner", "word_snuffed", "pyre_burned", "pyre_fire", "pyre_step_off", "pyre_warded_word"], ["IS EXPOSED ·", "\"SNUFFED\"", ", \"step off the fire\"", "\"WARDED\""]],
+			["warden_pyre_priest", ["exposed_banner", "word_snuffed", "pyre_burned", "pyre_fire", "pyre_step_off", "pyre_warded_word"], ["IS EXPOSED ·", "\"SNUFFED\"", "\"step off the fire\", fs","\"WARDED\""]],
 			["raid_warden_run", ["beaten_banner"], ["WARDEN IS BEATEN"]]]:
 		var wsrc := FileAccess.get_file_as_string("res://scripts/raid/%s.gd" % sf[0])
 		var reads := true
