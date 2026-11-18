@@ -474,7 +474,7 @@
         ],
         "fort_any": "a fort Vei holds",
         "tiers": ["hamlet", "village"],
-        "px": 14, "x_px": 12.0, "y_px": 8.0
+        "px": 14, "x_px": 240.0, "y_px": 8.0
       }
     },
     "relic_gate": {
