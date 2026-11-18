@@ -19,11 +19,23 @@ func run() -> int:
 	_seen(t)
 	_tithe(t)
 	_tithe_focus(t)
+	_after_away(t)
 	_seen_reset(t)
 	_panel(t)
 	_collapse(t)
 	_response(t)
 	return t.failures
+
+
+## After a catch-up the tithe_warning event is in the report: the explanation opens from the state.
+func _after_away(t: TestUtil) -> void:
+	t.ok(OpeningLogic.explain_after_away(false, {"target": "ashgate", "eta_s": 40.0}), "a target stands after a catch-up and none was explained: open it")
+	t.ok(not OpeningLogic.explain_after_away(true, {"target": "ashgate"}), "never twice: an explained tithe stays explained")
+	t.ok(not OpeningLogic.explain_after_away(false, {"target": "", "next_target": "ashgate"}), "a tithe that came and went inside the catch-up opens nothing")
+	t.ok(not OpeningLogic.explain_after_away(false, {}), "no tithe state, nothing")
+	var src := FileAccess.get_file_as_string("res://scripts/map/map_tithe_explain.gd")
+	var on := src.substr(src.find("func on_event("), src.find("func open_pending(") - src.find("func on_event("))
+	t.ok(on.contains("\"away_report\"") and on.contains("OpeningLogic.explain_after_away(") and on.contains("model.refresh(true)"), "the explanation's away_report branch re-reads the model and opens from the state")
 
 
 func _forts(flipped := 0, first := true) -> Array:

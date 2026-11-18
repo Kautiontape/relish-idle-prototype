@@ -20,10 +20,118 @@ func run() -> int:
 	_drag_cap(t)
 	_rects_key(t)
 	_one_source(t)
+	_layer_keys(t)
 	_fit(t)
 	_wrap(t)
 	_clarity(t)
+	_tip_rect(t)
 	return t.failures
+
+
+## The bar tooltip's own place (HudLogic.tip_rect): clear of every HUD text plate, inside the viewport.
+func _tip_rect(t: TestUtil) -> void:
+	t.suite("map_hud-tip-rect")
+	var vp := Vector2(1600.0, 900.0)
+	var plates: Array = [Rect2(0, 0, 860, 60), Rect2(0, 60, 560, 48), Rect2(0, 110, 550, 50), Rect2(0, 160, 560, 35),
+		Rect2(10, 195, 300, 43), Rect2(10, 245, 490, 260), Rect2(10, 512, 500, 328)]
+	var tip := Vector2(420.0, 64.0)
+	var odds := Rect2(32, 34, 68, 22)
+	var mint := Rect2(12, 6, 36, 20)
+	var card := Rect2(1110, 12, 490, 888)
+	var view := Rect2(Vector2.ZERO, vp)
+	for case in [["row 2 (ODDS)", odds, Rect2()], ["row 1 (MINT)", mint, Rect2()], ["row 2, the card open", odds, card], ["row 1, the card open", mint, card]]:
+		var r := HudLogic.tip_rect(case[1], tip, plates, vp, case[2])
+		var hit := false
+		for p in plates:
+			hit = hit or r.intersects(p)
+		t.ok(not hit and view.encloses(r) and r.size == tip, "%s: the plate clears every HUD plate and stays on screen: %s" % [case[0], str(r)])
+		t.ok(not (case[2] as Rect2).intersects(r), "%s: and the open card" % case[0])
+	# a card that really is in the way: the card-less answer lands on it, the card-aware one avoids it and the plates
+	var wide := Rect2(600, 12, 1000, 888)
+	var sparse: Array = [Rect2(0, 0, 860, 60), Rect2(0, 60, 300, 100)]
+	var far := Rect2(500, 34, 68, 22)
+	var right_card := Rect2(800, 12, 800, 888)
+	var bare := HudLogic.tip_rect(far, tip, sparse, vp)
+	t.ok(bare.intersects(right_card), "without the card the plate would sit on it: %s" % str(bare))
+	var dodged := HudLogic.tip_rect(far, tip, sparse, vp, right_card)
+	t.ok(not dodged.intersects(right_card) and not dodged.intersects(sparse[0]) and not dodged.intersects(sparse[1]) and view.encloses(dodged), "with the card passed it clears the card and the plates, on screen: %s" % str(dodged))
+	# the full column and a card across the map: nothing is clear, so the fallback applies (least overlap, clamped on screen)
+	var cramped := HudLogic.tip_rect(odds, tip, plates, vp, wide)
+	t.ok(HudLogic.tip_rect(odds, tip, plates, vp).intersects(wide) and view.encloses(cramped) and cramped.size == tip, "no clear place: the least-overlapping candidate, still on screen: %s" % str(cramped))
+	t.ok(not cramped.intersects(plates[0]) and not cramped.intersects(plates[6]), "and that fallback keeps off the HUD's text plates: %s" % str(cramped))
+	var k0 := HudLogic.tip_key(odds, tip, plates, Rect2(), vp)
+	t.ok(k0 == HudLogic.tip_key(odds, tip, plates.duplicate(), Rect2(), vp), "tip_key: equal inputs, equal key")
+	t.ok(k0 != HudLogic.tip_key(odds, tip, plates, wide, vp), "tip_key: a card opening changes it")
+	t.ok(k0 != HudLogic.tip_key(odds, tip, plates.slice(1), Rect2(), vp), "tip_key: a plate going changes it")
+	t.ok(k0 != HudLogic.tip_key(mint, tip, plates, Rect2(), vp) and k0 != HudLogic.tip_key(odds, tip, plates, Rect2(), vp + Vector2(1, 0)), "tip_key: the word or the viewport moving changes it")
+	var r2 := HudLogic.tip_rect(odds, tip, plates, vp)
+	t.ok(r2.position.x >= 560.0 and r2.position.y >= 60.0, "with the column below the goal full, it goes right of the plates under the bar, over the map: %s" % str(r2))
+	var roomy := HudLogic.tip_rect(odds, tip, [Rect2(0, 0, 860, 60)], vp)
+	t.ok(roomy.position.x == odds.position.x and roomy.position.y >= 60.0 and roomy.position.y < 80.0, "nothing under the bar: just below the word's plate, at its x: %s" % str(roomy))
+	# nothing fits cleanly: still inside the viewport (the fallback is documented on tip_rect)
+	var tiny := Vector2(300.0, 120.0)
+	var small := HudLogic.tip_rect(odds, tip, plates, tiny, Rect2(100, 0, 200, 120))
+	t.ok(Rect2(Vector2.ZERO, tiny).encloses(small), "a tiny viewport: the plate is still inside it: %s" % str(small))
+	var huge := HudLogic.tip_rect(odds, Vector2(900.0, 400.0), plates, tiny)
+	t.ok(Rect2(Vector2.ZERO, tiny).encloses(huge), "a plate larger than the viewport is shrunk into it: %s" % str(huge))
+	var tc: Dictionary = MapLogic.cfg()["clarity"]["tooltip"]
+	t.ok(float(tc["gap_px"]) > 0.0 and float(tc["margin_px"]) > 0.0 and float(tc["delay_s"]) > 0.0 and float(tc["max_w_px"]) > 100.0, "the placement's numbers are in clarity.tooltip")
+	var th := MapUi.tooltip_theme()
+	var pbox := th.get_stylebox("panel", "TooltipPanel") as StyleBoxFlat
+	t.ok(pbox != null and pbox.bg_color.a >= 0.95, "the shared tooltip theme (the valve's tooltips) still has its TooltipPanel plate")
+
+
+## The hover lines on the real nodes. MapValve compiles headless, so it is built as the scene builds it
+## (model set, then _ready) and its buttons and name labels are read. map_hud.gd names the Game autoload
+## and does not compile here: its bar words go through HudLogic.apply_tip, tested on real Labels and
+## Buttons, and the scene's calls to it are pinned as text (one per word).
+func _tips_on_nodes(t: TestUtil) -> void:
+	t.suite("map_hud-tips-on-nodes")
+	var s := GameState.new(TestUtil.configs())
+	s.debug_enabled = true
+	t.ok(s.cmd_debug_load_fixture("midgame_2flips")["ok"], "fixture loads")
+	var m := MapModel.new(s)
+	m.refresh(true)
+	var v := MapValve.new()
+	v.model = m
+	v._ready()  # not in a tree: the scene's own build, run by hand
+	t.ok(v.tooltip_text == HudLogic.tip("mint") and v.mouse_filter == Control.MOUSE_FILTER_STOP, "the valve panel carries the mint line and takes the hover")
+	var buttons := {}
+	for c in v.get_children():
+		if c is Button:
+			buttons[(c as Button).text] = c
+	for k in ValveLogic.KEYS:
+		var b: Button = buttons.get(ValveLogic.NAMES[k])
+		t.ok(b != null, "the valve has a %s button" % k)
+		if b == null:
+			continue
+		t.ok(b.tooltip_text == HudLogic.tip(k) and b.tooltip_text != "", "the %s button carries the %s tip" % [k, k])
+		t.ok(b.mouse_filter != Control.MOUSE_FILTER_IGNORE, "the %s button takes the hover" % k)
+		var nm: Label = v._rows[k]["name"]
+		t.ok(nm.tooltip_text == HudLogic.tip(k), "the %s name label carries the %s tip" % [k, k])
+		t.ok(nm.mouse_filter == Control.MOUSE_FILTER_PASS, "the %s name label passes the hover (not IGNORE)" % k)
+	v.free()
+	# the helper the bar's words use, on real nodes
+	for node in [Label.new(), Button.new()]:
+		node.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		for id in ["mint", "odds", "strain", "drain"]:
+			HudLogic.apply_tip(node, id)
+			t.ok(node.tooltip_text == HudLogic.tip(id) and node.tooltip_text != "" and node.mouse_filter == Control.MOUSE_FILTER_PASS, "apply_tip(%s, %s): the glossary line, hover passed on" % [node.get_class(), id])
+		var plain: Control = node.duplicate()
+		plain.tooltip_text = ""
+		plain.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		HudLogic.apply_tip(plain, "nothing")
+		t.ok(plain.tooltip_text == "" and plain.mouse_filter == Control.MOUSE_FILTER_IGNORE, "%s: an unknown word leaves the node as it was" % node.get_class())
+		plain.free()
+		node.free()
+	# map_hud.gd's calls, pinned as text: the stream words by their item id (MINT among them), then the three status words
+	var hud_src := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
+	t.ok(HudLogic.LABELS.has("mint"), "MINT is a bar item, so the item call carries its tip")
+	t.ok(hud_src.contains("HudLogic.apply_tip(parts[\"name\"], str(it[\"id\"]))"), "map_hud.gd tips each stream word by its item id (MINT, BONE, ...)")
+	for id in ["odds", "strain", "drain"]:
+		t.ok(hud_src.contains("HudLogic.apply_tip(%s_name, \"%s\")" % [id, id]), "map_hud.gd tips the %s word with HudLogic.apply_tip" % id)
+	var valve_src := FileAccess.get_file_as_string("res://scripts/map/map_valve.gd")
+	t.ok(not valve_src.contains("valve_tip") and not MapLogic.cfg()["clarity"].has("valve_tip"), "no valve_tip: the valve's line is the mint tip")
 
 
 ## C2: the run's goal shows until a fort is taken; the jargon words have config tooltips; nothing
@@ -35,7 +143,11 @@ func _clarity(t: TestUtil) -> void:
 	t.ok(not HudLogic.goal_shown({"highest_tier_flipped": 1}), "a fort taken: the goal is gone")
 	t.ok(not HudLogic.goal_shown({"highest_tier_flipped": 0, "won": true}), "won: no goal line")
 	var goal := HudLogic.goal_text()
-	t.ok(goal.contains("take Vei's forts") and goal.contains("necropolis") and goal.contains("FLOOD clogs her queue") and goal.contains("raises your odds"), "the goal line states the run and FLOOD: " + goal)
+	t.ok(goal == "Your goal: take Vei's forts, then beat Vei. Beating Vei wins the game.\nFLOOD clogs her queue and raises your odds; face her when they're good.", "the goal line is the glossary's, verbatim: " + goal)
+	var hits: Array = []
+	_the_run_hits(MapLogic.cfg(), "", hits)
+	t.ok(hits.is_empty(), "no map_view.json string calls the whole game 'the run': %s" % str(hits))
+	t.ok(JSON.stringify(MapLogic.cfg()).contains("\"busy\":\"A raid is already open\""), "a busy refusal says raid")
 	t.ok(not goal.to_lower().contains("drown"), "no 'drown Vei' on the goal line")
 	for id in ["mint", "odds", "strain", "drain", "work", "war", "flood"]:
 		t.ok(HudLogic.tip(id) != "", "%s has a tooltip line" % id)
@@ -45,8 +157,7 @@ func _clarity(t: TestUtil) -> void:
 	var war_line := "WAR sends undead to your forts, spread by distance, with Relish's fort drawing 3× its share. FLOOD sends them into Vei's queue, which raises your odds against her."
 	t.ok(HudLogic.tip("mint") == mint_line, "the mint tip is the glossary's line verbatim")
 	t.ok(not MapLogic.cfg()["clarity"].has("valve_tip"), "the mint line lives under clarity.tips.mint only")
-	var valve_src := FileAccess.get_file_as_string("res://scripts/map/map_valve.gd")
-	t.ok(valve_src.contains("tooltip_text = HudLogic.tip(\"mint\")") and not valve_src.contains("valve_tip"), "the valve's tooltip is the mint line (HudLogic.tip(\"mint\"))")
+	_tips_on_nodes(t)
 	t.ok(HudLogic.tip("war") == war_line and HudLogic.tip("flood") == war_line, "the WAR and FLOOD tips are the glossary's full line verbatim")
 	t.ok(HudLogic.tip("strain") == "How backed up Vei's queue is. ▲ means it's growing (FLOOD is clogging it); ▼ means she's working it down.", "the STRAIN tip is the glossary's line verbatim")
 	t.ok(HudLogic.tip("drain") == "How long until Vei's queue empties at this rate. ∞ means it isn't emptying.", "the DRAIN tip is the glossary's line verbatim")
@@ -55,29 +166,68 @@ func _clarity(t: TestUtil) -> void:
 	# the legend: clear of the chip and the valve, collapses with no room, unchanged with plenty
 	var chip := Rect2(12, 200, 330, 35)
 	var valve := Rect2(12, 512, 400, 300)
-	var roomy := HudLogic.legend_place(chip, valve, 12.0, 490.0, 240.0, 200.0, 40.0, true, false, 10.0)
+	var roomy := HudLogic.legend_place(chip, valve, 12.0, 490.0, 240.0, 200.0, 40.0, true, 10.0)
 	t.ok(roomy["mode"] == "full" and is_equal_approx((roomy["rect"] as Rect2).end.y, 502.0) and (roomy["rect"] as Rect2).position.y >= chip.end.y + 10.0, "plenty of room: full, just above the valve, under the chip")
-	var tight := HudLogic.legend_place(chip, valve, 12.0, 490.0, 330.0, 250.0, 40.0, true, false, 10.0)
-	t.ok(tight["mode"] == "closed" and not (tight["rect"] as Rect2).intersects(chip) and not (tight["rect"] as Rect2).intersects(valve), "no room for full: collapsed, clear of both")
-	var clicked := HudLogic.legend_place(chip, valve, 12.0, 490.0, 330.0, 250.0, 40.0, true, true, 10.0)
-	t.ok(clicked["mode"] == "compact" and (clicked["rect"] as Rect2).position.y >= chip.end.y + 10.0 and (clicked["rect"] as Rect2).end.y <= valve.position.y - 10.0, "a click expands it compactly, clear of both")
-	var nohope := HudLogic.legend_place(chip, valve, 12.0, 490.0, 330.0, 280.0, 40.0, true, true, 10.0)
+	var tight := HudLogic.legend_place(chip, valve, 12.0, 490.0, 330.0, 250.0, 40.0, true, 10.0)
+	t.ok(tight["mode"] == "compact" and not (tight["rect"] as Rect2).intersects(chip) and not (tight["rect"] as Rect2).intersects(valve), "no room for full: compact, clear of both")
+	t.ok((tight["rect"] as Rect2).position.y >= chip.end.y + 10.0 and (tight["rect"] as Rect2).end.y <= valve.position.y - 10.0, "compact sits between the chip and the valve with the gap kept")
+	var nohope := HudLogic.legend_place(chip, valve, 12.0, 490.0, 330.0, 280.0, 40.0, true, 10.0)
 	t.ok(nohope["mode"] == "closed", "not even compact fits: collapsed")
-	var tall_chip := HudLogic.legend_place(Rect2(12, 200, 330, 120), valve, 12.0, 490.0, 300.0, 250.0, 40.0, true, false, 10.0)
+	var tall_chip := HudLogic.legend_place(Rect2(12, 200, 330, 120), valve, 12.0, 490.0, 300.0, 250.0, 40.0, true, 10.0)
 	t.ok(tall_chip["mode"] == "closed", "a taller chip takes the room: collapsed")
-	var far_chip := HudLogic.legend_place(Rect2(900, 200, 330, 120), valve, 12.0, 490.0, 300.0, 250.0, 40.0, true, false, 10.0)
+	var far_chip := HudLogic.legend_place(Rect2(900, 200, 330, 120), valve, 12.0, 490.0, 300.0, 250.0, 40.0, true, 10.0)
 	t.ok(far_chip["mode"] == "full", "a chip beside the legend's columns does not bound it")
-	t.ok(HudLogic.legend_place(chip, valve, 12.0, 490.0, 300.0, 250.0, 40.0, false, false, 10.0)["mode"] == "closed", "not wanted open: the button")
+	t.ok(HudLogic.legend_place(chip, valve, 12.0, 490.0, 300.0, 250.0, 40.0, false, 10.0)["mode"] == "closed", "not wanted open: the button")
+	t.ok(HudLogic.legend_rows_state("closed", 0.0)["visible"] and HudLogic.legend_rows_state("closed", 0.0)["alpha"] == 0.0, "closed and not yet measured: laid out to measure, but drawn at alpha 0")
+	t.ok(not HudLogic.legend_rows_state("closed", 120.0)["visible"] and HudLogic.legend_rows_state("closed", 120.0)["alpha"] == 0.0, "closed once measured: hidden")
+	t.ok(HudLogic.legend_rows_state("full", 0.0)["visible"] and HudLogic.legend_rows_state("compact", 120.0)["alpha"] == 1.0, "open: shown and opaque")
+	t.ok(HudLogic.legend_settled_first(0.0, 90.0) and not HudLogic.legend_settled_first(90.0, 92.0) and not HudLogic.legend_settled_first(0.0, 0.0), "the key is cleared only when the settled height is first set")
 	t.ok(not JSON.stringify(MapLogic.cfg().get("opening", {})).to_lower().contains("drown"), "the opening's lines do not say drown")
 	# the card rises to the screen's top only where the HUD's plates leave it room
 	t.ok(HudLogic.sidebar_top(1600.0, 338.0, 1000.0, 12.0, 150.0, 12.0) == 12.0, "1600 wide, plates end at 1000: the card starts at the top")
 	t.ok(HudLogic.sidebar_top(1280.0, 338.0, 1000.0, 12.0, 150.0, 12.0) == 150.0, "1280 wide: the plates reach the card's column, so it starts under them")
 	t.ok(HudLogic.sidebar_top(1600.0, 338.0, 1255.0, 12.0, 150.0, 12.0) == 150.0, "the gap is kept clear of the plates")
-	# the fort legend: open until a fort is taken, then a button; the player's click stands
-	t.ok(HudLogic.legend_open({"highest_tier_flipped": 0}, -1), "legend open on a new game")
-	t.ok(not HudLogic.legend_open({"highest_tier_flipped": 2}, -1), "legend collapsed once a fort is taken")
-	t.ok(HudLogic.legend_open({"highest_tier_flipped": 2}, 1), "a click opens it afterwards")
-	t.ok(not HudLogic.legend_open({"highest_tier_flipped": 0}, 0), "a click closes it on day 1")
+	# the fort legend: open by default until the player closes it; then as they left it
+	t.ok(HudLogic.legend_open(-1), "legend open by default")
+	t.ok(HudLogic.legend_open(HudLogic.legend_user(false)), "no earlier close: open")
+	t.ok(not HudLogic.legend_open(0), "a close sticks")
+	t.ok(not HudLogic.legend_open(HudLogic.legend_user(true)), "a close remembered from an earlier game: closed")
+	t.ok(HudLogic.legend_open(1), "a reopen sticks")
+	var lroom := HudLogic.legend_place(chip, valve, 12.0, 490.0, 330.0, 250.0, 40.0, HudLogic.legend_open(-1), 10.0)
+	t.ok(lroom["mode"] == "compact", "default open, no room for full: compact")
+	t.ok(HudLogic.legend_place(chip, valve, 12.0, 490.0, 330.0, 280.0, 40.0, HudLogic.legend_open(-1), 10.0)["mode"] == "closed", "default open, no room even for compact: collapses")
+	t.ok(HudLogic.legend_place(chip, valve, 12.0, 490.0, 240.0, 200.0, 40.0, HudLogic.legend_open(0), 10.0)["mode"] == "closed", "closed by the player: the button even with room")
+	# the held row's tag line names each word the chip can show
+	var tag := HudLogic.held_tag_line()
+	for m in [IdleLogic.SAFE, IdleLogic.THIN, IdleLogic.WILL_FALL]:
+		t.ok(IdleLogic.word(m) != "" and tag.contains(IdleLogic.word(m)), "the legend's tag line names %s" % IdleLogic.word(m))
+	t.ok(not tag.to_lower().contains("lost"), "the tag line does not say a will-fall fort is lost (it is still held until Vei wins it)")
+	t.ok(tag.contains("Vei is set to retake it"), "WILL FALL means Vei is set to retake it")
+	t.ok(tag.length() <= 110 and tag.contains("Relish"), "the tag line is short (%d chars) and says Relish helps" % tag.length())
+	# the player's close is MapSeen's global key: across a new game, in memory when it cannot write
+	MapSeen.forget_memory()
+	var spath := "user://test_map_hud_legend_seen.cfg"
+	var sw := MapSeen.new(spath, true)
+	sw.reconcile("g1")
+	t.ok(not sw.get_global(MapSeen.LEGEND_CLOSED), "no close yet")
+	sw.set_global(MapSeen.LEGEND_CLOSED, true)
+	sw.mark(MapSeen.VALVE)
+	MapSeen.forget_memory()
+	var sr := MapSeen.new(spath, true)
+	t.ok(sr.get_global(MapSeen.LEGEND_CLOSED), "the close is read back from the file")
+	sr.reconcile("g2")  # a new game forgets the per-game flags, not the player's choice
+	MapSeen.forget_memory()
+	var sn := MapSeen.new(spath, true)
+	t.ok(sn.get_global(MapSeen.LEGEND_CLOSED) and not sn.has(MapSeen.VALVE), "a new game keeps the close and forgets the game's flags")
+	sn.set_global(MapSeen.LEGEND_CLOSED, false)
+	t.ok(not MapSeen.new(spath, true).get_global(MapSeen.LEGEND_CLOSED), "a reopen is kept")
+	var sm := MapSeen.new(spath, false)  # a session that cannot write: memory only
+	sm.set_global(MapSeen.LEGEND_CLOSED, true)
+	t.ok(sm.get_global(MapSeen.LEGEND_CLOSED), "a read-only session keeps the close in memory")
+	MapSeen.forget_memory()
+	t.ok(not MapSeen.new(spath, true).get_global(MapSeen.LEGEND_CLOSED), "and never wrote it to the file")
+	MapSeen.forget_memory()
+	DirAccess.remove_absolute(spath)
 	t.ok(HudLogic.legend_glyph_state("held") == IdleLogic.SAFE and HudLogic.legend_glyph_state("overrun") == NodeLogic.OVERRUN and HudLogic.legend_glyph_state("hers") == NodeLogic.HERS and HudLogic.legend_glyph_state("retaken") == NodeLogic.HERS, "each legend row draws the map's own state glyph")
 	var lc: Dictionary = MapLogic.cfg()["clarity"]["legend"]
 	t.ok((lc["rows"] as Array).size() == 4, "four states in the legend")
@@ -101,6 +251,39 @@ func _clarity(t: TestUtil) -> void:
 			bright = k
 	var through := Palette.c("ground").lerp(Palette.c(bright), 1.0 - a)
 	t.ok(MapLogic.contrast_ratio(Palette.c("text"), through) >= 4.5, "the goal's text reads 4.5:1 on the strip's plate")
+	var hs := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
+	t.ok(hs.contains("_goal = _label(int(cfg[\"clarity\"][\"goal_size_px\"]), \"text\")") and hs.contains("MapType.style_label(_goal, \"text\", int(cfg[\"clarity\"][\"goal_size_px\"]))"), "the goal is drawn in the text colour at clarity.goal_size_px")
+	t.ok(int(MapLogic.cfg()["clarity"]["goal_size_px"]) >= int(MapLogic.cfg()["objective_size_px"]) + 2 and int(MapLogic.cfg()["clarity"]["goal_size_px"]) >= 15, "the goal is at least 2 px over its old 13 px")
+	# the bar's hover cue sits on the same plate
+	var cue_key := str(MapLogic.cfg()["clarity"]["hover_cue_key"])
+	var cue_ratio := MapLogic.contrast_ratio(Palette.c(cue_key), through)
+	t.ok(cue_ratio >= 4.5, "the hover cue (%s) reads %.1f:1 on the bar's plate (>= 4.5)" % [cue_key, cue_ratio])
+	t.ok(HudLogic.hover_cue() == "hover a word for what it means", "the cue's words")
+	# the tooltip's own plate: opaque, and its text reads on it
+	var ts := HudLogic.tooltip_style()
+	var plate: Color = ts["plate"]
+	t.ok(plate.a >= 0.95, "the tooltip plate is at least 0.95 opaque (%.2f)" % plate.a)
+	var tt_ratio := MapLogic.contrast_ratio(Palette.c("text"), Palette.c(lbright).lerp(plate, plate.a))
+	t.ok(tt_ratio >= 4.5 and ts["text"] == Palette.c("text"), "tooltip text reads %.1f:1 on its plate over the brightest key (>= 4.5)" % tt_ratio)
+	t.ok(int(ts["size"]) >= 12 and int(ts["pad"]) >= 3, "tooltip text is at least 12 px with padding")
+	var th := MapUi.tooltip_theme()
+	var pbox := th.get_stylebox("panel", "TooltipPanel") as StyleBoxFlat
+	t.ok(pbox != null and pbox.bg_color.a >= 0.95 and pbox.border_width_left == 1 and pbox.bg_color.is_equal_approx(plate), "the theme's TooltipPanel is the opaque plate with a 1 px border")
+	t.ok(th.get_color("font_color", "TooltipLabel") == Palette.c("text") and th.get_font_size("font_size", "TooltipLabel") == int(ts["size"]), "the theme's TooltipLabel is the text colour at the HUD size")
+
+
+## Every string value of the config that says "the run" / "A run" for the game (code keys are not values).
+func _the_run_hits(v: Variant, path: String, found: Array) -> void:
+	if v is Dictionary:
+		for k in v:
+			_the_run_hits(v[k], path + "/" + str(k), found)
+	elif v is Array:
+		for i in v.size():
+			_the_run_hits(v[i], path + "/" + str(i), found)
+	elif v is String:
+		var re := RegEx.create_from_string("(?i)(\\bthe run\\b|^run\\b|\\ba run\\b)")
+		if re.search(v as String) != null:
+			found.append(path)
 
 
 func _type(t: TestUtil) -> void:
@@ -350,6 +533,27 @@ func _rects_key(t: TestUtil) -> void:
 	var sub := [Rect2(10.2, 20.1, 40, 12), Rect2(100.3, 100.0, 40, 12)]
 	t.ok(HudLogic.rects_key(a) == HudLogic.rects_key(sub), "a sub-pixel drift does not re-place")
 	t.ok(HudLogic.rects_key([]) == [], "no chips, an empty key")
+
+
+## The callouts' label rects and the legend's refresh run only when their keys change.
+func _layer_keys(t: TestUtil) -> void:
+	t.suite("map_hud-layer-keys")
+	t.ok(HudLogic.label_key(3, 1.0, "mid", 5) == HudLogic.label_key(3, 1.0, "mid", 5), "the same label inputs give the same key")
+	t.ok(HudLogic.label_key(3, 1.0, "mid", 5) == HudLogic.label_key(3, 1.0004, "mid", 5), "a sub-thousandth zoom drift does not change it")
+	for alt in [HudLogic.label_key(4, 1.0, "mid", 5), HudLogic.label_key(3, 1.2, "mid", 5), HudLogic.label_key(3, 1.0, "near", 5), HudLogic.label_key(3, 1.0, "mid", 6)]:
+		t.ok(alt != HudLogic.label_key(3, 1.0, "mid", 5), "a changed rev, zoom, tier or fort count changes the label key")
+	var chip := Rect2(12, 60, 330, 100)
+	var valve := Rect2(12, 600, 300, 120)
+	var area := Vector2(1280, 720)
+	var k0 := HudLogic.legend_key(area, true, -1, chip, valve, 4, 300.0)
+	t.ok(HudLogic.legend_key(area, true, -1, chip, valve, 4, 300.0) == k0, "the same legend inputs give the same key")
+	t.ok(HudLogic.legend_key(area, true, -1, chip, valve, 4, 312.0) != k0, "only the measured min heights changing (wrapped rows settling) changes the key")
+	for alt in [HudLogic.legend_key(Vector2(1000, 720), true, -1, chip, valve, 4, 300.0), HudLogic.legend_key(area, false, -1, chip, valve, 4, 300.0),
+			HudLogic.legend_key(area, true, 1, chip, valve, 4, 300.0), HudLogic.legend_key(area, true, -1, Rect2(12, 60, 330, 140), valve, 4, 300.0),
+			HudLogic.legend_key(area, true, -1, chip, Rect2(12, 560, 300, 160), 4, 300.0), HudLogic.legend_key(area, true, -1, chip, valve, 5, 300.0)]:
+		t.ok(alt != k0, "a changed size, open flag, click, chip rect, valve rect or row count changes the legend key")
+	var src := FileAccess.get_file_as_string("res://scripts/map/map_legend.gd")
+	t.ok(src.contains("legend_key"), "MapLegend._process gates its refresh on the key")
 
 
 func _placement(t: TestUtil) -> void:

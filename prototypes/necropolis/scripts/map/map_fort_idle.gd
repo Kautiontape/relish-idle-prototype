@@ -69,9 +69,26 @@ func _chip_shift(f: Dictionary, c: Dictionary) -> Vector2:
 
 
 ## Every held fort's placed chip rect ({id: Rect2}, world px), IdleLogic.chip_layout over all the
-## forts, computed once per frame (the callouts and the drawing both ask).
+## forts, recomputed only when IdleLogic.layout_key changes (the callouts and the drawing both ask,
+## many times a frame). Standing, Relish's token is her exact position; travelling, the centre of her
+## coarse grid cell (callouts.token_key_px screen px) with its radius padded by half the cell's
+## diagonal, so a layout kept for the cell still clears her (IdleLogic.layout_token).
 func _layout(c: Dictionary) -> Dictionary:
-	var key := [Engine.get_process_frames(), ctx.zoom, ctx.tier, ctx.relish_pos, ctx.relish.is_empty(), ctx.forts.size()]
+	var shares: Dictionary = ctx.valve_shares if not ctx.valve_shares.is_empty() else ctx.model.hud.get("valve_target", ctx.model.hud.get("valve", {}))  # as MapCovington._shares
+	var has_token := not ctx.relish.is_empty()
+	var cell_w := ctx.px(float(MapLogic.cfg()["callouts"]["token_key_px"]))
+	var tok := IdleLogic.layout_token(ctx.relish_pos, str(ctx.relish.get("state", "")) == "travelling", cell_w)
+	var cell: Array = tok["key"] if has_token else []
+	var widths := {}  # held fort id -> chip width (a clock ticks between revs): measured once, used for the key and the items
+	var wlist: Array = []
+	for g in ctx.forts:
+		if bool(g.get("held", false)):
+			var w := _chip_width(g, ctx.model.clock_of(str(g["id"])), c)
+			widths[g["id"]] = w
+			wlist.append(w)
+	var key := IdleLogic.layout_key({"rev": ctx.model.rev, "zoom": ctx.zoom, "tier": ctx.tier, "forts": ctx.forts.size(), "has_token": has_token, "cell": cell,
+		"margin_sig": ctx.model.margin_sig, "shares": shares, "backlog": float(ctx.vei.get("backlog", 0.0)), "vei_radius": ctx.vei_radius,
+		"cov_pos": ctx.cov_pos, "vei_pos": ctx.vei_pos, "widths": wlist, "panel": NodeLogic.panel_key(ctx.panel)})
 	if key == _layout_key:
 		return _layout_cache
 	var size := int(MapLogic.cfg()["font_label"])
@@ -86,19 +103,26 @@ func _layout(c: Dictionary) -> Dictionary:
 			tag_w = font.get_string_size(str(tag["text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, NodeLogic.tag_size()).x
 		var held := bool(g.get("held", false))
 		items.append({"id": g["id"], "pos": MapModel.to_vec(g["pos"]), "r": MapLogic.fort_radius(tier), "held": held, "second": not tag.is_empty(),
-			"w": _chip_width(g, ctx.model.clock_of(str(g["id"])), c) if held else 0.0,
+			"w": float(widths[g["id"]]) if held else 0.0,
 			"name_w": font.get_string_size(str(g["name"]), HORIZONTAL_ALIGNMENT_LEFT, -1, size).x if shown else -1.0, "tag_w": tag_w})
-	var tr := float(NodeLogic.relish_radii(ctx.zoom)["halo"]) + ctx.px(float(NodeLogic.ncfg()["relish_halo_max_px"]) * 0.5)
-	# Covington's glyph, name and stream labels and Vei's reach and name, measured as their layers do
+	var tr := float(NodeLogic.relish_radii(ctx.zoom)["halo"]) + ctx.px(float(NodeLogic.ncfg()["relish_halo_max_px"]) * 0.5) + float(tok["pad"])
+	var token: Vector2 = tok["pos"]
+	_layout_cache = IdleLogic.chip_layout(items, ctx.zoom, has_token, token, tr, node_obstacles(), ctx.panel)
+	_layout_key = key
+	return _layout_cache
+
+
+## Covington's glyph, name and stream labels and Vei's reach and name as obstacles (IdleLogic.node_obstacles),
+## in world px, measured as their layers do. The chips and the set-piece callouts keep clear of them.
+func node_obstacles() -> Array:
+	var shares: Dictionary = ctx.valve_shares if not ctx.valve_shares.is_empty() else ctx.model.hud.get("valve_target", ctx.model.hud.get("valve", {}))  # as MapCovington._shares
+	var size := int(MapLogic.cfg()["font_label"])
+	var font := ThemeDB.fallback_font
 	var names := NodeLogic.node_names()
 	var text_w := {}
 	for k in names:
 		text_w[k] = font.get_string_size(names[k], HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
-	var shares: Dictionary = ctx.valve_shares if not ctx.valve_shares.is_empty() else ctx.model.hud.get("valve_target", ctx.model.hud.get("valve", {}))  # as MapCovington._shares
-	var nodes := IdleLogic.node_obstacles(ctx.cov_pos, ctx.vei_pos, ctx.vei_radius, float(ctx.vei.get("backlog", 0.0)), shares, NodeLogic.fort_centroid(ctx.forts), ctx.zoom, ctx.tier != "far", text_w)
-	_layout_cache = IdleLogic.chip_layout(items, ctx.zoom, not ctx.relish.is_empty(), ctx.relish_pos, tr, nodes)
-	_layout_key = key
-	return _layout_cache
+	return IdleLogic.node_obstacles(ctx.cov_pos, ctx.vei_pos, ctx.vei_radius, float(ctx.vei.get("backlog", 0.0)), shares, NodeLogic.fort_centroid(ctx.forts), ctx.zoom, ctx.tier != "far", text_w, ctx.panel)
 
 
 ## The garrison counted out: GlyphLogic.garrison_fill of the chip's units over the fort's slots.

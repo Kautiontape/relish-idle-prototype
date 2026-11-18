@@ -13,7 +13,10 @@ const VALVE := "valve"
 const TITHE := "tithe_explain"
 const GAME := "game"  # the file's second section: the game the flags belong to
 const ID := "id"
+const PLAYER := "player"  # the file's third section: the player's own choices, not tied to a game
+const LEGEND_CLOSED := "legend_closed"  # the player closed the fort legend
 
+static var _global := {}  # path -> {key: bool}: this process's player choices, written or not
 static var _memory := {}  # path -> {key: true}: this process's flags, written or not
 static var _game := {}  # path -> the game id this process's flags belong to
 
@@ -59,8 +62,29 @@ func reconcile(game_id: String) -> void:
 	_memory.erase(_path)
 	_game[_path] = game_id
 	if _persist:
+		var closed := bool(_cfg.get_value(PLAYER, LEGEND_CLOSED, false))
 		_cfg.clear()
+		if closed:  # the player's choices outlive a game
+			_cfg.set_value(PLAYER, LEGEND_CLOSED, true)
 		_cfg.set_value(GAME, ID, game_id)
+		_cfg.save(_path)
+
+
+## The player's own choices, in the file's "player" section: global, not keyed by game_id, so
+## reconcile never forgets them (a new game keeps what the player chose). Kept in memory always,
+## in the file only when this session may write.
+func get_global(key: String) -> bool:
+	if _global.get(_path, {}).has(key):
+		return bool(_global[_path][key])
+	return _persist and bool(_cfg.get_value(PLAYER, key, false))
+
+
+func set_global(key: String, value: bool) -> void:
+	if not _global.has(_path):
+		_global[_path] = {}
+	_global[_path][key] = value
+	if _persist:
+		_cfg.set_value(PLAYER, key, value)
 		_cfg.save(_path)
 
 
@@ -68,3 +92,4 @@ func reconcile(game_id: String) -> void:
 static func forget_memory() -> void:
 	_memory.clear()
 	_game.clear()
+	_global.clear()

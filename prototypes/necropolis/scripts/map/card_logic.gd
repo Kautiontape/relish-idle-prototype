@@ -304,20 +304,35 @@ static func comes_in_warning(ci: Dictionary, prof: Dictionary, tier: int, dead: 
 	return {}
 
 
-## "11 come in: garrison 2 (WAR) · starter 8 · big undead 1".
+## The plain first line of WHO COMES IN, from the same counts: "8 undead and 1 big undead come with
+## you.", "No undead come with you."; while the party has no big undead, a second sentence says how
+## to get one.
+static func comes_plain_text(ci: Dictionary) -> String:
+	var u := int(ci.get("garrison", 0)) + int(ci.get("starter", 0))
+	var b := int(ci.get("bigs", 0))
+	var s: String
+	if u + b == 0:
+		s = str(_c().get("comes_plain_none", ""))
+	elif b > 0 and u > 0:  # both kinds: at least two come
+		s = str(_c().get("comes_plain_bigs_fmt", "%d %d")) % [u, b]
+	elif b > 0:  # only big undead: "comes" for exactly one
+		s = str(_c().get("comes_plain_bigs_only_one_fmt" if b == 1 else "comes_plain_bigs_only_fmt", "%d")) % b
+	else:
+		s = str(_c().get("comes_plain_one_fmt" if u == 1 else "comes_plain_fmt", "%d")) % u
+	if b == 0:
+		s += " " + str(_c().get("comes_plain_warden", ""))
+	return s
+
+
+## "from: garrison 2 (WAR) · starter 8 · big undead 1" (the plain line above it has the count).
 static func comes_in_text(ci: Dictionary) -> String:
-	return str(_c().get("comes_in_fmt", "%d %d %d %d")) % [ci["total"], ci["garrison"], ci["starter"], ci["bigs"]]
+	return str(_c().get("comes_in_fmt", "%d %d %d")) % [ci["garrison"], ci["starter"], ci["bigs"]]
 
 
 ## The tide bias as the card says it: 3.0 reads "3", 2.5 reads "2.5".
 static func bring_more_text(tide_bias: float) -> String:
 	var word := str(roundi(tide_bias)) if is_equal_approx(tide_bias, roundf(tide_bias)) else String.num(tide_bias)
 	return str(_c().get("bring_more_fmt", "%s")) % word
-
-
-## The pinned count line: "8 undead and 1 big undead come in".
-static func comes_count_text(ci: Dictionary) -> String:
-	return str(_c().get("comes_count_fmt", "%d %d")) % [int(ci["garrison"]) + int(ci["starter"]), ci["bigs"]]
 
 
 ## The descend dialog's text: the warning line, a blank line, then the ask.

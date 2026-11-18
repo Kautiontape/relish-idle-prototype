@@ -34,6 +34,7 @@ var _hover := ""
 var _hover_key: Array = []
 var _ui_acc := 0.0
 var _setup_called := false
+var _arrive_toast := ""  # a one-off line from the router (a refused teleport's reason), shown once on arrival
 var _arrive_from := ""  # the node whose scene the player just left: the camera eases out from it
 var _ui_layer: CanvasLayer
 
@@ -41,6 +42,7 @@ var _ui_layer: CanvasLayer
 func setup(args: Dictionary) -> void:
 	_setup_called = true
 	_arrive_from = str(args.get("arrive_from", ""))
+	_arrive_toast = str(args.get("toast", ""))
 
 
 func demo_seed() -> Dictionary:
@@ -83,6 +85,8 @@ func _ready() -> void:
 		setpieces.go_live()
 	if returned == SetpieceLogic.TAKEN:
 		_show_taken(_arrive_from, ease_s)
+	if _arrive_toast != "":
+		hud.show_toast(_arrive_toast)
 	hud.inset_changed.connect(func(_inset: float) -> void: _refit())  # the bar's sizes settle a frame later
 	setpieces.note_mount(away.open_if_shown())  # builds finished while away from the map get their callout, unless the away report lists them
 	_replay_clicks()
@@ -150,7 +154,10 @@ func _build_ui() -> void:
 	valve.model = model
 	valve.toast.connect(hud.show_toast)
 	layer.add_child(valve)
+	seen = MapSeen.new(MapSeen.PATH, Game.autosave_enabled)  # outside the save; a harness session reads it empty and never writes it
+	seen.reconcile(str(model.hud.get("game_id", "")))  # the flags belong to one game
 	var legend := MapLegend.new()  # the fort rings' key, just above the valve
+	legend.seen = seen  # it keeps the player's close there
 	legend.model = model
 	legend.valve = valve
 	layer.add_child(legend)
@@ -169,9 +176,11 @@ func _build_ui() -> void:
 	sidebar.toast.connect(hud.show_toast)
 	layer.add_child(sidebar)
 	callouts_view.card = sidebar  # the callouts keep off the open card
+	nodes_view.card = sidebar  # the node labels shift clear of it, or hide
 	hud.next_chosen.connect(_act_on)
-	seen = MapSeen.new(MapSeen.PATH, Game.autosave_enabled)  # outside the save; a harness session reads it empty and never writes it
-	seen.reconcile(str(model.hud.get("game_id", "")))  # the flags belong to one game
+	hud.valve = valve  # the bar's tooltips keep off the valve, the legend and the open card
+	hud.legend = legend
+	hud.card = sidebar
 	opening = MapOpening.new()
 	opening.model = model
 	opening.hud = hud
@@ -194,6 +203,10 @@ func _build_ui() -> void:
 	away.acted.connect(_act_on)
 	layer.add_child(away)
 	Game.game_event.connect(away.on_event)
+	var tip_theme := MapUi.tooltip_theme()  # every map tooltip on its own opaque plate
+	for c in layer.get_children():
+		if c is Control:
+			(c as Control).theme = tip_theme
 	Game.game_event.connect(_on_game_event)
 	setpieces = MapSetpieces.new()
 	setpieces.name = "Setpieces"
@@ -201,6 +214,8 @@ func _build_ui() -> void:
 	setpieces.nodes = nodes_view
 	setpieces.routes = routes_view
 	setpieces.hud = hud
+	setpieces.cam = cam
+	setpieces.callouts = callouts_view
 	setpieces.valve = valve
 	setpieces.layer = setpiece_layer
 	add_child(setpieces)

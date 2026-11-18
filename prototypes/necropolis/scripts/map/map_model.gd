@@ -11,7 +11,7 @@ var demo := false  # --lanes=demo: synthetic lanes instead of the view's (debug 
 var nodes_demo := false  # --nodes=demo: E2-only node states overlaid on the views (debug only)
 var flip_cfg := {}  # realm.json "flip", for the held grace total (set by world_map)
 var slab_cfg := {}  # town.json slab: names a big undead that still carries the mint default (set by world_map)
-var realm_cfg := {} # realm.json: K (odds), readout.sign_eps, relish.travel_speed (set by world_map)
+var realm_cfg := {}  # realm.json: K (odds), readout.sign_eps, relish.travel_speed (set by world_map)
 var idle_cap := 0.0  # economy.json worker.idle_cap: the workforce cap's idle part (set by world_map)
 var rev := -1
 var realm := {}

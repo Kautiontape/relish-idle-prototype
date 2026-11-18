@@ -72,6 +72,7 @@ static func fort_card(fort: Dictionary, desc: String, backups: Dictionary, names
 	# warning for it is the pinned line above DESCEND (RelishLogic.fort_actions), not a block here.
 	var ci := CardLogic.comes_in(fort, party, raid_cfg, econ_cfg)
 	blocks.append(_head("comes_in_head", str(c.get("comes_in_head", ""))))
+	blocks.append(_para("comes_plain", CardLogic.comes_plain_text(ci), "text"))
 	blocks.append(_para("comes_in", CardLogic.comes_in_text(ci), "text"))
 	blocks.append(_para("bring_more", CardLogic.bring_more_text(tide_bias), "text_dim"))
 	blocks.append(_para("raid", str(c.get("raid_again_fmt", "%d")) % hours if held else str(c.get("raid_take", "")), "select"))

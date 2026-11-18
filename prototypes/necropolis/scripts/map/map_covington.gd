@@ -60,6 +60,7 @@ func _valve(cp: Vector2, hw: float, n: Dictionary) -> void:
 	for k in ["war", "flood", "work", "covington"]:
 		text_w[k] = ThemeDB.fallback_font.get_string_size(names[k], HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
 	var lay := NodeLogic.valve_label_layout(dirs, widths, ctx.tier != "far", ctx.zoom, text_w, float(size))
+	lay = NodeLogic.shift_valve_labels(lay, NodeLogic.panel_sx(ctx.panel, cp.x, ctx.zoom), ctx.panel)  # clear of the open card, or hidden
 	var dim := Palette.c("undead", float(MapLogic.cfg()["node_label_dim_alpha"]))
 	for k in lay:
 		var l: Dictionary = lay[k]

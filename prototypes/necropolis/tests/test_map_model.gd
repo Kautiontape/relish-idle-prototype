@@ -67,7 +67,41 @@ func run() -> int:
 	OS.delay_msec(int(float(MapLogic.cfg()["model_refresh_min_s"]) * 1000.0) + 20)
 	t.ok(th.refresh(), "and read once the interval has passed")
 	_builds(t)
+	_slab_names(t)
 	return t.failures
+
+
+## A big undead that still carries the mint default ("Big u1") shows its slab name on the map: through
+## `unit_names` (CryptLogic.display_names with town.json slab, set by world_map as slab_cfg). With an empty
+## slab_cfg the model falls back to the view's own name, the mint default.
+func _slab_names(t: TestUtil) -> void:
+	t.suite("map_model-slab-names")
+	var s := GameState.new(TestUtil.configs())
+	s.debug_enabled = true
+	t.ok(s.cmd_debug_load_fixture("midgame_2flips")["ok"], "fixture loads")
+	s.cmd_debug_grant({"big_undead": 1})
+	var bigs: Array = s.view_big_undead()["big_undead"]
+	t.ok(not bigs.is_empty(), "a big undead exists")
+	var b: Dictionary = bigs[bigs.size() - 1]
+	var uid := str(b["uid"])
+	var slab: Dictionary = TestUtil.configs()["town"]["slab"]
+	t.ok(str(b["name"]) == str(slab["default_name_prefix"]) + uid and str(b["kind"]) != "", "it carries the mint default name %s and a kind (%s)" % [b["name"], b["kind"]])
+	var want := SlabLogic.display_name(b, slab)
+	t.ok(want != "" and want != str(b["name"]), "the slab names it differently from the default: %s" % want)
+	var m := MapModel.new(s)
+	m.slab_cfg = slab
+	m.refresh(true)
+	t.ok(m.unit_names.get(uid, "") == want, "slab_cfg set: unit_names[%s] is the slab name %s (got %s)" % [uid, want, m.unit_names.get(uid, "")])
+	t.ok(m.unit_names == CryptLogic.display_names(bigs, slab), "and the whole map is CryptLogic.display_names'")
+	var plain := MapModel.new(s)
+	plain.refresh(true)
+	t.ok(plain.slab_cfg.is_empty() and plain.unit_names.get(uid, "") == str(b["name"]), "empty slab_cfg: unit_names falls back to the view's plain name (%s)" % b["name"])
+	# a name the player chose is kept even with the slab on
+	s.big_undead[s.big_undead.size() - 1]["name"] = "Gravel"
+	var kept := MapModel.new(s)
+	kept.slab_cfg = slab
+	kept.refresh(true)
+	t.ok(kept.unit_names.get(uid, "") == "Gravel", "a renamed big undead keeps its own name under slab_cfg")
 
 
 ## A finished build's projection reaches the model before the build finishes (the catalog read on the

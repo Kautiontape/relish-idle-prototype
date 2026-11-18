@@ -101,6 +101,19 @@ static func segment_arc(i: int, n: int) -> Vector2:
 	return Vector2(-PI * 0.5 + w * i, -PI * 0.5 + w * (i + 1))
 
 
+## What the set pieces keep from events, after a catch-up (away_report; its events went into the report
+## and replay nothing). `taken_ids` are the forts whose fort_flipped the map heard: a fort Vei retook
+## inside the catch-up is no longer one the player took, so only those still held stay. `victory`: the
+## realm is won now, which the swallowed vei_result would have played, and it hasn't (`won_played`).
+## Returns {taken_ids, victory}.
+static func after_away(taken_ids: Array, forts: Array, won_played: bool, hud_won: bool) -> Dictionary:
+	var held := {}
+	for f in forts:
+		if bool(f.get("held", false)):
+			held[str(f.get("id", ""))] = true
+	return {"taken_ids": taken_ids.filter(func(id): return held.has(str(id))), "victory": hud_won and not won_played}
+
+
 ## Whether `fort_id`'s flip is the game's first: no other fort has ever flipped and this one at most
 ## once. That holds whether the views already count this flip or not yet.
 static func first_flip(fort_id: String, forts: Array) -> bool:
@@ -160,6 +173,252 @@ static func return_text(kind: String, fort_name: String) -> String:
 		RETREAT:
 			return _s("retreat_fmt") % fort_name
 	return ""
+
+
+# --- where a callout sits ---------------------------------------------------------------------
+# Everything below is in one frame: world px x zoom (the layer's screen px, origin at the world
+# origin), so a ring's radius, a label plate (screen px around its anchor) and a chip share a unit.
+
+## `text` split at its first callout_split (": ") into its two lines, the colon kept on line one
+## ("Old Sluice stays Vei's:" / "you kept all you found"); [] when it has none to split at.
+static func split_text(text: String) -> Array:
+	var sep := _s("callout_split")
+	var i := text.find(sep)
+	if i <= 0 or i + sep.length() >= text.length():
+		return []
+	return [text.substr(0, i) + sep.rstrip(" "), text.substr(i + sep.length())]
+
+
+## What a set-piece callout's placement (MapSetpieces._callout) depends on, as a cache key: the line, the zoom and
+## camera, the viewport, the tier, the model's rev, her token on the callouts' grid (`token_cell`), the lane
+## callouts as drawn (`drawn_key`), and the open card (`panel`: NodeLogic.panel_key: the labels shift clear of it).
+static func callout_key(text: String, zoom: float, cam_pos: Vector2, viewport: Vector2, tier: String, rev: int, token_cell: Vector2, drawn_key: Array, panel: Array) -> Array:
+	return [text, roundi(zoom * 1000.0), roundi(cam_pos.x), roundi(cam_pos.y), viewport, tier, rev, token_cell, drawn_key, panel]
+
+
+## A fort's name and tag plates in the frame (`zoom` x world): NodeLogic.fort_label_rects at the label
+## anchor MapFortRing draws them from. `tag_w` < 0: no tag line. The same plates the lane callouts keep clear of.
+## `panel` (NodeLogic.panel_of; {} closed): the open card, which shifts or hides the plates as they are drawn.
+static func fort_plates(pos: Vector2, tier: int, name_w: float, tag_w: float, zoom: float, panel := {}) -> Array:
+	var at := (pos + Vector2(0.0, MapLogic.fort_radius(tier) + float(NodeLogic.ncfg()["label_off_px"]))) * zoom
+	var out: Array = []
+	for r in NodeLogic.fort_label_rects(name_w, tag_w, int(MapLogic.cfg()["font_label"]), NodeLogic.panel_sx(panel, pos.x, zoom), panel):
+		out.append(Rect2(at + (r as Rect2).position, (r as Rect2).size))
+	return out
+
+
+## The screen a callout may sit in, in the frame: the viewport inset callout_edge_px on every side, from
+## below the top bar (`top_inset` screen px) to above the bottom bars (`bottom_top`, the screen y they start at).
+static func screen_bounds(viewport: Vector2, cam_pos: Vector2, zoom: float, top_inset: float, bottom_top: float) -> Rect2:
+	var e := _n("callout_edge_px")
+	var r := Rect2(e, top_inset + e, viewport.x - e * 2.0, bottom_top - top_inset - e * 2.0)
+	return HudLogic.screen_to_zoomed(r, cam_pos, zoom, viewport)
+
+
+## Covington's and Vei's obstacles (IdleLogic.node_obstacles, world px) in the zoomed frame: {circles:
+## [Vector3], rects: [Rect2]}, their discs and plates (Covington's glyph, name and stream labels; Vei's reach and name).
+static func node_hard(nodes: Array, zoom: float) -> Dictionary:
+	var circles: Array = []
+	var rects: Array = []
+	for n in nodes:
+		var p: Vector2 = n["pos"]
+		circles.append(Vector3(p.x * zoom, p.y * zoom, float(n["r"]) * zoom))
+		for r in n["rects"]:
+			rects.append(Rect2((r as Rect2).position * zoom, (r as Rect2).size * zoom))
+	return {"circles": circles, "rects": rects}
+
+
+## The gap between two rects (0 when they touch or overlap).
+static func rect_gap(a: Rect2, b: Rect2) -> float:
+	var dx := maxf(maxf(a.position.x - b.end.x, b.position.x - a.end.x), 0.0)
+	var dy := maxf(maxf(a.position.y - b.end.y, b.position.y - a.end.y), 0.0)
+	return Vector2(dx, dy).length()
+
+
+## The gap between a rect and a circle `c` (x, y, radius); negative once the rect reaches in.
+static func circle_gap(r: Rect2, c: Vector3) -> float:
+	var near := Vector2(clampf(c.x, r.position.x, r.end.x), clampf(c.y, r.position.y, r.end.y))
+	return near.distance_to(Vector2(c.x, c.y)) - c.z
+
+
+## The rects of a callout of lines `ws` (their text widths), centred on `cx`, the first line's
+## baseline at `first_by`, each a label plate (NodeLogic.label_plate: pad, ascent and height).
+static func callout_rects(cx: float, first_by: float, ws: Array, size: int, line := -1.0) -> Array:
+	var out: Array = []
+	var step := _n("callout_line_px") if line < 0.0 else line
+	for i in ws.size():
+		var w := float(ws[i])
+		var r := NodeLogic.label_plate(-w * 0.5, w, size, 0.0)
+		out.append(Rect2(r.position + Vector2(cx, first_by + float(i) * step), r.size))
+	return out
+
+
+static func _hard(rects: Array, obs: Array, clear: float) -> float:
+	var total := 0.0
+	for r in rects:
+		for o in obs:
+			if o is Rect2:
+				var i: Rect2 = (r as Rect2).grow(clear).intersection(o)
+				total += i.size.x * i.size.y
+			else:
+				var c: Vector3 = o
+				if circle_gap(r, c) < clear:
+					var box := Rect2(c.x - c.z, c.y - c.z, c.z * 2.0, c.z * 2.0).intersection((r as Rect2).grow(clear))
+					total += maxf(box.size.x * box.size.y * PI * 0.25, 1.0)
+	return total
+
+
+static func _soft(rects: Array, soft: Array) -> float:
+	var total := 0.0
+	for r in rects:
+		for o in soft:
+			var i: Rect2 = (r as Rect2).intersection(o)
+			total += i.size.x * i.size.y
+	return total
+
+
+## Where a set-piece callout sits for the fort at `fort` (ring radius `ring_r`), as the shared place
+## for the retreat and the taken lines. `base_y` is the baseline of its last line when it stands
+## above the fort (callout_gap_px over the rings, over Relish's token when she stands there: the
+## place it has always had); `widths` {one, a, b}: the text on one line, and (when it splits at
+## ": ") its two lines; `own` the fort's own rects: its name and tag plates, its chip, and
+## Relish's token when she stands at it. `obs` {rings: [Vector3 x, y, r], circles: [Vector3], rects:
+## [Rect2], soft: [Rect2]}: the HARD ones (every other fort's ring out to its outermost, Relish's
+## halo, the name and tag plates, the held forts' chips) and the SOFT (the open card, lane callouts).
+## Candidates in order: centred above; the same row slid by callout_slides x its width; the two-line
+## form centred above, then slid; then the same under the fort's plates; then, only when those leave
+## nothing clear and on screen, beside the fort's ring (right, then left; no need to cover its x). The first with no hard and no
+## soft overlap wins, else the first with no hard overlap, else the least hard overlap. A candidate is
+## only a candidate when it reads as the fort's: its nearest edge within callout_drift_px of the fort's
+## ring or its own rects, its span covering the fort's x (callout_x_margin_px of play), and no other
+## fort's ring nearer than its own. `obs.bounds` (the visible screen less the HUD bars) is hard too:
+## a place not wholly inside is dropped before that filter, or, when none fits, the least off-screen
+## one is taken. When nothing reads as the fort's, the least hard overlap wins, the nearer its own fort
+## on a tie. `prev` ({form, place, slide} of the last choice): kept while still on screen, free of hard
+## overlap and the fort's own, so a line up on screen never hops. Returns {form: "one"|"two", place:
+## "above"|"below", slide, pos (centre x, first baseline), rects, size (the font of the form chosen),
+## line (its line step), hard, soft}. `widths.size_two` (optional): the font the two-line form is set in
+## (callout_font_two, measured into widths a and b), its line step scaled with it.
+static func callout_place(fort: Vector2, ring_r: float, base_y: float, size: int, widths: Dictionary, own: Array, obs: Dictionary, prev := {}) -> Dictionary:
+	var clear := _n("callout_clear_px")
+	var line := _n("callout_line_px")
+	var own_ring := Vector3(fort.x, fort.y, ring_r)
+	var hard_obs: Array = [own_ring]
+	hard_obs.append_array(obs.get("rings", []))
+	hard_obs.append_array(obs.get("circles", []))
+	hard_obs.append_array(obs.get("rects", []))
+	hard_obs.append_array(own)
+	var soft_obs: Array = obs.get("soft", [])
+	var below_top := fort.y + ring_r
+	for r in own:
+		below_top = maxf(below_top, (r as Rect2).end.y)
+	below_top += _n("callout_below_gap_px")
+	var forms: Array = [["one", [float(widths["one"])], size, line]]  # [form, line widths, font, line step]
+	if widths.has("a"):
+		var size2 := int(widths.get("size_two", size))  # the two-line form may be set smaller (callout_font_two)
+		forms.append(["two", [float(widths["a"]), float(widths["b"])], size2, line * float(size2) / float(size)])
+	var slides: Array = [0.0]
+	for s in cfg()["callout_slides"]:
+		slides.append(float(s))
+	var cands: Array = []
+	for place in ["above", "below"]:
+		for fm in forms:
+			var ws: Array = fm[1]
+			var span := 0.0
+			for w in ws:
+				span = maxf(span, float(w))
+			var fs: int = fm[2]
+			var step: float = fm[3]
+			var first_by := base_y - float(ws.size() - 1) * step if place == "above" else below_top + float(fs) * float(NodeLogic.ncfg()["plate_ascent"])
+			for s in slides:
+				var cx := fort.x + float(s) * span
+				var rects := callout_rects(cx, first_by, ws, fs, step)
+				cands.append({"form": fm[0], "place": place, "slide": float(s), "pos": Vector2(cx, first_by), "rects": rects, "size": fs, "line": step,
+					"hard": _hard(rects, hard_obs, clear), "soft": _soft(rects, soft_obs), "side": false})
+	# last resort, where a crowded or cornered fort leaves no row above or under it: beside the fort's ring,
+	# on its middle, callout_side_gap_px off the ring (right, then left); these need not cover the fort's x
+	for place in ["right", "left"]:
+		for fm in forms:
+			var ws: Array = fm[1]
+			var span := 0.0
+			for w in ws:
+				span = maxf(span, float(w))
+			span += float(NodeLogic.ncfg()["plate_pad_px"]) * 2.0
+			var fs: int = fm[2]
+			var step: float = fm[3]
+			var height := float(ws.size() - 1) * step + float(fs) * float(NodeLogic.ncfg()["plate_height"])
+			var first_by := fort.y - height * 0.5 + float(fs) * float(NodeLogic.ncfg()["plate_ascent"])
+			var cx := fort.x + (ring_r + _n("callout_side_gap_px") + span * 0.5) * (1.0 if place == "right" else -1.0)
+			var rects := callout_rects(cx, first_by, ws, fs, step)
+			cands.append({"form": fm[0], "place": place, "slide": 0.0, "pos": Vector2(cx, first_by), "rects": rects, "size": fs, "line": step,
+				"hard": _hard(rects, hard_obs, clear), "soft": _soft(rects, soft_obs), "side": true})
+	# the screen's bounds are hard: a place not wholly inside them is dropped first
+	var pool: Array = cands
+	if obs.has("bounds"):
+		var bounds: Rect2 = obs["bounds"]
+		pool = []
+		var least: Dictionary = cands[0]
+		var least_off := INF
+		for cd in cands:
+			var off := 0.0
+			for r in cd["rects"]:
+				var i: Rect2 = (r as Rect2).intersection(bounds)
+				off += (r as Rect2).size.x * (r as Rect2).size.y - maxf(i.size.x * i.size.y, 0.0)
+			if off <= 0.5:  # Rect2 is single precision: a rect on the edge leaves a hair
+				pool.append(cd)
+			elif off < least_off:
+				least_off = off
+				least = cd
+		if pool.is_empty():
+			return least  # nothing fits: the least off-screen
+	var valid: Array = []
+	for cd in pool:
+		var own_gap := _own_gap(cd["rects"], fort, own_ring, own, obs.get("rings", []), bool(cd["side"]))
+		cd["own_gap"] = own_gap["gap"]
+		cd["owns"] = own_gap["ok"]
+		if bool(own_gap["ok"]):
+			valid.append(cd)
+	if not prev.is_empty():  # a line that is up does not hop: its last place stays while it is still free (a soft overlap moves it only to a fully clear place)
+		var clean := false
+		for cd in valid:
+			clean = clean or (float(cd["hard"]) == 0.0 and float(cd["soft"]) == 0.0)
+		for cd in valid:
+			if str(cd["form"]) == str(prev.get("form")) and str(cd["place"]) == str(prev.get("place")) and is_equal_approx(float(cd["slide"]), float(prev.get("slide", 0.0))) and float(cd["hard"]) == 0.0 and (float(cd["soft"]) == 0.0 or not clean):
+				return cd
+	for cd in valid:
+		if float(cd["hard"]) == 0.0 and float(cd["soft"]) == 0.0:
+			return cd
+	for cd in valid:
+		if float(cd["hard"]) == 0.0:
+			return cd
+	var from: Array = valid if not valid.is_empty() else pool
+	var best: Dictionary = from[0]
+	for cd in from:
+		var h := float(cd["hard"])
+		var bh := float(best["hard"])
+		if h < bh or (h == bh and (float(cd["own_gap"]) < float(best["own_gap"]) if valid.is_empty() else float(cd["soft"]) < float(best["soft"]))):
+			best = cd
+	return best
+
+
+## How near a place is to its own fort (ring, own rects) and whether it reads as the fort's: see
+## callout_place. {gap, ok}.
+static func _own_gap(rects: Array, fort: Vector2, own_ring: Vector3, own: Array, others: Array, side := false) -> Dictionary:
+	var left := INF
+	var right := -INF
+	var own_gap := INF
+	var other_gap := INF
+	for r in rects:
+		left = minf(left, (r as Rect2).position.x)
+		right = maxf(right, (r as Rect2).end.x)
+		own_gap = minf(own_gap, circle_gap(r, own_ring))
+		for o in own:
+			own_gap = minf(own_gap, rect_gap(r, o))
+		for c in others:
+			other_gap = minf(other_gap, circle_gap(r, c))
+	var m := _n("callout_x_margin_px")
+	var ok := (side or (fort.x >= left - m and fort.x <= right + m)) and own_gap <= _n("callout_drift_px") and own_gap <= other_gap
+	return {"gap": own_gap, "ok": ok}
 
 
 ## The first flip's green ripple at the fort's beat `phase` (Pulse.phase at its hops): {reach
@@ -428,6 +687,62 @@ static func build_text(builds: Array, store: Dictionary, names: Dictionary) -> S
 ## The line's runs by font (AwayLogic.spans): the signed rate is the rate face, the rest labels.
 static func build_spans(text: String) -> Array:
 	return AwayLogic.spans(text)
+
+
+## How the build line's runs measure at `size`, in the faces they are drawn in (MapType: the rate oblique,
+## a count heavy, words regular), one space between runs: {widths: [each run's], space, total (the
+## line's width), h (the tallest face's height), asc (its tallest ascent)}. The layer draws from this and
+## build_place places from it, so the plate drawn is the plate placed.
+static func build_metrics(runs: Array, size: int) -> Dictionary:
+	var lf := MapType.label_font()
+	var rf := MapType.rate_font()
+	var mf := MapType.mass_font()
+	var space := lf.get_string_size(" ", HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+	var widths: Array = []
+	var total := 0.0
+	for r in runs:
+		var w := build_font_of(str(r["kind"]), lf, rf, mf).get_string_size(str(r["text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+		widths.append(w)
+		total += w + (space if widths.size() > 1 else 0.0)
+	return {"widths": widths, "space": space, "total": total, "h": maxf(lf.get_height(size), maxf(rf.get_height(size), mf.get_height(size))),
+		"asc": maxf(lf.get_ascent(size), maxf(rf.get_ascent(size), mf.get_ascent(size)))}
+
+
+static func build_font_of(kind: String, lf: Font, rf: Font, mf: Font) -> Font:
+	if kind == "rate":
+		return rf
+	return mf if kind == "mass" else lf
+
+
+## Covington's and Vei's obstacles for the build line (`nodes`: IdleLogic.node_obstacles, Covington first, in
+## world px) in the zoomed frame: {own: Covington's name and stream plates (its own, like a fort's: they
+## read as the line's, and it still keeps off them), circles / rects: Vei's reach and name (hard)}. Covington's
+## disc is not an obstacle: the line sits over its outer ring (build_place's `ring_r`).
+static func build_obstacles(nodes: Array, zoom: float) -> Dictionary:
+	var hard := node_hard(nodes.slice(1), zoom)
+	var own: Array = node_hard(nodes.slice(0, 1), zoom)["rects"]
+	return {"own": own, "circles": hard["circles"], "rects": hard["rects"]}
+
+
+## Where the finished build's plate goes at Covington (`cov`, outer ring `ring_r`, zoomed frame), by
+## callout_place's rules for a one-line row (no two-line form: it has no ": "). `bottom_y` is the plate's
+## bottom when it stands above the rings (the default place); `text_w` its text's width and `plate_h` its
+## height (build_metrics). `own` Covington's plates and Relish's token when she stands at home; `obs` as
+## callout_place's: the other forts' rings, plates and chips, Relish's halo, Vei, and the fort callouts
+## already placed (hard: fort callouts are placed first, then the build line goes round them), the lane
+## callouts soft. The row is placed as a label plate of the same size, so the plate returned is exactly the
+## drawn one. Returns {plate: Rect2, pos: the plate's bottom centre (what MapSetpieceLayer anchors a
+## "runs" item at), choice: {form, place, slide} to pass back as `prev`, at: callout_place's result}.
+static func build_place(cov: Vector2, ring_r: float, bottom_y: float, text_w: float, plate_h: float, own: Array, obs: Dictionary, prev := {}) -> Dictionary:
+	var pad := _n("build_pad_px")
+	var plate_w := text_w + pad * 2.0
+	var nc := NodeLogic.ncfg()
+	var size := maxi(roundi(plate_h / float(nc["plate_height"])), 1)  # the font whose label plate is plate_h tall
+	var base_y := bottom_y - float(size) * (float(nc["plate_height"]) - float(nc["plate_ascent"]))
+	var at := callout_place(cov, ring_r, base_y, size, {"one": plate_w - float(nc["plate_pad_px"]) * 2.0}, own, obs, prev)
+	var r: Rect2 = (at["rects"] as Array)[0]
+	var plate := Rect2(r.get_center().x - plate_w * 0.5, r.end.y - plate_h, plate_w, plate_h)
+	return {"plate": plate, "pos": Vector2(r.get_center().x, r.end.y), "choice": {"form": at["form"], "place": at["place"], "slide": at["slide"]}, "at": at}
 
 
 ## The plate's alpha `t` beats in: full, fading over the last callout_fade_beats; under reduced

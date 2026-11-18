@@ -21,16 +21,35 @@ func run() -> int:
 	_reink(t, c)
 	_first_flip(t)
 	_return(t, c)
+	_place(t, c)
 	_words(t)
 	_tide(t, c)
 	_garrison(t, c)
 	_sources_of_garrison(t, c)
 	_builds(t, c)
+	_build_place(t, c)
 	_victory(t, c)
 	_reduced(t, c)
 	_debug(t, c)
+	_after_away(t)
 	_sources(t)
 	return t.failures
+
+
+## A catch-up swallowed the events: what the set pieces kept from them is re-read from the views.
+func _after_away(t: TestUtil) -> void:
+	var forts := [{"id": "a", "held": true}, {"id": "b", "held": false}, {"id": "c", "held": true}]
+	var r := SetpieceLogic.after_away(["a", "b"], forts, false, false)
+	t.ok(r["taken_ids"] == ["a"] and not bool(r["victory"]), "a fort Vei retook inside the catch-up is no longer a taken one; no victory")
+	t.ok(bool(SetpieceLogic.after_away([], forts, false, true)["victory"]), "a won realm that never played its victory plays it now")
+	t.ok(not bool(SetpieceLogic.after_away([], forts, true, true)["victory"]), "but only once")
+	t.ok(SetpieceLogic.after_away(["gone"], forts, false, false)["taken_ids"] == [], "an unknown fort is dropped")
+	var src := FileAccess.get_file_as_string("%s/map_setpieces.gd" % MAP_DIR)
+	var ev := src.substr(src.find("func on_event("), src.find("func _after_away(") - src.find("func on_event("))
+	t.ok(ev.contains("\"away_report\":") and ev.contains("_after_away()"), "the away_report branch calls the resync")
+	var a0 := src.find("func _after_away(")
+	var aa := src.substr(a0, src.find("\n\n\n", a0) - a0)
+	t.ok(aa.contains("SetpieceLogic.after_away(") and aa.contains("model.refresh(true)") and not aa.contains("_add(SetpieceLogic.FLIP") and not aa.contains("for "), "the resync re-reads the views and replays no flip set pieces")
 
 
 func _clock(t: TestUtil) -> void:
@@ -117,7 +136,8 @@ func _return(t: TestUtil, c: Dictionary) -> void:
 	t.ok(SetpieceLogic.return_kind("covington", {}, false, alive) == "" and SetpieceLogic.return_kind("", {}, false, alive) == "", "back from town: no line")
 	t.ok(SetpieceLogic.return_kind("vei", {}, true, alive) == "", "back from Vei: no line")
 	t.ok(SetpieceLogic.return_text(SetpieceLogic.TAKEN, "Ashgate") == "Ashgate taken by you", "taken line")
-	t.ok(SetpieceLogic.return_text(SetpieceLogic.RETREAT, "Ashgate") == "Ashgate stays Vei's: you kept everything you found", "retreat line")
+	t.ok(SetpieceLogic.return_text(SetpieceLogic.RETREAT, "Ashgate") == "Ashgate stays Vei's: you kept all you found", "retreat line: both halves of the glossary's meaning (the fort stays Vei's, you keep what you found)")
+	t.ok(int(c["callout_font_two"]) >= 14 and int(c["callout_font_two"]) <= int(c["callout_font"]), "the two-line form is set no smaller than 14 px, and no bigger than the one line")
 	t.ok(SetpieceLogic.return_text("", "Ashgate") == "", "no kind, no line")
 	t.ok(SetpieceLogic.KINDS.has(SetpieceLogic.RETREAT), "the retreat line is a set piece (debug trigger)")
 	t.ok(float(c["callout_beats"]) > 0.0, "the line's time is configured")
@@ -126,6 +146,259 @@ func _return(t: TestUtil, c: Dictionary) -> void:
 	var wm := FileAccess.get_file_as_string("res://scripts/map/world_map.gd")
 	t.ok(wm.contains("setpieces.note_return("), "world_map hands the arrival's fort to the set pieces")
 	t.ok(wm.contains("SetpieceLogic.note_dive(node_id,") and wm.find("SetpieceLogic.note_dive(") < wm.find("finished.emit({\"v\": 2, \"teleport_to\""), "world_map records the dive (held or not) before it leaves")
+
+
+## Where a set-piece callout sits (SetpieceLogic.callout_place), in the zoomed frame: a fort at
+## (500, 500) with an outer ring of 30, a 410 px line (two lines of 165 and 250 when split at ": ").
+func _place(t: TestUtil, c: Dictionary) -> void:
+	t.suite("map_setpieces-place")
+	var fort := Vector2(500.0, 500.0)
+	var base_y := 500.0 - 30.0 - float(c["callout_gap_px"])
+	var w := {"one": 410.0, "a": 165.0, "b": 250.0}
+	var none := {"rings": [], "circles": [], "rects": [], "soft": []}
+	var at := SetpieceLogic.callout_place(fort, 30.0, base_y, 16, w, [], none)
+	t.ok(str(at["form"]) == "one" and str(at["place"]) == "above" and float(at["slide"]) == 0.0 and at["pos"] == Vector2(500.0, base_y), "a clear neighbourhood: today's centred place, exactly")
+	# a neighbour's ring under the centred place: the row slides to the first share that clears it
+	var ring := {"rings": [Vector3(650.0, 440.0, 30.0)], "circles": [], "rects": [], "soft": []}
+	at = SetpieceLogic.callout_place(fort, 30.0, base_y, 16, w, [], ring)
+	t.ok(str(at["form"]) == "one" and str(at["place"]) == "above" and is_equal_approx(float(at["slide"]), -0.35), "a ring on the right: the one-line row slides left by 0.35 of its width, the first share that clears it")
+	t.ok(float(at["hard"]) == 0.0 and is_equal_approx((at["pos"] as Vector2).x, 500.0 - 0.35 * 410.0) and (at["pos"] as Vector2).y == base_y, "the slid place is clear, on the same row")
+	# rings both sides: no slide of the long line clears, the two lines centred above do
+	var both := {"rings": [Vector3(330.0, 440.0, 30.0), Vector3(670.0, 440.0, 30.0)], "circles": [], "rects": [], "soft": []}
+	at = SetpieceLogic.callout_place(fort, 30.0, base_y, 16, w, [], both)
+	t.ok(str(at["form"]) == "two" and str(at["place"]) == "above" and float(at["slide"]) == 0.0 and float(at["hard"]) == 0.0, "rings both sides: the two-line form centred above")
+	t.ok((at["pos"] as Vector2).y == base_y - float(c["callout_line_px"]) and (at["rects"] as Array).size() == 2, "the two lines stack up from today's baseline (the last line stays where the one line sat)")
+	t.ok(SetpieceLogic.split_text("Old Sluice stays Vei's: you kept all you found") == ["Old Sluice stays Vei's:", "you kept all you found"], "the split keeps the colon on line one")
+	t.ok(SetpieceLogic.split_text("Ashgate taken by you").is_empty(), "no ': ', no split")
+	# a soft overlap is avoided when a hard-clear place without it exists
+	var soft := {"rings": [], "circles": [], "rects": [], "soft": [Rect2(300.0, 440.0, 100.0, 30.0)]}
+	at = SetpieceLogic.callout_place(fort, 30.0, base_y, 16, w, [], soft)
+	t.ok(float(at["soft"]) == 0.0 and is_equal_approx(float(at["slide"]), 0.35), "a soft obstacle under the centred place: it slides to the first share clear of it")
+	# the drift cap: the centred place is clear but sits far above the fort (a high base), too far to read as its own
+	var high := SetpieceLogic.callout_place(fort, 30.0, base_y - 100.0, 16, w, [], none)
+	t.ok(str(high["place"]) == "below" and float(high["hard"]) == 0.0, "a clear place beyond the drift cap is never chosen: the line goes under the fort")
+	var saved: float = float(c["callout_drift_px"])
+	c["callout_drift_px"] = 400.0
+	high = SetpieceLogic.callout_place(fort, 30.0, base_y - 100.0, 16, w, [], none)
+	c["callout_drift_px"] = saved
+	t.ok(str(high["place"]) == "above" and float(high["slide"]) == 0.0, "with the cap lifted that same place is taken, so the cap is what refused it")
+	# the span must cover the fort's x: a share of 0.9 would clear a ring on the left and the right but never reads as the fort's
+	var cover := SetpieceLogic.callout_place(fort, 30.0, base_y, 16, w, [], both)
+	var span_l := INF
+	var span_r := -INF
+	for r in cover["rects"]:
+		span_l = minf(span_l, (r as Rect2).position.x)
+		span_r = maxf(span_r, (r as Rect2).end.x)
+	t.ok(span_l - float(c["callout_x_margin_px"]) <= fort.x and span_r + float(c["callout_x_margin_px"]) >= fort.x, "the chosen span still covers the fort's x")
+	# a neighbour's ring nearer than the fort's own: never chosen, whatever else
+	var near := {"rings": [Vector3(500.0, 440.0, 30.0)], "circles": [], "rects": [], "soft": []}
+	at = SetpieceLogic.callout_place(fort, 30.0, base_y, 16, w, [], near)
+	var worst := INF
+	for r in at["rects"]:
+		worst = minf(worst, SetpieceLogic.circle_gap(r, Vector3(500.0, 440.0, 30.0)))
+	t.ok(str(at["place"]) == "below" or worst >= 0.0, "a ring nearer than the fort's own is never the choice")
+	# nothing clear: the least hard overlap. A wall over every row above, and one just clipping the
+	# row under the fort: the under row (one line, centred) overlaps least.
+	var wall := {"rings": [], "circles": [], "rects": [Rect2(0.0, 300.0, 1000.0, 200.0), Rect2(0.0, 555.0, 1000.0, 70.0)], "soft": []}
+	at = SetpieceLogic.callout_place(fort, 30.0, base_y, 16, w, [], wall)
+	t.ok(float(at["hard"]) > 0.0 and str(at["place"]) == "below" and str(at["form"]) == "one" and float(at["slide"]) == 0.0, "nothing clear: the least hard overlap is taken")
+	var wall_up := {"rings": [], "circles": [], "rects": [Rect2(0.0, 300.0, 1000.0, 200.0)], "soft": []}
+	t.ok(float(SetpieceLogic.callout_place(fort, 30.0, base_y, 16, w, [], wall_up)["hard"]) == 0.0, "(and with only the upper wall, the under row is clear)")
+	# the screen's bounds are hard: the free screen is y 100..800 here
+	var bounds := Rect2(0.0, 100.0, 1000.0, 700.0)
+	var low := SetpieceLogic.callout_place(Vector2(500.0, 780.0), 30.0, 740.0, 16, w, [], {"rings": [], "circles": [], "rects": [], "soft": [], "bounds": bounds})
+	t.ok(str(low["place"]) == "above" and _inside(low, bounds), "a fort 20 px above the bottom inset never gets a place under it")
+	var top := SetpieceLogic.callout_place(Vector2(500.0, 120.0), 30.0, 80.0, 16, w, [], {"rings": [], "circles": [], "rects": [], "soft": [], "bounds": bounds})
+	t.ok(str(top["place"]) == "below" and _inside(top, bounds), "a fort near the top never gets a place crossing the top inset")
+	var lost := SetpieceLogic.callout_place(fort, 30.0, base_y, 16, w, [], {"rings": [], "circles": [], "rects": [], "soft": [], "bounds": Rect2(0.0, 100.0, 50.0, 50.0)})
+	t.ok(lost.has("rects") and str(lost["place"]) == "above", "no place on screen: the one with the least off-screen area (the above row, nearest the bounds)")
+	var e := float(c["callout_edge_px"])
+	t.ok(SetpieceLogic.screen_bounds(Vector2(1600.0, 900.0), Vector2(100.0, 50.0), 2.0, 62.0, 852.0) == Rect2(e - 800.0 + 200.0, 62.0 + e - 450.0 + 100.0, 1600.0 - e * 2.0, 852.0 - 62.0 - e * 2.0),"the bounds are the viewport less the edge, the top bar and the bottom bars, in the zoomed frame")
+	# nothing reads as the fort's (drift cap of 1 px): the least hard overlap wins, not the first candidate
+	var wall_above := {"rings": [], "circles": [], "rects": [Rect2(0.0, 400.0, 1000.0, 75.0)], "soft": []}
+	var saved_cap: float = float(c["callout_drift_px"])
+	c["callout_drift_px"] = 1.0
+	at = SetpieceLogic.callout_place(fort, 30.0, base_y, 16, w, [], wall_above)
+	c["callout_drift_px"] = saved_cap
+	t.ok(float(at["hard"]) == 0.0 and str(at["place"]) == "below", "every place fails the ownership rule: the least hard overlap wins, not the centred first")
+	# a line that is up does not hop: the previous choice stays while it is clear, and is re-chosen when blocked
+	var prev := {"form": "one", "place": "above", "slide": 0.2}
+	at = SetpieceLogic.callout_place(fort, 30.0, base_y, 16, w, [], none, prev)
+	t.ok(is_equal_approx(float(at["slide"]), 0.2), "the last place is kept while it is still clear (not snapped back to centred)")
+	at = SetpieceLogic.callout_place(fort, 30.0, base_y, 16, w, [], ring, prev)
+	t.ok(is_equal_approx(float(at["slide"]), -0.35) and float(at["hard"]) == 0.0, "blocked (a ring now under it): it moves, to the first clear place")
+	# beside the ring: only when the rows above and under are walled off; right first, left when the right is blocked too
+	var rows_walled := [Rect2(0.0, 380.0, 1000.0, 100.0), Rect2(0.0, 525.0, 1000.0, 100.0)]
+	at = SetpieceLogic.callout_place(fort, 30.0, base_y, 16, w, [], {"rings": [], "circles": [], "rects": rows_walled, "soft": []})
+	t.ok(str(at["place"]) == "right" and str(at["form"]) == "one" and float(at["hard"]) == 0.0, "rows above and under walled off: beside the ring, on the right")
+	at = SetpieceLogic.callout_place(fort, 30.0, base_y, 16, w, [], {"rings": [], "circles": [], "rects": rows_walled + [Rect2(545.0, 485.0, 400.0, 30.0)], "soft": []})
+	t.ok(str(at["place"]) == "left" and float(at["hard"]) == 0.0 and (at["rects"][0] as Rect2).end.x < fort.x - 30.0, "the right blocked too: beside the ring, on the left")
+	# the two-line form can be set smaller: its rects and line step follow the font
+	var w14 := {"one": 410.0, "a": 150.0, "b": 200.0, "size_two": 14}
+	at = SetpieceLogic.callout_place(fort, 30.0, base_y, 16, w14, [], both)
+	t.ok(str(at["form"]) == "two" and int(at["size"]) == 14 and is_equal_approx(float(at["line"]), float(c["callout_line_px"]) * 14.0 / 16.0), "the two-line form at 14 px steps its lines 14/16 of the line step")
+	t.ok(int(SetpieceLogic.callout_place(fort, 30.0, base_y, 16, w, [], none)["size"]) == 16, "the one line keeps callout_font")
+	# Covington's and Vei's discs and plates, world px to the zoomed frame
+	var nh := SetpieceLogic.node_hard([{"pos": Vector2(100.0, 200.0), "r": 12.0, "rects": [Rect2(90.0, 210.0, 20.0, 10.0)]}], 0.5)
+	t.ok(nh["circles"] == [Vector3(50.0, 100.0, 6.0)] and nh["rects"] == [Rect2(45.0, 105.0, 10.0, 5.0)], "node_hard scales the discs and plates by the zoom")
+	# a line that is up stays on a soft overlap only while no fully clear place exists
+	var soft_prev := {"rings": [], "circles": [], "rects": [], "soft": [Rect2(300.0, 440.0, 100.0, 30.0)]}
+	at = SetpieceLogic.callout_place(fort, 30.0, base_y, 16, w, [], soft_prev, {"form": "one", "place": "above", "slide": 0.0})
+	t.ok(float(at["soft"]) == 0.0 and is_equal_approx(float(at["slide"]), 0.35), "the held place is dropped for a fully clear one when a lane callout lands on it")
+	var soft_all := {"rings": [], "circles": [], "rects": [], "soft": [Rect2(0.0, 0.0, 1000.0, 1000.0)]}
+	at = SetpieceLogic.callout_place(fort, 30.0, base_y, 16, w, [], soft_all, {"form": "one", "place": "above", "slide": 0.2})
+	t.ok(is_equal_approx(float(at["slide"]), 0.2), "with no fully clear place anywhere the held one stays (a line never hops for nothing)")
+	_shot_geometry(t, c)
+
+
+func _inside(place: Dictionary, bounds: Rect2) -> bool:
+	for r in place["rects"]:
+		if not bounds.encloses(r):
+			return false
+	return true
+
+
+## The return shot (--fixture=day1 --teleport=old-sluice --finish-raid): a 1600 x 900 window, every fort at
+## its world.json position, none held (day1 holds no fort, so no chip), Old Sluice's "your first dungeon"
+## tag, Relish's token standing above it with her real halo. The camera is the one the return eases out to,
+## read from a run of that command (a print in MapSetpieces._place_callout: zoom 0.57552540302277 centred on
+## (986.6473, 657.0635), the top bar 62 px tall and the bottom bars from y 848). The retreat line must sit inside the inset screen, clear
+## of every other fort's ring and every plate and the token, and read as Old Sluice's. The sweep re-frames
+## Old Sluice at the same screen point at other zooms.
+func _shot_geometry(t: TestUtil, c: Dictionary) -> void:
+	var vp := Vector2(1600.0, 900.0)
+	var shot_z := 0.57552540302277
+	var shot_cam := Vector2(986.6473, 657.0635)
+	var sluice := Vector2(1420.0, 1305.0)
+	var screen_pt := (sluice - shot_cam) * shot_z + vp * 0.5
+	var texts := {"retreat": SetpieceLogic.return_text(SetpieceLogic.RETREAT, "Old Sluice"),
+		"taken": SetpieceLogic.return_text(SetpieceLogic.TAKEN, "Old Sluice"), "garrison": SetpieceLogic.garrison_text(36)}
+	# the winner at each zoom: [form, place, slide, font, clean]. 0.4 is too crowded for any clean place (the lane
+	# callouts and Covington close in): the least hard overlap is taken there, and the pin says so.
+	var want := {
+		shot_z: {"retreat": ["two", "right", 0.0, 14, true], "taken": ["one", "right", 0.0, 16, true], "garrison": ["one", "right", 0.0, 16, true]},
+		0.4: {"retreat": ["one", "right", 0.0, 16, false], "taken": ["one", "right", 0.0, 16, false], "garrison": ["two", "right", 0.0, 14, false]},
+		0.8: {"retreat": ["two", "above", -0.2, 14, true], "taken": ["one", "above", -0.2, 16, true], "garrison": ["one", "above", -0.2, 16, true]},
+		1.2: {"retreat": ["two", "above", 0.0, 14, true], "taken": ["one", "above", 0.0, 16, true], "garrison": ["one", "above", 0.0, 16, true]}}
+	var clean_zooms := 0
+	for zoom in [shot_z, 0.4, 0.8, 1.2]:
+		var z: float = zoom
+		var cam_pos := shot_cam if z == shot_z else sluice - (screen_pt - vp * 0.5) / z
+		var sc := _shot_scene(c, z, cam_pos, shot_z, shot_cam, vp)
+		for kind in texts:
+			var r := _shot_place(c, str(texts[kind]), sc)
+			var at: Dictionary = r["at"]
+			var w: Array = (want[zoom] as Dictionary)[kind]
+			var tag := "%s at zoom %.3f" % [kind, z]
+			t.ok(str(at["form"]) == w[0] and str(at["place"]) == w[1] and is_equal_approx(float(at["slide"]), float(w[2])) and int(at["size"]) == int(w[3]),
+				"%s: the winner is the %s form %s the fort, slid %s, at %d px (got %s %s %s at %s)" % [tag, w[0], w[1], w[2], w[3], at["form"], at["place"], at["slide"], at["size"]])
+			t.ok(bool(r["clean"]) == bool(w[4]), "%s: %s" % [tag, "no hard or soft overlap, inside the inset screen, reads as Old Sluice's" if w[4] else "no clean place at this zoom: the least hard overlap"])
+			if kind == "retreat" and bool(r["clean"]):
+				clean_zooms += 1
+			if z == shot_z:  # the return screen itself: every part of it, spelled out
+				t.ok(bool(r["inside"]), "%s: inside the inset screen" % tag)
+				t.ok(int(r["hard_hits"]) == 0 and not bool(r["soft_hit"]), "%s: touches no fort's ring or plate, Relish's halo, Covington's glyph or labels, Vei's, nor a lane callout" % tag)
+				t.ok(bool((r["reads"] as Dictionary)["ok"]), "%s: reads as Old Sluice's (%.0f px from its ring or plates, no other ring nearer)" % [tag, float((r["reads"] as Dictionary)["gap"])])
+	t.ok(clean_zooms == 3, "the retreat line has a clean place at 3 of the 4 zooms, the shot's among them (got %d)" % clean_zooms)
+
+
+## The shot's scene at zoom `z`, camera `cam_pos` (all in the zoomed frame, world x zoom): Old Sluice (`fp`,
+## `ring_r`, its `own` plates and Relish's token), every other fort's ring and plates, Covington's and Vei's
+## discs and plates at the day-1 valve (IdleLogic.node_obstacles: the chip layout's own), the two lane callouts
+## the shot draws over the line's neighbourhood (REDIRECT and WAR, plates 28 px tall, as MapCallouts.drawn_rects
+## gave them at the shot zoom; at other zooms kept at their world anchor, screen size), and the bounds.
+func _shot_scene(c: Dictionary, z: float, cam_pos: Vector2, shot_z: float, shot_cam: Vector2, vp: Vector2) -> Dictionary:
+	var world := TestUtil.load_json("res://configs/world.json")
+	var forts: Array = world["forts"]
+	var font := ThemeDB.fallback_font
+	var n := NodeLogic.ncfg()
+	var label := int(MapLogic.cfg()["font_label"])
+	var own: Array = []
+	var rects: Array = []
+	var rings: Array = []
+	var fp := Vector2.ZERO
+	var ring_r := 0.0
+	var pos_list: Array = []
+	for f in forts:
+		pos_list.append({"pos": f["pos"]})
+	for f in forts:
+		var p := MapModel.to_vec(f["pos"])
+		var tier := int(f["tier"])
+		var r := NodeLogic.outer_radius("fort", tier, 0.0) * z
+		var tag_w := -1.0
+		if str(f["id"]) == "old-sluice":
+			tag_w = font.get_string_size("your first dungeon", HORIZONTAL_ALIGNMENT_LEFT, -1, NodeLogic.tag_size()).x
+		var name_w := font.get_string_size(str(f["name"]), HORIZONTAL_ALIGNMENT_LEFT, -1, label).x
+		var plates := SetpieceLogic.fort_plates(p, tier, name_w, tag_w, z)
+		if str(f["id"]) == "old-sluice":
+			fp = p * z
+			ring_r = r
+			own.append_array(plates)
+		else:
+			rings.append(Vector3(p.x * z, p.y * z, r))
+			rects.append_array(plates)
+	var halo_w := float(NodeLogic.relish_radii(z)["halo"])  # world px: max(halo r, min screen px / zoom)
+	var halo := halo_w * z
+	var tok := fp - Vector2(0.0, (ring_r / z + float(n["relish_gap_px"]) + halo_w) * z)  # MapNodes: above the fort's reach
+	own.append(Rect2(tok - Vector2(halo, halo), Vector2(halo, halo) * 2.0))
+	var text_w := {}
+	for k in NodeLogic.node_names():
+		text_w[k] = font.get_string_size(str(NodeLogic.node_names()[k]), HORIZONTAL_ALIGNMENT_LEFT, -1, label).x
+	var cov := MapModel.to_vec(world["covington"]["pos"])
+	var vei := MapModel.to_vec(world["vei"]["pos"])
+	var nodes := IdleLogic.node_obstacles(cov, vei, float(world["vei"]["radius"]), 0.0, {"work": 0.4, "war": 0.45, "flood": 0.15},
+		NodeLogic.fort_centroid(pos_list), z, true, text_w)
+	var hard := SetpieceLogic.node_hard(nodes, z)
+	var soft: Array = []
+	for s in [Rect2(524.6368, 696.5007, 274.0, 28.0), Rect2(939.8651, 704.0345, 243.0, 28.0)]:  # as MapCallouts drew them (zoomed frame at the shot zoom)
+		soft.append(Rect2((s as Rect2).position / shot_z * z, (s as Rect2).size))
+	return {"fp": fp, "ring_r": ring_r, "own": own, "rings": rings, "rects": rects + (hard["rects"] as Array), "tok": tok, "halo": halo,
+		"circles": [Vector3(tok.x, tok.y, halo)] + (hard["circles"] as Array), "soft": soft,
+		"bounds": SetpieceLogic.screen_bounds(vp, cam_pos, z, 62.0, 848.0), "z": z}
+
+
+## `text`'s place in `sc` (callout_place with the widths measured as MapSetpieces does) and whether it is clean:
+## {at, clean (inside the bounds, no hard or soft overlap, reads as Old Sluice's), inside, hard_hits, soft_hit, reads}.
+func _shot_place(c: Dictionary, text: String, sc: Dictionary) -> Dictionary:
+	var font := ThemeDB.fallback_font
+	var size := int(c["callout_font"])
+	var size_two := int(c.get("callout_font_two", size))
+	var split := SetpieceLogic.split_text(text)
+	var widths := {"one": font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x}
+	if not split.is_empty():
+		widths["a"] = font.get_string_size(str(split[0]), HORIZONTAL_ALIGNMENT_LEFT, -1, size_two).x
+		widths["b"] = font.get_string_size(str(split[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, size_two).x
+		widths["size_two"] = size_two
+	var fp: Vector2 = sc["fp"]
+	var ring_r: float = sc["ring_r"]
+	var tok: Vector2 = sc["tok"]
+	var halo: float = sc["halo"]
+	var gap := float(c["callout_gap_px"])
+	var base_y := minf(fp.y - ring_r - gap, tok.y - halo - gap)
+	var obs := {"rings": sc["rings"], "circles": sc["circles"], "rects": sc["rects"], "soft": sc["soft"], "bounds": sc["bounds"]}
+	var at := SetpieceLogic.callout_place(fp, ring_r, base_y, size, widths, sc["own"], obs)
+	var inside := true
+	var hits := 0
+	var soft_hit := false
+	for r in at["rects"]:
+		inside = inside and (sc["bounds"] as Rect2).encloses(r)
+		for ring in sc["rings"]:
+			if SetpieceLogic.circle_gap(r, ring) < 0.0:
+				hits += 1
+		for ci in sc["circles"]:
+			if SetpieceLogic.circle_gap(r, ci) < 0.0:
+				hits += 1
+		for o in sc["rects"]:
+			if (r as Rect2).intersects(o):
+				hits += 1
+		for o in sc["own"]:
+			if (r as Rect2).intersects(o):
+				hits += 1
+		for o in sc["soft"]:
+			soft_hit = soft_hit or (r as Rect2).intersects(o)
+	var reads := SetpieceLogic._own_gap(at["rects"], fp, Vector3(fp.x, fp.y, ring_r), sc["own"], sc["rings"], str(at["place"]) in ["left", "right"])
+	return {"at": at, "inside": inside, "hard_hits": hits, "soft_hit": soft_hit, "reads": reads,
+		"clean": inside and hits == 0 and not soft_hit and bool(reads["ok"])}
 
 
 ## No displayed config string says flip or cleared: the player's word for winning a fort is taken
@@ -251,6 +524,45 @@ func _sources_of_garrison(t: TestUtil, c: Dictionary) -> void:
 	var src := FileAccess.get_file_as_string("%s/map_setpieces.gd" % MAP_DIR)
 	t.ok(src.contains("\"counter_garrison_cleared\":") and src.contains("SetpieceLogic.garrison_from_event(ev)") and src.contains("_add(SetpieceLogic.GARRISON"), "MapSetpieces starts the garrison piece from the real event")
 	t.ok(not src.contains("stand_in") and not src.contains("_standin"), "and no stand-in path is left")
+
+
+## Where the build line sits at Covington (SetpieceLogic.build_place), in the zoomed frame: Covington at
+## (500, 500), outer ring 30, a 220 px line on a 34 px plate; its default place is the plate's bottom
+## build_gap_px over the ring.
+func _build_place(t: TestUtil, c: Dictionary) -> void:
+	t.suite("map_setpieces-build-place")
+	var cov := Vector2(500.0, 500.0)
+	var bottom := 500.0 - 30.0 - float(c["build_gap_px"])
+	var none := {"rings": [], "circles": [], "rects": [], "soft": []}
+	var home := SetpieceLogic.build_place(cov, 30.0, bottom, 220.0, 34.0, [], none)
+	var plate: Rect2 = home["plate"]
+	t.ok(is_equal_approx(plate.size.x, 220.0 + float(c["build_pad_px"]) * 2.0) and is_equal_approx(plate.size.y, 34.0), "the plate is the text plus build_pad_px each side, at the height given")
+	t.ok(is_equal_approx(plate.get_center().x, 500.0) and is_equal_approx(plate.end.y, bottom) and (home["pos"] as Vector2).is_equal_approx(Vector2(500.0, bottom)), "nothing near: centred above the rings, bottom build_gap_px clear, as it always sat")
+	# (1) a fort's name plate under the default place: the line moves off it
+	var name_plate := Rect2(430.0, 430.0, 140.0, 22.0)
+	var moved := SetpieceLogic.build_place(cov, 30.0, bottom, 220.0, 34.0, [], {"rings": [], "circles": [], "rects": [name_plate], "soft": []})
+	t.ok(plate.intersects(name_plate), "(the default place does cover that plate)")
+	t.ok(not (moved["plate"] as Rect2).intersects(name_plate) and float((moved["at"] as Dictionary)["hard"]) == 0.0, "(1) it is moved so it clears the fort's name plate: %s" % str(moved["plate"]))
+	t.ok(not (moved["plate"] as Rect2).is_equal_approx(plate), "(1) and is not the default place")
+	# (2) Covington's own discs and plates are its own, not hard: Vei's stay hard
+	var nodes := [{"pos": Vector2(500.0, 500.0), "r": 40.0, "rects": [Rect2(450.0, 535.0, 100.0, 20.0)]},
+		{"pos": Vector2(900.0, 100.0), "r": 60.0, "rects": [Rect2(880.0, 20.0, 80.0, 18.0)]}]
+	var sp := SetpieceLogic.build_obstacles(nodes, 2.0)
+	t.ok(sp["own"] == [Rect2(900.0, 1070.0, 200.0, 40.0)] and (sp["circles"] as Array) == [Vector3(1800.0, 200.0, 120.0)] and (sp["rects"] as Array) == [Rect2(1760.0, 40.0, 160.0, 36.0)],
+		"Covington's plates are its own (zoomed), Vei's disc and plates stay hard: %s" % str(sp))
+	var own_only := SetpieceLogic.build_place(cov, 30.0, bottom, 220.0, 34.0, [Rect2(450.0, 535.0, 100.0, 20.0)], none)
+	t.ok((own_only["plate"] as Rect2).is_equal_approx(plate), "(2) Covington's own plates do not push it off its default place")
+	# (3) a fort callout placed first is hard to it
+	var callout := Rect2(440.0, 415.0, 120.0, 40.0)
+	var past := SetpieceLogic.build_place(cov, 30.0, bottom, 220.0, 34.0, [], {"rings": [], "circles": [], "rects": [callout], "soft": []})
+	t.ok(plate.intersects(callout) and not (past["plate"] as Rect2).intersects(callout) and float((past["at"] as Dictionary)["hard"]) == 0.0, "(3) a fort callout fed as hard is avoided: %s" % str(past["plate"]))
+	# the sum of the runs' widths, in the faces the layer draws them in
+	var runs := SetpieceLogic.build_spans("Bone Mill built · BODIES −0.4/s")
+	var m := SetpieceLogic.build_metrics(runs, 16)
+	var sum := 0.0
+	for w in m["widths"]:
+		sum += float(w)
+	t.ok(runs.size() >= 2 and is_equal_approx(float(m["total"]), sum + float(m["space"]) * (runs.size() - 1)) and float(m["h"]) > 0.0 and float(m["asc"]) > 0.0, "the line's width is its runs' widths and the spaces between: %s" % str(m["total"]))
 
 
 ## A finished build's callout at Covington: the projection store (by lot and level, only ever

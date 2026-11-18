@@ -91,6 +91,46 @@ static func pip_angle(i: int) -> float:
 	return -PI * 0.5 + (i + 0.5) * TAU / pip_slots()
 
 
+## The dead pile a fort's ring draws eases to its model value instead of snapping, so the sim's
+## Σdead catch-up lag (a few mass per pile at once) reads as a settle, not a jump. `st` is
+## {from, to, t} ({} the first time: no ease, the pile starts at `target`). A target within
+## pile_ease_min_jump of the last one is live drift: the ease follows it. A bigger move starts an ease from
+## the value shown now over pile_ease_s (smoothstep). Reduced motion (or a zero time): straight to
+## `target`.
+static func pile_ease(st: Dictionary, target: float, dt: float, reduced: bool) -> Dictionary:
+	var secs := _n("pile_ease_s")
+	if st.is_empty() or reduced or secs <= 0.0:
+		return {"from": target, "to": target, "t": maxf(secs, 0.0)}
+	var out := {"from": float(st["from"]), "to": float(st["to"]), "t": float(st["t"])}
+	var d := target - float(out["to"])
+	if absf(d) > _n("pile_ease_min_jump"):
+		out = {"from": pile_value(st), "to": target, "t": 0.0}
+	else:
+		out["from"] = float(out["from"]) + d
+		out["to"] = target
+	out["t"] = minf(float(out["t"]) + maxf(dt, 0.0), secs)
+	return out
+
+
+## The mass an ease state shows now.
+static func pile_value(st: Dictionary) -> float:
+	var secs := _n("pile_ease_s")
+	var k := 1.0 if secs <= 0.0 else clampf(float(st["t"]) / secs, 0.0, 1.0)
+	return lerpf(float(st["from"]), float(st["to"]), k * k * (3.0 - 2.0 * k))
+
+
+## An ease still moving (the ring needs redrawing as it goes).
+static func pile_easing(st: Dictionary) -> bool:
+	return not st.is_empty() and (float(st["t"]) < _n("pile_ease_s")) and not is_equal_approx(float(st["from"]), float(st["to"]))
+
+
+## `f` with its dead mass replaced by `dead` (what the ring draws while a pile eases).
+static func with_dead(f: Dictionary, dead: float) -> Dictionary:
+	var g := f.duplicate()
+	g["dead"] = dead
+	return g
+
+
 ## Each matter's share of the circle (mass / cap), scaled down together if they sum past 1.
 static func arc_fracs(f: Dictionary) -> Dictionary:
 	var out := {"living": 0.0, "undead": 0.0, "dead": 0.0}
@@ -311,11 +351,107 @@ static func label_plate(x: float, w: float, size: int, dy: float) -> Rect2:
 ## The plates a fort's labels cover, in screen px around the label anchor (the fort's position plus
 ## r + label_off_px down): its name (baseline `size`), and, when `tag_w` >= 0, its tag line under it
 ## (baseline `size` + label_line_px). Both are centred. The lane callouts keep clear of them.
-static func fort_label_rects(name_w: float, tag_w: float, size: int) -> Array:
+## With the card open (`panel`, see panel_of) each plate is shifted by label_shift, and a hidden one is dropped:
+## these are the plates as drawn, for every layer that keeps clear of them. `sx`: the fort's screen x.
+static func fort_label_rects(name_w: float, tag_w: float, size: int, sx := 0.0, panel := {}) -> Array:
+	var out: Array = []
+	var sh := fort_label_shifts(name_w, tag_w, size, sx, panel)
+	var base := _fort_label_plates(name_w, tag_w, size)
+	for i in base.size():
+		if not bool(sh[i]["hidden"]):
+			out.append(Rect2((base[i] as Rect2).position + Vector2(float(sh[i]["dx"]), 0.0), (base[i] as Rect2).size))
+	return out
+
+
+static func _fort_label_plates(name_w: float, tag_w: float, size: int) -> Array:
 	var out: Array = [label_plate(-name_w * 0.5, name_w, size, float(size))]
 	if tag_w >= 0.0:
 		out.append(label_plate(-tag_w * 0.5, tag_w, tag_size(), float(size) + _n("label_line_px")))
 	return out
+
+
+## The shifts of a fort's name label (index 0) and tag line (index 1, when tag_w >= 0): [{dx, hidden}],
+## dx in screen px. MapFortRing draws by it; fort_label_rects follows it.
+static func fort_label_shifts(name_w: float, tag_w: float, size: int, sx: float, panel: Dictionary) -> Array:
+	var out: Array = []
+	for r in _fort_label_plates(name_w, tag_w, size):
+		out.append(label_shift(sx, r, panel))
+	return out
+
+
+# --- labels and the open card ---------------------------------------------------------------
+
+## The open card as the labels see it: {left (screen px; INF while it is closed), off (a world x
+## times the zoom plus this is its screen x: viewport / 2 - camera x * zoom)}.
+static func panel_closed() -> Dictionary:
+	return {"left": INF, "off": 0.0}
+
+
+static func panel_of(card_left: float, cam_x: float, zoom: float, viewport_w: float) -> Dictionary:
+	return {"left": card_left, "off": viewport_w * 0.5 - cam_x * zoom}
+
+
+## What a cache of label rects must key on: [] while the card is closed, else its left edge and
+## the screen offset of the world, in whole px.
+static func panel_key(panel: Dictionary) -> Array:
+	if panel.is_empty() or is_inf(float(panel.get("left", INF))):
+		return []
+	return [roundi(float(panel["left"])), roundi(float(panel["off"]))]
+
+
+## A world x (times `zoom`) as a screen x under `panel`.
+static func panel_sx(panel: Dictionary, world_x: float, zoom: float) -> float:
+	return world_x * zoom + float(panel.get("off", 0.0))
+
+
+## How far (screen px, dx <= 0) a label of screen rect `rect` shifts so it is not drawn partly under
+## the card whose left edge is `panel_left`, and whether it hides instead: {dx, hidden}. Its anchor
+## (its node's x) under the card: the card covers it whole, no shift. Else a rect whose right edge
+## is not `margin` clear of the card shifts left until it is, provided it still covers its anchor
+## within `own_margin`; otherwise it hides. Card closed (panel_left INF): no shift.
+static func label_dx(anchor_x: float, rect: Rect2, panel_left: float, margin: float, own_margin: float) -> Dictionary:
+	if is_inf(panel_left) or anchor_x >= panel_left:
+		return {"dx": 0.0, "hidden": false}
+	var limit := panel_left - margin
+	if rect.end.x <= limit:
+		return {"dx": 0.0, "hidden": false}
+	var dx := limit - rect.end.x
+	if anchor_x > rect.end.x + dx + own_margin:
+		return {"dx": 0.0, "hidden": true}
+	return {"dx": dx, "hidden": false}
+
+
+## label_dx with the config margins, for a label `local` (screen px around its node's screen x `sx`).
+static func label_shift(sx: float, local: Rect2, panel: Dictionary) -> Dictionary:
+	if panel.is_empty():
+		return {"dx": 0.0, "hidden": false}
+	return label_dx(sx, Rect2(local.position + Vector2(sx, 0.0), local.size), float(panel.get("left", INF)),
+		_n("label_panel_margin_px"), _n("label_own_margin_px"))
+
+
+## Covington's valve labels (valve_label_layout) as drawn with the card open: each shifted by label_shift
+## (`off` and `rect`), a hidden one removed. `sx`: Covington's screen x.
+static func shift_valve_labels(lay: Dictionary, sx: float, panel: Dictionary) -> Dictionary:
+	var out := {}
+	for k in lay:
+		var l: Dictionary = (lay[k] as Dictionary).duplicate()
+		var s := label_shift(sx, l["rect"], panel)
+		if bool(s["hidden"]):
+			continue
+		var dx := float(s["dx"])
+		l["off"] = (l["off"] as Vector2) + Vector2(dx, 0.0)
+		l["rect"] = Rect2((l["rect"] as Rect2).position + Vector2(dx, 0.0), (l["rect"] as Rect2).size)
+		out[k] = l
+	return out
+
+
+## Vei's name label's shift: it is right-aligned, ending `r_out + odds_gap_px` (world px) left of her, `vw` wide.
+## {dx, hidden, plate (screen px around her x, before the shift)}.
+static func vei_name_shift(vei_x: float, r_out: float, vw: float, size: int, zoom: float, panel: Dictionary) -> Dictionary:
+	var plate := label_plate(-vw, vw, size, size * _n("text_mid_ratio"))
+	plate.position.x -= (r_out + _n("odds_gap_px")) * zoom
+	var s := label_shift(panel_sx(panel, vei_x, zoom), plate, panel)
+	return {"dx": s["dx"], "hidden": s["hidden"], "plate": plate}
 
 
 ## Fort name labels: shown at mid and near zoom; at far zoom only forts of label_far_min_tier+.

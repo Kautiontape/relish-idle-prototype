@@ -16,6 +16,18 @@ static func plate_box(alpha: float, margin: int) -> StyleBoxFlat:
 	return box
 
 
+## The Theme every map control carries so its hover tooltip has its own opaque plate (Godot's default
+## has none): TooltipPanel is the panels' plate (HudLogic.tooltip_style), TooltipLabel the text.
+static func tooltip_theme() -> Theme:
+	var st := HudLogic.tooltip_style()
+	var box := plate_box(float(MapLogic.cfg()["clarity"]["tooltip"]["plate_alpha"]), int(st["pad"]))
+	var th := Theme.new()
+	th.set_stylebox("panel", "TooltipPanel", box)
+	th.set_color("font_color", "TooltipLabel", st["text"])
+	th.set_font_size("font_size", "TooltipLabel", int(st["size"]))
+	return th
+
+
 ## An outlined button at least `button_min_h_px` tall: label font, dim text when disabled.
 static func style_button(b: Button, size := 0) -> void:
 	var cfg := MapLogic.cfg()

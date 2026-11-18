@@ -15,6 +15,8 @@ extends Node2D
 var model: MapModel
 ## Set by world_map: told which forts stand in Relish's light so their dead lane's gutter lifts.
 var routes: MapRoutes
+## Set by world_map: the side card. While it is open the labels that would run under it shift clear or hide.
+var card: Control
 var selected_id := "":
 	set(v):
 		selected_id = v
@@ -32,6 +34,7 @@ var _glyph_beat: MapFortGlyph
 var _glyph_still: MapFortGlyph
 var _siege: MapSiege
 var _idle: MapFortIdle
+var _piles := {}  # fort id -> its dead pile's ease state (NodeLogic.pile_ease)
 var _sigs := {}  # static layer -> its static_sig at its last redraw
 var _vsig: Array = []  # the villages' owners at their last redraw
 var _forts_p: MapFortRing
@@ -45,6 +48,7 @@ var _pulses: Array = []
 var _rev := -2
 var _margin_sig := ""  # model.margin_sig at the last redraw: the idle layer redraws when it changes
 var _dirty := true
+var _panel_key: Array = []  # NodeLogic.panel_key of ctx.panel
 var _rm := false
 var _cam: Camera2D
 var _cfg_ref = null
@@ -65,6 +69,11 @@ var _frames := 0
 ## Where a held fort's chip is drawn, in world px (shifted clear of Relish's token).
 func chip_world_rect(f: Dictionary) -> Rect2:
 	return _idle.chip_world_rect(f)
+
+
+## Covington's and Vei's discs and plates, in world px (IdleLogic.node_obstacles).
+func node_obstacles() -> Array:
+	return _idle.node_obstacles()
 
 
 ## Where Relish's token is drawn, in world px.
@@ -159,7 +168,23 @@ func _exit_tree() -> void:
 		print("NODES_MS mode=%s n=%d mean=%.4f max=%.4f" % [mode, a.size(), sum / maxf(a.size(), 1.0), mx])
 
 
-func _process(_delta: float) -> void:
+## Each fort's dead pile as its ring draws it: eased to the model's value (NodeLogic.pile_ease), so the
+## Σdead a catch-up adds at once settles over pile_ease_s. Under reduced motion it snaps. True while
+## any pile is still moving, or one moved this frame.
+func _step_piles(delta: float, rm: bool) -> bool:
+	var moving := false
+	for f in model.forts:
+		var id := str(f["id"])
+		var st := NodeLogic.pile_ease(_piles.get(id, {}), float(f.get("dead", 0.0)), delta, rm)
+		var v := NodeLogic.pile_value(st)
+		if not is_equal_approx(v, float(ctx.dead_shown.get(id, -1.0))):
+			moving = true
+		_piles[id] = st
+		ctx.dead_shown[id] = v
+	return moving
+
+
+func _process(delta: float) -> void:
 	var t0 := Time.get_ticks_usec()  # lint-ok: bench timing
 	_record_last_frame()
 	if model == null or model.realm.is_empty() or not is_visible_in_tree():
@@ -167,6 +192,7 @@ func _process(_delta: float) -> void:
 		return
 	_check_config()
 	_sync_camera()
+	_sync_panel()
 	var rm: bool = Pulse.reduced_motion
 	ctx.now_s = Pulse.now_ms() * 0.001
 	var refreshed := model.rev != _rev
@@ -181,7 +207,8 @@ func _process(_delta: float) -> void:
 	_update_relish(rm)
 	if not rm:
 		_vei_s.spin(fposmod(ctx.now_s * NodeLogic.vei_spin(ctx.r_vei), TAU))
-	if refreshed or _dirty or margins_changed:
+	var piles_moved := _step_piles(delta, rm)
+	if refreshed or _dirty or margins_changed or piles_moved:
 		_vei_s.sync_rings()
 		for l: MapNodeLayer in _statics:
 			var sig = l.static_sig()
@@ -246,6 +273,20 @@ func _sync_camera() -> void:
 	if tier != ctx.tier or absf(z - ctx.zoom) > ctx.zoom * float(NodeLogic.ncfg()["zoom_redraw_eps"]):
 		ctx.zoom = z
 		ctx.tier = tier
+		_dirty = true
+
+
+## The open card (its left edge, the camera's offset) as the labels see it: every layer redraws when it
+## opens, closes or moves, so their labels (and the chips' layout) follow it.
+func _sync_panel() -> void:
+	var pn := NodeLogic.panel_closed()
+	if card != null and card.is_visible_in_tree():
+		var cx := _cam.position.x if _cam != null else 0.0
+		pn = NodeLogic.panel_of(card.get_global_rect().position.x, cx, ctx.zoom, get_viewport_rect().size.x)
+	var key := NodeLogic.panel_key(pn)
+	if key != _panel_key:
+		_panel_key = key
+		ctx.panel = pn
 		_dirty = true
 
 

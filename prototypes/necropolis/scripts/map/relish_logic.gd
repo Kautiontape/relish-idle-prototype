@@ -88,6 +88,21 @@ static func chip_buttons(relish: Dictionary) -> Dictionary:
 	return {"go_home": not home, "cancel": state == "travelling"}
 
 
+## Whether the chip's buttons sit on the name's row (true) or wrap to a row below (false): the
+## row (plate padding both sides, the name, each shown button, a gap before each) must fit in
+## `max_w`. `button_ws` holds only the buttons that show. No buttons: true (one row, the name).
+static func chip_inline(name_w: float, button_ws: Array, hsep: float, pad: float, max_w: float) -> bool:
+	return chip_row_w(name_w, button_ws, hsep, pad) <= max_w
+
+
+## The width that row needs.
+static func chip_row_w(name_w: float, button_ws: Array, hsep: float, pad: float) -> float:
+	var w := 2.0 * pad + name_w
+	for bw in button_ws:
+		w += hsep + float(bw)
+	return w
+
+
 # --- the card's actions ----------------------------------------------------------
 
 static func _line(text: String, key := "") -> Dictionary:
@@ -124,7 +139,7 @@ static func move_items(relish: Dictionary, id: String, here_text: String) -> Arr
 ## its reason in words), the haul line and its button. Items: {kind: "line"|"button", text, act, enabled}.
 ## `act` is "move", "cancel", "descend", "haul" or "haul_auto".
 ## `comes` is {ci: CardLogic.comes_in(), warn: CardLogic.comes_in_warning()}: the line above DESCEND
-## is the warning (with its key) when there is one, else the count of who comes in.
+## is the warning (with its key) when there is one, else none (the card's plain line has the count).
 static func fort_actions(fort: Dictionary, relish: Dictionary, haul: Dictionary, names: Dictionary, comes: Dictionary) -> Array:
 	var id := str(fort.get("id", ""))
 	var out := move_items(relish, id, "Relish is here")
@@ -132,8 +147,6 @@ static func fort_actions(fort: Dictionary, relish: Dictionary, haul: Dictionary,
 	var warn: Dictionary = comes.get("warn", {})
 	if not warn.is_empty():
 		out.append(_line(str(warn["text"]), str(warn["key"])))
-	else:
-		out.append(_line(CardLogic.comes_count_text(comes.get("ci", {"garrison": 0, "starter": 0, "bigs": 0}))))
 	out.append(_button("DESCEND", "descend", can))
 	if not can and str(fort.get("reason", "")) != "":
 		out.append(_line(reason_text(str(fort["reason"]))))

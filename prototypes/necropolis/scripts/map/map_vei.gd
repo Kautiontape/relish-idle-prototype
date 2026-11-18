@@ -46,8 +46,11 @@ func _draw_static() -> void:
 	text(Vector2(x0, vp.y), odds, int(n["font_odds"]), Palette.c("vei"), ALIGN_LEFT, size * float(n["odds_baseline_ratio"]), true)
 	text(Vector2(x0, vp.y), NodeLogic.strain_line(int(ctx.readout.get("sign", 0)), float(ctx.readout.get("backlog", 0.0)), float(ctx.readout.get("drain_s", -1.0))), int(n["font_odds_sub"]),
 		Palette.c("text"), ALIGN_LEFT, line * float(n["drain_line_mult"]))
-	text(Vector2(vp.x - r_out - float(n["odds_gap_px"]), vp.y), str(NodeLogic.node_names()["vei"]), size,
-		Palette.c("vei", float(MapLogic.cfg()["node_label_dim_alpha"])), ALIGN_RIGHT, size * float(n["text_mid_ratio"]))
+	var vname := str(NodeLogic.node_names()["vei"])
+	var vs := NodeLogic.vei_name_shift(vp.x, r_out, MapNodeLayer.label_width(vname, size, false), size, ctx.zoom, ctx.panel)  # clear of the open card, or hidden
+	if not bool(vs["hidden"]):
+		text(Vector2(vp.x - r_out - float(n["odds_gap_px"]) + ctx.px(float(vs["dx"])), vp.y), vname, size,
+			Palette.c("vei", float(MapLogic.cfg()["node_label_dim_alpha"])), ALIGN_RIGHT, size * float(n["text_mid_ratio"]))
 	if ctx.selected_id == "vei":
 		draw_arc(vp, r_out + float(n["vei_select_pad_px"]), 0.0, TAU, int(MapLogic.cfg()["ring_samples"]), Palette.c("select"), maxf(float(n["select_width_px"]), hw))
 

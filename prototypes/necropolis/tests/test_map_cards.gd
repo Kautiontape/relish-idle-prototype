@@ -472,11 +472,25 @@ func _comes(t: TestUtil) -> void:
 		wb[b["id"]] = b
 		wids.append(b["id"])
 	t.ok(wids.filter(func(i): return want.has(i)) == want and not wids.has("comes_warn"), "even with a warning due, the card shows it once, not as a block (the pinned line has it): " + str(wids))
-	t.ok(wb["comes_in_head"]["text"] == "WHO COMES IN" and wb["comes_in"]["face"] == "text" and wb["comes_in"]["text"] == "0 come in: garrison 0 (WAR) · starter 0 · big undead 0", "the head and the count, total first, in the text face: " + str(wb["comes_in"]["text"]))
+	t.ok(wb["comes_in_head"]["text"] == "WHO COMES IN" and wb["comes_in"]["face"] == "text" and wb["comes_in"]["text"] == "from: garrison 0 (WAR) · starter 0 · big undead 0", "the head and the breakdown (no leading count: the plain line has it), in the text face: " + str(wb["comes_in"]["text"]))
 	t.ok(wb["bring_more"]["key"] == "text_dim" and wb["bring_more"]["text"].contains("draws 3× its share") and wb["bring_more"]["text"].begins_with("More: raise WAR on the valve") and wb["bring_more"]["text"].contains("crypt slab"), "the tide bias reads from config: " + str(wb["bring_more"]["text"]))
+	var warden_s := "To answer a warden, make a big undead at the Crypt slab and put it in your Party."
+	t.ok(wb["comes_plain"]["text"] == "No undead come with you. " + warden_s and wb["comes_plain"]["face"] == "text", "the card leads with a plain line: " + str(wb["comes_plain"]["text"]))
+	var cp_ids: Array = _fc(_fort_entry(), "", back, {}, _loot_cfg())["blocks"].map(func(b): return b["id"])
+	t.ok(cp_ids.find("comes_in_head") + 1 == cp_ids.find("comes_plain") and cp_ids.find("comes_plain") + 1 == cp_ids.find("comes_in"), "the plain line sits between the head and the breakdown")
+	t.ok(CardLogic.comes_plain_text({"garrison": 0, "starter": 0, "bigs": 0, "total": 0}) == "No undead come with you. " + warden_s, "nobody: says so, and how to get a big undead")
+	t.ok(CardLogic.comes_plain_text({"garrison": 0, "starter": 8, "bigs": 0, "total": 8}) == "8 undead come with you. " + warden_s, "8 undead, no bigs: the count, then the warden sentence")
+	t.ok(CardLogic.comes_plain_text({"garrison": 2, "starter": 8, "bigs": 0, "total": 10}) == "10 undead come with you. " + warden_s, "garrison and starter add up")
+	t.ok(CardLogic.comes_plain_text({"garrison": 0, "starter": 8, "bigs": 1, "total": 9}) == "8 undead and 1 big undead come with you.", "with a big undead: both counts, no warden sentence")
+	t.ok(not CardLogic.comes_plain_text({"garrison": 3, "starter": 0, "bigs": 2, "total": 5}).contains("warden"), "bigs in the party: no warden sentence")
+	t.ok(CardLogic.comes_plain_text({"garrison": 0, "starter": 0, "bigs": 1, "total": 1}) == "1 big undead comes with you.", "only one big undead: 'comes', no '0 undead'")
+	t.ok(CardLogic.comes_plain_text({"garrison": 0, "starter": 0, "bigs": 2, "total": 2}) == "2 big undead come with you.", "only two big undead: 'come'")
+	t.ok(CardLogic.comes_plain_text({"garrison": 0, "starter": 1, "bigs": 0, "total": 1}) == "1 undead comes with you. " + warden_s, "one undead: 'comes'")
+	t.ok(CardLogic.comes_plain_text({"garrison": 1, "starter": 0, "bigs": 1, "total": 2}) == "1 undead and 1 big undead come with you.", "one of each: 'come'")
 	t.ok(CardLogic.bring_more_text(2.5).contains("2.5×") and CardLogic.bring_more_text(3.0).contains("3×") and not CardLogic.bring_more_text(3.0).contains("3.0"), "no trailing .0")
 	# the pinned line and the descend dialog text
-	t.ok(CardLogic.comes_count_text({"garrison": 2, "starter": 8, "bigs": 1, "total": 11}) == "10 undead and 1 big undead come in", "the pinned count")
+	t.ok(CardLogic.comes_in_text({"garrison": 2, "starter": 8, "bigs": 1, "total": 11}) == "from: garrison 2 (WAR) · starter 8 · big undead 1", "the breakdown states no count")
+	t.ok(not MapLogic.cfg()["cards"].has("comes_count_fmt"), "the pinned count line's text is gone from the config")
 	t.ok(CardLogic.descend_confirm_text(w0) == w0["text"] + "\n\nDescend anyway?", "the descend dialog's text")
 	t.ok(CardLogic.descend_confirm_text(wp) == wp["text"] + "\n\nDescend anyway?", "the dialog opens for the corpse-pile case too")
 	# fort_actions puts the party warning line directly above DESCEND
@@ -493,7 +507,7 @@ func _comes(t: TestUtil) -> void:
 	t.ok(fa_low[fa_li - 1]["text"] == w2["text"] and fa_low[fa_li - 1]["text"].begins_with("Below a standard tier-2") and fa_low[fa_li - 1]["key"] == "select", "below the tier profile: the comes_below line sits above DESCEND")
 	var fa_ok := RelishLogic.fort_actions(fa_fort, fa_home, {"target": "auto"}, {}, {"ci": {"garrison": 6, "starter": 0, "bigs": 1, "total": 7}, "warn": {}})
 	var fa_oi := fa_ok.find_custom(func(i): return str(i["act"]) == "descend")
-	t.ok(fa_ok[fa_oi - 1]["text"] == "6 undead and 1 big undead come in" and not fa_ok[fa_oi - 1].has("key"), "no warning: the count line sits above DESCEND, uncoloured")
+	t.ok(fa_ok[fa_oi - 1]["act"] != "" and fa_ok[fa_oi - 1]["kind"] == "button" and not fa_ok.any(func(i): return str(i["text"]).contains("come in")), "no warning: no count line above DESCEND (MOVE/CANCEL button directly before)")
 	# vei: fronts short versus met
 	var short := {"fronts_met": 1, "fronts_required": 3}
 	var sentence := "Fronts met 1 of 3 required: Vei will likely win. Assign big undead to the open fronts."

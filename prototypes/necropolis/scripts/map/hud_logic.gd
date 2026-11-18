@@ -87,34 +87,63 @@ static func objective_text(hud: Dictionary) -> String:
 	return str(cfg.get("objective_won_text", "")) if hud.get("won", false) else str(cfg.get("objective_text", ""))
 
 
-## Whether the run's goal and the valve's one-line explanation show: while no fort has been taken
+## Whether your goal and the valve's one-line explanation show: while no fort has been taken
 ## (view_hud.highest_tier_flipped is 0: existing state, no save flag). After that the goal line is
 ## gone and the valve's explanation stays as its hover tooltip.
 static func goal_shown(hud: Dictionary) -> bool:
 	return int(hud.get("highest_tier_flipped", 0)) == 0 and not bool(hud.get("won", false))
 
 
-## The run's goal under the objective strip: the config's lines, one per row.
+## Your goal under the objective strip: the config's lines, one per row.
 static func goal_text() -> String:
 	return "\n".join(PackedStringArray(MapLogic.cfg().get("clarity", {}).get("goal_lines", [])))
 
 
-## Whether the fort legend shows expanded: the player's click when there was one (`user`: 1 open,
-## 0 closed), else while no fort has been taken (goal_shown), collapsed to a button afterwards.
-static func legend_open(hud: Dictionary, user: int) -> bool:
-	return goal_shown(hud) if user < 0 else user == 1
+## Whether the fort legend shows expanded: open until the player closes it (`user`: -1 not chosen yet,
+## 1 open, 0 closed), then as they left it.
+static func legend_open(user: int) -> bool:
+	return user != 0
+
+
+## The legend's `user` value at start: 0 (closed) when the player closed it earlier (MapSeen's global
+## flag, kept across saves and new games), else -1 (not chosen: open).
+static func legend_user(closed_by_player: bool) -> int:
+	return 0 if closed_by_player else -1
+
+
+## The legend's line under HELD: what the held fort's tag can read, in the chip's own words
+## (IdleLogic.word of each margin).
+static func held_tag_line() -> String:
+	var fmt := str(MapLogic.cfg()["clarity"]["legend"]["held_tag_fmt"])
+	return fmt % [IdleLogic.word(IdleLogic.SAFE), IdleLogic.word(IdleLogic.THIN), IdleLogic.word(IdleLogic.WILL_FALL)]
+
+
+## The cue on the bar that its jargon words explain themselves on hover.
+static func hover_cue() -> String:
+	return str(MapLogic.cfg()["clarity"]["hover_cue"])
+
+
+## The look of every map tooltip: {plate, border, text, size, pad}. The plate is the panels' own
+## (MapUi.plate_box: ground lightened) at tooltip.plate_alpha, so a tooltip over a banner never shows it through.
+static func tooltip_style() -> Dictionary:
+	var cfg := MapLogic.cfg()
+	var tc: Dictionary = cfg["clarity"]["tooltip"]
+	var plate := Palette.c("ground").lightened(float(cfg["panel_bg_lighten"]))
+	plate.a = float(tc["plate_alpha"])
+	return {"plate": plate, "border": Palette.c("contour", float(cfg["panel_border_alpha"])), "text": Palette.c(str(tc["text_key"])),
+		"size": int(tc["size_px"]), "pad": int(tc["pad_px"])}
 
 
 ## Where the fort legend sits and how it shows, from the real rects. `chip` and `valve` are their
 ## panels' rects; the legend is `w` wide at left edge `x`, bottom-aligned `gap` above the valve.
 ## `h_full`, `h_compact` (rows closer together) and `h_closed` (the button) are its heights.
-## `want_open`: it would show expanded (the game's default or the player's click); `user_open`: the
-## player clicked it open. The Relish chip (when it overlaps the legend's columns) bounds the top:
-## the legend's top is at least the chip's bottom plus `gap`. A default-open legend that does not fit
-## at full height shows collapsed; one the player opened shows compact if that fits, else collapsed.
+## `want_open`: it would show expanded (open by default, or as the player left it). The Relish chip (when it
+## overlaps the legend's columns) bounds the top: the legend's top is at least the chip's bottom plus
+## `gap`. An open legend that does not fit at full height shows compact if that fits, else collapsed
+## (the legend is open by default, so compact must serve the default on a short screen too).
 ## Returns {mode: "full"|"compact"|"closed", rect: Rect2}.
 static func legend_place(chip: Rect2, valve: Rect2, x: float, w: float, h_full: float, h_compact: float, h_closed: float,
-		want_open: bool, user_open: bool, gap: float) -> Dictionary:
+		want_open: bool, gap: float) -> Dictionary:
 	var bottom := valve.position.y - gap
 	var floor_y := -INF
 	if chip.size.y > 0.0 and chip.position.x < x + w and chip.end.x > x:
@@ -124,7 +153,7 @@ static func legend_place(chip: Rect2, valve: Rect2, x: float, w: float, h_full: 
 	if want_open:
 		if h_full <= avail:
 			mode = "full"
-		elif user_open and h_compact <= avail:
+		elif h_compact <= avail:
 			mode = "compact"
 	var h := h_full if mode == "full" else (h_compact if mode == "compact" else h_closed)
 	return {"mode": mode, "rect": Rect2(x, bottom - h, w, h)}
@@ -151,6 +180,64 @@ static func sidebar_top(viewport_w: float, card_w: float, plates_right: float, g
 ## FLOOD), from config; "" for a word with none.
 static func tip(id: String) -> String:
 	return str(MapLogic.cfg().get("clarity", {}).get("tips", {}).get(id, ""))
+
+
+## The hover line `id` on a Label or Button: its tooltip is tip(id) and it passes the mouse on (a Control
+## that ignores the mouse shows no tooltip). A word with no line is left as it was.
+static func apply_tip(c: Control, id: String) -> void:
+	var text := tip(id)
+	if text != "":
+		c.tooltip_text = text
+		c.mouse_filter = Control.MOUSE_FILTER_PASS
+
+
+## Where the plate of a bar word's tooltip goes (screen px). `word`: the word's rect; `tip`: the plate's
+## size; `plates`: the HUD's text plates (the bar, strip, goal, leave line's slot, Relish chip, legend, valve);
+## `card`: the open fort card (Rect2() closed), avoided but never used as an edge to sit beside. Candidates
+## in order, the first clear of every plate and the card and wholly on screen (tooltip.margin_px in) wins:
+## (1) just under the word (tooltip.gap_px), pushed down past each plate it meets, at the word's x;
+## (2) right of the plates under the bar (the widest end of those the word is not on), just under the plates
+## the word is on: over the map. Fallback, when neither is clear: the one overlapping least (the first on a
+## tie), then clamped on screen; a plate larger than the viewport less its margins is shrunk to fit, so the
+## result is always inside the viewport.
+static func tip_rect(word: Rect2, tip: Vector2, plates: Array, viewport: Vector2, card := Rect2()) -> Rect2:
+	var tc: Dictionary = MapLogic.cfg()["clarity"]["tooltip"]
+	var gap := float(tc["gap_px"])
+	var margin := float(tc["margin_px"])
+	var size := Vector2(minf(tip.x, viewport.x - margin * 2.0), minf(tip.y, viewport.y - margin * 2.0))
+	var inside := Rect2(Vector2(margin, margin), viewport - Vector2(margin, margin) * 2.0)
+	var avoid: Array = plates.duplicate()
+	if card.size.x > 0.0 and card.size.y > 0.0:
+		avoid.append(card)
+	var host_end := word.end.y
+	var right := 0.0
+	for p in plates:
+		if (p as Rect2).intersects(word):
+			host_end = maxf(host_end, (p as Rect2).end.y)
+		else:
+			right = maxf(right, (p as Rect2).end.x)
+	var down := Rect2(Vector2(word.position.x, word.end.y + gap), size)
+	for _i in avoid.size() + 1:
+		for p in avoid:
+			if down.intersects(p):
+				down.position.y = (p as Rect2).end.y + gap
+	var cands: Array = [down, Rect2(Vector2(right + gap, host_end + gap), size)]
+	var best := Rect2()
+	var best_over := INF
+	for c in cands:
+		var over := 0.0
+		for p in avoid:
+			var i: Rect2 = (c as Rect2).intersection(p)
+			over += maxf(i.size.x, 0.0) * maxf(i.size.y, 0.0)
+		if not inside.encloses(c):
+			over += 1.0e9  # off screen: worse than any overlap
+		if over == 0.0:
+			return c
+		if over < best_over:
+			best_over = over
+			best = c
+	best.position = Vector2(clampf(best.position.x, inside.position.x, inside.end.x - size.x), clampf(best.position.y, inside.position.y, inside.end.y - size.y))
+	return best
 
 
 ## A screen rect (the open card) in a world-anchored layer's frame, world x zoom (MapCallouts'):
@@ -317,6 +404,13 @@ static func rects_key(rects: Array) -> Array:
 	return rects.map(func(r: Rect2): return [roundi(r.position.x), roundi(r.position.y), roundi(r.size.x), roundi(r.size.y)])
 
 
+## What a bar tooltip's place depends on, in whole px, as a key: the word's rect, the plate's size, the HUD's
+## plates, the open card (Rect2() closed) and the viewport. Equal keys mean tip_rect would answer the same,
+## so a shown plate is only re-placed when this changes.
+static func tip_key(word: Rect2, tip: Vector2, plates: Array, card: Rect2, viewport: Vector2) -> Array:
+	return [rects_key([word, card]), [roundi(tip.x), roundi(tip.y)], rects_key(plates), [roundi(viewport.x), roundi(viewport.y)]]
+
+
 ## Greedy placement. `options[i]` is callout i's candidate rects in preference order. Callouts
 ## are taken in order: each takes its first candidate that stays `gap` clear of every plate
 ## placed so far and of every `occupied` rect (the open card), and is skipped (-1) when none does
@@ -338,3 +432,33 @@ static func place(options: Array, max_count: int, gap: float, occupied: Array = 
 			placed.append(cands[pick])
 		picks.append(pick)
 	return picks
+
+
+## What the fort labels' rects (MapCallouts._label_rects) depend on: the rev (names, tags), the
+## zoom in thousandths, the tier and the fort count. Equal keys, equal rects.
+## `panel`: NodeLogic.panel_key (the open card's left edge and the world's screen offset; [] closed): the
+## labels shift clear of the card.
+static func label_key(rev: int, zoom: float, tier: String, forts: int, panel := []) -> Array:
+	return [rev, roundi(zoom * 1000.0), tier, forts, panel]
+
+
+## What MapLegend.refresh depends on: its parent's size, whether it is open (and the player's
+## click), the Relish chip's and the valve's rects, the rows' count and `min_h` (the head's and the
+## rows' combined minimum heights, summed: wrapped labels settle theirs only after a container layout).
+## Refresh runs when it changes.
+static func legend_key(area: Vector2, open: bool, open_user: int, chip: Rect2, valve: Rect2, rows: int, min_h: float) -> Array:
+	return [area, open, open_user, chip, valve, rows, roundf(min_h * 100.0)]
+
+
+## How the legend's rows draw for `mode` ("full", "compact", "closed") and the height they settled
+## at (0: not measured yet). {visible, alpha}: the rows stay laid out until measured once (hidden
+## rows measure one word per line), but a closed legend never shows them: alpha 0 until they hide.
+static func legend_rows_state(mode: String, settled_h: float) -> Dictionary:
+	var closed := mode == "closed"
+	return {"visible": not closed or settled_h <= 0.0, "alpha": 0.0 if closed else 1.0}
+
+
+## Whether the legend's cached key must be cleared: the rows' settled height was just first set
+## (0 before, positive now), so the layout is redone with it.
+static func legend_settled_first(prev_h: float, now_h: float) -> bool:
+	return prev_h <= 0.0 and now_h > 0.0

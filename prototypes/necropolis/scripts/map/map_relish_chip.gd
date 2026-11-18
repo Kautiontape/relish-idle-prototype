@@ -14,6 +14,7 @@ var cam: MapCamera
 var _name: Button
 var _home: Button
 var _cancel: Button
+var _flow: HFlowContainer  # name + buttons; wraps the buttons below the name only when one row is too wide
 var _rev := -2
 
 
@@ -22,23 +23,24 @@ func _ready() -> void:
 	var c: Dictionary = MapLogic.cfg()["controls"]
 	add_theme_stylebox_override("panel", MapUi.plate_box(float(c["chip_plate_alpha"]), int(c["chip_pad_px"])))
 	custom_minimum_size.x = float(c["chip_w_px"])
-	var vb := VBoxContainer.new()
-	vb.add_theme_constant_override("separation", int(c["chip_vsep_px"]))
-	add_child(vb)
+	# One wrapping flow: the buttons sit on the name's row when `refresh` says the row fits
+	# (it sets the flow's width), else they wrap to a row below.
+	_flow = HFlowContainer.new()
+	_flow.add_theme_constant_override("h_separation", int(c["chip_hsep_px"]))
+	_flow.add_theme_constant_override("v_separation", int(c["chip_vsep_px"]))
+	add_child(_flow)
 	_name = Button.new()
 	_name.alignment = HORIZONTAL_ALIGNMENT_LEFT
 	_name.flat = true
 	MapUi.style_button(_name, int(c["chip_font_px"]))
 	_name.add_theme_stylebox_override("normal", StyleBoxEmpty.new())
+	_name.custom_minimum_size.y = float(c["chip_name_h_px"])  # the name is one line: no 44 px button pad
 	_name.tooltip_text = "Centre the map on Relish"
 	_name.pressed.connect(_centre)
-	vb.add_child(_name)
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", int(c["chip_hsep_px"]))
-	vb.add_child(row)
-	_home = _button(row, "GO HOME", float(c["chip_button_w_px"]))
+	_flow.add_child(_name)
+	_home = _button(_flow, "GO HOME", float(c["chip_button_w_px"]))
 	_home.pressed.connect(_go_home)
-	_cancel = _button(row, "CANCEL", float(c["chip_button_w_px"]))
+	_cancel = _button(_flow, "CANCEL", float(c["chip_button_w_px"]))
 	_cancel.pressed.connect(_do_cancel)
 	if hud != null:
 		hud.inset_changed.connect(_sit)
@@ -71,7 +73,26 @@ func refresh(force := false) -> void:
 	var b := RelishLogic.chip_buttons(model.relish)
 	_home.visible = b["go_home"]
 	_cancel.visible = b["cancel"]
+	_lay_out()
 	reset_size.call_deferred()  # shrink the plate when a button hides
+
+
+## Buttons on the name's row if that row fits the left column, else the flow is chip_w_px wide and
+## they wrap below. The name's click target is as tall as a button when they share its row.
+func _lay_out() -> void:
+	var c: Dictionary = MapLogic.cfg()["controls"]
+	var ws := []
+	for b in [_home, _cancel]:
+		if b.visible:
+			ws.append(b.get_combined_minimum_size().x)
+	var name_w := _name.get_minimum_size().x
+	var hsep := float(c["chip_hsep_px"])
+	var inline := not ws.is_empty() and RelishLogic.chip_inline(name_w, ws, hsep, float(c["chip_pad_px"]), float(c["chip_max_w_px"]))
+	var inner := float(c["chip_w_px"]) - 2.0 * float(c["chip_pad_px"])
+	if inline:
+		inner = maxf(RelishLogic.chip_row_w(name_w, ws, hsep, float(c["chip_pad_px"])) - 2.0 * float(c["chip_pad_px"]), inner)
+	_flow.custom_minimum_size.x = inner
+	_name.custom_minimum_size.y = float(MapLogic.cfg()["button_min_h_px"]) if inline else float(c["chip_name_h_px"])
 
 
 func _centre() -> void:
