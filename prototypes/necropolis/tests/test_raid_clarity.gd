@@ -113,6 +113,16 @@ func _round2_tests(t: TestUtil) -> void:
 	for n in [0, 2]:
 		for m in RaidLogic.phylactery_meaning(n):
 			t.ok(ThemeDB.fallback_font.get_string_size(m, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x <= 320.0, "PHYLACT. meaning (%d) row fits the value column at 13 px: %s" % [n, m])
+	# BANKED / UNBANKED wrap inside the StatBlock's value column (value_w() = 420 - 92 - 8), each "kind N" whole
+	var vpx := int(TestUtil.load_json("res://configs/raid.json").get("hud", {}).get("value_px", 15))
+	var widest := RaidLogic.loot_line({"relics": 999, "remnants": 999, "husks": 999, "blueprints": 999, "essence": 999})
+	var wl := RaidLogic.wrap_loot_line(widest, ThemeDB.fallback_font, vpx, 320.0)
+	t.ok(wl.size() >= 2 and " ".join(wl) == widest, "the widest loot line wraps to %d lines and loses nothing: %s" % [wl.size(), str(wl)])
+	for ln in wl:
+		t.ok(ThemeDB.fallback_font.get_string_size(ln, HORIZONTAL_ALIGNMENT_LEFT, -1, vpx).x <= 320.0, "a BANKED line fits the value column at %d px: %s" % [vpx, ln])
+		t.ok(not ln.substr(0, 1).is_valid_int(), "a kind keeps its count on its line: %s" % ln)
+	t.ok(RaidLogic.wrap_loot_line("essence 8", ThemeDB.fallback_font, vpx, 320.0) == PackedStringArray(["essence 8"]) and RaidLogic.wrap_loot_line("", ThemeDB.fallback_font, vpx, 320.0).is_empty(), "a short line stays one line; nothing is no lines (the HUD's dim \"none\")")
+	t.ok(hsrc.contains("st.set_loot(RaidLogic.loot_line(bk), RaidLogic.loot_line(ub))") and hsrc.contains("RaidLogic.wrap_loot_line(banked, ThemeDB.fallback_font, _val, value_w())"), "the HUD wraps BANKED and UNBANKED at value_w() through set_loot")
 	t.ok(RaidLogic.loot_uses_line(RaidLogic.loot_counts({})) == "", "no loot: no uses line")
 	t.ok(RaidLogic.loot_uses_line(RaidLogic.loot_counts({"blueprints": [{}]})) == "", "blueprints alone: no use line")
 	var all := RaidLogic.loot_uses_line(RaidLogic.loot_counts({"relics": 1, "husks": [{}], "remnants": [{}], "essence": 2}))

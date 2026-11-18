@@ -481,6 +481,26 @@ static func loot_line(c: Dictionary) -> String:
 	return " · ".join(parts)
 
 
+## A loot_line in lines no wider than `max_w` at `font_px`, every "kind N" chunk kept whole (the StatBlock's
+## BANKED / UNBANKED values wrap on their plate); a line that continues ends with " ·". [] for "".
+static func wrap_loot_line(text: String, font: Font, font_px: int, max_w: float) -> PackedStringArray:
+	var out := PackedStringArray()
+	if text == "":
+		return out
+	var chunks := text.split(" · ")
+	var line := ""
+	for i in chunks.size():
+		var trial: String = chunks[i] if line == "" else line + " · " + chunks[i]
+		var tail := " ·" if i < chunks.size() - 1 else ""
+		if line != "" and font.get_string_size(trial + tail, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x > max_w:
+			out.append(line + " ·")
+			line = chunks[i]
+		else:
+			line = trial
+	out.append(line)
+	return out
+
+
 ## The 8-way compass word for a direction on the dungeon floor (y grows down, so N is up the screen):
 ## "N", "NE", "E", "SE", "S", "SW", "W", "NW"; "" for a zero vector.
 static func compass(v: Vector2) -> String:
@@ -842,9 +862,10 @@ static func clear_card_rows(warden_name: String, loot: Dictionary) -> Array:
 
 ## The death card's geometry (RaidDeathCard._draw reads it, and so does the clear card; the test measures the
 ## widest value against it): card width, padding, the label column, the value font size.
-## label_px / foot_px: the dim label column and footer sizes; backdrop_a the world-dimming rect behind the card,
-## plate_a the card's own ground plate (the contrast test composites both over the brightest world colour).
-const DEATH_CARD := {"w": 560.0, "pad": 22.0, "label_w": 120.0, "value_px": 18, "label_px": 14, "foot_px": 14, "backdrop_a": 0.55, "plate_a": 0.96}
+## label_px / foot_px: the dim label column and footer sizes; backdrop_a the world-dimming rect behind the card
+## (deep enough that the card reads on its own, not as a panel under the fight), plate_a the card's own ground
+## plate (the contrast test composites both over the brightest world colour).
+const DEATH_CARD := {"w": 560.0, "pad": 22.0, "label_w": 120.0, "value_px": 18, "label_px": 14, "foot_px": 14, "backdrop_a": 0.8, "plate_a": 0.96}
 
 
 ## The death card's rows [{label, text, key}] (key: a Palette key): who killed her, the tell she missed when

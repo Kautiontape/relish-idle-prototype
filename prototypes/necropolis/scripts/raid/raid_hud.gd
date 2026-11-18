@@ -374,8 +374,7 @@ func refresh() -> void:
 			if _clearing:   # the win is banked: what the clear card shows, and nothing at stake
 				bk = _clear_counts
 				ub = RaidLogic.loot_counts(RaidLogic.empty_loot())
-			st.banked_text = RaidLogic.loot_line(bk)
-			st.unbanked_text = RaidLogic.loot_line(ub)
+			st.set_loot(RaidLogic.loot_line(bk), RaidLogic.loot_line(ub))
 			_risk = ub
 			st.unbanked_n = int(ub["total"])
 			st.floor_n = floor_n
@@ -832,7 +831,9 @@ class StatBlock:
 	var phyl_tone: Color = Palette.c("danger")   # the NO REVIVE words: `danger` whenever no charge is left
 	var banked_text := ""
 	var unbanked_text := ""
-	var unbanked_n := 0      # items + essence a death would lose now
+	var banked_lines := PackedStringArray()     # banked_text wrapped to value_w() (set_loot); empty: "none"
+	var unbanked_lines := PackedStringArray()
+	var unbanked_n := 0     # items + essence a death would lose now
 	var floor_n := 0         # pickups still on the floor
 	var floor_end := Vector2.INF   # local end of the "N on the floor" note (the loot pointer's start)
 	var _row := 20.0
@@ -874,6 +875,15 @@ class StatBlock:
 	func value_w() -> float:
 		return 420.0 - _col - 8.0
 
+	## BANKED / UNBANKED (RaidLogic.loot_line), wrapped to the value column with each kind whole; the plate
+	## grows a row per extra line. Called only when what they show changes.
+	func set_loot(banked: String, unbanked: String) -> void:
+		banked_text = banked
+		unbanked_text = unbanked
+		banked_lines = RaidLogic.wrap_loot_line(banked, ThemeDB.fallback_font, _val, value_w())
+		unbanked_lines = RaidLogic.wrap_loot_line(unbanked, ThemeDB.fallback_font, _val, value_w())
+		_fit()
+
 	## The PHYLACT. count: its meaning is one row, or two with none left (RaidLogic.phylactery_meaning).
 	func set_phyl(n: int) -> void:
 		if n == phyl and not phyl_meaning.is_empty():
@@ -886,7 +896,8 @@ class StatBlock:
 			_fit()
 
 	func _fit() -> void:
-		custom_minimum_size = Vector2(420.0, (14.0 + float(phyl_extra) + (2.0 if show_key else 0.0) + float(door_lines.size())) * _row + 8.0)
+		var loot_extra := maxi(0, banked_lines.size() - 1) + maxi(0, unbanked_lines.size() - 1)
+		custom_minimum_size = Vector2(420.0, (14.0 + float(phyl_extra + loot_extra) + (2.0 if show_key else 0.0) + float(door_lines.size())) * _row + 8.0)
 
 	## A floor glyph as the pickups draw it (RaidLoot.floor_glyph shapes), small, at `p`.
 	func _key_glyph(p: Vector2, shape: String, col: Color) -> void:
@@ -991,15 +1002,23 @@ class StatBlock:
 			for ml in phyl_meaning:
 				draw_string(ThemeDB.fallback_font, Vector2(_col, y), ml, HORIZONTAL_ALIGNMENT_LEFT, -1, _lab, Palette.c("text_dim"))
 				y += _row
-			# zero kinds are hidden; nothing at all is one dim word
+			# zero kinds are hidden; nothing at all is one dim word; a long line wraps under itself (set_loot)
 			_label(y, "BANKED")
-			_value(_col, y, banked_text if banked_text != "" else "none", null if banked_text != "" else Palette.c("text_dim"))
-			y += _row
+			if banked_lines.is_empty():
+				_value(_col, y, "none", Palette.c("text_dim"))
+				y += _row
+			for ln in banked_lines:
+				_value(_col, y, ln)
+				y += _row
 			var risk := unbanked_n > 0
 			var tone := Palette.c("danger") if risk else Palette.c("text_dim")
 			_label(y, "UNBANKED")
-			_value(_col, y, unbanked_text if unbanked_text != "" else "none", tone)
-			y += _row
+			if unbanked_lines.is_empty():
+				_value(_col, y, "none", tone)
+				y += _row
+			for ln in unbanked_lines:
+				_value(_col, y, ln, tone)
+				y += _row
 			# the stakes: one pip per unbanked thing (capped), then what it means
 			floor_end = Vector2.INF
 			if risk or floor_n > 0:
