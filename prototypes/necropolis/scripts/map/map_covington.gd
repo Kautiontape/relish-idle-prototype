@@ -19,9 +19,25 @@ func _draw_static() -> void:
 			Palette.c("select"), maxf(float(n["select_width_px"]), hw))
 
 
-## The valve's stem widths and brightness and the selection: all that changes between zooms.
+## The valve's stem widths and brightness and the selection: all that changes between zooms. And where
+## the open card puts her labels (NodeLogic.valve_label_sig: whole px), so a pan redraws her only when they move or hide.
 func static_sig():
-	return [NodeLogic.valve_widths(_shares()), ctx.valve_bright, ctx.valve_cue, ctx.selected_id == "covington"]
+	var widths := NodeLogic.valve_widths(_shares())
+	var lsig := []
+	if not is_inf(float(ctx.panel.get("left", INF))):
+		var dirs := NodeLogic.valve_dirs(ctx.cov_pos, NodeLogic.fort_centroid(ctx.forts), ctx.vei_pos)
+		lsig = NodeLogic.valve_label_sig(_label_layout(dirs, widths), NodeLogic.panel_sx(ctx.panel, ctx.cov_pos.x, ctx.zoom), ctx.panel, ctx.zoom)
+	return [widths, ctx.valve_bright, ctx.valve_cue, ctx.selected_id == "covington", lsig]
+
+
+## Her labels laid out round the glyph and the stems (before the card shifts them).
+func _label_layout(dirs: Dictionary, widths: Dictionary) -> Dictionary:
+	var size := int(MapLogic.cfg()["font_label"])
+	var names := NodeLogic.node_names()
+	var text_w := {}
+	for k in ["war", "flood", "work", "covington"]:
+		text_w[k] = ThemeDB.fallback_font.get_string_size(names[k], HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+	return NodeLogic.valve_label_layout(dirs, widths, ctx.tier != "far", ctx.zoom, text_w, float(size))
 
 
 ## The stems' shares: the set piece's (the committed valve, or its swing), else the view's target.
@@ -56,11 +72,8 @@ func _valve(cp: Vector2, hw: float, n: Dictionary) -> void:
 		glow_arc(c, hr, a0, a0 + deg_to_rad(float(n["valve_hook_sweep_deg"])), col, maxf(widths["work"], hw), glow, cap)
 	var size := int(MapLogic.cfg()["font_label"])
 	var names := NodeLogic.node_names()
-	var text_w := {}
-	for k in ["war", "flood", "work", "covington"]:
-		text_w[k] = ThemeDB.fallback_font.get_string_size(names[k], HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
-	var lay := NodeLogic.valve_label_layout(dirs, widths, ctx.tier != "far", ctx.zoom, text_w, float(size))
-	lay = NodeLogic.shift_valve_labels(lay, NodeLogic.panel_sx(ctx.panel, cp.x, ctx.zoom), ctx.panel)  # clear of the open card, or hidden
+	var lay := _label_layout(dirs, widths)
+	lay = NodeLogic.shift_valve_labels(lay, NodeLogic.panel_sx(ctx.panel, cp.x, ctx.zoom), ctx.panel, ctx.zoom)  # clear of the open card and her glyph, or hidden
 	var dim := Palette.c("undead", float(MapLogic.cfg()["node_label_dim_alpha"]))
 	for k in lay:
 		var l: Dictionary = lay[k]

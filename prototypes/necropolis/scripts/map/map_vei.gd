@@ -39,13 +39,13 @@ func _draw_static() -> void:
 			Palette.c("undead"), ALIGN_LEFT, 0.0, true)
 
 	# the reading: odds as an integer percent, then the differential's sign (labelled as her strain) and the drain time
-	var x0 := vp.x + r_out + float(n["odds_gap_px"])
 	var line := float(n["odds_line_px"])
-	var odds := NodeLogic.fmt_odds(float(ctx.readout.get("odds", 0.0)))
-	text(Vector2(x0, vp.y), "ODDS", size, Palette.c("text_dim"), ALIGN_LEFT, -line)
-	text(Vector2(x0, vp.y), odds, int(n["font_odds"]), Palette.c("vei"), ALIGN_LEFT, size * float(n["odds_baseline_ratio"]), true)
-	text(Vector2(x0, vp.y), NodeLogic.strain_line(int(ctx.readout.get("sign", 0)), float(ctx.readout.get("backlog", 0.0)), float(ctx.readout.get("drain_s", -1.0))), int(n["font_odds_sub"]),
-		Palette.c("text"), ALIGN_LEFT, line * float(n["drain_line_mult"]))
+	var rs := NodeLogic.vei_readout_shift(vp.x, r_out, _readout_widths(), ctx.zoom, ctx.panel)  # clear of the open card, or hidden
+	if not bool(rs["hidden"]):
+		var x0 := vp.x + r_out + float(n["odds_gap_px"]) + ctx.px(float(rs["dx"]))
+		text(Vector2(x0, vp.y), "ODDS", size, Palette.c("text_dim"), ALIGN_LEFT, -line)
+		text(Vector2(x0, vp.y), NodeLogic.fmt_odds(float(ctx.readout.get("odds", 0.0))), int(n["font_odds"]), Palette.c("vei"), ALIGN_LEFT, size * float(n["odds_baseline_ratio"]), true)
+		text(Vector2(x0, vp.y), _strain(), int(n["font_odds_sub"]), Palette.c("text"), ALIGN_LEFT, line * float(n["drain_line_mult"]))
 	var vname := str(NodeLogic.node_names()["vei"])
 	var vs := NodeLogic.vei_name_shift(vp.x, r_out, MapNodeLayer.label_width(vname, size, false), size, ctx.zoom, ctx.panel)  # clear of the open card, or hidden
 	if not bool(vs["hidden"]):
@@ -55,12 +55,38 @@ func _draw_static() -> void:
 		draw_arc(vp, r_out + float(n["vei_select_pad_px"]), 0.0, TAU, int(MapLogic.cfg()["ring_samples"]), Palette.c("select"), maxf(float(n["select_width_px"]), hw))
 
 
-## The backlog stack, the reading's text and the selection: all that changes between zooms.
+## The backlog stack, the reading's text and the selection: all that changes between zooms. And where
+## the open card puts her name and readout (NodeLogic.vei_label_sig: whole px), so a pan redraws her only when they move or hide.
 func static_sig():
 	var r := ctx.readout
+	var lsig := []
+	if not is_inf(float(ctx.panel.get("left", INF))):
+		var size := int(MapLogic.cfg()["font_label"])
+		var vname := str(NodeLogic.node_names()["vei"])
+		lsig = NodeLogic.vei_label_sig(ctx.vei_pos.x, _r_out(), MapNodeLayer.label_width(vname, size, false), _readout_widths(), size, ctx.zoom, ctx.panel)
 	return [NodeLogic.backlog_rings(float(ctx.vei.get("backlog", 0.0))), ctx.vei_radius,
 		NodeLogic.fmt_odds(float(r.get("odds", 0.0))), int(r.get("sign", 0)),
-		NodeLogic.drain_line(float(r.get("backlog", 0.0)), float(r.get("drain_s", -1.0))), ctx.selected_id == "vei"]
+		NodeLogic.drain_line(float(r.get("backlog", 0.0)), float(r.get("drain_s", -1.0))), ctx.selected_id == "vei", lsig]
+
+
+## The outer ring of her backlog stack (world px): where the readout and her name start.
+func _r_out() -> float:
+	var n := NodeLogic.ncfg()
+	var b := NodeLogic.backlog_rings(float(ctx.vei.get("backlog", 0.0)))
+	return NodeLogic.vei_struct_radius(ctx.vei_radius) + float(n["backlog_first_gap_px"]) + maxi(int(b["rings"]) - 1, 0) * float(n["backlog_step_px"])
+
+
+## The strain line under the odds.
+func _strain() -> String:
+	return NodeLogic.strain_line(int(ctx.readout.get("sign", 0)), float(ctx.readout.get("backlog", 0.0)), float(ctx.readout.get("drain_s", -1.0)))
+
+
+## The readout's three texts' widths in screen px: the ODDS word, the percent (bold), the strain line.
+func _readout_widths() -> Array:
+	var n := NodeLogic.ncfg()
+	var size := int(MapLogic.cfg()["font_label"])
+	return [MapNodeLayer.label_width("ODDS", size, false), MapNodeLayer.label_width(NodeLogic.fmt_odds(float(ctx.readout.get("odds", 0.0))), int(n["font_odds"])),
+		MapNodeLayer.label_width(_strain(), int(n["font_odds_sub"]), false)]
 
 
 ## (Re)creates and redraws the digestion rings when the structure's radius, her position or the

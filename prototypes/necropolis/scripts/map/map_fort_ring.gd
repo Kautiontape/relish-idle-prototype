@@ -35,11 +35,30 @@ func _piled(f: Dictionary) -> Dictionary:
 
 
 ## What this fort's rings draw (NodeLogic.fort_static_sig), its selection and Relish's light. With
-## the zoom and tier (a redraw on their own), MapNodes redraws it only when this changes.
+## the zoom and tier (a redraw on their own), MapNodes redraws it only when this changes. And where the
+## open card puts its labels (NodeLogic.fort_label_sig: whole px), so a pan redraws it only when they move or hide.
 func static_sig():
 	var f: Dictionary = ctx.model.fort(fort_id)
 	return [NodeLogic.fort_static_sig(_piled(f), ctx.flip, _state(f), ctx.model.raid_why(fort_id), ctx.tier), ctx.selected_id == fort_id, ctx.lit.has(fort_id),
-		ctx.reink.get(fort_id, {})]
+		ctx.reink.get(fort_id, {}), _label_sig(f)]
+
+
+## The fort's name and tag line widths in screen px (the tag -1 when there is none or at far zoom).
+func _label_widths(f: Dictionary) -> Array:
+	var size := int(MapLogic.cfg()["font_label"])
+	var tag := NodeLogic.name_tag(f)
+	var tag_w := -1.0
+	if not tag.is_empty() and ctx.tier != "far":
+		tag_w = ThemeDB.fallback_font.get_string_size(str(tag["text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, NodeLogic.tag_size()).x
+	return [ThemeDB.fallback_font.get_string_size(str(f.get("name", "")), HORIZONTAL_ALIGNMENT_LEFT, -1, size).x, tag_w]
+
+
+## Where the card puts this fort's labels, as the sig carries it: [] while no label shows or the card is closed.
+func _label_sig(f: Dictionary) -> Array:
+	if f.is_empty() or is_inf(float(ctx.panel.get("left", INF))) or not NodeLogic.fort_label_shown(ctx.tier, int(f["tier"])):
+		return []
+	var w := _label_widths(f)
+	return NodeLogic.fort_label_sig(float(w[0]), float(w[1]), int(MapLogic.cfg()["font_label"]), NodeLogic.panel_sx(ctx.panel, MapModel.to_vec(f["pos"]).x, ctx.zoom), ctx.panel)
 
 
 ## The state the fort draws as: its live one, or the pre-flip one while its ring re-inks.
@@ -138,12 +157,10 @@ func _static_fort(f: Dictionary) -> void:
 		var size := int(MapLogic.cfg()["font_label"])
 		var tag := NodeLogic.name_tag(f)
 		var name_s := str(f["name"])
-		var tag_w := -1.0
-		if not tag.is_empty() and ctx.tier != "far":
-			tag_w = ThemeDB.fallback_font.get_string_size(str(tag["text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, NodeLogic.tag_size()).x
+		var w := _label_widths(f)
+		var tag_w := float(w[1])
 		# the open card: a label that would run under it shifts left or hides (NodeLogic.fort_label_shifts, as the layers' rects)
-		var sh := NodeLogic.fort_label_shifts(ThemeDB.fallback_font.get_string_size(name_s, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x, tag_w, size,
-			NodeLogic.panel_sx(ctx.panel, p.x, ctx.zoom), ctx.panel)
+		var sh := NodeLogic.fort_label_shifts(float(w[0]), tag_w, size, NodeLogic.panel_sx(ctx.panel, p.x, ctx.zoom), ctx.panel)
 		if not bool(sh[0]["hidden"]):
 			text(at + Vector2(ctx.px(float(sh[0]["dx"])), 0.0), name_s, size, Palette.c(NodeLogic.fort_label_key(ctx.tier), float(MapLogic.cfg()["node_label_dim_alpha"])), ALIGN_CENTER, size)
 		if tag_w >= 0.0 and not bool(sh[1]["hidden"]):
