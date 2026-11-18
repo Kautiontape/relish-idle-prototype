@@ -185,7 +185,7 @@ func refresh(force := false) -> void:
 		model.set_projection(proj)  # the fort chips and "N of M" follow the handle
 	var pay_parts := _payoff_parts_for(proj)
 	var payoff := " | ".join(PackedStringArray(pay_parts.map(func(q): return q["text"])))
-	var over := ValveLogic.overflow_parts(ValveLogic.war_overflow(model.hud, model.lanes, proj, _dragging))
+	var over := ValveLogic.overflow_parts(ValveLogic.war_overflow(model.hud, proj, _dragging))
 	var sig := "%s|%s|%s|%s|%s|%s" % [str(ValveLogic.percents(shown)), str(proj["split"]), str(proj["workers_steady"]), str(proj["war_supports"]), str(payoff), str(over)]
 	var cur_sig := str(model.hud.get("valve", {})) + (str(model.rev) if payoff != "" else "")
 	if not force and sig + cur_sig == _sig:
@@ -215,7 +215,7 @@ func _payoff_parts_for(proj: Dictionary) -> Array:
 	if not ValveLogic.payoff_shown(_dragging, _since_release):
 		return []
 	var base := IdleLogic.split_at(model.state, model.hud.get("valve", {}))
-	var p := ValveLogic.payoff(model.vei, proj, base, float(model.realm_cfg.get("K", 0.0)), model.realm_cfg.get("odds", {}),
+	var p := ValveLogic.payoff(model.vei, proj, float(model.realm_cfg.get("K", 0.0)), model.realm_cfg.get("odds", {}),
 		float(model.hud.get("t", 0.0)))  # (E4 step 9: the win odds view_vei shows)
 	var eps := float(model.realm_cfg.get("readout", {}).get("sign_eps", 0.0))
 	var parts: Array = [{"kind": "main", "text": ValveLogic.payoff_line(p, eps)}]

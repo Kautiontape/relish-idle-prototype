@@ -761,14 +761,14 @@ func _payoff(t: TestUtil) -> void:
 	# a drag onto the current valve: both sides identical
 	var vei := {"backlog": 18000.0, "diff_ema": 2.1}
 	var base := {"work": 8.0, "war": 9.0, "flood": 3.0}
-	var same := ValveLogic.payoff(vei, {"split": base, "backlog_diff": 2.1}, base, k)
+	var same := ValveLogic.payoff(vei, {"split": base, "backlog_diff": 2.1}, k)
 	t.ok(same["now"] == same["then"], "dragging onto the current valve changes nothing")
-	var flood := ValveLogic.payoff(vei, {"split": {"work": 4.0, "war": 9.0, "flood": 7.0}, "backlog_diff": 6.1}, base, k)
+	var flood := ValveLogic.payoff(vei, {"split": {"work": 4.0, "war": 9.0, "flood": 7.0}, "backlog_diff": 6.1}, k)
 	t.ok(float(flood["then"]["diff"]) > float(flood["now"]["diff"]) and float(flood["then"]["odds"]) > float(flood["now"]["odds"]), "more FLOOD: a higher differential and better odds")
 	var line := ValveLogic.payoff_line(flood, 0.05)
 	t.ok(line.begins_with("Vei ▲ +2.1/s → ▲ +"), "the line compares Vei's differential now and dragged (%s)" % line)
 	t.ok(line.contains(" · odds in ") and line.contains("% → "), "growing on both sides: then the odds after the window")
-	var falling := ValveLogic.payoff({"backlog": 1000.0, "diff_ema": -2.0}, {"split": {"work": 12.0, "war": 8.0, "flood": 0.0}, "backlog_diff": -6.0}, base, k)
+	var falling := ValveLogic.payoff({"backlog": 1000.0, "diff_ema": -2.0}, {"split": {"work": 12.0, "war": 8.0, "flood": 0.0}, "backlog_diff": -6.0}, k)
 	var fl := ValveLogic.payoff_line(falling, 0.05)
 	t.ok(fl.contains(" · drain ") and fl.contains("▼"), "a shrinking queue is ▼ and shows the drain (%s)" % fl)
 	t.ok(ValveLogic.payoff_shown(true, -1.0), "shown while dragging")
@@ -783,15 +783,13 @@ func _payoff(t: TestUtil) -> void:
 
 func _overflow(t: TestUtil) -> void:
 	t.suite("map_next-overflow")
-	var lane := {"id": "war:covington:vei", "kind": "war", "from": "covington", "to": "vei", "rate": 3.1}
-	var other := {"id": "war:covington:ashgate", "kind": "war", "from": "covington", "to": "ashgate", "rate": 9.0}
-	t.ok(ValveLogic.war_overflow({}, [other], {}, false) == 0.0, "no war:covington:vei lane: no overflow")
-	t.near(ValveLogic.war_overflow({}, [other, lane], {}, false), 3.1, 1e-9, "today: the war:covington:vei lane's rate")
-	t.near(ValveLogic.war_overflow({"war_overflow": 2.0}, [lane], {}, false), 2.0, 1e-9, "view_hud.war_overflow wins when present")
+	t.ok(ValveLogic.war_overflow({"war_overflow": 0.0}, {}, false) == 0.0, "no overflow: 0")
+	t.near(ValveLogic.war_overflow({"war_overflow": 2.0}, {}, false), 2.0, 1e-9, "committed: view_hud.war_overflow")
 	var proj := {"split": {"war_overflow": 5.0}}
-	t.near(ValveLogic.war_overflow({"war_overflow": 2.0}, [lane], proj, true), 5.0, 1e-9, "while dragging, the projection's split.war_overflow")
-	t.near(ValveLogic.war_overflow({"war_overflow": 2.0}, [lane], proj, false), 2.0, 1e-9, "not dragging, the committed one")
-	t.near(ValveLogic.war_overflow({}, [lane], {"split": {}}, true), 3.1, 1e-9, "a projection without the field keeps the committed source")
+	t.near(ValveLogic.war_overflow({"war_overflow": 2.0}, proj, true), 5.0, 1e-9, "while dragging, the projection's split.war_overflow")
+	t.near(ValveLogic.war_overflow({"war_overflow": 2.0}, proj, false), 2.0, 1e-9, "not dragging, the committed one")
+	var src := FileAccess.get_file_as_string("res://scripts/map/valve_logic.gd")
+	t.ok(not src.contains("TODO(api E2b)") and not src.contains("covington"), "no war lane scan or stand-in TODO left in the valve logic")
 	t.ok(ValveLogic.overflow_parts(0.0).is_empty(), "no overflow, no line")
 	var p := ValveLogic.overflow_parts(3.1)
 	t.ok(p["rate"] == "+3.1/s" and p["text"] == "overflows to Vei", "the line: a signed rate in the rate face, then words")

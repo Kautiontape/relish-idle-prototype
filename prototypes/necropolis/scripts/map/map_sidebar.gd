@@ -88,6 +88,8 @@ func _ready() -> void:
 func select(id: String) -> void:
 	if id != selected_id:
 		_scroll.scroll_vertical = 0
+		_confirm.hide()  # their text is a snapshot from popup time
+		_descend_confirm.hide()
 	selected_id = id
 	visible = id != ""
 	if visible:

@@ -450,8 +450,23 @@ func _comes(t: TestUtil) -> void:
 	t.ok(CardLogic.comes_count_text({"garrison": 2, "starter": 8, "bigs": 1, "total": 11}) == "10 undead and 1 big undead come in", "the pinned count")
 	t.ok(CardLogic.descend_confirm_text(w0) == w0["text"] + "\n\nDescend anyway?", "the descend dialog's text")
 	t.ok(CardLogic.descend_confirm_text(wp) == wp["text"] + "\n\nDescend anyway?", "the dialog opens for the corpse-pile case too")
+	# fort_actions puts the party warning line directly above DESCEND
+	var fa_fort := {"id": "old-sluice", "can_descend": true}
+	var fa_home := {"at": "elsewhere", "heading": ""}
+	var fa_none := RelishLogic.fort_actions(fa_fort, fa_home, {"target": "auto"}, {}, {"ci": zero, "warn": w0})
+	var fa_i := fa_none.find_custom(func(i): return str(i["act"]) == "descend")
+	t.ok(fa_i > 0 and fa_none[fa_i - 1]["kind"] == "line" and fa_none[fa_i - 1]["text"] == w0["text"] and fa_none[fa_i - 1]["key"] == "danger", "party 0, no corpses: the comes_none line (danger) sits above DESCEND")
+	var fa_piles := RelishLogic.fort_actions(fa_fort, fa_home, {"target": "auto"}, {}, {"ci": zero, "warn": wp})
+	var fa_pi := fa_piles.find_custom(func(i): return str(i["act"]) == "descend")
+	t.ok(fa_piles[fa_pi - 1]["text"] == wp["text"] and fa_piles[fa_pi - 1]["key"] == "select", "party 0 over corpse piles: the comes_none_piles line (select) sits above DESCEND")
+	var fa_low := RelishLogic.fort_actions(fa_fort, fa_home, {"target": "auto"}, {}, {"ci": low, "warn": w2})
+	var fa_li := fa_low.find_custom(func(i): return str(i["act"]) == "descend")
+	t.ok(fa_low[fa_li - 1]["text"] == w2["text"] and fa_low[fa_li - 1]["text"].begins_with("Below a standard tier-2") and fa_low[fa_li - 1]["key"] == "select", "below the tier profile: the comes_below line sits above DESCEND")
+	var fa_ok := RelishLogic.fort_actions(fa_fort, fa_home, {"target": "auto"}, {}, {"ci": {"garrison": 6, "starter": 0, "bigs": 1, "total": 7}, "warn": {}})
+	var fa_oi := fa_ok.find_custom(func(i): return str(i["act"]) == "descend")
+	t.ok(fa_ok[fa_oi - 1]["text"] == "6 undead and 1 big undead come in" and not fa_ok[fa_oi - 1].has("key"), "no warning: the count line sits above DESCEND, uncoloured")
 	# vei: fronts short versus met
-	var short := {"fronts_met": 1, "fronts_required": 3}
+	var short :={"fronts_met": 1, "fronts_required": 3}
 	var sentence := "Fronts met 1 of 3 required: Vei will likely win. Assign big undead to the open fronts."
 	var ro := {"odds": 0.61, "sign": 1, "drain_s": 200.0}
 	t.ok(CardLogic.confirm_text(ro, short).ends_with("\n" + sentence), "confirm_text appends the shortfall on its own line")
@@ -502,6 +517,12 @@ func _sidebar_src(t: TestUtil) -> void:
 	t.ok(branch.contains("_descend_confirm.popup_centered()"), "and opens the dialog when nobody comes in")
 	t.ok(src.contains("_descend_confirm.confirmed.connect(func(): dive.emit(_descend_id))") and src.contains("_confirm.confirmed.connect(func(): dive.emit(MapModel.VEI))"), "each dialog dives to its own id")
 	t.ok(src.contains("descend_confirm_ok") and src.contains("descend_confirm_title"), "the dialog's words come from config")
+	# both dialogs' text is a snapshot at popup time, so a changed selection hides them
+	var sa := src.find("func select(")
+	var sb := src.find("func refresh(")
+	var sel := src.substr(sa, sb - sa)
+	t.ok(sa >= 0 and sb > sa and sel.contains("if id != selected_id:") and sel.contains("_descend_confirm.hide()") and sel.contains("_confirm.hide()"), "select() hides both confirm dialogs when the id changes")
+	t.ok(sel.find("_descend_confirm.hide()") < sel.find("selected_id = id") and sel.find("_confirm.hide()") < sel.find("selected_id = id"), "and does it before selected_id changes")
 	var cards: Dictionary = TestUtil.load_json("res://configs/map_view.json")["cards"]
 	t.ok(cards["descend_confirm_ok"] == "Descend anyway" and cards["descend_confirm_title"] == "No undead come in", "the dialog's title and OK")
 	t.ok(src.contains('items[i].get("key", "text_dim")'), "a line is coloured by its key, text_dim by default")

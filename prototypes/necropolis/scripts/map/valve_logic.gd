@@ -182,19 +182,12 @@ static func workers_text(kept: float) -> String:
 
 # --- WAR overflow ------------------------------------------------------------------
 
-## WAR that overflows to Vei once every WAR target is capped (mass/s): while dragging, the
-## projection's split.war_overflow when it has one; else view_hud.war_overflow; else the
-## war:covington:vei lane's rate (that lane exists only while the overflow is > 0); else 0.
-# TODO(api E2b): view_hud.war_overflow, view_projection(valve).split.war_overflow
-static func war_overflow(hud: Dictionary, lanes: Array, proj: Dictionary, dragging: bool) -> float:
-	if dragging and proj.get("split", {}).has("war_overflow"):
-		return float(proj["split"]["war_overflow"])
-	if hud.has("war_overflow"):
-		return float(hud["war_overflow"])
-	for r in lanes:
-		if str(r.get("kind", "")) == "war" and str(r.get("from", "")) == "covington" and str(r.get("to", "")) == "vei":
-			return float(r.get("rate", 0.0))
-	return 0.0
+## WAR that overflows to Vei once every WAR target is capped (mass/s, STATE-API 5.1 and 5.10):
+## the dragged valve's view_projection split.war_overflow while dragging, else view_hud.war_overflow.
+static func war_overflow(hud: Dictionary, proj: Dictionary, dragging: bool) -> float:
+	if dragging:
+		return float(proj.get("split", {}).get("war_overflow", 0.0))
+	return float(hud.get("war_overflow", 0.0))
 
 
 ## The WAR row's overflow line, {rate: "+3.1/s", text: "overflows to Vei"}, or {} with none.
@@ -230,7 +223,7 @@ static func odds_at(backlog: float, diff: float, window_s: float, k: float, odds
 
 ## Now against the dragged valve: {now: {diff, drain_s, odds}, then: {...}}. Both sides use the
 ## same formulas; `now` is the current differential (diff_ema), `then` diff_at's. `odds_cfg` and `age_s` as odds_at.
-static func payoff(vei: Dictionary, proj: Dictionary, _base_split: Dictionary, k: float, odds_cfg := {}, age_s := 0.0) -> Dictionary:
+static func payoff(vei: Dictionary, proj: Dictionary, k: float, odds_cfg := {}, age_s := 0.0) -> Dictionary:
 	var c := _c()
 	var backlog := float(vei.get("backlog", 0.0))
 	var window := float(c["drain_window_s"])
