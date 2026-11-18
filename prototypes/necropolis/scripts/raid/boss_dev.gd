@@ -19,6 +19,8 @@ extends RefCounted
 ##   --boss-greyscale         the whole screen in greyscale (shaders/greyscale_check.gdshader), for the
 ##                            "still readable without colour" check (VISUAL-LANGUAGE 4)
 ##   --boss-hold-tell         the first weave's tell holds and never lands (the phase-2 screenshot)
+##   --raid-assist            (RaidDev's flag, not BossDev's: raid.gd creates a RaidDev for the standalone boss
+##                            too) the warned-attack assist on: Vei's weave tells x raid.json assist.tell_mult
 ##   --boss-prof              frames 120..600: the frame time (p99), the viewport's CPU and GPU render
 ##                            time, the draw time of the boss's own nodes per frame (lanes, labels,
 ##                            Vei, her telegraph), the boss step per physics frame, and the stress

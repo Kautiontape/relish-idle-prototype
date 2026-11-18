@@ -278,7 +278,133 @@ func run() -> int:
 	_shield_tests(t, cfg)
 	_pyre_tests(t, cfg)
 	_pack_tests(t, cfg)
+	_assist_tests(t, cfg)
 	return t.failures
+
+
+## The warned-attack assist (raid.json `assist`): every warned attack's tell window goes through
+## WardenLogic.tell_len / attack_tell. Off is the base number untouched; on is base x tell_mult.
+func _assist_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("warden_assist")
+	var a: Dictionary = cfg.get("assist", {})
+	t.ok(a.has("_doc") and a.get("enabled", true) == false and float(a.get("tell_mult", 0.0)) > 1.0, "raid.json assist: documented, off by default, tell_mult above 1")
+	t.ok(WardenLogic.tell_len(1.0, false, 1.5) == 1.0 and WardenLogic.tell_len(2.0, false, 7.0) == 2.0, "assist off: the base tell, exactly, whatever the multiplier")
+	t.ok(WardenLogic.tell_len(1.0, true, 1.5) == 1.5 and WardenLogic.tell_len(2.0, true, 1.5) == 3.0, "assist on: the base tell x tell_mult")
+	var saved_on := RaidLogic.assist_on
+	var saved_mult := RaidLogic.assist_mult
+	RaidLogic.assist_on = false
+	t.ok(WardenLogic.attack_tell({"tell_beats": 1.0}) == 1.0 and WardenLogic.attack_tell({}) == 1.0, "attack_tell off: the attack's tell_beats (1 when absent)")
+	t.ok(WardenLogic.attack_tell({"first_tell_beats": 2.0}, "first_tell_beats") == 2.0, "attack_tell reads a named key")
+	RaidLogic.assist_on = true
+	RaidLogic.assist_mult = 1.5
+	t.ok(WardenLogic.attack_tell({"tell_beats": 1.0}) == 1.5 and WardenLogic.attack_tell({"first_tell_beats": 2.0}, "first_tell_beats") == 3.0, "attack_tell on: x tell_mult")
+	RaidLogic.assist_on = saved_on
+	RaidLogic.assist_mult = saved_mult
+	# the boot applies raid.json once: enabled seeds the switch the first time only, tell_mult always
+	t.ok(RaidLogic.assist_boot_state({"enabled": true, "tell_mult": 2.0}, false) == [true, 2.0], "assist_boot_state: the first boot takes `enabled` and tell_mult")
+	t.ok(RaidLogic.assist_boot_state({"enabled": false, "tell_mult": 2.0}, true) == [null, 2.0], "assist_boot_state: a later boot leaves the switch alone")
+	t.ok(RaidLogic.assist_boot_state({"tell_mult": 0.0}, true)[1] == 1.0 and RaidLogic.assist_boot_state({"tell_mult": 0.5}, true)[1] == 1.0
+		and RaidLogic.assist_boot_state({"tell_mult": 1.0}, true)[1] == 1.0 and RaidLogic.assist_boot_state({}, true)[1] == 1.5,
+		"assist_boot_state: tell_mult is at least 1 (a 0 would remove every warning), 1.5 when absent")
+	# assist_boot itself: the switch seeded once, tell_mult taken (clamped) each time
+	var saved_booted: bool = RaidLogic._assist_booted
+	RaidLogic._assist_booted = false
+	RaidLogic.assist_on = false
+	RaidLogic.assist_boot({"enabled": true, "tell_mult": 2.0})
+	t.ok(RaidLogic.assist_on == true and RaidLogic.assist_mult == 2.0 and RaidLogic._assist_booted, "assist_boot, first: seeds the switch from `enabled`, takes tell_mult, marks itself booted")
+	RaidLogic.assist_on = false   # the player flipped it off
+	RaidLogic.assist_boot({"enabled": true, "tell_mult": 0.25})
+	t.ok(RaidLogic.assist_on == false and RaidLogic.assist_mult == 1.0, "assist_boot, again: the player's choice stays, tell_mult is taken each time and clamped to 1")
+	RaidLogic.assist_boot({"enabled": true, "tell_mult": 1.75})
+	t.ok(RaidLogic.assist_on == false and RaidLogic.assist_mult == 1.75, "assist_boot, third: tell_mult follows the config")
+	RaidLogic.assist_on = saved_on
+	RaidLogic.assist_mult = saved_mult
+	RaidLogic._assist_booted = saved_booted
+	# the window wardens derive in_tell from the LATCHED length and refresh before any other read of `tell` in _step:
+	# that order is what stops an on-to-off flip from cutting a running tell
+	for wf in ["bellringer", "shieldwall", "pyre_priest"]:
+		var wsrc := FileAccess.get_file_as_string("res://scripts/raid/warden_%s.gd" % wf)
+		var si := wsrc.find("\nfunc _step(")
+		var sbody := wsrc.substr(si, wsrc.find("\nfunc ", si + 1) - si)
+		var ri := sbody.find("\t_refresh_tell(WardenLogic.is_tell(b, _next_attack, _tell()))")
+		var ti := sbody.find("var tell := _tell()")
+		t.ok(si >= 0 and ri >= 0 and (ti < 0 or ri < ti), "%s: _step refreshes the latch from is_tell(b, _next_attack, _tell()) before it reads `var tell := _tell()`" % wf)
+	# a pack rest's hit lands on a whole beat: off the operand is already whole, on (tell 1.5) it rounds up one beat
+	t.ok(WardenLogic.after_rest(7.3, 1.0, 1.0) == ceilf(7.3) + 2.0 and WardenLogic.after_rest(7.0, 1.0, 1.0) == 9.0 and WardenLogic.after_rest(7.3, 1.0, 1.0) == 10.0,
+		"after_rest, off: the old value (ceil(beat) + tell + rest), unchanged")
+	t.ok(WardenLogic.after_rest(7.3, 1.5, 1.0) == 11.0 and WardenLogic.after_rest(7.0, 1.5, 1.0) == 10.0 and WardenLogic.after_rest(7.3, 2.25, 0.0) == 11.0,
+		"after_rest, tell 1.5: a whole beat, the half rounded up")
+	var whole := true
+	for bi in 40:
+		for tl in [1.0, 1.5, 2.0, 2.25]:
+			var v := WardenLogic.after_rest(float(bi) * 0.37, tl, 1.0)
+			whole = whole and v == floorf(v) and v >= ceilf(float(bi) * 0.37) + tl + 1.0
+	t.ok(whole, "after_rest: always a whole beat, never earlier than the unrounded value")
+	# a LONGER WARNINGS flip applies from the next tell, never inside a running one
+	t.ok(WardenLogic.latch_tell(1.0, 1.5, true) == 1.0 and WardenLogic.latch_tell(1.5, 1.0, true) == 1.5, "latch_tell: inside a tell the length is kept, on or off")
+	t.ok(WardenLogic.latch_tell(1.0, 1.5, false) == 1.5 and WardenLogic.latch_tell(1.5, 1.0, false) == 1.0 and WardenLogic.latch_tell(1.0, 1.0, false) == 1.0,
+		"latch_tell: outside a tell it takes the fresh read (off: the base, every frame)")
+	var cur := 1.0
+	var live := [1.0, 1.0, 1.5, 1.5, 1.5, 1.0, 1.0]   # the assist's fresh read frame by frame: flipped on at 2, off at 5
+	var tell_at := [false, false, false, true, true, true, false]   # the warden is inside a tell on frames 3-5
+	var seen := []
+	for fi in live.size():
+		cur = WardenLogic.latch_tell(cur, live[fi], tell_at[fi])
+		seen.append(cur)
+	t.ok(seen == [1.0, 1.0, 1.5, 1.5, 1.5, 1.5, 1.0], "latch_tell over frames: a flip on at 2 shows at once (no tell yet), a flip off at 5 waits for the tell's end: " + str(seen))
+	# the Huntsman's lock is "late" against the SHORTER of the length latched before this frame's refresh and the new one:
+	# an off-to-on flip (prev 1.0, tell 1.5) that lets the lock start at next - 1.4 is not late, so its hit keeps its beat
+	t.ok(not WardenLogic.tell_late(8.6, 10.0, 1.0, 1.5) and not WardenLogic.tell_late(8.99, 10.0, 1.0, 1.5), "tell_late: a flip on that locks early in the old window is not late (the lunge keeps its beat)")
+	t.ok(WardenLogic.tell_late(9.2, 10.0, 1.0, 1.5) and WardenLogic.tell_late(9.2, 10.0, 1.5, 1.5), "tell_late: a lock past the shorter length's window is late")
+	var late_same := true
+	for bi in 60:
+		for tl in [1.0, 1.5]:
+			var bb := 5.0 + float(bi) * 0.037
+			late_same = late_same and WardenLogic.tell_late(bb, 8.0, tl, tl) == (bb > 8.0 - tl + 0.1)
+	t.ok(late_same, "tell_late: prev == tell (assist off, or no flip) is the old rule, b > next - tell + 0.1")
+	var hsrc := FileAccess.get_file_as_string("res://scripts/raid/warden_huntsman.gd")
+	var hsi := hsrc.find("\nfunc _step(")
+	var hsb := hsrc.substr(hsi, hsrc.find("\nfunc ", hsi + 1) - hsi)
+	t.ok(hsb.find("var prev := _tell()") >= 0 and hsb.find("var prev := _tell()") < hsb.find("_refresh_tell(_locked)") and hsb.contains("WardenLogic.tell_late(b, _next_attack, prev, tell)"),
+		"the Huntsman reads the latched length before its refresh and judges `late` with it")
+	t.near(WardenLogic.lay_len(2.0, 5.0, 5.0), 0.0, 0.0001, "lay_len: laid at the hit, nothing left")
+	t.ok(WardenLogic.lay_len(2.0, 5.0, 6.0) == 0.0 and WardenLogic.lay_len(2.0, 5.0, 5.0) == 0.0, "lay_len: laid at or past the hit, 0 (never negative)")
+	# Vei's drawn tell never outlasts the time to the hit: a late lay (a Break with Relish down) gets what is left
+	t.near(WardenLogic.lay_len(3.0, 10.0, 7.0), 3.0, 0.0001, "lay_len: laid on time, the whole tell")
+	t.near(WardenLogic.lay_len(3.0, 10.0, 8.5), 1.5, 0.0001, "lay_len: laid late, the beats left to the hit")
+	t.near(WardenLogic.lay_len(1.0, 10.0, 9.99), 0.01, 0.0001, "lay_len: laid at the last moment, nearly nothing")
+	t.ok(WardenLogic.lay_len(2.0, 5.0, 3.0) == 2.0, "lay_len: exactly on the threshold, the tell (no drift)")
+	var vei_src := FileAccess.get_file_as_string("res://scripts/raid/vei.gd")
+	t.ok(vei_src.contains("tell_len = WardenLogic.lay_len(tb, next_beat, beat)"), "Vei's _lay sizes its drawn tell with lay_len")
+	var vb_src := FileAccess.get_file_as_string("res://scripts/raid/vei_boss.gd")
+	# the boss scene needs no boot of its own: raid.gd's _build boots the assist for the boss too, before _build_extra
+	var raid_src := FileAccess.get_file_as_string("res://scripts/raid/raid.gd")
+	var rb := raid_src.find("func _build()")
+	var rb_end := raid_src.find("\nfunc ", rb + 5)
+	var rb_body := raid_src.substr(rb, rb_end - rb)
+	var ab := rb_body.find("RaidLogic.assist_boot(")
+	t.ok(rb >= 0 and ab >= 0 and ab < rb_body.find("_build_extra()") and rb_body.find("_build_extra()") >= 0,
+		"raid.gd's _build calls RaidLogic.assist_boot( before _build_extra() (the boss scene is covered)")
+	t.ok(not vb_src.contains("func _build()") and not vb_src.contains("RaidLogic.assist_boot("), "the boss scene does not override _build and has no boot of its own")
+	# every warned attack's tell length reads through the helper (the call sites), never raw: the wardens through
+	# RaidWarden._tell (latched), Vei through attack_tell at the lay
+	var warden_src := FileAccess.get_file_as_string("res://scripts/raid/warden.gd")
+	t.ok(warden_src.count("WardenLogic.attack_tell(") == 2 and warden_src.contains("WardenLogic.latch_tell("), "warden.gd reads attack_tell once for the first read and once for the refresh, through latch_tell")
+	t.ok(vei_src.count("WardenLogic.attack_tell(") >= 1, "Vei reads her tell through WardenLogic.attack_tell")
+	for path in ["res://scripts/raid/warden_bellringer.gd", "res://scripts/raid/warden_huntsman.gd", "res://scripts/raid/warden_shieldwall.gd",
+			"res://scripts/raid/warden_pyre_priest.gd", "res://scripts/raid/raid_autopilot.gd", "res://scripts/raid/vei.gd"]:
+		var src := FileAccess.get_file_as_string(path)
+		t.ok(not src.contains("get(\"tell_beats\"") and not src.contains("float(w.get(\"first_tell_beats\""), "%s has no raw tell_beats read" % path.get_file())
+	for path in ["res://scripts/raid/warden_bellringer.gd", "res://scripts/raid/warden_huntsman.gd", "res://scripts/raid/warden_shieldwall.gd", "res://scripts/raid/warden_pyre_priest.gd"]:
+		var src := FileAccess.get_file_as_string(path)
+		t.ok(not src.contains("WardenLogic.attack_tell(") and src.contains("_refresh_tell(") and src.contains("_tell()"),
+			"%s lays and draws its tell from the latched length, refreshed once per step" % path.get_file())
+	for path in ["res://scripts/raid/warden_bellringer.gd", "res://scripts/raid/warden_shieldwall.gd", "res://scripts/raid/warden_pyre_priest.gd"]:
+		var src := FileAccess.get_file_as_string(path)
+		t.ok(src.contains("WardenLogic.after_rest(") and not src.contains("ceilf(beat()) +"), "%s places a pack rest's hit with after_rest" % path.get_file())
+	var bell_src := FileAccess.get_file_as_string("res://scripts/raid/warden_bellringer.gd")
+	t.ok(not bell_src.contains("tell_beats\", 1.0)"), "the Bellringer's toll budget and clapper read the assisted tell")
+	t.ok(bell_src.contains("WardenLogic.lay_len(tell, _next_attack, b) if RaidLogic.assist_on else tell"), "the Bellringer's toll budget is the time left with the assist on, the whole tell off")
 
 
 ## D-d/E Step 3: a warden's pack (WardenLogic.pack_*; the Huntsman's hounds).

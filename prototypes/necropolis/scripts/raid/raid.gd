@@ -169,6 +169,7 @@ func _build() -> void:
 	RaidRoute.reset_seq()   # the per-mover stagger restarts each raid (same seed, same run)
 	_standalone = get_tree().current_scene == self
 	var cfg := rcfg()
+	RaidLogic.assist_boot(cfg.get("assist", {}))   # the warned-attack assist: raid.json's tell_mult (and, the session's first raid, its switch)
 	var boss := is_boss()
 	var fort_id := str(seed_data.get("fort_id", "fort")) if boss else str(seed_data.get("fort", {}).get("id", "fort"))
 	var tier := int(seed_data.get("tier", 1)) if boss else fort_tier()
@@ -268,6 +269,10 @@ func _build() -> void:
 		if cap_path != "":   # any launch path: the router's as well as the standalone scene's
 			capture = RaidCapture.new(self, cap_path)
 			capture.start()
+	# the state may end the run under us (a gap above idle.gap_s): listen for it (the dev flag enables it standalone)
+	if _from_run or RaidDev.cli_value("--raid-run-ended=") != "":
+		Game.game_event.connect(_on_game_event)
+		finished.connect(_stop_listening)
 	if _standalone:
 		_dev = RaidDev.new(self)
 		_dev.start()
@@ -287,8 +292,35 @@ func _process(_delta: float) -> void:
 	if not _built:
 		return
 	_carry_t += _delta
+	endings.tick()   # a checkpoint the state refused while catching up is resent once it is not
 	if _dev != null:
 		_dev.tick()
+
+
+## Game.game_event while the raid is open: the state ended this run (a gap above idle.gap_s made it write the run
+## off from its last checkpoint) -> RaidEndings.gap_end. `run_ended` names the run; `away_report` is the backstop
+## (our run is no longer the open one). If our run is still open an away_report only re-reads what a catch-up could
+## have changed: the seed's phylactery charges (the one thing the HUD and the revive rule read from the state at
+## build that its views can change; `held` and the legend read at build do not change under an open run, and the
+## chest's owned blueprints are read live in chest_loot).
+func _on_game_event(ev: Dictionary) -> void:
+	if not _built or endings == null:
+		return
+	var run_id := int(seed_data.get("run_id", 0))
+	var open_id := int(Game.state.view_relish().get("run_id", -1)) if str(ev.get("type", "")) == "away_report" else -1
+	if RaidLogic.gap_ends_run(ev, run_id, open_id):
+		endings.gap_end(RaidLogic.gap_outcome(ev, endings.pending_exit))
+	elif str(ev.get("type", "")) == "away_report" and _from_run and not is_boss():
+		seed_data = RaidLogic.reread_seed(seed_data, Game.state.view_dungeon_seed(str(seed_data.get("fort", {}).get("id", ""))))
+
+
+func _stop_listening(_result := {}) -> void:
+	if Game.game_event.is_connected(_on_game_event):
+		Game.game_event.disconnect(_on_game_event)
+
+
+func _exit_tree() -> void:
+	_stop_listening()
 
 
 func _physics_process(delta: float) -> void:

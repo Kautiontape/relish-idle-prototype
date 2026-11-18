@@ -6,6 +6,33 @@ extends RefCounted
 ## every function takes a cfg Dictionary (parsed configs/raid.json) so tests run headless.
 
 
+# ------------------------------------------------- warned-attack assist ----
+## "Longer warnings": an optional accessibility switch. Memory only (session lifetime, no save field): `assist_on`
+## is flipped by the legend's toggle row or the --raid-assist dev flag and read where a warned attack's tell
+## window is sized (WardenLogic.attack_tell). A flip applies from the next tell a warden lays, never inside a
+## running one (each warden latches its tell length, WardenLogic.latch_tell). No loot penalty.
+static var assist_on := false
+static var assist_mult := 1.5
+static var _assist_booted := false
+
+
+## What the boot applies from raid.json's `assist`: [the switch's first value or null to leave it, tell_mult].
+## `enabled` seeds the switch only on a session's first boot (a later raid keeps what the player chose).
+## tell_mult is at least 1: a lower value would shorten the warnings (0 would remove them).
+static func assist_boot_state(cfg: Dictionary, booted: bool) -> Array:
+	var on = null if booted else bool(cfg.get("enabled", false))
+	return [on, maxf(1.0, float(cfg.get("tell_mult", 1.5)))]
+
+
+## Called as each raid is built, with raid.json's `assist` block.
+static func assist_boot(cfg: Dictionary) -> void:
+	var st := assist_boot_state(cfg, _assist_booted)
+	if st[0] != null:
+		assist_on = st[0]
+	assist_mult = st[1]
+	_assist_booted = true
+
+
 # ------------------------------------------------------------ mass mappings --
 static func enemy_count(living: float, cap: float, cfg: Dictionary) -> int:
 	var m: Dictionary = cfg.get("mass", {})
@@ -266,6 +293,70 @@ static func close_plan(ended: bool, pending_exit: String) -> Dictionary:
 	return {"exit": exit, "closing": exit == "retreated"}
 
 
+## Does a game event end this raid (raid.gd `_on_game_event`; the state ended the run underneath it after a gap above
+## idle.gap_s)? A `run_ended` with our run id, or an `away_report` while the run open in the state is not ours
+## (`open_run_id` is view_relish.run_id, -1 for none): the backstop if the run_ended was missed.
+static func gap_ends_run(ev: Dictionary, run_id: int, open_run_id: int) -> bool:
+	match str(ev.get("type", "")):
+		"run_ended":
+			return int(ev.get("run_id", -1)) == run_id
+		"away_report":
+			return open_run_id != run_id
+	return false
+
+
+## The exit the state already recorded for the run a gap ended (run_ended.outcome); an away_report carries none,
+## and anything unknown, so a retreat.
+static func gap_outcome(ev: Dictionary, pending_exit := "") -> String:
+	if str(ev.get("type", "")) == "away_report":
+		return checkpoint_outcome(pending_exit)   # the rule the checkpoint uses: never contradicts a recorded death or win
+	return checkpoint_outcome(str(ev.get("outcome", "")))
+
+
+## A gap while an ending beat is already running (`ended` with a `pending_exit`: the death or victory beat): the beat
+## already matches what the state recorded (the checkpoint carries pending_exit), so the gap only suppresses sends;
+## no banner, no card freed, no second timer, and the beat's own single finish runs.
+static func gap_leaves_beat(ended: bool, pending_exit: String) -> bool:
+	return ended and pending_exit != ""
+
+
+## The banner a gap-ended run shows, from raid.json's `gap_end` block (the raid's words, or the Vei fight's: a boss
+## run has no checkpoint, the state forfeits it).
+static func gap_banner(gap_cfg: Dictionary, boss := false) -> String:
+	return str(gap_cfg.get("banner_text_boss" if boss else "banner_text", ""))
+
+
+## What is pending after a checkpoint send (RaidEndings._send_checkpoint): the payload when the state refused it
+## with catching_up (it is resent later), else nothing (accepted, or refused for a reason that will not pass).
+## Each send replaces what was pending, so a newer checkpoint supersedes an older one. (Today state_runs.gd's
+## checkpoint does not refuse with catching_up, no run being open during a catch-up: this is a guard for if it does.)
+static func checkpoint_pending_after(payload: Dictionary, res: Dictionary) -> Dictionary:
+	if not bool(res.get("ok", false)) and str(res.get("reason", "")) == "catching_up":
+		return payload
+	return {}
+
+
+## Resend a pending checkpoint only when the catch-up is over.
+static func checkpoint_resend_due(pending: Dictionary, catching_up: bool) -> bool:
+	return not pending.is_empty() and not catching_up
+
+
+## The seed with the fields a catch-up could change re-read from `fresh` (the state's view_dungeon_seed): the
+## phylactery stock the HUD and the revive rule read. `fresh` {} (no such run) or missing keys change nothing. A copy.
+static func reread_seed(seed: Dictionary, fresh: Dictionary) -> Dictionary:
+	var out := seed.duplicate(true)
+	for k in ["phylactery_charges", "phylactery_max_per_dungeon"]:
+		if fresh.has(k):
+			out[k] = fresh[k]
+	return out
+
+
+## The width the awake WardenBlock wraps its break rows to: the plate's inner width, floored so a plate with no
+## width yet (size.x 0) cannot wrap to one word per line.
+static func break_wrap_width(plate_w: float, inset: float, min_px: float) -> float:
+	return maxf(plate_w - 2.0 * inset, min_px)
+
+
 ## The loot a raid result carries (RaidEndings.build_result): a retreat or a win banks everything found
 ## plus the carried motes, a death keeps the last checkpoint snapshot (`banked`), and a close
 ## (`closing`) pays that snapshot whatever the exit. Always the full loot shape; inputs unchanged.
@@ -393,6 +484,26 @@ static func loot_line(c: Dictionary) -> String:
 	return " · ".join(parts)
 
 
+## A loot_line in lines no wider than `max_w` at `font_px`, every "kind N" chunk kept whole (the StatBlock's
+## BANKED / UNBANKED values wrap on their plate); a line that continues ends with " ·". [] for "".
+static func wrap_loot_line(text: String, font: Font, font_px: int, max_w: float) -> PackedStringArray:
+	var out := PackedStringArray()
+	if text == "":
+		return out
+	var chunks := text.split(" · ")
+	var line := ""
+	for i in chunks.size():
+		var trial: String = chunks[i] if line == "" else line + " · " + chunks[i]
+		var tail := " ·" if i < chunks.size() - 1 else ""
+		if line != "" and font.get_string_size(trial + tail, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x > max_w:
+			out.append(line + " ·")
+			line = chunks[i]
+		else:
+			line = trial
+	out.append(line)
+	return out
+
+
 ## The 8-way compass word for a direction on the dungeon floor (y grows down, so N is up the screen):
 ## "N", "NE", "E", "SE", "S", "SW", "W", "NW"; "" for a zero vector.
 static func compass(v: Vector2) -> String:
@@ -481,7 +592,10 @@ static func goal_rows(s: Dictionary) -> Array:
 		for i in br.size():
 			if compact and br.size() > 2 and i > 0 and i < br.size() - 1:
 				continue   # the TAKES row (between the BREAK and COUNTER rows) waits for the full block
-			rows.append({"text": str(br[i]), "px": xpx, "key": "text_dim"})
+			var bt := str(br[i])
+			if compact:
+				bt = bt.get_slice(": make one", 0)   # the COUNTER row's "make one at the Crypt slab" waits for the full block: at 15 px it would wrap and cover the ring
+			rows.append({"text": bt, "px": maxi(xpx, BREAK_ROW_PX), "key": BREAK_ROW_KEY})
 	elif bool(s.get("chest", false)):
 		rows.append({"text": goal_line(fort, str(s.get("warden_name", "")), false), "px": gpx, "key": "vei"})
 		rows.append({"text": CHEST_ROW, "px": rpx, "key": "text"})
@@ -534,30 +648,61 @@ const TOP_BLOCK_BASE_H := 62.0   # the awake WardenBlock's height with no extra 
 
 const WARDEN_BLOCK_W := 680.0    # the awake WardenBlock's plate width
 const WARDEN_BLOCK_INSET := 12.0   # its text's inset each side
-const BREAK_ROW_PX := 13           # the break / takes / counter rows' font size
-const BREAK_ROW_STEP := 20.0       # one wrapped line's height
 
 
-## `text` in lines no wider than `max_w` at `font_px`: whole " · " chunks where they fit, a long chunk
-## broken at spaces (draw only: the StatBlock's DOOR row and the WardenBlock's break rows wrap on their plates).
+## Row 1's tally text: `parts` joined in order, as many as fit the awake block's plate from x with `reserve` px
+## left after them (always at least the first part). The last parts go first.
+static func fit_parts(parts: Array, font: Font, px: int, x: float, reserve: float, plate_w: float) -> String:
+	var s := str(parts[0])
+	for i in range(1, parts.size()):
+		var trial := s + str(parts[i])
+		if not row1_fits(x, font.get_string_size(trial, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x, reserve, plate_w):
+			break
+		s = trial
+	return s
+
+
+## Whether row 1's teach label, `w` px wide and drawn from x, still fits the awake block's plate (`plate_w` wide,
+## its text inset each side) with `reserve` px left for a status word after it. The label is dropped when it does not:
+## the COUNTER row under it says the same in full, so nothing is lost and nothing runs off the plate.
+static func row1_fits(x: float, w: float, reserve: float, plate_w: float) -> bool:
+	return x + w + reserve <= plate_w - WARDEN_BLOCK_INSET
+const BREAK_ROW_PX := 15           # the break / takes / counter rows' font size (the win line: at least 15, in the `text` key)
+const BREAK_ROW_STEP := 22.0       # one wrapped line's height (the font's height at BREAK_ROW_PX is 17, plus 5)
+const BREAK_ROW_KEY := "text"      # the break / takes / counter rows' colour key (full value tone)
+
+
+## `text` in lines no wider than `max_w` at `font_px`, greedy over its " · " chunks: a chunk that fits on the
+## current line joins it, one that does not starts a new line (a continued line keeps its " ·" at the end), and
+## only a chunk wider than `max_w` on its own is broken, at spaces (draw only: the StatBlock's DOOR row and the
+## WardenBlock's and goal block's break rows wrap on their plates).
 static func wrap_chunks(text: String, font: Font, font_px: int, max_w: float) -> PackedStringArray:
 	var out := PackedStringArray()
 	if text == "":
 		return out
-	var words := PackedStringArray()
 	var chunks := text.split(" · ")
+	var line := ""
 	for i in chunks.size():
+		var piece: String = chunks[i] + (" ·" if i < chunks.size() - 1 else "")
+		if line != "" and font.get_string_size(line + " " + piece, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x <= max_w:
+			line += " " + piece
+			continue
+		if line != "":
+			out.append(line)
+			line = ""
+		if font.get_string_size(piece, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x <= max_w:
+			line = piece
+			continue
+		# a chunk wider than the line: break it at spaces (the " ·" stays on its last word)
 		var ws := chunks[i].split(" ")
 		for j in ws.size():
-			words.append(ws[j] + (" ·" if j == ws.size() - 1 and i < chunks.size() - 1 else ""))
-	var line := ""
-	for wd in words:
-		var trial := wd if line == "" else line + " " + wd
-		if line != "" and font.get_string_size(trial, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x > max_w:
-			out.append(line)
-			line = wd
-		else:
-			line = trial
+			var wd: String = ws[j] + (" ·" if j == ws.size() - 1 and i < chunks.size() - 1 else "")
+			var trial := wd if line == "" else line + " " + wd
+			if line != "" and font.get_string_size(trial, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x > max_w:
+				out.append(line)
+				line = wd
+			else:
+				line = trial
 	if line != "":
 		out.append(line)
 	return out
@@ -754,9 +899,10 @@ static func clear_card_rows(warden_name: String, loot: Dictionary) -> Array:
 
 ## The death card's geometry (RaidDeathCard._draw reads it, and so does the clear card; the test measures the
 ## widest value against it): card width, padding, the label column, the value font size.
-## label_px / foot_px: the dim label column and footer sizes; backdrop_a the world-dimming rect behind the card,
-## plate_a the card's own ground plate (the contrast test composites both over the brightest world colour).
-const DEATH_CARD := {"w": 560.0, "pad": 22.0, "label_w": 120.0, "value_px": 18, "label_px": 14, "foot_px": 14, "backdrop_a": 0.55, "plate_a": 0.96}
+## label_px / foot_px: the dim label column and footer sizes; backdrop_a the world-dimming rect behind the card
+## (deep enough that the card reads on its own, not as a panel under the fight), plate_a the card's own ground
+## plate (the contrast test composites both over the brightest world colour).
+const DEATH_CARD := {"w": 560.0, "pad": 22.0, "label_w": 120.0, "value_px": 18, "label_px": 14, "foot_px": 14, "backdrop_a": 0.8, "plate_a": 0.96}
 
 
 ## The death card's rows [{label, text, key}] (key: a Palette key): who killed her, the tell she missed when
@@ -775,19 +921,25 @@ static func death_card_rows(cause: String, banked_counts: Dictionary, unbanked: 
 	return rows
 
 
-## A wait for the death card's AFTER row: "45 s" under a minute, m:ss from 60 s ("1:30"); never "0 s".
+## A wait for the death card's AFTER row, with its unit: "45 s" under a minute; from 60 s minutes ("10 min",
+## "1 min 30 s"); never "0 s", never a bare m:ss.
 static func death_wait_text(secs: float) -> String:
 	var n := maxi(1, roundi(secs))
-	return "%d s" % n if n < 60 else "%d:%02d" % [n / 60, n % 60]
+	if n < 60:
+		return "%d s" % n
+	return "%d min" % (n / 60) if n % 60 == 0 else "%d min %d s" % [n / 60, n % 60]
 
 
 ## The death card's AFTER row {label, text, key}: what a run-ending death costs in time. Read from the raid
 ## seed's `death_ends` {outcome: "clone"|"unmade", respawn_s} (economy's, after any phylactery revives); the
 ## card copies no rule. "clone": "wakes at Covington", with " in N s" only when respawn_s > 0. "unmade":
-## "unmade", with " · reforms in N s" when respawn_s > 0. Without `death_ends` (an older save), or with an
+## "unmade · reforms at Covington", with " in N s/min" when respawn_s > 0, then " · the town takes a morale
+## shock" (state_runs applies economy.morale.death_shock). Without `death_ends` (an older save), or with an
 ## outcome it does not know (a newer economy's, or a broken key): the seed's clones_ready, "wakes at
 ## Covington" if > 0 else "unmade", with no number. A missing or non-positive respawn_s shows no number.
-static func death_next_row(seed: Dictionary) -> Dictionary:
+## The words are `words`, raid.json's `death` block (after_clone, after_unmade, after_in, after_shock), so
+## every caller (the death card, the retreat panel, Vei's loss card) passes it in.
+static func death_next_row(seed: Dictionary, words: Dictionary) -> Dictionary:
 	var de: Variant = seed.get("death_ends", null)
 	var clone := false
 	var secs := 0.0
@@ -796,9 +948,11 @@ static func death_next_row(seed: Dictionary) -> Dictionary:
 		secs = float(de.get("respawn_s", 0.0))
 	else:
 		clone = int(seed.get("clones_ready", 0)) > 0
-	var text := "wakes at Covington" if clone else "unmade"
+	var text := str(words.get("after_clone", "")) if clone else str(words.get("after_unmade", ""))
 	if secs > 0.0:
-		text += (" in %s" if clone else " · reforms in %s") % death_wait_text(secs)
+		text += str(words.get("after_in", "")) + death_wait_text(secs)
+	if not clone:
+		text += str(words.get("after_shock", ""))
 	return {"label": "AFTER", "text": text, "key": "text" if clone else "danger"}
 
 
@@ -824,9 +978,10 @@ static func spread_angle(want: float, taken: PackedFloat32Array, sep: float) -> 
 	return wrapf(want, -PI, PI)
 
 
-## The antechamber's last-chance banner, with the loose essence lit there (D-b review SF-4).
+## The antechamber's last-chance banner, with the loose essence lit there (D-b review SF-4). A mote only drifts
+## to Relish within `drift_radius_px` and its lifetime still runs, so the tail says to walk close.
 static func last_chance_banner(lit: int) -> String:
-	return "LAST CHANCE · a free trance" + ("" if lit <= 0 else " · %d loose essence here: walk close and it drifts to you" % lit)
+	return "LAST CHANCE before the warden · your trance is ready and this raise costs no cooldown" + ("" if lit <= 0 else " · %d loose essence here: walk close to pick it up" % lit)
 
 
 ## T2: the words that say what the circle is for (never that it gathers essence).
@@ -889,7 +1044,7 @@ static func exposed_tint(level: float, cfg: Dictionary) -> float:
 ## The PHYLACT. row's words: "" while a charge is left; with none, what a death would mean (true
 ## whatever her hp: the chain and her hp still stand between her and it).
 static func phylactery_word(phyl_left: int) -> String:
-	return "" if phyl_left > 0 else "NO REVIVE · death ends the run"
+	return "" if phyl_left > 0 else "NO REVIVE · a death ends the raid"
 
 
 ## The PHYLACT. row's dim sub-lines, one string per row. No charge: the glossary's Jargon line in two rows (where a
@@ -1407,10 +1562,10 @@ static func death_rows_with_shut(rows: Array, shut: String) -> Array:
 ## is held_door_retreat_line's text, its leading newline dropped ("" for none).
 ## The panel's left column ("RETREAT NOW"), lines [{text, key}]: what a retreat keeps, its counts, what
 ## the loot is for (dim, only with something found), then what stays.
-static func retreat_keep_lines(held: bool, keep: Dictionary, door_line: String) -> Array:
+static func retreat_keep_lines(held: bool, keep: Dictionary, door_line: String, keep_prefix: String) -> Array:
 	var out: Array = [{"text": "You keep everything you found and all carried essence.", "key": "text"}]
 	var now := loot_line(keep)
-	out.append({"text": "  " + (now if now != "" else "nothing found yet"), "key": "text"})
+	out.append({"text": (keep_prefix + now) if now != "" else "nothing found yet", "key": "text"})   # no indent: a wrapped line above made "  essence 8" read as a stray
 	var uses := loot_uses_line(keep)
 	if uses != "":
 		out.append({"text": uses, "key": "text_dim"})

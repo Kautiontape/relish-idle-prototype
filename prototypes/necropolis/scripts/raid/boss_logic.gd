@@ -442,20 +442,21 @@ const LOSS_WORDS := {"fronts_held": "her fronts held · too few fell in time",
 	"relish_unmade": "Relish fell with no backup left"}
 
 
-## loss_card(seed, spent, party_lost, fight_t, end_reason, keep) -> Dictionary
+## loss_card(seed, spent, party_lost, fight_t, end_reason, keep, death_words) -> Dictionary
 ##   What the Vei loss card prints (D-e close-out), in the win card's frame (`end_card`): time_text, the
 ##   backups spent and the big undead lost (the same keys; on a loss all of the seed's party, MECHANICS §6),
 ##   `ended` (LOSS_WORDS for the reason; an unknown
 ##   one reads "the fight is lost"), `keep_pct` (loss_backlog_keep as a whole percent) and `keep_text`
 ##   ("35% stays"), and `after`, the AFTER row, only for a final death (relish_unmade; with fronts_held or
 ##   horde_ferried she is alive at Vei, so no row). The AFTER row is RaidLogic.death_next_row's text on the
-##   seed's `death_ends` (respawn_s > 0 adds " · reforms in N s"); a final death has spent every clone, so
-##   a seed without `death_ends` reads "unmade", never the seed's clones_ready.
+##   seed's `death_ends` (`death_words` is raid.json's `death` block: "unmade · reforms at Covington", " in N"
+##   when respawn_s > 0, " · the town takes a morale shock"); a final death has spent every clone, so a seed
+##   without `death_ends` reads the unmade words with no number, never the seed's clones_ready.
 ##   The backlog is a share, not a number: economy multiplies Vei's live queue at the writeback
 ##   (STATE-API §8.3, `vei.undead_queue ×= loss_backlog_keep`), which is not the seed's backlog (the
 ##   queue moves while she is away) and not what is left after `backlog_spent` (informational, A10).
 static func loss_card(seed: Dictionary, spent: Dictionary, party_lost: Array, fight_t: float,
-		end_reason: String, keep: float) -> Dictionary:
+		end_reason: String, keep: float, death_words: Dictionary) -> Dictionary:
 	var info := end_card(seed, spent, party_lost, fight_t, 0.0, 0.0)
 	info.erase("backlog_spent")
 	info["party_lost"] = info["party"]   # a lost fight kills the whole party (MECHANICS §6, STATE-API §8.3), not only the ones that fell in the scene
@@ -471,6 +472,6 @@ static func loss_card(seed: Dictionary, spent: Dictionary, party_lost: Array, fi
 		var s := {"clones_ready": 0}
 		if de is Dictionary:
 			s["death_ends"] = de
-		after = RaidLogic.death_next_row(s)
+		after = RaidLogic.death_next_row(s, death_words)
 	info["after"] = after
 	return info

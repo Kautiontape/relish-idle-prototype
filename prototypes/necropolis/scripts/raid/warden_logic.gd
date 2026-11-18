@@ -181,6 +181,50 @@ static func wake_phase(now_ms: float, tempo_ms: float) -> float:
 	return fposmod(now_ms / maxf(tempo_ms, 1.0), 1.0)
 
 
+## The warned-attack assist (raid.json `assist`): a tell window of `base` beats, longer by `mult` when the assist
+## is on. Off branches out and returns `base` untouched (no multiply by 1.0), so off is bit-identical.
+static func tell_len(base: float, assist_on: bool, mult: float) -> float:
+	if assist_on:
+		return base * mult
+	return base
+
+
+## An attack's tell window in beats (`key` in its spec: tell_beats, or Vei's first_tell_beats) with the session's
+## assist applied (RaidLogic.assist_on / assist_mult). EVERY warned attack's tell length reads through here.
+static func attack_tell(attack: Dictionary, key: String = "tell_beats") -> float:
+	return tell_len(float(attack.get(key, 1.0)), RaidLogic.assist_on, RaidLogic.assist_mult)
+
+
+## Vei's drawn tell length: the tell `tb`, but never more than the beats left to the hit (a weave laid late, with
+## Relish down through its window, must not draw or count down more time than there is), and never below 0 (a lay
+## at or past the hit has no tell left). Draw only (and the Bellringer toll's reach budget, assist on).
+static func lay_len(tb: float, hit_beat: float, beat: float) -> float:
+	return maxf(0.0, minf(tb, hit_beat - beat))
+
+
+## The first beat a warded attack may land on after a pack rest (only the pack rest uses this; a phase pull is
+## `maxf(b + tell, last + period)`, unrounded, off the beat on and off alike): `rest` beats after the tell that
+## follows beat `beat`, rounded UP to a whole beat so every later hit (last + period) stays on the Pulse.
+## Off, the operand is already a whole number (tell and rest are whole beats), so the ceil changes nothing; with
+## the assist on (a tell of 1.5) the hit lands up to a beat later, on a whole beat.
+static func after_rest(beat: float, tell: float, rest: float) -> float:
+	return ceilf(ceilf(beat) + tell + rest)
+
+
+## Whether a tell that locks at beat `b` for a hit at `next` began late (the Huntsman re-places its hit on the
+## beat after one that did). Judged against the SHORTER of the length latched before this frame's refresh (`prev`)
+## and the one now (`tell`): an off-to-on flip that lets the lock start early inside the old window is not late,
+## so the hit keeps its beat. Off, prev == tell and this is `b > next - tell + 0.1`.
+static func tell_late(b: float, next: float, prev: float, tell: float) -> bool:
+	return b > next - minf(prev, tell) + 0.1
+
+
+## A warden's current tell length: the fresh read (`attack_tell`, the assist applied) only while it is NOT inside
+## a tell, so a LONGER WARNINGS flip applies from the next tell and never changes a running one.
+static func latch_tell(cur: float, fresh: float, in_tell: bool) -> float:
+	return cur if in_tell else fresh
+
+
 ## True while the telegraph shows: attack_beat - tell_beats <= beat < attack_beat.
 static func is_tell(beat: float, attack_beat: float, tell_beats: float) -> bool:
 	return beat >= attack_beat - tell_beats and beat < attack_beat

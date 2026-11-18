@@ -770,7 +770,7 @@ func _lose(reason: String) -> void:
 func _lose_card() -> void:
 	_seq_kind = ""
 	if _card == null:
-		var info := BossLogic.loss_card(seed_data, spent, party_lost, fight_t, end_reason, float(vcfg().get("loss_backlog_keep", 0.35)))
+		var info := BossLogic.loss_card(seed_data, spent, party_lost, fight_t, end_reason, float(vcfg().get("loss_backlog_keep", 0.35)), rcfg().get("death", {}))
 		info["phyl_total"] = int(seed_data.get("phylactery_charges", 0))
 		info["clones_total"] = int(seed_data.get("clones_ready", 0))
 		_card = VeiCard.new()

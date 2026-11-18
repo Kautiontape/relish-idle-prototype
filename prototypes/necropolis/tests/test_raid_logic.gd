@@ -583,6 +583,11 @@ func run() -> int:
 
 
 ## D-d/E 3c, the bot's hold and unstick watch: RaidLogic.hold_blocks / unstick_step.
+## RaidLogic.death_next_row with raid.json's own `death` words (the callers pass that block in).
+func _nx(seed: Dictionary) -> Dictionary:
+	return RaidLogic.death_next_row(seed, TestUtil.load_json("res://configs/raid.json")["death"])
+
+
 func _bot_rule_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.suite("raid_bot_rules")
 	# Step 4b: a fort in tier_mix_by_fort rolls from its own mix, the same rng draws
@@ -774,7 +779,7 @@ func _held_door_tests(t: TestUtil, cfg: Dictionary) -> void:
 		and RaidLogic.held_door_retreat_line("unused", "") == "" and RaidLogic.held_door_retreat_line("freed", "X") == "",
 		"the retreat dialog names the big by its state: sent to the plate (sent), on the plate (held), or shut in at the cache; nothing once it rejoined or none was spent")
 	# the death card: the SHUT IN row before AFTER, apart from LOST (behaviour, RaidLogic.death_rows_with_shut)
-	var card := RaidLogic.death_card_rows("a wound", {}, {}, 1, "", RaidLogic.death_next_row({}))
+	var card := RaidLogic.death_card_rows("a wound", {}, {}, 1, "", _nx({}))
 	var card2 := RaidLogic.death_rows_with_shut(card, "Old Gristle")
 	t.ok(card2.size() == card.size() + 1 and card2[card2.size() - 1]["label"] == "AFTER" and card2[card2.size() - 2]["label"] == "SHUT IN"
 		and str(card2[card2.size() - 2]["text"]).begins_with("Old Gristle") and str(RaidLogic.death_rows_with_shut(card, "")) == str(card),
@@ -2091,43 +2096,67 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 					widest = txt
 	t.ok(widest_px <= col_w, "the widest KILLED BY / MISSED value fits the card: '%s' %d px of %d" % [widest, int(widest_px), int(col_w)])
 	# the AFTER row: what a run-ending death costs in time, from the seed's death_ends (literal seeds; none carries it yet)
-	var nx_clone := RaidLogic.death_next_row({"death_ends": {"outcome": "clone", "respawn_s": 45.0}, "clones_ready": 0})
+	var nx_clone := _nx({"death_ends": {"outcome": "clone", "respawn_s": 45.0}, "clones_ready": 0})
 	t.ok(nx_clone["label"] == "AFTER" and nx_clone["text"] == "wakes at Covington in 45 s" and nx_clone["key"] == "text", "death_ends clone, 45 s: wakes in 45 s (clones_ready ignored)")
-	t.ok(RaidLogic.death_next_row({"death_ends": {"outcome": "clone", "respawn_s": 0.0}})["text"] == "wakes at Covington", "death_ends clone, 0.0 (economy until E3): no number, never 'in 0 s'")
-	t.ok(RaidLogic.death_next_row({"death_ends": {"outcome": "clone", "respawn_s": 60.0}})["text"] == "wakes at Covington in 1:00"
-		and RaidLogic.death_next_row({"death_ends": {"outcome": "clone", "respawn_s": 150.0}})["text"] == "wakes at Covington in 2:30"
-		and RaidLogic.death_next_row({"death_ends": {"outcome": "clone", "respawn_s": 0.3}})["text"] == "wakes at Covington in 1 s", "m:ss from 60 s; a fraction rounds up to 1 s, never 0")
-	var nx_un := RaidLogic.death_next_row({"death_ends": {"outcome": "unmade", "respawn_s": 0.0}, "clones_ready": 3})
-	t.ok(nx_un["text"] == "unmade" and nx_un["key"] == "danger", "death_ends unmade, 0.0: 'unmade' (clones_ready ignored)")
-	t.ok(RaidLogic.death_next_row({"death_ends": {"outcome": "unmade", "respawn_s": 60.0}})["text"] == "unmade · reforms in 1:00"
-		and RaidLogic.death_next_row({"death_ends": {"outcome": "unmade", "respawn_s": 30.0}})["text"] == "unmade · reforms in 30 s", "unmade with a respawn: reforms in N")
-	t.ok(RaidLogic.death_next_row({"clones_ready": 2})["text"] == "wakes at Covington" and RaidLogic.death_next_row({"clones_ready": 1})["key"] == "text",
+	t.ok(_nx({"death_ends": {"outcome": "clone", "respawn_s": 0.0}})["text"] == "wakes at Covington", "death_ends clone, 0.0 (economy until E3): no number, never 'in 0 s'")
+	t.ok(_nx({"death_ends": {"outcome": "clone", "respawn_s": 60.0}})["text"] == "wakes at Covington in 1 min"
+		and _nx({"death_ends": {"outcome": "clone", "respawn_s": 150.0}})["text"] == "wakes at Covington in 2 min 30 s"
+		and _nx({"death_ends": {"outcome": "clone", "respawn_s": 0.3}})["text"] == "wakes at Covington in 1 s", "minutes with the unit from 60 s; a fraction rounds up to 1 s, never 0")
+	t.ok(RaidLogic.death_wait_text(30.0) == "30 s" and RaidLogic.death_wait_text(60.0) == "1 min" and RaidLogic.death_wait_text(90.0) == "1 min 30 s"
+		and RaidLogic.death_wait_text(600.0) == "10 min", "death_wait_text: seconds under 60, minutes with the unit after, never m:ss")
+	var nx_600 := _nx({"death_ends": {"outcome": "unmade", "respawn_s": 600.0}})
+	t.ok(nx_600["text"] == "unmade · reforms at Covington in 10 min · the town takes a morale shock", "unmade at 600 s: reforms at Covington in 10 min, the town takes a morale shock (%s)" % nx_600["text"])
+	t.ok(RaidLogic.phylactery_word(0).contains("the raid") and not RaidLogic.phylactery_word(0).contains("the run") and RaidLogic.phylactery_word(1) == "", "the PHYLACT. word says a death ends the raid, not the run")
+	t.ok(RaidLogic.BREAK_ROW_PX >= 15 and RaidLogic.BREAK_ROW_KEY == "text" and RaidLogic.BREAK_ROW_STEP >= float(RaidLogic.BREAK_ROW_PX), "the win line (break / takes / counter rows) is at least 15 px in the text key")
+	# no player-facing string in the raid scripts calls a death the end of "the run" (code names and comments stay)
+	var run_words: Array = []
+	for fn in DirAccess.get_files_at("res://scripts/raid"):
+		if not fn.ends_with(".gd"):
+			continue
+		for ln in FileAccess.get_file_as_string("res://scripts/raid/" + fn).split("\n"):
+			var s := String(ln).strip_edges()
+			if s.begins_with("#") or s.begins_with("##"):
+				continue
+			var parts := s.split("\"")
+			for i in range(1, parts.size(), 2):   # the odd pieces lie between quotes
+				if parts[i].contains("ends the run") or parts[i].contains("the run ends") or parts[i].contains("end the run"):
+					run_words.append(fn + ": " + parts[i])
+	t.ok(run_words.is_empty(), "no raid string says a death ends 'the run': %s" % str(run_words))
+	var nx_un := _nx({"death_ends": {"outcome": "unmade", "respawn_s": 0.0}, "clones_ready": 3})
+	var un_bare := "unmade · reforms at Covington · the town takes a morale shock"   # no number: respawn_s absent or 0
+	t.ok(nx_un["text"] == un_bare and nx_un["key"] == "danger", "death_ends unmade, 0.0: reforms at Covington, no number (clones_ready ignored)")
+	t.ok(_nx({"death_ends": {"outcome": "unmade", "respawn_s": 60.0}})["text"] == "unmade · reforms at Covington in 1 min · the town takes a morale shock"
+		and _nx({"death_ends": {"outcome": "unmade", "respawn_s": 30.0}})["text"] == "unmade · reforms at Covington in 30 s · the town takes a morale shock", "unmade with a respawn: reforms at Covington in N, the morale shock")
+	t.ok(_nx({"clones_ready": 2})["text"] == "wakes at Covington" and _nx({"clones_ready": 1})["key"] == "text",
 		"death_ends absent, clones > 0: wakes at Covington, no number")
-	t.ok(RaidLogic.death_next_row({"clones_ready": 0})["text"] == "unmade" and RaidLogic.death_next_row({})["text"] == "unmade", "death_ends absent, no clones: unmade")
+	t.ok(_nx({"clones_ready": 0})["text"] == un_bare and _nx({})["text"] == un_bare, "death_ends absent, no clones: unmade")
 	# a death_ends this card does not know falls back like an absent key (clones_ready, no number), never a guess
-	t.ok(RaidLogic.death_next_row({"death_ends": {"outcome": "reborn", "respawn_s": 30.0}, "clones_ready": 2})["text"] == "wakes at Covington"
-		and RaidLogic.death_next_row({"death_ends": {"outcome": "reborn", "respawn_s": 30.0}, "clones_ready": 0})["text"] == "unmade"
-		and RaidLogic.death_next_row({"death_ends": {"respawn_s": 30.0}, "clones_ready": 1})["text"] == "wakes at Covington",
+	t.ok(_nx({"death_ends": {"outcome": "reborn", "respawn_s": 30.0}, "clones_ready": 2})["text"] == "wakes at Covington"
+		and _nx({"death_ends": {"outcome": "reborn", "respawn_s": 30.0}, "clones_ready": 0})["text"] == un_bare
+		and _nx({"death_ends": {"respawn_s": 30.0}, "clones_ready": 1})["text"] == "wakes at Covington",
 		"an unknown or missing outcome: the clones_ready fallback, with no number")
-	t.ok(RaidLogic.death_next_row({"death_ends": {"outcome": "clone"}})["text"] == "wakes at Covington"
-		and RaidLogic.death_next_row({"death_ends": {"outcome": "unmade"}})["text"] == "unmade",
+	t.ok(_nx({"death_ends": {"outcome": "clone"}})["text"] == "wakes at Covington"
+		and _nx({"death_ends": {"outcome": "unmade"}})["text"] == un_bare,
 		"a missing respawn_s: no number")
 	var arows := RaidLogic.death_card_rows("a wound", {}, {}, 0, "", nx_clone)
 	t.ok(arows.size() == 4 and arows[3]["label"] == "AFTER" and arows[3]["text"] == nx_clone["text"] and RaidLogic.death_card_rows("a wound", {}, {}, 0).size() == 3,
 		"the AFTER row comes last, and only when given")
-	var after_w := 0.0
+	# the AFTER value can be longer than the column: the card wraps it (draw_multiline_string), so it must fit two lines
+	var after_lines := 0
 	for sd in [{"death_ends": {"outcome": "clone", "respawn_s": 3599.0}}, {"death_ends": {"outcome": "unmade", "respawn_s": 3599.0}},
+			{"death_ends": {"outcome": "unmade", "respawn_s": 600.0}}, {"death_ends": {"outcome": "unmade", "respawn_s": 90.0}},
 			{"death_ends": {"outcome": "clone", "respawn_s": 59.0}}, {"death_ends": {"outcome": "unmade", "respawn_s": 59.0}}, {"clones_ready": 1}, {}]:
-		after_w = maxf(after_w, fnt.get_string_size(RaidLogic.death_next_row(sd)["text"], HORIZONTAL_ALIGNMENT_LEFT, -1, int(dcg["value_px"])).x)
-	t.ok(after_w <= col_w, "the widest AFTER value fits the card: %d px of %d" % [int(after_w), int(col_w)])
+		var sz := fnt.get_multiline_string_size(_nx(sd)["text"], HORIZONTAL_ALIGNMENT_LEFT, col_w, int(dcg["value_px"]))
+		after_lines = maxi(after_lines, roundi(sz.y / fnt.get_height(int(dcg["value_px"]))))
+	t.ok(after_lines <= 2, "the widest AFTER value wraps to at most 2 lines at the card's value width: %d" % after_lines)
 	var rtk := _func_body("res://scripts/raid/relish.gd", "func take_hit(")
 	t.ok(rtk.find("try_phylactery()") >= 0 and rtk.find("try_phylactery()") < rtk.find("on_relish_died()"), "a phylactery revive returns before the death (so no card): on_relish_died only after try_phylactery fails")
-	t.ok(_func_body("res://scripts/raid/raid_endings.gd", "func death_rows(").contains("death_next_row(_raid.seed_data)"), "the card's AFTER row reads the seed the raid got, no Game.* read")
+	t.ok(_func_body("res://scripts/raid/raid_endings.gd", "func death_rows(").contains("death_next_row(_raid.seed_data, "), "the card's AFTER row reads the seed the raid got, no Game.* read")
 	var rdv := _func_body("res://scripts/raid/raid_dev.gd", "func _autodie_hit(")
 	t.ok(rdv.contains("take_hit(_raid.relish.hp,") and not rdv.contains("1000"), "the dev autodie blow equals her remaining hp (the STRUCK cue showed -1030)")
 	t.ok(RaidLogic.death_card_rows("a wound", {}, {}, 0)[1]["text"] == "nothing" and RaidLogic.death_card_rows("a wound", {}, {}, 0)[2]["key"] == "text_dim",
 		"a bare death says nothing banked, nothing lost (dim)")
-	t.ok(RaidLogic.last_chance_banner(2) == "LAST CHANCE · a free trance · 2 loose essence here: walk close and it drifts to you" and RaidLogic.last_chance_banner(0) == "LAST CHANCE · a free trance",
+	t.ok(RaidLogic.last_chance_banner(2) == "LAST CHANCE before the warden · your trance is ready and this raise costs no cooldown · 2 loose essence here: walk close to pick it up" and RaidLogic.last_chance_banner(0) == "LAST CHANCE before the warden · your trance is ready and this raise costs no cooldown",
 		"the last-chance banner names the loose essence, never 'to bank' (banked and carried are other figures)")
 	t.ok(cfg["death"]["card_s"] > cfg["death"]["skip_after_s"], "the death card holds longer than its skip delay")
 	t.suite("raid_push_line")
@@ -2171,8 +2200,10 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(RaidLogic.exposed_tint(RaidLogic.exposed_level(0, 0.5, cfg), cfg) > 0.4 and RaidLogic.exposed_tint(RaidLogic.exposed_level(0, 0.5, cfg), cfg) < 0.6, "half hp: half way")
 	t.ok(RaidLogic.push_line(3, "N", 1, {}).contains("exit N, next room"), "one room away")
 	t.suite("raid_beat_lines")
-	t.ok(RaidLogic.last_chance_banner(10) == "LAST CHANCE · a free trance · 10 loose essence here: walk close and it drifts to you", "last chance names the loose essence")
-	t.ok(RaidLogic.last_chance_banner(0) == "LAST CHANCE · a free trance", "and drops it when there is none")
+	t.ok(RaidLogic.last_chance_banner(10).ends_with(" · 10 loose essence here: walk close to pick it up"), "last chance names the loose essence")
+	t.ok(RaidLogic.last_chance_banner(0) == "LAST CHANCE before the warden · your trance is ready and this raise costs no cooldown", "and drops it when there is none")
+	var lc_w := ThemeDB.fallback_font.get_string_size(RaidLogic.last_chance_banner(99), HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
+	t.ok(lc_w <= 1500.0, "the longest last-chance banner (one line, 20 px) fits the 1600 px screen: %d px" % int(lc_w))
 	t.ok(RaidLogic.held_map_effect(255.0) == "on the map: counter-garrison −255", "held clear: the killed mass comes off the map")
 	t.ok(RaidLogic.held_map_effect(-3.0) == "on the map: counter-garrison −0", "never a negative count")
 

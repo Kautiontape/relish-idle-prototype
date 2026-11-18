@@ -85,10 +85,6 @@ func _on_pack_down() -> void:
 	_next_attack = maxf(_next_attack, ceilf(beat() + _tell()) + float(spec.get("attack", {}).get("pack_rest_beats", 0.0)))
 
 
-func _tell() -> float:
-	return float(spec.get("attack", {}).get("tell_beats", 1.0))
-
-
 func _speed_now() -> float:
 	var phs: Array = spec.get("phases", [])
 	return float((phs[clampi(phase, 0, phs.size() - 1)] as Dictionary).get("speed", 140.0))
@@ -107,6 +103,8 @@ func _hunt() -> Dictionary:
 
 
 func _step(delta: float) -> void:
+	var prev := _tell()   # the length latched before this frame's refresh (a flip lands below, in `tell`)
+	_refresh_tell(_locked)   # a flip applies from the next lunge's tell: a locked tell keeps the length it began with
 	_lunge_flash = maxf(0.0, _lunge_flash - delta * 3.0)
 	if _dashing:
 		_advance_dash(delta)
@@ -124,7 +122,7 @@ func _step(delta: float) -> void:
 	hunting_undead = _hunting_undead
 	# tell: lock the target point at Relish's position while she is in the room, else at an undead
 	if not _locked and b >= _next_attack - tell and tgt["kind"] != "none":
-		var late := b > _next_attack - tell + 0.1
+		var late := WardenLogic.tell_late(b, _next_attack, prev, tell)
 		_lock_pt = WardenLogic.lunge_lock(_room, global_position, tgt["pos"], float(at.get("range_px", 320.0)), radius)   # drawn = dashed
 		_lock_undead = _hunting_undead
 		_locked = true

@@ -1,7 +1,7 @@
 class_name RaidGoalBlock
 extends Control
 ## T4: the dungeon's goal block (top centre, where the WardenBlock sits). A ground plate sized to its rows,
-## each row centred and wrapped at its spaces to the plate's width. The HUD hands it the rows
+## each row centred and wrapped to the plate's width (RaidLogic.wrap_chunks: whole " · " chunks, long ones at spaces). The HUD hands it the rows
 ## ({text, px, key}; key a Palette key) and reads `height` for its layout. Redrawn only when the rows
 ## change. No autoload, no input.
 
@@ -57,18 +57,7 @@ func _height_of(lines: Array) -> float:
 
 
 func _wrap(f: Font, s: String, px: int, w: float) -> Array:
-	var out: Array = []
-	var cur := ""
-	for word in s.split(" "):
-		var t := word if cur == "" else cur + " " + word
-		if cur != "" and f.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x > w:
-			out.append(cur)
-			cur = word
-		else:
-			cur = t
-	if cur != "":
-		out.append(cur)
-	return out
+	return Array(RaidLogic.wrap_chunks(s, f, px, w))   # whole " · " chunks stay on a line; only a chunk wider than the plate breaks at its spaces
 
 
 func _draw() -> void:
