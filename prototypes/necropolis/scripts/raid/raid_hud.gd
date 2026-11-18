@@ -478,12 +478,14 @@ func _update_goal() -> void:
 	var alive: bool = w != null and is_instance_valid(w) and w.alive
 	var s := {"held": held, "fort_name": raid.fort_name(), "warden_alive": alive, "warden_name": "",
 		"route_text": "", "break_rows": [], "chest": wr != null and wr.chest != null, "no_army": false,
-		"goal_px": int(g.get("goal_px", 17)), "route_px": int(g.get("route_px", 14)), "row_px": int(g.get("row_px", 15))}
+		"goal_px": int(g.get("goal_px", 17)), "route_px": int(g.get("route_px", 14)), "row_px": int(g.get("row_px", 15)),
+		"break_px": int(raid.rcfg().get("hud", {}).get("break_row_px", 15))}
 	if not held and alive:
 		var sp: Dictionary = w.spec
 		s["warden_name"] = str(sp.get("name", ""))
 		s["route_text"] = _route_text()
 		s["break_rows"] = break_rows(raid, sp, int(w.meter_n))
+		s["break_rows_compact"] = break_rows(raid, sp, int(w.meter_n), true)
 	elif not held and wr != null:
 		s["warden_name"] = wr.warden_name
 	s["no_army"] = (held or alive or s["chest"]) and _no_army()   # the row follows a goal row only
@@ -507,19 +509,22 @@ func _sleeping_ring_rect(w: Variant) -> Rect2:
 
 
 ## The break line, the takes line (when something multiplies a blow) and the counter line for a warden's spec.
-static func break_rows(raid: Node, sp: Dictionary, meter_n := -1) -> Array:
+## `compact` builds the COUNTER row without its "make one at the Crypt slab" advice (the goal block over a sleeping ring).
+static func break_rows(raid: Node, sp: Dictionary, meter_n := -1, compact := false) -> Array:
 	# the pips the player sees are the warden node's meter_n (its bands; the Pyre-priest adds acolyte pips);
 	# the config's meter_pips only when there is no node
-	var pips := meter_n if meter_n > 0 else int(raid.rcfg().get("wardens", {}).get("meter_pips", 12))
-	var rows: Array = [WardenLogic.break_line(sp, pips)]
-	var tk := WardenLogic.takes_line(sp)
+	var wcfg: Dictionary = raid.rcfg().get("wardens", {})
+	var words: Dictionary = wcfg.get("words", {})
+	var pips := meter_n if meter_n > 0 else int(wcfg.get("meter_pips", 12))
+	var rows: Array = [WardenLogic.break_line(words, sp, pips)]
+	var tk := WardenLogic.takes_line(words, sp)
 	if tk != "":
 		rows.append(tk)
 	var stat := str((sp.get("weak_point", {}) as Dictionary).get("stat", ""))
 	# the bigs the warden's own counter checks count (RaidLogic.counter_party_values): not the one spent on the door's plate
 	var hd = raid.held_door
 	var vals: Array = RaidLogic.counter_party_values(raid.allies, stat, hd.holder if hd != null and hd.committed() else null)
-	rows.append(WardenLogic.counter_line(sp, vals))
+	rows.append(WardenLogic.counter_line(words, sp, vals, compact))
 	return rows
 
 
@@ -1175,11 +1180,11 @@ class WardenBlock:
 				# the rows wrap to the plate's inner width, once per change (not per frame)
 				break_rows = nr
 				_wrap_w = size.x
-				break_lines = RaidLogic.wrap_break_rows(nr, ThemeDB.fallback_font, RaidLogic.BREAK_ROW_PX,
+				break_lines = RaidLogic.wrap_break_rows(nr, ThemeDB.fallback_font, int(raid.rcfg().get("hud", {}).get("break_row_px", 15)),
 					RaidLogic.break_wrap_width(size.x, RaidLogic.WARDEN_BLOCK_INSET, float(raid.rcfg().get("hud", {}).get("break_wrap_min_px", 120.0))))
 				_key = -1
 		var eh := (20.0 if w is RaidHuntsman else 0.0) + (20.0 if w.spec.has("pack") else 0.0) \
-			+ (RaidLogic.BREAK_ROW_STEP * break_lines.size() + 6.0 if not break_lines.is_empty() else 0.0)
+			+ (float(raid.rcfg().get("hud", {}).get("break_row_step", 22.0)) * break_lines.size() + 6.0 if not break_lines.is_empty() else 0.0)
 		if eh != extra_h:
 			extra_h = eh
 			offset_bottom = offset_top + RaidLogic.TOP_BLOCK_BASE_H + eh
@@ -1249,9 +1254,9 @@ class WardenBlock:
 		if w.horn_beat >= 0.0:
 			_text(x0, y, "HORN · %d %s coming" % [w.horn_pts.size(), str(pk.get("name", "pack"))], 13, "danger")
 		elif w.pack_alive() > 0:
-			_text(x0, y, WardenLogic.pack_label(pk, w.pack_alive(), int(pk.get("size", 0))), 13, "vei")
+			_text(x0, y, WardenLogic.pack_label(w.wwords(), pk, w.pack_alive(), int(pk.get("size", 0))), 13, "vei")
 		else:
-			_text(x0, y, WardenLogic.pack_teach(pk), 13, "text_dim")
+			_text(x0, y, WardenLogic.pack_teach(w.wwords(), pk), 13, "text_dim")
 
 	func _draw() -> void:
 		var w := _warden()
@@ -1334,7 +1339,7 @@ class WardenBlock:
 			if hw.hunting_undead:
 				_text(x5 + 12.0, y, "hunting your dead", 13, "danger")
 			# row 3: what a catch costs and where the phases turn (from the spec, so it follows the config)
-			_text(x0, y + 22.0, WardenLogic.catch_label(w.spec, raid.warden_run.tell_bypass), 13, "text_dim")
+			_text(x0, y + 22.0, WardenLogic.catch_label(w.wwords(), w.spec, raid.warden_run.tell_bypass), 13, "text_dim")
 		elif w is RaidShieldwall:
 			var sw := w as RaidShieldwall
 			var x6 := x + 14.0
@@ -1344,7 +1349,7 @@ class WardenBlock:
 				_teach(x6, y - 26.0, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")))
 			_text(x0, y, "PHASE", 13, "text_dim")
 			var x7 := _text(px0 + 6.0, y, "%d/%d" % [w.phase + 1, (w.spec.get("phases", []) as Array).size()], 15)
-			_text(x7 + 12.0, y, WardenLogic.shield_label(w.spec, w.phase, WardenLogic.lever_on(int(w.spec.get("tier", 1)), bool(w.spec.get("first_dungeon", false)), w.wcfg())), 13, "text_dim")
+			_text(x7 + 12.0, y, WardenLogic.shield_label(w.wwords(), w.spec, w.phase, WardenLogic.lever_on(int(w.spec.get("tier", 1)), bool(w.spec.get("first_dungeon", false)), w.wcfg())), 13, "text_dim")
 		elif w is RaidPyrePriest:
 			var pp := w as RaidPyrePriest
 			var x8 := x + 14.0
@@ -1357,15 +1362,15 @@ class WardenBlock:
 			var lv := pp.living()
 			if lv > 0:
 				x9 = _text(x9 + 12.0, y, "ACOLYTES %d/%d" % [lv, pp.acolytes.size()], 13, "vei")
-			x9 = _text(x9 + 12.0, y, WardenLogic.pyre_label(w.spec, w.phase, lv), 13, "danger" if lv <= 0 else "text_dim")
+			x9 = _text(x9 + 12.0, y, WardenLogic.pyre_label(w.wwords(), w.spec, w.phase, lv), 13, "danger" if lv <= 0 else "text_dim")
 			if pp.essence_burned > 0:
 				_text(x9 + 12.0, y, "burned %d essence" % pp.essence_burned, 13, "danger")
 		_pack_row(w, x0, y + (44.0 if hw != null else 22.0))
 		# the new rows sit under the last of the existing ones (the Huntsman's catch row, a pack's row)
 		var ry := y + 22.0 * ((1.0 if hw != null else 0.0) + (1.0 if w.spec.has("pack") else 0.0))
 		for line in break_lines:
-			ry += RaidLogic.BREAK_ROW_STEP
-			_text(x0, ry, str(line), RaidLogic.BREAK_ROW_PX, RaidLogic.BREAK_ROW_KEY)
+			ry += float(raid.rcfg().get("hud", {}).get("break_row_step", 22.0))
+			_text(x0, ry, str(line), int(raid.rcfg().get("hud", {}).get("break_row_px", 15)), RaidLogic.BREAK_ROW_KEY)
 
 
 ## Screen-space pointers over the world (a Node2D: it takes no input). The loot pointer: a faint

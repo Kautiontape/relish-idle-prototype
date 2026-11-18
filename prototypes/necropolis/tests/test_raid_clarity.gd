@@ -46,10 +46,21 @@ func _round2_tests(t: TestUtil) -> void:
 	t.suite("raid_clarity_r2")
 	# A1: the counter line sends a player with no big to the Crypt slab, never to "raise more undead"
 	var sp := {"weak_point": {"stat": "beef", "threshold": 6.0, "effect": "muffle"}}
-	t.ok(WardenLogic.counter_line(sp, []).ends_with(" · you have none: make one at the Crypt slab"), "no bigs: make one at the Crypt slab")
-	t.ok(WardenLogic.counter_line(sp, [5.0]).ends_with(" · none in your party: make one at the Crypt slab"), "bigs but none meets it: make one at the Crypt slab")
-	t.ok(WardenLogic.counter_line(sp, [6.0, 2.0]).ends_with(" · 1 in your party") and not WardenLogic.counter_line(sp, [6.0]).contains("Crypt"), "k meet it: the count, no advice")
-	t.ok(not WardenLogic.counter_line(sp, []).contains("raise more undead"), "the counter line never says raise more undead")
+	var ww := _ww()
+	var make := str(ww["counter_make"])
+	t.ok(make.contains("make one at the Crypt slab"), "the advice word sends the player to the Crypt slab")
+	t.ok(WardenLogic.counter_line(ww, sp, []).ends_with(str(ww["counter_none"]) + make), "no bigs: make one at the Crypt slab")
+	t.ok(WardenLogic.counter_line(ww, sp, [5.0]).ends_with(str(ww["counter_none_party"]) + make), "bigs but none meets it: make one at the Crypt slab")
+	t.ok(WardenLogic.counter_line(ww, sp, [6.0, 2.0]).ends_with(str(ww["counter_have"]) % 1) and not WardenLogic.counter_line(ww, sp, [6.0]).contains("Crypt"), "k meet it: the count, no advice")
+	t.ok(not WardenLogic.counter_line(ww, sp, []).contains("raise more undead") and not make.contains("raise more undead"), "the counter line never says raise more undead")
+	# the compact row (the goal block over a sleeping ring) is the same line without the advice: what the old string cut
+	# at ": make one" gave, for the three party states, with the real words
+	for pv in [[], [5.0], [6.0, 2.0]]:
+		var full_row := WardenLogic.counter_line(ww, sp, pv)
+		t.ok(WardenLogic.counter_line(ww, sp, pv, true) == full_row.get_slice(": make one", 0), "compact counter row == the full row cut at the advice, party %s: %s" % [str(pv), WardenLogic.counter_line(ww, sp, pv, true)])
+	t.ok(WardenLogic.counter_line(ww, sp, [], true) == "COUNTER · a big undead with beef 6+ muffles its slams · you have none"
+		and WardenLogic.counter_line(ww, sp, [5.0], true) == "COUNTER · a big undead with beef 6+ muffles its slams · none in your party"
+		and WardenLogic.counter_line(ww, sp, [6.0, 2.0], true) == "COUNTER · a big undead with beef 6+ muffles its slams · 1 in your party", "the compact rows read as they did")
 	var holder := _fake("big", "party", 9.0)
 	var pool := [_fake("big", "party", 7.0), _fake("chaff", "party", 99.0), _fake("big", "raised", 99.0), _fake("big", "party", 8.0, false), holder, _fake("big", "party", 3.0)]
 	var vals := RaidLogic.counter_party_values(pool, "beef", holder)
@@ -57,6 +68,9 @@ func _round2_tests(t: TestUtil) -> void:
 	t.ok(RaidLogic.counter_party_values(pool, "beef", null).size() == 3, "no holder: the holder counts")
 	var hsrc := FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd")
 	t.ok(_func_src(hsrc, "static func break_rows(").contains("RaidLogic.counter_party_values("), "break_rows reads the counter pool helper")
+	t.ok(_func_src(hsrc, "static func break_rows(").contains("WardenLogic.counter_line(words, sp, vals, compact)") and hsrc.contains("break_rows(raid, sp, int(w.meter_n), true)"),
+		"break_rows builds the compact COUNTER row through counter_line's compact flag, and the goal block takes it")
+	t.ok(not _func_src(FileAccess.get_file_as_string("res://scripts/raid/raid_logic.gd"), "static func goal_rows(").contains(": make one"), "goal_rows no longer cuts the row at a literal")
 	# A2: the retreat panel's two columns
 	var keep := RaidLogic.loot_counts({"relics": 2, "husks": [{}], "essence": 5})
 	var left := RaidLogic.retreat_keep_lines(_hr(), _lu(), false, keep, "")
@@ -226,7 +240,8 @@ func _clear_card_tests(t: TestUtil) -> void:
 	var card_at := body.find("RaidClearCard.new()")
 	t.ok(bot > 0 and card_at > bot, "the bot check comes before the card is built")
 	var bot_branch := body.substr(bot, card_at - bot)
-	t.ok(bot_branch.contains("victory_s") and bot_branch.contains("show_banner(\"THE WARDEN IS BEATEN"), "the bot branch keeps victory_s and its banner")
+	t.ok(bot_branch.contains("victory_s") and bot_branch.contains("\"beaten_banner\"") and not bot_branch.contains("THE WARDEN IS BEATEN")
+		and str(_ww()["beaten_banner"]) == "THE WARDEN IS BEATEN · loot banked", "the bot branch keeps victory_s and its banner (raid.json's beaten_banner)")
 	var rest := body.substr(card_at)
 	t.ok(rest.contains("hud.add_child(card)") and rest.contains("card.dismissed.connect(finish_win)"), "the card is added to the HUD and its dismissal finishes the run")
 	t.ok(rest.contains("\"card_s\"") and rest.contains("create_timer") and not rest.contains("show_banner"), "a card_s timer backs it up, no banner")
@@ -286,7 +301,10 @@ func _goal_tests(t: TestUtil) -> void:
 	t.ok(_hg()["no_army"] == "NO UNDEAD WITH YOU AND NOTHING TO RAISE · retreat, then send WAR here or bring big undead", "the no-army line, word for word")
 	var cfg: Dictionary = TestUtil.load_json("res://configs/raid.json")
 	var pips := int(cfg["wardens"]["meter_pips"])
-	var verbs := {"bellringer": "muffles its slams", "huntsman": "intercepts its lunge", "shieldwall": "flanks it from behind", "pyre_priest": "snuffs an acolyte in one blow"}
+	var ww: Dictionary = cfg["wardens"]["words"]
+	var verbs := {"bellringer": ww["counter_muffle"], "huntsman": ww["counter_intercept"], "shieldwall": ww["counter_flank"], "pyre_priest": ww["counter_snuff"]}
+	var block_w := float(cfg["hud"]["warden_block_w"])
+	var row_px := int(cfg["hud"]["break_row_px"])
 	for tier in [1, 3]:
 		for a in ["bellringer", "huntsman", "shieldwall", "pyre_priest"]:
 			var sp := RaidLogic.warden_spec({"id": "x", "tier": tier, "archetype": a}, cfg)
@@ -299,8 +317,9 @@ func _goal_tests(t: TestUtil) -> void:
 			if a == "pyre_priest":
 				pm = WardenLogic.pyre_meter(sp, pips, int(cfg["wardens"]["pyre_pips_per_acolyte"]))
 				shown = int(pm["n"])
-			t.ok(WardenLogic.break_line(sp, shown).contains("%d pips" % shown), "%s: the break line holds the meter the player sees (%d; config meter_pips %d)" % [tag, shown, pips])
-			var tk := WardenLogic.takes_line(sp)
+			t.ok(WardenLogic.break_line(ww, sp, shown).contains("%d pips" % shown), "%s: the break line holds the meter the player sees (%d; config meter_pips %d)" % [tag, shown, pips])
+			t.ok(WardenLogic.break_line(ww, sp, shown) == str(ww["break_line"]) % shown, "%s: the break line is raid.json's word" % tag)
+			var tk := WardenLogic.takes_line(ww, sp)
 			var want: Array = []
 			match a:
 				"huntsman":
@@ -312,35 +331,35 @@ func _goal_tests(t: TestUtil) -> void:
 					want.append(WardenLogic._num(float(ac["attack"]["ward_mult"])))
 			var has_pack := sp.has("pack")
 			t.ok(has_pack == (tier >= int(ac["pack"]["min_tier"]) and int(ac["pack"]["size_by_tier"][str(tier)]) > 0), "%s: the spec has a pack only from its min_tier" % tag)
-			var pk_part := "×%s while its %s stand" % [WardenLogic._num(float(ac["pack"]["ward_mult"])), str(ac["pack"]["name"])]
+			var pk_part := str(ww["takes_pack"]) % [WardenLogic._num(float(ac["pack"]["ward_mult"])), str(ac["pack"]["name"])]
 			t.ok(tk.contains(pk_part) == has_pack, "%s: the takes line names the pack only where the spec has one" % tag)
 			var all_in := true
 			for m in want:
 				all_in = all_in and tk.contains("×" + str(m))
 			t.ok(all_in and (want.is_empty() and not has_pack) == (tk == ""), "%s: the takes line holds the config's multipliers %s: '%s'" % [tag, str(want), tk])
-			t.ok(tk == "" or tk.begins_with("TAKES "), "%s: the takes line starts TAKES" % tag)
+			t.ok(tk == "" or tk.begins_with(str(ww["takes_head"])) and str(ww["takes_head"]) == "TAKES ", "%s: the takes line starts TAKES" % tag)
 			var wp: Dictionary = ac["weak_point"]
 			var thr := int(wp["threshold"])
-			var base := "COUNTER · a big undead with %s %d+ %s" % [str(wp["stat"]), thr, verbs[a]]
-			t.ok(WardenLogic.counter_line(sp, []) == base + " · you have none: make one at the Crypt slab", "%s: the counter line, no bigs" % tag)
-			t.ok(WardenLogic.counter_line(sp, [thr - 1, 0]) == base + " · none in your party: make one at the Crypt slab", "%s: the counter line, none meets it" % tag)
-			t.ok(WardenLogic.counter_line(sp, [thr, thr + 3, thr - 1]) == base + " · 2 in your party", "%s: the counter line, 2 of 3 meet it" % tag)
+			var base := str(ww["counter_line"]) % [str(wp["stat"]), thr, verbs[a]]
+			t.ok(WardenLogic.counter_line(ww, sp, []) == base + str(ww["counter_none"]) + str(ww["counter_make"]), "%s: the counter line, no bigs" % tag)
+			t.ok(WardenLogic.counter_line(ww, sp, [thr - 1, 0]) == base + str(ww["counter_none_party"]) + str(ww["counter_make"]), "%s: the counter line, none meets it" % tag)
+			t.ok(WardenLogic.counter_line(ww, sp, [thr, thr + 3, thr - 1]) == base + str(ww["counter_have"]) % 2, "%s: the counter line, 2 of 3 meet it" % tag)
 			# row 1 of the awake block (raid_hud.gd WardenBlock._draw): the pips, their count, then the archetype's
 			# counter tally or teach label, then its status word: the widest it can be stays inside the plate's inset
 			var notch_n := (pm["notches"] as Array).size() if a == "pyre_priest" else WardenLogic.meter_notches(bands, WardenLogic.meter_per_band(bands, pips)).size()
 			var r1 := _row1_widest(a, sp, shown, notch_n, str(ac["pack"]["name"]))
-			t.ok(r1 <= RaidLogic.WARDEN_BLOCK_W - RaidLogic.WARDEN_BLOCK_INSET, "%s: the awake block's row 1 ends at %.0f px, inside the plate's %.0f" % [tag, r1, RaidLogic.WARDEN_BLOCK_W - RaidLogic.WARDEN_BLOCK_INSET])
-			# I1: every wrapped break row fits the awake block's plate (680 px less its 12 px insets), at BREAK_ROW_PX (15)
-			var inner := RaidLogic.WARDEN_BLOCK_W - 2.0 * RaidLogic.WARDEN_BLOCK_INSET
+			t.ok(r1 <= block_w - RaidLogic.WARDEN_BLOCK_INSET, "%s: the awake block's row 1 ends at %.0f px, inside the plate's %.0f" % [tag, r1, block_w - RaidLogic.WARDEN_BLOCK_INSET])
+			# I1: every wrapped break row fits the awake block's plate (hud.warden_block_w, 680 px, less its 12 px insets), at hud.break_row_px (15)
+			var inner := block_w - 2.0 * RaidLogic.WARDEN_BLOCK_INSET
 			for vals in [[], [thr - 1], [thr]]:
-				var rows: Array = [WardenLogic.break_line(sp, shown)]
+				var rows: Array = [WardenLogic.break_line(ww, sp, shown)]
 				if tk != "":
 					rows.append(tk)
-				rows.append(WardenLogic.counter_line(sp, vals))
-				var wrapped := RaidLogic.wrap_break_rows(rows, ThemeDB.fallback_font, RaidLogic.BREAK_ROW_PX, inner)
+				rows.append(WardenLogic.counter_line(ww, sp, vals))
+				var wrapped := RaidLogic.wrap_break_rows(rows, ThemeDB.fallback_font, row_px, inner)
 				var widest := 0.0
 				for ln in wrapped:
-					widest = maxf(widest, ThemeDB.fallback_font.get_string_size(ln, HORIZONTAL_ALIGNMENT_LEFT, -1, RaidLogic.BREAK_ROW_PX).x)
+					widest = maxf(widest, ThemeDB.fallback_font.get_string_size(ln, HORIZONTAL_ALIGNMENT_LEFT, -1, row_px).x)
 				t.ok(wrapped.size() >= rows.size() and widest <= inner, "%s %s: wrapped break rows fit the plate (%d lines, widest %.0f of %.0f px)" % [tag, str(vals), wrapped.size(), widest, inner])
 	t.ok(RaidLogic.wrap_break_rows(["a", "b"], ThemeDB.fallback_font, 13, 600.0) == PackedStringArray(["a", "b"]), "short break rows stay one line each")
 	t.ok(RaidLogic.wrap_break_rows(["COUNTER · a big undead with beef 6+ snuffs an acolyte in one blow · you have none: make one at the Crypt slab"], ThemeDB.fallback_font, 13, 656.0).size() >= 2,
@@ -572,7 +591,8 @@ func _warden_presence_tests(t: TestUtil) -> void:
 	var draw_body := _func_src(src, "func _draw_presence()")
 	var body := _func_src(src, "func _build_presence(")   # the geometry, built once per zoom and cached
 	t.ok(body.contains("wcfg().get(\"presence\""), "_build_presence reads presence from wcfg()")
-	t.ok(body.contains("\"WARDEN\"") and body.contains("break it to take this fort"), "the plates say WARDEN and what breaking it does")
+	t.ok(str(_ww()["plate_head"]) == "WARDEN" and str(_ww()["plate_foot"]) == "break it to take this fort", "the plates say WARDEN and what breaking it does (raid.json's words)")
+	t.ok(body.contains("get(\"plate_head\"") and body.contains("get(\"plate_foot\"") and not body.contains("\"WARDEN\"") and not body.contains("break it to take"), "_build_presence reads both plate words from wardens.words")
 	t.ok(draw_body.contains("zoom()") and body.contains("/ z"), "sizes are held in screen px by the zoom")
 	t.ok(draw_body.contains("_build_presence(z)") and not draw_body.contains("to_upper") and not draw_body.contains("get_string_size")
 		and not draw_body.contains("PackedVector2Array()"), "the sleeping picture is cached: the per-frame draw builds no arrays and measures no text")
@@ -745,9 +765,10 @@ func _row1_widest(a: String, sp: Dictionary, n: int, notches: int, pack_name: St
 			parts = ["FLANKED ×30 of 30", pk, took]
 		"pyre_priest":
 			parts = ["SNUFFED ×30", pk, took]
-	var widest := x + f.get_string_size(RaidLogic.fit_parts(parts, f, 15, x, tail, RaidLogic.WARDEN_BLOCK_W), HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x + tail
+	var block_w := float(_rj()["hud"]["warden_block_w"])
+	var widest := x + f.get_string_size(RaidLogic.fit_parts(parts, f, 15, x, tail, block_w), HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x + tail
 	var w_label := f.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
-	if has_label and RaidLogic.row1_fits(x, w_label, tail, RaidLogic.WARDEN_BLOCK_W):
+	if has_label and RaidLogic.row1_fits(x, w_label, tail, block_w):
 		widest = maxf(widest, x + w_label + tail)
 	return widest
 
@@ -764,6 +785,10 @@ func _rj() -> Dictionary:
 
 func _hg() -> Dictionary:   # hud.goal
 	return _rj()["hud"]["goal"]
+
+
+func _ww() -> Dictionary:   # wardens.words
+	return _rj()["wardens"]["words"]
 
 
 func _hs() -> Dictionary:   # hud.stats
@@ -1114,9 +1139,17 @@ func _goal_compact_tests(t: TestUtil) -> void:
 	t.ok(str(_hg()["no_army_short"]).contains("retreat, then send WAR here or bring big undead") and str(_hg()["no_army_short"]).begins_with("NO UNDEAD") and str(_hg()["no_army_short"]).length() < str(_hg()["no_army"]).length(),
 		"the short no-army row keeps its advice and is shorter")
 	var cc := cs.duplicate()
-	cc["break_rows"] = ["BREAK it", "TAKES x4", "COUNTER · a big undead with speed 4+ intercepts its lunge · you have none: make one at the Crypt slab"]
+	# the HUD builds both forms (RaidHud.break_rows, compact or not) and goal_rows picks one; no string is cut
+	var ww := _ww()
+	var isp := {"weak_point": {"stat": "speed", "threshold": 4.0, "effect": "intercept"}}
+	var full_counter := WardenLogic.counter_line(ww, isp, [])
+	var compact_counter := WardenLogic.counter_line(ww, isp, [], true)
+	cc["break_rows"] = ["BREAK it", "TAKES x4", full_counter]
+	cc["break_rows_compact"] = ["BREAK it", "TAKES x4", compact_counter]
 	t.ok(RaidLogic.goal_rows(_hg(), cc)[2]["text"] == "COUNTER · a big undead with speed 4+ intercepts its lunge · you have none"
-		and RaidLogic.goal_rows(_hg(), cc.merged({"compact": false}, true))[4]["text"].ends_with("make one at the Crypt slab"), "compact: the COUNTER row drops its slab tail (one line over the ring); the full block keeps it")
+		and RaidLogic.goal_rows(_hg(), cc)[2]["text"] == compact_counter
+		and RaidLogic.goal_rows(_hg(), cc.merged({"compact": false}, true))[4]["text"] == full_counter
+		and full_counter.ends_with("make one at the Crypt slab"), "compact: the COUNTER row drops its slab tail (one line over the ring); the full block keeps it")
 	cs["no_army"] = false
 	t.ok(RaidLogic.goal_rows(_hg(), cs).size() == 3, "compact without the no-army row: three rows")
 	cs["break_rows"] = ["BREAK it", "COUNTER them"]

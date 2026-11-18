@@ -242,7 +242,7 @@ func on_chest_opened(c: RaidChest) -> void:
 		# the card's path finishes with the result frozen at chest open (e.win_result); the bot has none and builds it now
 		e.finish(e.win_result if not e.win_result.is_empty() else e.build_result("warden_beaten"))   # finish guards a double: the card's click and its timer both land here
 	if RaidAutopilot.enabled():   # the measuring bot never sees the card: the banner and the victory_s beat, as before
-		_raid.hud.show_banner("THE WARDEN IS BEATEN · loot banked", float(wc.get("victory_s", 1.5)) + 1.0, "vei")
+		_raid.hud.show_banner(str(wc.get("words", {}).get("beaten_banner", "")),float(wc.get("victory_s", 1.5)) + 1.0, "vei")
 		_raid.get_tree().create_timer(float(wc.get("victory_s", 1.5))).timeout.connect(finish_win)
 		return
 	# everyone else: the clear card names what was won; a click/SPACE or `clear.card_s` ends it

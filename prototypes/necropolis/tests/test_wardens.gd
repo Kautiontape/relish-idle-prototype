@@ -445,9 +445,27 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(str(WardenLogic.pack_spots(room, me, 5, 50.0, 28.0)) == str(pts), "the same each time (no rng)")
 	var hb := WardenLogic.meter_bands(h2)
 	t.ok(hb.size() == gates.size() + 2 and is_equal_approx(hb[1], float(gates[0])), "its meter is notched where the horn sounds: %s" % str(hb))
-	t.ok(WardenLogic.pack_label(pk, 3, 5) == "HOUNDS 3 of 5 · it takes ×%s" % str(snappedf(float(pk["ward_mult"]), 0.01)), "the HUD row while they run: " + WardenLogic.pack_label(pk, 3, 5))
-	t.ok(WardenLogic.pack_label(pk, 0, 5) == "", "and nothing once they are down")
-	t.ok(WardenLogic.pack_teach(pk).begins_with("at 2/3 and 1/3 of its strength it calls %d hounds" % int(pk["size"])), "the teach row from the spec: " + WardenLogic.pack_teach(pk))
+	var ww: Dictionary = cfg["wardens"]["words"]
+	t.ok(WardenLogic.pack_label(ww, pk, 3, 5) == str(ww["pack_label"]) % ["HOUNDS", 3, 5, str(snappedf(float(pk["ward_mult"]), 0.01))], "the HUD row while they run: " + WardenLogic.pack_label(ww, pk, 3, 5))
+	t.ok(WardenLogic.pack_label(ww, pk, 0, 5) == "", "and nothing once they are down")
+	# the warden scripts read their words from wardens.words (no literal left behind), each key they read is there
+	for sf in [["warden", ["wake_banner", "pack_broke_banner", "pack_horn", "pack_warded", "pack_broke", "pack_down", "plate_head", "plate_foot"], ["WAKES ·", "\"THE PACK", "\"HORN ·", "\"break it to take"]],
+			["warden_bellringer", ["word_muffled", "word_tolled", "word_toll", "word_braced"], ["\"MUFFLED\"", "\"BRACED\"", "\"TOLL\""]],
+			["warden_huntsman", ["word_intercepted"], ["\"INTERCEPTED\""]],
+			["warden_shieldwall", ["shield_bash", "shield_rush", "shield_pinned", "shield_pin_broken", "shield_flank", "shield_glance", "word_flanked"], ["\"BASH\"", "\"GLANCE\"", "\"PINNED\"", "\"FLANK\""]],
+			["warden_pyre_priest", ["exposed_banner", "word_snuffed", "pyre_burned", "pyre_fire", "pyre_step_off", "pyre_warded_word"], ["IS EXPOSED ·", "\"SNUFFED\"", ", \"step off the fire\"", "\"WARDED\""]],
+			["raid_warden_run", ["beaten_banner"], ["WARDEN IS BEATEN"]]]:
+		var wsrc := FileAccess.get_file_as_string("res://scripts/raid/%s.gd" % sf[0])
+		var reads := true
+		for k in sf[1]:
+			reads = reads and wsrc.contains("\"%s\"" % k) and ww.has(k)
+		var left := false
+		for lit in sf[2]:
+			left = left or wsrc.contains(lit)
+		t.ok(reads and not left, "%s.gd reads its words from wardens.words and keeps no literal of them" % sf[0])
+	var gates_txt := "2/3" + str(ww["join_and"]) + "1/3"
+	var teach_head: String = str(ww["pack_teach"]) % [gates_txt, int(pk["size"]), "hounds", ""]
+	t.ok(WardenLogic.pack_teach(ww, pk).begins_with(teach_head), "the teach row from the spec (raid.json's word, the gates joined by its join_and): " + WardenLogic.pack_teach(ww, pk))
 	t.ok(RaidLogic.death_cause(cfg["death"], "hound", "The Huntsman") == "The Huntsman's hounds", "the death card names the hounds")
 	t.ok(RaidLogic.death_cause(cfg["death"], "pack", "The Bellringer") == "The Bellringer's pack", "and any other warden's pack")
 	# 3c: the death card names the attack and the tell she missed
@@ -480,12 +498,12 @@ func _pack_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(not WardenLogic.pack_breaks(3, false, true) and not WardenLogic.pack_breaks(0, true, true), "undead stand: it stays")
 	t.ok(not WardenLogic.pack_breaks(0, false, false), "no pack: nothing to break")
 	# 3b: each pack answers to its warden's own counter stat, in one blow, with the weak point's verb
-	for row in [["bellringer", "MUFFLED"], ["huntsman", "INTERCEPTED"], ["shieldwall", "FLANKED"], ["pyre_priest", "SNUFFED"]]:
+	for row in [["bellringer", ww["word_muffled"]], ["huntsman", ww["word_intercepted"]], ["shieldwall", ww["word_flanked"]], ["pyre_priest", ww["word_snuffed"]]]:
 		var sp := WardenLogic.spec({"id": "x", "tier": 3, "archetype": row[0]}, cfg)
 		var th := float(sp["weak_point"]["threshold"])
 		t.ok(WardenLogic.pack_breaker(sp, th) and not WardenLogic.pack_breaker(sp, th - 0.5), "%s: a big at its weak point's threshold breaks a pack unit, one under does not" % row[0])
-		t.ok(WardenLogic.pack_verb(sp) == row[1], "%s: the one-blow kill reads %s" % [row[0], row[1]])
-		t.ok(WardenLogic.pack_teach(sp["pack"]).contains("%s %s kills one in a blow" % [str(sp["weak_point"]["stat"]), str(snappedf(th, 0.1))]), "%s: the teach row names its counter" % row[0])
+		t.ok(WardenLogic.pack_verb(ww, sp) == row[1] and str(row[1]) != "", "%s: the one-blow kill reads %s" % [row[0], row[1]])
+		t.ok(WardenLogic.pack_teach(ww, sp["pack"]).contains(str(ww["pack_teach_weak"]) % [str(sp["weak_point"]["stat"]), str(snappedf(th, 0.1))]), "%s: the teach row names its counter" % row[0])
 	t.ok(not WardenLogic.pack_breaker(WardenLogic.spec({"id": "x", "tier": 1, "archetype": "huntsman"}, cfg), 99.0), "no pack (tier 1): nothing to break")
 	# 3b: the Shieldwall's rush is pinned by a wits flanker at its back
 	var wpos := Vector2(500, 500)
@@ -765,9 +783,11 @@ func _pyre_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var capped := sp4.duplicate(true)
 	capped["attack"]["relish_areas_max"] = 1
 	t.ok(WardenLogic.burn_aim_relish(capped, 0, 4) == 1 and WardenLogic.burn_count(capped, 0, 4) == 4, "relish_areas_max caps the fires on her (the rest go on essence)")
-	t.ok(WardenLogic.pyre_label(sp3, 0, 3).contains("warded ×%s" % str(at["ward_mult"])) and WardenLogic.pyre_label(sp3, 0, 3).contains("3 fires every 4 beats")
-		and WardenLogic.pyre_label(sp3, 0, 3).contains("2 at Relish"), "the HUD's pyre line while warded: " + WardenLogic.pyre_label(sp3, 0, 3))
-	t.ok(WardenLogic.pyre_label(sp3, 1, 0) == "exposed · 1 fire every 3 beats", "and once exposed: " + WardenLogic.pyre_label(sp3, 1, 0))
+	var ww: Dictionary = cfg["wardens"]["words"]
+	var fires3 := str(ww["pyre_fires"]) % [3, str(ww["pyre_plural"]), "4"]
+	t.ok(WardenLogic.pyre_label(ww, sp3, 0, 3).contains(str(ww["pyre_warded"]).get_slice("%s", 0) + str(at["ward_mult"])) and WardenLogic.pyre_label(ww, sp3, 0, 3).contains(fires3)
+		and WardenLogic.pyre_label(ww, sp3, 0, 3).contains(str(ww["pyre_at_relish"]) % 2), "the HUD's pyre line while warded: " + WardenLogic.pyre_label(ww, sp3, 0, 3))
+	t.ok(WardenLogic.pyre_label(ww, sp3, 1, 0) == str(ww["pyre_exposed"]) % (str(ww["pyre_fires"]) % [1, "", "3"]), "and once exposed: " + WardenLogic.pyre_label(ww, sp3, 1, 0))
 
 	t.suite("pyre_burn_pick")
 	var cands := [Vector2(0, 0), Vector2(10, 0), Vector2(20, 0), Vector2(300, 0), Vector2(305, 0)]
@@ -938,17 +958,19 @@ func _shield_tests(t: TestUtil, cfg: Dictionary) -> void:
 		ph_ok = ph_ok and WardenLogic.bellringer_phase(sw, hf) == exp[hf]
 	t.ok(ph_ok, "its phases are hp thirds")
 	t.near(float(WardenLogic.shield_phase(sw, 9)["turn_deg_s"]), float(ph[2]["turn_deg_s"]), 0.0001, "shield_phase clamps the phase")
-	var lab := WardenLogic.shield_label(sw, 0)
+	var ww: Dictionary = cfg["wardens"]["words"]
+	var lab := WardenLogic.shield_label(ww, sw, 0)
+	t.ok(lab == str(ww["shield_line"]) % [int(ph[0]["front_half_deg"]), "0.1", str(a["attack"]["back_mult"]), int(ph[0]["turn_deg_s"]), "4"], "the HUD's shield line is raid.json's word filled from the spec: " + lab)
 	t.ok(lab.contains("±%d°" % int(ph[0]["front_half_deg"])) and lab.contains("%d°/s" % int(ph[0]["turn_deg_s"])) and lab.contains("glances ×0.1")
 		and lab.contains("back ×%s" % str(a["attack"]["back_mult"])) and lab.contains("every 4 beats"), "the HUD's shield line comes from the spec: " + lab)
-	t.ok(WardenLogic.shield_label(sw, 2).contains("every 2 beats"), "the shield line follows the phase")
+	t.ok(WardenLogic.shield_label(ww, sw, 2).contains("every 2 beats"), "the shield line follows the phase")
 	# D-e task 4: the HUD teaches the pin-break where the rule is on (rush_lane_every > 0 and the lever on), else silent
 	var swl: Dictionary = sw.duplicate(true)
 	swl["attack"]["rush_lane_every"] = 3
 	var swo: Dictionary = sw.duplicate(true)
 	swo["attack"]["rush_lane_every"] = 0
-	t.ok(WardenLogic.shield_label(swl, 0, true).ends_with(" · every 3rd breaks the pin") and not WardenLogic.shield_label(swl, 0, false).contains("pin")
-		and WardenLogic.shield_label(swo, 0, true) == WardenLogic.shield_label(swo, 0),
+	t.ok(WardenLogic.shield_label(ww, swl, 0, true).ends_with(str(ww["shield_pin"]) % ("3" + str(ww["ord_rd"]))) and not WardenLogic.shield_label(ww, swl, 0, false).contains("pin")
+		and WardenLogic.shield_label(ww, swo, 0, true) == WardenLogic.shield_label(ww, swo, 0),
 		"the shield line says 'every 3rd breaks the pin' with the rule and the lever on; nothing below the lever or with the rule off")
 
 	t.suite("shieldwall_arc")
@@ -1104,13 +1126,16 @@ func _meter_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(hp == total and WardenLogic.meter_notches(hb, hp).is_empty(), "no notches on its strength")
 	t.ok(WardenLogic.meter_lit(hb, hp, 0.5) == total / 2 and WardenLogic.meter_lit(hb, hp, 0.51) == total / 2 + 1, "flat meter is the ceiling of hp x pips")
 	t.ok(WardenLogic.catch_notches(hunt) == [2, 4], "the Huntsman's notches are on its catches (2, 4)")
-	var cl := WardenLogic.catch_label(hunt)
+	var ww: Dictionary = cfg["wardens"]["words"]
+	var cl := WardenLogic.catch_label(ww, hunt)
+	var ally := str(ww["catch_ally"])
+	t.ok(cl == str(ww["catch_label"]) % [12, ally, "2" + str(ww["join_and"]) + "4"], "the CAUGHT label is raid.json's word, the cost and the thresholds (joined by join_and) from the spec: " + cl)
 	t.ok(cl.contains("costs Relish 12 hp") and cl.contains("at 2 and 4 catches"), "the CAUGHT label states the cost and the thresholds from the spec: " + cl)
 	var hunt_first := WardenLogic.spec({"id": "x", "tier": 1, "archetype": "huntsman", "first_dungeon": true}, cfg)
-	t.ok(WardenLogic.catch_label(hunt_first).contains("costs Relish 7 hp"), "the first dungeon's softer catch is the label's number (7)")
-	t.ok(cl.contains("(an ally takes a killing one)") and not WardenLogic.catch_label(hunt, true).contains("an ally takes") and WardenLogic.catch_label(hunt, true).contains("costs Relish 12 hp"),
+	t.ok(WardenLogic.catch_label(ww, hunt_first).contains("costs Relish 7 hp"), "the first dungeon's softer catch is the label's number (7)")
+	t.ok(cl.contains(ally) and ally.contains("an ally takes a killing one") and not WardenLogic.catch_label(ww, hunt, true).contains("an ally takes") and WardenLogic.catch_label(ww, hunt, true).contains("costs Relish 12 hp"),
 		"with the tell bypass on (t2 up) the label drops the ally note: a killing catch is hers")
-	t.ok(WardenLogic.catch_label(bell) == "", "the Bellringer has no catch label")
+	t.ok(WardenLogic.catch_label(ww, bell) == "", "the Bellringer has no catch label")
 	t.ok(WardenLogic.catch_slots(hunt) == 6, "the CAUGHT track shows the open last phase (6 slots)")
 	t.ok(WardenLogic.catch_notches(bell).is_empty() and WardenLogic.catch_slots(bell) == 0, "the Bellringer has no CAUGHT track")
 	var agree2 := true

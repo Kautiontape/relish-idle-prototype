@@ -574,7 +574,8 @@ func run() -> int:
 	t.ok(step_src.contains("WardenLogic.pack_breaks(pack.size(), horn_beat >= 0.0, raid.has_allies())") and step_src.contains("_scatter_pack()"),
 		"with no undead standing the pack breaks (RaidWarden._pack_step -> _scatter_pack)")
 	var sc_src := _func_body("res://scripts/raid/warden.gd", "func _scatter_pack(")
-	t.ok(sc_src.contains("u.scatter()") and not sc_src.contains(".die(") and sc_src.contains("THE PACK BREAKS"), "it leaves, not dies (no drops, no kill), with its banner")
+	t.ok(sc_src.contains("u.scatter()") and not sc_src.contains(".die(") and sc_src.contains("\"pack_broke_banner\"") and not sc_src.contains("THE PACK BREAKS")
+		and str(TestUtil.load_json("res://configs/raid.json")["wardens"]["words"]["pack_broke_banner"]).begins_with("THE PACK BREAKS"), "it leaves, not dies (no drops, no kill), with its banner (raid.json's pack_broke_banner)")
 	var us_src := _func_body("res://scripts/raid/raid_unit.gd", "func scatter(")
 	t.ok(us_src.contains("raid.enemies.erase(self)") and not us_src.contains("on_unit_died"), "a scattered unit leaves the enemies without a kill")
 	var pt_src := _func_body("res://scripts/raid/raid_warden_run.gd", "func pack_target(")
@@ -2129,8 +2130,8 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var nx_600 := _nx({"death_ends": {"outcome": "unmade", "respawn_s": 600.0}})
 	t.ok(nx_600["text"] == "unmade · reforms at Covington in 10 min · the town takes a morale shock", "unmade at 600 s: reforms at Covington in 10 min, the town takes a morale shock (%s)" % nx_600["text"])
 	t.ok(RaidLogic.phylactery_word(_hs(), 0).contains("the raid") and not RaidLogic.phylactery_word(_hs(), 0).contains("the run") and RaidLogic.phylactery_word(_hs(), 1) == "", "the PHYLACT. word says a death ends the raid, not the run")
-	t.ok(RaidLogic.BREAK_ROW_PX >= 15 and RaidLogic.BREAK_ROW_KEY == "text" and RaidLogic.BREAK_ROW_STEP >= float(RaidLogic.BREAK_ROW_PX), "the win line (break / takes / counter rows) is at least 15 px in the text key")
-	# no player-facing string in the raid scripts calls a death the end of "the run" (code names and comments stay)
+	var hud_cfg: Dictionary = TestUtil.load_json("res://configs/raid.json")["hud"]
+	t.ok(int(hud_cfg["break_row_px"]) >= 15 and RaidLogic.BREAK_ROW_KEY == "text" and float(hud_cfg["break_row_step"]) >= float(hud_cfg["break_row_px"]), "the win line (break / takes / counter rows) is at least 15 px in the text key")	# no player-facing string in the raid scripts calls a death the end of "the run" (code names and comments stay)
 	var run_words: Array = []
 	for fn in DirAccess.get_files_at("res://scripts/raid"):
 		if not fn.ends_with(".gd"):

@@ -312,5 +312,5 @@ func _draw_telegraph(ci: CanvasItem) -> void:
 	if is_stunned():
 		# the weak point working, in the world (>= label_px on screen at any zoom)
 		var fs := roundi(float(wcfg().get("label_px", 15)) / zoom())
-		ci.draw_string(ThemeDB.fallback_font, Vector2(-fs * 5.0, -radius * 1.8 - fs * 1.4), "INTERCEPTED",
+		ci.draw_string(ThemeDB.fallback_font, Vector2(-fs * 5.0, -radius * 1.8 - fs * 1.4), str(wwords().get("word_intercepted", "")),
 			HORIZONTAL_ALIGNMENT_CENTER, fs * 10.0, fs, Palette.c("undead"))

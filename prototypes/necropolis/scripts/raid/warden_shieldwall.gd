@@ -400,11 +400,11 @@ func _draw_telegraph(ci: CanvasItem) -> void:
 		for s in [-1.0, 1.0]:
 			var e := Vector2.RIGHT.rotated(facing + h * s)
 			ci.draw_line(e * (radius + 4.0), e * reach, Palette.c("danger", 0.8), 2.0)
-		_word(ci, dir * (reach + fs * 0.9), "RUSH" if rushing else "BASH", fs, Palette.c("danger"))
+		_word(ci, dir * (reach + fs * 0.9), str(wwords().get("shield_rush", "")) if rushing else str(wwords().get("shield_bash", "")), fs, Palette.c("danger"))
 		if not rushing and float(at.get("rush_px", 0.0)) > 0.0:
-			_word(ci, Vector2(0, -radius * 2.0 - fs * 2.8), "PINNED", fs, Palette.c("undead"))   # the flankers hold it
+			_word(ci, Vector2(0, -radius * 2.0 - fs * 2.8), str(wwords().get("shield_pinned", "")), fs, Palette.c("undead"))   # the flankers hold it
 		elif pin_broke:
-			_word(ci, Vector2(0, -radius * 2.0 - fs * 2.8), "PIN BROKEN", fs, Palette.c("danger"))   # D-e task 4: the lane comes all the same
+			_word(ci, Vector2(0, -radius * 2.0 - fs * 2.8), str(wwords().get("shield_pin_broken", "")), fs, Palette.c("danger"))   # D-e task 4: the lane comes all the same
 	elif _bash_flash > 0.0:
 		# the bash's after-image along the arc it struck (a step, not a fade, under reduced motion)
 		var a := 0.3 if Pulse.reduced_motion else 0.3 * _bash_flash
@@ -432,11 +432,11 @@ func _draw_telegraph(ci: CanvasItem) -> void:
 	var hold := float(wcfg().get("shield_label_s", 0.8))
 	var out := radius + float(wcfg().get("shield_label_out_px", 56.0)) + fs * 0.5
 	if _flank_t < hold:
-		_word(ci, Vector2.RIGHT.rotated(_flank_at) * out, "FLANKED", fs, Palette.c("undead"))
+		_word(ci, Vector2.RIGHT.rotated(_flank_at) * out, str(wwords().get("word_flanked", "")), fs, Palette.c("undead"))
 	else:
-		_word(ci, -dir * out, "FLANK", fs, Palette.c("text_dim"))
+		_word(ci, -dir * out, str(wwords().get("shield_flank", "")), fs, Palette.c("text_dim"))
 	if _glance_t < hold and not planted:
-		_word(ci, dir * out, "GLANCE", fs, Palette.c("text"))
+		_word(ci, dir * out, str(wwords().get("shield_glance", "")), fs, Palette.c("text"))
 
 
 ## A word centred on `p` (canvas local), `px` tall.

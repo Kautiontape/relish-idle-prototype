@@ -137,7 +137,7 @@ func _on_phase_change(old: int, new: int) -> void:
 	if old == 0 and new > 0 and exposed_s < 0.0:
 		exposed_s = snappedf(t - _t0, 0.01)
 		if raid.hud != null:
-			raid.hud.show_banner("%s IS EXPOSED · its fire grows" % str(spec.get("name", "")).to_upper(),
+			raid.hud.show_banner(RaidLogic.word_fmt(wwords(), "exposed_banner", [str(spec.get("name", "")).to_upper()]),
 				float(wcfg().get("wake_banner_s", 3.5)), "danger")
 
 
@@ -183,7 +183,7 @@ func _acolyte_falls(a: RaidAcolyte, snuffed: bool) -> void:
 		var pips := WardenLogic.pyre_snuff_pips(_meter, living0, living())
 		mark_weak_range(pips.x, pips.y)   # the snuff took these acolyte pips
 		RaidSound.play("snuff")
-		_label(a.global_position + Vector2(0, -a.radius * 2.2), "SNUFFED", "undead")
+		_label(a.global_position + Vector2(0, -a.radius * 2.2), str(wwords().get("word_snuffed", "")), "undead")
 		RaidFx.ring(raid.fx_root, a.global_position, Palette.c("undead"), 40.0, 0.45, 3.0)
 	else:
 		RaidFx.ring(raid.fx_root, a.global_position, Palette.c("vei", 0.8), 30.0, 0.4, 2.5)
@@ -351,7 +351,7 @@ func _ignite() -> void:
 			burn_soaked += 1   # the chain spent an ally for her
 	for i in areas.size():
 		if per[i] > 0:
-			_label(areas[i], "BURNED −%d" % per[i], "danger")
+			_label(areas[i], RaidLogic.word_fmt(wwords(), "pyre_burned", [per[i]]), "danger")
 	_burnt = areas.duplicate()
 	_burnt_r = area_r
 	_burn_flash = 1.0
@@ -467,7 +467,7 @@ func _draw_telegraph(ci: CanvasItem) -> void:
 				var d := Vector2.RIGHT.rotated(TAU * float(k) / float(ticks) + 0.26)
 				ci.draw_line(p + d * (area_r - 2.0), p + d * (area_r + 7.0 + 3.0 * f), Palette.c("danger", 0.85), 2.0)
 			if Pulse.reduced_motion:
-				_word(ci, p, "FIRE", fs, Palette.c("danger"))
+				_word(ci, p, str(wwords().get("pyre_fire", "")), fs, Palette.c("danger"))
 		if _first_tell_for == _next_attack and not areas.is_empty():
 			# the first time: say what to do, under the area nearest her
 			var at := areas[0]
@@ -475,7 +475,7 @@ func _draw_telegraph(ci: CanvasItem) -> void:
 			if rel != null and is_instance_valid(rel):
 				var i := WardenLogic.nearest_index(rel.global_position, areas)
 				at = areas[maxi(0, i)]
-			_word(ci, at - me + Vector2(0, area_r + fs * 1.1), "step off the fire", fs, Palette.c("text"))
+			_word(ci, at - me + Vector2(0, area_r + fs * 1.1), str(wwords().get("pyre_step_off", "")), fs, Palette.c("text"))
 	elif _burn_flash > 0.0:
 		var a := 0.3 if Pulse.reduced_motion else 0.3 * _burn_flash
 		for c in _burnt:
@@ -492,7 +492,7 @@ func _draw_telegraph(ci: CanvasItem) -> void:
 		LineGlow.ring(ci, from, float(u.radius) + 6.0, Palette.c("undead"), 2.4, 0.8)
 	var hold := float(wcfg().get("pyre_label_s", 0.9))
 	if _ward_t < hold and living() > 0:
-		_word(ci, Vector2(0, -radius * 2.15 - fs * 0.6), "WARDED", fs, Palette.c("vei"))
+		_word(ci, Vector2(0, -radius * 2.15 - fs * 0.6), str(wwords().get("pyre_warded_word", "")), fs, Palette.c("vei"))
 	for l in _labels:
 		_word(ci, (l["pos"] as Vector2) - me, str(l["text"]), fs, Palette.c(str(l["key"])))
 

@@ -150,7 +150,7 @@ func _step(delta: float) -> void:
 			if struck:
 				tolls_struck += 1
 				rel0.take_hit(WardenLogic.slam_damage(spec, "relish", 0.0, false, true), "toll")   # its own source: the card tells it from the slam
-			_toll_word = "MUFFLED" if muffled else ("TOLLED" if struck else "")
+			_toll_word = str(wwords().get("word_muffled", "")) if muffled else (str(wwords().get("word_tolled", "")) if struck else "")
 			toll_marks["%.4f" % _slam_beat] = "muffled" if muffled else ("struck" if struck else "placed")
 			_toll_word_at = toll_at
 			_toll_word_t = 0.0
@@ -181,9 +181,9 @@ func _draw_toll(ci: CanvasItem) -> void:
 		var p := toll_at - global_position
 		LineGlow.ring(ci, p, toll_r, Palette.c("danger", 0.45 + 0.45 * f), 2.5 / zoom(), 0.6)
 		ci.draw_arc(p, toll_r * (1.0 - 0.25 * (1.0 - f)), 0.0, TAU, 40, Palette.c("danger", 0.35), 1.5 / zoom())
-		_pack_word(ci, p + Vector2(0, -toll_r - fs * 0.8), "TOLL", fs, Palette.c("danger"))
+		_pack_word(ci, p + Vector2(0, -toll_r - fs * 0.8), str(wwords().get("word_toll", "")), fs, Palette.c("danger"))
 	elif _toll_word != "" and _toll_word_t < float(wcfg().get("pack_label_s", 1.2)):
-		_pack_word(ci, _toll_word_at - global_position, _toll_word, fs, Palette.c("undead") if _toll_word == "MUFFLED" else Palette.c("danger"))
+		_pack_word(ci, _toll_word_at - global_position, _toll_word, fs, Palette.c("undead") if _toll_word == str(wwords().get("word_muffled", "")) else Palette.c("danger"))
 
 
 ## Who is bracing the bell (the bigs the muffle counts: beef at the threshold, within the pad), kept
@@ -330,7 +330,7 @@ func _draw_telegraph(ci: CanvasItem) -> void:
 				for k in n:
 					var a0 := TAU * k / float(n)
 					ci.draw_arc(Vector2.ZERO, r, a0, a0 + TAU / float(n) * 0.5, 4, Palette.c("danger", 0.4 * fade), 1.5)
-				ci.draw_string(ThemeDB.fallback_font, Vector2(-fs * 4.0, -r - fs * 0.35), "MUFFLED",
+				ci.draw_string(ThemeDB.fallback_font, Vector2(-fs * 4.0, -r - fs * 0.35), str(wwords().get("word_muffled", "")),
 					HORIZONTAL_ALIGNMENT_CENTER, fs * 8.0, fs, Palette.c("undead", minf(1.0, 0.4 + fade)))
 			else:
 				ci.draw_arc(Vector2.ZERO, r, 0.0, TAU, 96, Palette.c("danger", 0.12 * fade), band)
@@ -350,5 +350,5 @@ func _draw_telegraph(ci: CanvasItem) -> void:
 		ci.draw_arc(Vector2.ZERO, radius + 6.0, 0.0, TAU, 32, Palette.c("undead", 0.6), 2.0)
 		if not (_slam_beat >= 0.0 and _slam_muffled):
 			var fs2 := roundi(float(wcfg().get("label_px", 15)) / zoom())
-			ci.draw_string(ThemeDB.fallback_font, Vector2(-fs2 * 4.0, -radius * 1.25 - fs2 * 0.6), "BRACED",
+			ci.draw_string(ThemeDB.fallback_font, Vector2(-fs2 * 4.0, -radius * 1.25 - fs2 * 0.6), str(wwords().get("word_braced", "")),
 				HORIZONTAL_ALIGNMENT_CENTER, fs2 * 8.0, fs2, Palette.c("undead"))

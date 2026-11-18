@@ -102,6 +102,11 @@ func wcfg() -> Dictionary:
 	return ConfigDb.data.get("raid", {}).get("wardens", {})
 
 
+## The wardens' words (raid.json wardens.words), blank where one is missing.
+func wwords() -> Dictionary:
+	return wcfg().get("words", {})
+
+
 func tempo_s() -> float:
 	return Pulse.tempo_ms / 1000.0
 
@@ -158,7 +163,7 @@ func wake() -> void:
 	var tells: Array = spec.get("tells", [])
 	var first := str(tells[0]) if not tells.is_empty() else ""
 	if raid.hud != null:
-		raid.hud.show_banner("%s WAKES · %s" % [str(spec.get("name", "")).to_upper(), first],
+		raid.hud.show_banner(RaidLogic.word_fmt(wwords(), "wake_banner", [str(spec.get("name", "")).to_upper(), first]),
 			float(wcfg().get("wake_banner_s", 3.5)), "danger")
 	RaidFx.ring(raid.fx_root, global_position, Palette.c("danger", 0.8), radius * 3.0, 0.7, 3.0)
 	if raid._standalone:
@@ -329,7 +334,7 @@ func _scatter_pack() -> void:
 	pack_down_t = 99.0   # (the breaking, not NAME DOWN, is the labelled result)
 	_on_pack_down()
 	if raid.hud != null:
-		raid.hud.show_banner("THE PACK BREAKS — ward down", float(wcfg().get("pack_label_s", 1.2)) * 2.0, "undead")
+		raid.hud.show_banner(str(wwords().get("pack_broke_banner", "")), float(wcfg().get("pack_label_s", 1.2)) * 2.0, "undead")
 	if raid._standalone:
 		print("RAID_WARDEN pack scattered n=%d units=%d frame=%d" % [horns, n, Engine.get_process_frames()])
 
@@ -349,7 +354,7 @@ func on_pack_broken(at: Vector2) -> void:
 	pack_broken += 1
 	_pack_words.append({"pos": at, "t": 0.0})
 	if raid._standalone:
-		print("RAID_WARDEN pack broken n=%d %s frame=%d" % [pack_broken, WardenLogic.pack_verb(spec), Engine.get_process_frames()])
+		print("RAID_WARDEN pack broken n=%d %s frame=%d" % [pack_broken, WardenLogic.pack_verb(wwords(), spec), Engine.get_process_frames()])
 
 
 ## The pack's counts, for the measuring bot (AUTOPILOT_RESULT `pack`).
@@ -373,19 +378,19 @@ func _draw_pack(ci: CanvasItem) -> void:
 	var hold := float(wcfg().get("pack_label_s", 1.2))
 	for w in _pack_words:
 		if float(w["t"]) < hold:
-			_pack_word(ci, (w["pos"] as Vector2) - global_position, WardenLogic.pack_verb(spec), fs, Palette.c("undead"))
+			_pack_word(ci, (w["pos"] as Vector2) - global_position, WardenLogic.pack_verb(wwords(), spec), fs, Palette.c("undead"))
 	if horn_beat >= 0.0:
 		var f := 1.0 if Pulse.reduced_motion else clampf(1.0 - (horn_beat - beat()) / maxf(0.01, float(pk.get("horn_beats", 1.0))), 0.0, 1.0)
 		for p in horn_pts:
 			var at: Vector2 = p - global_position
 			LineGlow.ring(ci, at, (30.0 - 14.0 * f) / zoom(), Palette.c("danger", 0.55 + 0.4 * f), 2.6 / zoom(), 0.6)
-		_pack_word(ci, top, "HORN · %d %s" % [horn_pts.size(), str(pk.get("name", "pack"))], fs, Palette.c("danger"))
+		_pack_word(ci, top, RaidLogic.word_fmt(wwords(), "pack_horn", [horn_pts.size(), str(pk.get("name", "pack"))]), fs, Palette.c("danger"))
 	elif pack_alive() > 0:
-		_pack_word(ci, top, nm + " · WARDED", fs, Palette.c("vei"))
+		_pack_word(ci, top, RaidLogic.word_fmt(wwords(), "pack_warded", [nm]), fs, Palette.c("vei"))
 	elif pack_scatter_t < hold * 2.0:
-		_pack_word(ci, top, "THE PACK BREAKS · WARD DOWN", fs, Palette.c("undead"))
+		_pack_word(ci, top, str(wwords().get("pack_broke", "")), fs, Palette.c("undead"))
 	elif pack_down_t < hold:
-		_pack_word(ci, top, nm + " DOWN", fs, Palette.c("undead"))
+		_pack_word(ci, top, RaidLogic.word_fmt(wwords(), "pack_down", [nm]), fs, Palette.c("undead"))
 
 
 func _pack_word(ci: CanvasItem, p: Vector2, text: String, px: int, col: Color) -> void:
@@ -522,8 +527,8 @@ func _build_presence(z: float) -> void:
 	var label_px := maxi(12, int(pc.get("label_px", 13)))
 	var clear := dr + float(pc.get("plate_gap_px", 6.0)) / z
 	var nm := str(spec.get("name", "")).to_upper()
-	var above: Array = [["WARDEN", label_px, Palette.c("vei")], [nm, name_px, Palette.c("vei")]]
-	var below: Array = [["break it to take this fort", label_px, Palette.c("text")]]
+	var above: Array = [[str(wwords().get("plate_head", "")), label_px, Palette.c("vei")], [nm, name_px, Palette.c("vei")]]
+	var below: Array = [[str(wwords().get("plate_foot", "")), label_px, Palette.c("text")]]
 	_pres = {"vei_ring": vei_ring, "plinth": pts, "plinth_col": Palette.c("vei", float(pc.get("plinth_alpha", 0.55))),
 		"rr": rr, "ticks": ticks, "dashes": dashes, "plate_a": float(pc.get("plate_alpha", 0.8)),
 		"plates": [

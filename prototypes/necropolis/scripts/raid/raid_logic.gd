@@ -610,14 +610,13 @@ static func goal_rows(words: Dictionary, s: Dictionary) -> Array:
 		rows.append({"text": goal_line(words, fort, str(s.get("warden_name", "")), false), "px": gpx, "key": "vei"})
 		if not compact:
 			rows.append({"text": str(s.get("route_text", "")), "px": rpx, "key": "text"})
-		var br: Array = s.get("break_rows", [])
+		# compact: `break_rows_compact`, the same rows with the COUNTER row built without its "make one at the Crypt
+		# slab" advice (WardenLogic.counter_line compact): at 15 px it would wrap and cover the ring
+		var br: Array = s.get("break_rows_compact", s.get("break_rows", [])) if compact else s.get("break_rows", [])
 		for i in br.size():
 			if compact and br.size() > 2 and i > 0 and i < br.size() - 1:
 				continue   # the TAKES row (between the BREAK and COUNTER rows) waits for the full block
-			var bt := str(br[i])
-			if compact:
-				bt = bt.get_slice(": make one", 0)   # the COUNTER row's "make one at the Crypt slab" waits for the full block: at 15 px it would wrap and cover the ring
-			rows.append({"text": bt, "px": maxi(xpx, BREAK_ROW_PX), "key": BREAK_ROW_KEY})
+			rows.append({"text": str(br[i]), "px": maxi(xpx, int(s.get("break_px", 15))), "key": BREAK_ROW_KEY})
 	elif bool(s.get("chest", false)):
 		rows.append({"text": goal_line(words, fort, str(s.get("warden_name", "")), false), "px": gpx, "key": "vei"})
 		rows.append({"text": str(words.get("chest_row", "")), "px": rpx, "key": "text"})
@@ -668,7 +667,7 @@ static func over(top: Color, alpha: float, under: Color) -> Color:
 ## what the block is taller than its TOP_BLOCK_BASE_H base (`block_h` is its height).
 const TOP_BLOCK_BASE_H := 62.0   # the awake WardenBlock's height with no extra rows
 
-const WARDEN_BLOCK_W := 680.0    # the awake WardenBlock's plate width
+## (The awake WardenBlock's plate width is raid.json hud.warden_block_w.)
 const WARDEN_BLOCK_INSET := 12.0   # its text's inset each side
 
 
@@ -689,8 +688,8 @@ static func fit_parts(parts: Array, font: Font, px: int, x: float, reserve: floa
 ## the COUNTER row under it says the same in full, so nothing is lost and nothing runs off the plate.
 static func row1_fits(x: float, w: float, reserve: float, plate_w: float) -> bool:
 	return x + w + reserve <= plate_w - WARDEN_BLOCK_INSET
-const BREAK_ROW_PX := 15           # the break / takes / counter rows' font size (the win line: at least 15, in the `text` key)
-const BREAK_ROW_STEP := 22.0       # one wrapped line's height (the font's height at BREAK_ROW_PX is 17, plus 5)
+## (The break / takes / counter rows' font size is raid.json hud.break_row_px, at least 15 as the win line, and one
+## wrapped line's height hud.break_row_step: the font's height at 15 is 17, plus 5.)
 const BREAK_ROW_KEY := "text"      # the break / takes / counter rows' colour key (full value tone)
 
 

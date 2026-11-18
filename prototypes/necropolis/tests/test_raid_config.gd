@@ -41,6 +41,21 @@ const WORDS := [
 	"vei_loss.break_label", "vei_loss.break_text", "vei_loss.fronts_label", "vei_loss.fronts_text", "vei_loss.held_clause",
 	"vei_loss.pressure_label", "vei_loss.pressure_text", "vei_loss.reserve", "vei_loss.tag",
 	"wardens.last_chance", "wardens.last_chance_loose", "wardens.meter_label",
+	"wardens.words.plate_head", "wardens.words.plate_foot", "wardens.words.wake_banner", "wardens.words.exposed_banner",
+	"wardens.words.beaten_banner", "wardens.words.pack_broke_banner", "wardens.words.pack_horn", "wardens.words.pack_warded",
+	"wardens.words.pack_broke", "wardens.words.pack_down", "wardens.words.pack_teach", "wardens.words.pack_teach_weak",
+	"wardens.words.pack_label", "wardens.words.word_muffled", "wardens.words.word_intercepted", "wardens.words.word_flanked",
+	"wardens.words.word_snuffed", "wardens.words.word_broken", "wardens.words.word_tolled", "wardens.words.word_toll",
+	"wardens.words.word_braced", "wardens.words.shield_bash", "wardens.words.shield_rush", "wardens.words.shield_pinned",
+	"wardens.words.shield_pin_broken", "wardens.words.shield_flank", "wardens.words.shield_glance", "wardens.words.shield_line",
+	"wardens.words.shield_pin", "wardens.words.ord_st", "wardens.words.ord_nd", "wardens.words.ord_rd", "wardens.words.ord_th",
+	"wardens.words.pyre_fire", "wardens.words.pyre_step_off", "wardens.words.pyre_warded_word", "wardens.words.pyre_burned",
+	"wardens.words.pyre_fires", "wardens.words.pyre_plural", "wardens.words.pyre_exposed", "wardens.words.pyre_warded",
+	"wardens.words.pyre_at_relish", "wardens.words.break_line", "wardens.words.takes_head", "wardens.words.takes_stunned",
+	"wardens.words.takes_shield", "wardens.words.takes_acolyte", "wardens.words.takes_pack", "wardens.words.counter_line",
+	"wardens.words.counter_muffle", "wardens.words.counter_intercept", "wardens.words.counter_flank", "wardens.words.counter_snuff",
+	"wardens.words.counter_none", "wardens.words.counter_none_party", "wardens.words.counter_make", "wardens.words.counter_have",
+	"wardens.words.catch_label", "wardens.words.catch_ally", "wardens.words.join_and", "wardens.words.join_comma",
 ]
 
 ## The words the code formats, with the placeholders each must keep ("%d" words go through `%`, which throws without one).
@@ -61,6 +76,15 @@ const FORMATS := {
 	"held_door.label_held": ["%s"], "held_door.label_sent": ["%s"], "held_door.label_shut": ["%s"], "held_door.label_freed": ["%s"],
 	"held_door.row_held": ["%s"], "held_door.row_shut": ["%s"],
 	"held_door.retreat_sent": ["%s"], "held_door.retreat_held": ["%s"], "held_door.retreat_shut": ["%s"],
+	"wardens.words.wake_banner": ["%s", "%s"], "wardens.words.exposed_banner": ["%s"], "wardens.words.pack_horn": ["%d", "%s"],
+	"wardens.words.pack_warded": ["%s"], "wardens.words.pack_down": ["%s"], "wardens.words.pack_teach": ["%s", "%d", "%s", "%s"],
+	"wardens.words.pack_teach_weak": ["%s", "%s"], "wardens.words.pack_label": ["%s", "%d", "%d", "%s"],
+	"wardens.words.shield_line": ["%d", "%s", "%s", "%d", "%s"], "wardens.words.shield_pin": ["%s"],
+	"wardens.words.pyre_burned": ["%d"], "wardens.words.pyre_fires": ["%d", "%s", "%s"], "wardens.words.pyre_exposed": ["%s"],
+	"wardens.words.pyre_warded": ["%s", "%s", "%s"], "wardens.words.pyre_at_relish": ["%d"], "wardens.words.break_line": ["%d"],
+	"wardens.words.takes_stunned": ["%s"], "wardens.words.takes_shield": ["%s", "%s"], "wardens.words.takes_acolyte": ["%s"],
+	"wardens.words.takes_pack": ["%s", "%s"], "wardens.words.counter_line": ["%s", "%d", "%s"], "wardens.words.counter_have": ["%d"],
+	"wardens.words.catch_label": ["%d", "%s", "%s"],
 }
 
 
