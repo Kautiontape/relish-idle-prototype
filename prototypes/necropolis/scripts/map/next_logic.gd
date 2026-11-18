@@ -14,7 +14,9 @@ extends RefCounted
 ##   raid     the blueprint ask: the first "first_clear" entry of the same set (the first dungeon's
 ##            included), or the previous pick's target while it is still a first-clear entry;
 ##   plan     the build queue empty (queue, only when view_town carries `queue`), else the
-##            standing objective (default).
+##            standing objective (default), with "Next: <fort>" appended and that fort the click's
+##            target: inp.place, MapModel.next_place (next_place).
+## Every line but the won line and the opening's valve ask names where to go: a fort, Covington or Vei.
 ## Clicks resolve through AwayLogic.action, the same resolver as the away panel's lines.
 ## Tuning and words: configs/map_view.json "next".
 
@@ -109,6 +111,32 @@ static func _why(f: Dictionary, frontier: int, kept: bool, c: Dictionary) -> Str
 	return ""
 
 
+## The place the standing objective points at (the strip's default line): the fort that is still
+## Vei's (not held) on the frontier (frontier_tier of those forts, or the lowest tier among them
+## when none has a first clear left), the nearest to `from_pos` (a fort with no entry in `positions`
+## ranks after those with one), then world order. "" when every fort is held.
+static func next_place(forts: Array, from_pos: Vector2, positions: Dictionary) -> String:
+	var open: Array = forts.filter(func(f): return not bool(f.get("held", false)))
+	if open.is_empty():
+		return ""
+	var tier := frontier_tier(open)
+	if tier == 0:
+		tier = int(open[0].get("tier", 1))
+		for f in open:
+			tier = mini(tier, int(f.get("tier", 1)))
+	var best := ""
+	var best_d := INF
+	for f in open:
+		if int(f.get("tier", 1)) != tier:
+			continue
+		var id := str(f.get("id", ""))
+		var d := from_pos.distance_to(positions[id]) if positions.has(id) else INF
+		if best == "" or d < best_d:
+			best = id
+			best_d = d
+	return best
+
+
 ## A ready fort as the away panel's ready line: {text, kind: "raid", target: fort id}.
 static func ready_line(f: Dictionary, why: String, c := {}) -> Dictionary:
 	if c.is_empty():
@@ -128,6 +156,7 @@ static func ready_line(f: Dictionary, why: String, c := {}) -> Dictionary:
 ##   readout   MapModel.readout()
 ##   won       view_hud().won
 ##   opening   {text, target} from set_opening_ask ({} or empty text: none)
+##   place     the standing line's fort id (next_place; "" or absent: the line alone)
 ## `prev` is the last pick ({} at first): while its rule still holds and its target still
 ## qualifies, the target is kept (no ping-pong between near-equal candidates), and the fall and
 ## Vei rules keep a kept pick to their exit thresholds (see the header).
@@ -156,7 +185,15 @@ static func choose(inp: Dictionary, prev := {}, c := {}) -> Dictionary:
 		return _raid(firsts, prev, c, fort_ids)
 	if (inp["queue"] as Array).is_empty():
 		return _pick(QUEUE, "queue", str(c["queue_text"]), fort_ids)
-	return _pick(DEFAULT, "", HudLogic.objective_text({}), fort_ids)
+	var place := str(inp.get("place", ""))
+	var text := HudLogic.objective_text({})
+	if place != "" and fort_ids.has(place):
+		var named := ""
+		for f in inp.get("forts", []):
+			if str(f["id"]) == place:
+				named = str(f.get("name", place))
+		text = str(c["default_next_fmt"]) % [text, named]
+	return _pick(DEFAULT, place, text, fort_ids)
 
 
 ## The quiet state: at least one held fort, every held fort's committed margin SAFE, none under

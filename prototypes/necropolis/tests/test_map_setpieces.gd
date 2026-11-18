@@ -20,6 +20,8 @@ func run() -> int:
 	_valve(t, c)
 	_reink(t, c)
 	_first_flip(t)
+	_return(t, c)
+	_words(t)
 	_tide(t, c)
 	_garrison(t, c)
 	_sources_of_garrison(t, c)
@@ -85,6 +87,61 @@ func _reink(t: TestUtil, c: Dictionary) -> void:
 	t.ok(not SetpieceLogic.reink_done(d * 0.9, false), "the glyph waits for the ring")
 
 
+## The map's line when it mounts after a dungeon: taken (the fort_flipped event, or a fort that is now
+## held within its grace) or retreat (still Vei's, Relish alive), in the glossary's words.
+func _return(t: TestUtil, c: Dictionary) -> void:
+	t.suite("map_setpieces-return")
+	var vei_fort := {"id": "ashgate", "name": "Ashgate", "held": false, "grace_s_left": 0.0}
+	var held_fort := {"id": "ashgate", "name": "Ashgate", "held": true, "grace_s_left": 400.0}
+	var alive := {"dead_s_left": 0.0, "state": "at_fort"}
+	t.ok(SetpieceLogic.return_kind("ashgate", held_fort, true, alive) == SetpieceLogic.TAKEN, "the fort_flipped event: taken")
+	t.ok(SetpieceLogic.return_kind("ashgate", held_fort, false, alive) == SetpieceLogic.TAKEN, "no event, but the fort is held in its grace and we came from it: taken")
+	t.ok(SetpieceLogic.return_kind("ashgate", vei_fort, true, alive) == SetpieceLogic.TAKEN, "the event wins over a view that has not caught up")
+	t.ok(SetpieceLogic.return_kind("ashgate", vei_fort, false, alive) == SetpieceLogic.RETREAT, "still Vei's after the raid: a retreat")
+	t.ok(SetpieceLogic.return_kind("ashgate", vei_fort, false, {"dead_s_left": 30.0, "state": "dead"}) == "", "she died: not a retreat, you did not keep everything")
+	t.ok(SetpieceLogic.return_kind("ashgate", {"id": "ashgate", "held": true, "grace_s_left": 0.0}, false, alive) == "", "an old held fort raided again with no flip: nothing taken, nothing to say")
+	t.ok(SetpieceLogic.return_kind("covington", {}, false, alive) == "" and SetpieceLogic.return_kind("", {}, false, alive) == "", "back from town: no line")
+	t.ok(SetpieceLogic.return_kind("vei", {}, true, alive) == "", "back from Vei: no line")
+	t.ok(SetpieceLogic.return_text(SetpieceLogic.TAKEN, "Ashgate") == "Ashgate taken by you", "taken line")
+	t.ok(SetpieceLogic.return_text(SetpieceLogic.RETREAT, "Ashgate") == "Ashgate stays Vei's: you kept everything you found", "retreat line")
+	t.ok(SetpieceLogic.return_text("", "Ashgate") == "", "no kind, no line")
+	t.ok(SetpieceLogic.KINDS.has(SetpieceLogic.RETREAT), "the retreat line is a set piece (debug trigger)")
+	t.ok(float(c["callout_beats"]) > 0.0, "the line's time is configured")
+	var src := FileAccess.get_file_as_string("%s/map_setpieces.gd" % MAP_DIR)
+	t.ok(src.contains("SetpieceLogic.return_kind(") and src.contains("func note_return("), "MapSetpieces decides the return line through the pure function")
+	var wm := FileAccess.get_file_as_string("res://scripts/map/world_map.gd")
+	t.ok(wm.contains("setpieces.note_return("), "world_map hands the arrival's fort to the set pieces")
+
+
+## No displayed config string says flip or cleared: the player's word for winning a fort is taken
+## (briefs/glossary.md). Config KEYS and event names keep their names; only values are scanned.
+## EXEMPT lists value paths that are not player-facing (none today).
+const EXEMPT: Array[String] = []
+
+
+func _words(t: TestUtil) -> void:
+	t.suite("map_setpieces-words")
+	var re := RegEx.new()
+	re.compile("(?i)\\b(flip|flips|flipped|flipping|clear|clears|cleared)\\b")
+	var bad: Array = []
+	_scan(TestUtil.load_json("res://configs/map_view.json"), "", re, bad)
+	for b in bad:
+		t.ok(false, "player-facing string uses flip/cleared: %s" % b)
+	t.ok(bad.is_empty(), "no displayed map_view string says flip or cleared (%d)" % bad.size())
+	t.ok(str(SetpieceLogic.cfg()["taken_fmt"]).contains("taken") and str(SetpieceLogic.cfg()["retreat_fmt"]).contains("Vei's"), "the new lines are config text")
+
+
+func _scan(v: Variant, path: String, re: RegEx, bad: Array) -> void:
+	if v is Dictionary:
+		for k in v:
+			_scan(v[k], "%s.%s" % [path, k], re, bad)
+	elif v is Array:
+		for i in v.size():
+			_scan(v[i], "%s[%d]" % [path, i], re, bad)
+	elif v is String and re.search(v) != null and not EXEMPT.has(path):
+		bad.append("%s = \"%s\"" % [path, v])
+
+
 func _first_flip(t: TestUtil) -> void:
 	var forts := [{"id": "a", "flipped_count": 0}, {"id": "b", "flipped_count": 0}]
 	t.ok(SetpieceLogic.first_flip("a", forts), "the views before the flip: no fort ever flipped")
@@ -94,7 +151,7 @@ func _first_flip(t: TestUtil) -> void:
 	forts[0]["flipped_count"] = 2
 	t.ok(not SetpieceLogic.first_flip("a", forts), "a re-flip is not the first")
 	t.ok(SetpieceLogic.first_flip("x", [{"id": "x"}]), "a missing count is 0")
-	t.ok(SetpieceLogic.first_flip_text("Old Sluice") == "First flip: Old Sluice is yours", "the first flip's callout")
+	t.ok(SetpieceLogic.first_flip_text("Old Sluice") == "Old Sluice taken by you: your first fort", "the first fort's callout says taken")
 	var c := SetpieceLogic.cfg()
 	t.ok(not SetpieceLogic.ripple(0.3, 0.5, false).is_empty() and SetpieceLogic.ripple(0.3, float(c["ripple_beats"]), false).is_empty(), "the ripple runs for ripple_beats")
 	t.ok(SetpieceLogic.ripple(0.0, 0.5, false)["alpha"] > SetpieceLogic.ripple(0.8, 0.5, false)["alpha"], "the ripple fades as it spreads on the beat")

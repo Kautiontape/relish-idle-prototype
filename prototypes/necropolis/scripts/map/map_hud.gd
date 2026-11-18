@@ -366,7 +366,7 @@ func _on_objective_pressed() -> void:
 ## the last pick while it still holds.
 func _refresh_next() -> void:
 	var inp := {"forts": model.forts, "clocks": model.clocks, "raids": model.raids, "queue": model.town_queue,
-		"vei": model.vei, "readout": model.readout(), "won": bool(model.hud.get("won", false)), "opening": _opening}
+		"vei": model.vei, "readout": model.readout(), "won": bool(model.hud.get("won", false)), "opening": _opening, "place": model.next_place}
 	var now_t := float(model.hud.get("t", 0.0))
 	if NextLogic.restarted(_next_t, now_t):
 		_next = {}

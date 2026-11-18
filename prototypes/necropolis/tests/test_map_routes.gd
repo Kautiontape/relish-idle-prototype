@@ -430,6 +430,12 @@ func _phase(t: TestUtil) -> void:
 	var wrapped := LaneStyle.phase_offset(10.0, 0.0, 12345.0, 100.0, 80.0, false)
 	t.ok(wrapped >= 0.0 and wrapped < 80.0, "the offset wraps into [0, period) (%.2f)" % wrapped)
 	t.near(LaneStyle.phase_offset(10.0, 0.0, 500.0, 100.0, 80.0, true), 0.0, 1e-6, "reduced motion: 0")
+	for tm in [0.0, 500.0, 1714.0, 99999.0]:
+		t.ok(LaneStyle.phase_offset(10.0, 0.0, tm, 100.0, 80.0, true) == LaneStyle.phase_offset(10.0, 0.0, 0.0, 100.0, 80.0, true), "reduced motion: the same offset at t=%d ms" % int(tm))
+	t.ok(LaneStyle.phase_offset(10.0, 0.0, 500.0, 100.0, 80.0, false) != LaneStyle.phase_offset(10.0, 0.0, 900.0, 100.0, 80.0, false), "full motion: the offset walks")
+	t.ok(LaneStyle.chevrons_on(true, "far") and LaneStyle.chevrons_on(true, "mid"), "reduced motion: chevrons stay on at every zoom, so a still frame shows direction")
+	var rs := FileAccess.get_file_as_string("res://scripts/map/map_routes.gd")
+	t.ok(rs.contains("r.speed, r.period, rm))") and rs.contains("Pulse.reduced_motion))"), "every offset the routes set passes the reduced-motion flag")
 	t.near(LaneStyle.phase_offset(10.0, 0.0, 500.0, 100.0, 0.0, false), 0.0, 1e-6, "a zero period shows 0")
 	# continuity across a speed / period change, minutes into play
 	var now := 600000.0

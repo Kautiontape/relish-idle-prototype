@@ -60,7 +60,7 @@ func _stages(t: TestUtil) -> void:
 	var a2 := OpeningLogic.ask(OpeningLogic.SEND, _forts())
 	var a3 := OpeningLogic.ask(OpeningLogic.DESCEND, _forts())
 	t.ok(a1["text"] == "Drag toward WAR to hold forts, toward FLOOD to drown Vei" and a1["target"] == "", "ask 1 text, nothing to click")
-	t.ok(a2["text"] == "Send Relish to Old Sluice: its first clear holds a blueprint" and a2["target"] == "old-sluice", "ask 2 text, a click selects the fort")
+	t.ok(a2["text"] == "Send Relish to Old Sluice: taken first time, it holds a blueprint" and a2["target"] == "old-sluice", "ask 2 text, a click selects the fort")
 	t.ok(a3["text"] == "Descend into Old Sluice: break its warden to take it" and a3["target"] == "old-sluice", "ask 3 text, a click selects the fort")
 	t.ok(OpeningLogic.ask(OpeningLogic.NONE, _forts())["text"] == "", "no stage: an empty ask clears the strip")
 	t.ok(OpeningLogic.pointer_shown(OpeningLogic.VALVE, false), "the pointer shows during ask 1")

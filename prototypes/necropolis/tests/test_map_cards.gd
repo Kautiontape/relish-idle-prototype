@@ -80,7 +80,7 @@ func _death(t: TestUtil) -> void:
 	var p := CardLogic.death_lines({"outcome": "phylactery", "respawn_s": 0.0, "loses": []})
 	t.ok(p == ["If she dies now: a phylactery charge revives her in place.", "loses nothing"], "phylactery loses nothing: " + str(p))
 	var all := CardLogic.death_lines({"outcome": "unmade", "respawn_s": 600.0, "loses": ["party", "unbanked_loot", "flip", "morale"]})
-	t.ok(all[2] == "loses: the party, unbanked loot, the flip, morale" and all[1] == "Back on her feet in 10:00.", "every loss word, 600 s is 10:00: " + str(all))
+	t.ok(all[2] == "loses: the party, unbanked loot, taking the fort, morale" and all[1] == "Back on her feet in 10:00.", "every loss word, 600 s is 10:00: " + str(all))
 	t.ok(CardLogic.death_lines({}).size() >= 2 and str(CardLogic.death_lines({})[0]) != "", "an empty death still reads")
 
 

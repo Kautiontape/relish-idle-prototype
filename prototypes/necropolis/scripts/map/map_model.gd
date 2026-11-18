@@ -36,6 +36,7 @@ var clocks := {}  # held fort id -> {rate, fall_s}: the committed fall clocks (s
 var supports := {}  # the committed "WAR supports N of M": {n, m}
 var projection := {}  # the dragged valve's IdleLogic.projection while the valve is being dragged, else {}
 var margin_sig := ""  # the margins and clocks now shown (projected or committed): the nodes redraw when it changes
+var next_place := ""  # NextLogic.next_place: the fort the strip's standing line names ("" when every fort is held)
 var raids: Array = []  # NextLogic.raid_set, once per refresh: [{fort, why}] ranked and capped; the ring's tag and the strip's raid rule
 
 var built := {}  # SetpieceLogic.lot_levels of view_town().buildings: lot id -> {building_id, level}
@@ -185,6 +186,7 @@ func _refresh_raids() -> void:
 		_raid_why.clear()
 	_raid_t = now_t
 	raids = NextLogic.raid_set(forts, _raid_why.keys(), _raid_from(), positions)
+	next_place = NextLogic.next_place(forts, _raid_from(), positions)
 	_raid_why.clear()
 	for r in raids:
 		_raid_why[str(r["fort"]["id"])] = str(r["why"])

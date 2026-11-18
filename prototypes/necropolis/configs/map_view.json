@@ -684,7 +684,7 @@
     "tell_label": "TELL",
     "tells_label": "TELLS",
     "loot": {
-      "first_clear_text": "first clear: guaranteed blueprint"
+      "first_clear_text": "taken first time: guaranteed blueprint"
     },
     "threat_head": "THREAT IN ADVANCE",
     "strength_fmt": "PARTY %s vs GARRISON %s",
@@ -717,7 +717,7 @@
     "loses_words": {
       "party": "the party",
       "unbanked_loot": "unbanked loot",
-      "flip": "the flip",
+      "flip": "taking the fort",
       "morale": "morale"
     },
     "matter_head": "MATTER",
@@ -981,7 +981,8 @@
     "switch_ratio": 0.5,
     "fall_fmt": "%s falls in %s: raise WAR or send Relish",
     "refilled_fmt": "%s refilled: raid it",
-    "first_clear_fmt": "%s: first clear holds a blueprint",
+    "first_clear_fmt": "%s: taken first time, it holds a blueprint",
+    "default_next_fmt": "%s Next: %s",
     "queue_text": "Queue empty: plan the next build in Covington",
     "vei_fmt": "Vei can be faced: your odds %d%%",
     "hint": ">",
@@ -999,6 +1000,8 @@
   "sidebar_fade_px": 28.0,
   "transition": {
     "dive_zoom_mult": 3.0,
+    "dive_ring_frac": 0.22,
+    "dive_ring_zoom_max": 6.0,
     "dive_zoom_ms": 380,
     "dive_fade_ms": 180,
     "arrive_zoom_ms": 420,
@@ -1027,7 +1030,9 @@
     "callout_fade_beats": 0.5,
     "callout_font": 16,
     "callout_gap_px": 10.0,
-    "first_flip_fmt": "First flip: %s is yours",
+    "first_flip_fmt": "%s taken by you: your first fort",
+    "taken_fmt": "%s taken by you",
+    "retreat_fmt": "%s stays Vei's: you kept everything you found",
     "tide_beats": 2.0,
     "tide_band_px": 220.0,
     "tide_width_px": 5.0,
@@ -1067,7 +1072,7 @@
     "opening_s": 900.0,
     "response_frac": 0.25,
     "valve_text": "Drag toward WAR to hold forts, toward FLOOD to drown Vei",
-    "send_fmt": "Send Relish to %s: its first clear holds a blueprint",
+    "send_fmt": "Send Relish to %s: taken first time, it holds a blueprint",
     "descend_fmt": "Descend into %s: break its warden to take it",
     "line_width_px": 1.0,
     "line_glow": 0.8,

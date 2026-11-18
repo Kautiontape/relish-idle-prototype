@@ -5,8 +5,12 @@ extends Node
 ##   valve swing   a committed valve (MapValve.committed): Covington's stems tween to the new
 ##                 shares over one beat, brighter for that beat; Synth "whoosh".
 ##   flip          fort_flipped: the fort's ring re-inks orange to green segment by segment from
-##                 12 o'clock over 1.5 beats, then its glyph and chip change; Synth "flip". The
-##                 game's first flip adds a green ripple on the fort's beat and a callout.
+##                 12 o'clock over 1.5 beats, then its glyph and chip change; Synth "flip"; a
+##                 callout "<Fort> taken by you". The game's first fort adds a green ripple on
+##                 the fort's beat. note_return: after a raid whose fort is held (event missed)
+##                 it plays too.
+##   retreat       the map mounts after a raid that left the fort Vei's (Relish alive): a callout
+##                 "<Fort> stays Vei's: you kept everything you found". No re-ink, no sound.
 ##   tithe         tithe_warning: Synth "horn"; tithe_wave: an orange band sweeps from Vei along the
 ##                 living lane to the target fort over 2 beats.
 ##   garrison      counter_garrison_cleared: a green pulse along the fort's WAR lane from
@@ -28,8 +32,10 @@ extends Node
 ## reduced motion (each set piece straight to its end state) still times them; sounds still play.
 ## Debug: --setpiece=<kind> fires one at a demo fort debug_delay_s after going live;
 ## --setpiece-slow=k stretches every set piece k times. Always pair them with --fixture=:
-## --setpiece=valve sends a real cmd_set_valve, and --setpiece is not a harness arg (DEV_ARGS),
-## so without a fixture it would autosave over the shared auto.json (api-request #11). Timing: setpiece_logic.gd. Tuning:
+## --setpiece=valve sends a real cmd_set_valve. --setpiece is not in BootRule.DEV_ARGS (those match engine
+## args given without the `--` separator), but it never autosaves over auto.json either: as a user arg
+## (after `--`) it is outside PLAYER_ARGS, so BootRule.is_harness_args makes the session a harness
+## one. The fixture still pins the state it runs on. Timing: setpiece_logic.gd. Tuning:
 ## configs/map_view.json "setpieces"; sounds: configs/synth.json.
 
 var model: MapModel
@@ -49,6 +55,7 @@ var _debug_kind := ""
 var _committed := {}  # the valve Covington's stems show at rest
 var _swing := {}  # {from, to, start_ms} while the valve swing runs
 var _valve_rev := -1  # the model.rev the idle valve target was last read at
+var _taken_ids: Array = []  # forts whose fort_flipped this map heard (the router replays the ones it held): note_return's "taken"
 var _won := false  # victory has played (or is playing): once per map
 var _builds: Array = []  # the finished builds the callout at Covington names: [{lot_id, building_id, level}]
 var _build_runs: Array = []  # its line as runs (SetpieceLogic.build_spans)
@@ -79,6 +86,8 @@ func on_event(ev: Dictionary) -> void:
 	var id := str(ev.get("fort_id", ""))
 	match type:
 		"fort_flipped":
+			if not _taken_ids.has(id):
+				_taken_ids.append(id)
 			_add(SetpieceLogic.FIRST_FLIP if SetpieceLogic.first_flip(id, model.forts) else SetpieceLogic.FLIP, id)
 		"tithe_warning":
 			_synth.play("horn")
@@ -100,6 +109,20 @@ func on_event(ev: Dictionary) -> void:
 func note_mount(away_opened: bool) -> void:
 	for b in SetpieceLogic.mount_builds(model.mount_rises, away_opened):
 		_note_build(b)
+
+
+## The map mounted after a scene: `arrive_from` is the node just left. A raid that took the fort
+## (its fort_flipped, replayed by the router before this call, or a fort held within its grace)
+## says "<Fort> taken by you" through the flip set piece; one that left it Vei's says it stays hers
+## and you kept what you found (SetpieceLogic.return_kind). Returns the kind (TAKEN, RETREAT, "").
+func note_return(arrive_from: String) -> String:
+	var kind := SetpieceLogic.return_kind(arrive_from, model.fort(arrive_from), _taken_ids.has(arrive_from), model.relish)
+	if kind == SetpieceLogic.TAKEN and not _taken_ids.has(arrive_from):
+		_taken_ids.append(arrive_from)  # no event came: the flip set piece still plays, as for the event
+		_add(SetpieceLogic.FIRST_FLIP if SetpieceLogic.first_flip(arrive_from, model.forts) else SetpieceLogic.FLIP, arrive_from)
+	elif kind == SetpieceLogic.RETREAT:
+		_add(SetpieceLogic.RETREAT, arrive_from)
+	return kind
 
 
 ## The camera has settled on the map: queued set pieces start, a won realm plays victory, and the
@@ -166,6 +189,8 @@ func _process(_delta: float) -> void:
 				done = _garrison_tick(p, t, rm, items)
 			SetpieceLogic.VICTORY:
 				done = _victory_tick(t, rm)
+			SetpieceLogic.RETREAT:
+				done = _retreat_tick(p, t, rm, items)
 		if done:
 			_active.erase(p)
 	_build_tick(items)
@@ -243,12 +268,15 @@ func _flip_tick(p: Dictionary, t: float, rm: bool, items: Array) -> bool:
 	elif ctx.reink.has(id):
 		ctx.reink.erase(id)
 		_redraw_fort_all(id)  # the ring is done: now the glyph and the chip change
-	if str(p["kind"]) != SetpieceLogic.FIRST_FLIP:
-		return done
 	var c := SetpieceLogic.cfg()
 	var f := model.fort(id)
 	if f.is_empty():
 		return done
+	if str(p["kind"]) != SetpieceLogic.FIRST_FLIP:  # every fort taken says so: "<Fort> taken by you"
+		var a0 := SetpieceLogic.callout_alpha(t, float(c["callout_beats"]), rm)
+		if a0 > 0.0:
+			items.append(_callout(id, SetpieceLogic.return_text(SetpieceLogic.TAKEN, str(model.names.get(id, id))), a0))
+		return done and t >= float(c["callout_beats"])
 	var rip := SetpieceLogic.ripple(Pulse.phase(model.hops_of(id)), t, rm)
 	if not rip.is_empty():
 		items.append({"kind": "ring", "pos": MapModel.to_vec(f["pos"]), "key": "undead", "alpha": float(rip["alpha"]),
@@ -258,6 +286,21 @@ func _flip_tick(p: Dictionary, t: float, rm: bool, items: Array) -> bool:
 	if a > 0.0:
 		items.append(_callout(id, SetpieceLogic.first_flip_text(str(model.names.get(id, id))), a))
 	return done and t >= maxf(float(c["ripple_beats"]), float(c["callout_beats"]))
+
+
+## A retreat: the fort stays Vei's, so no re-ink and no sound, just the line over the fort for
+## callout_beats (a plain word colour: it is not a win).
+func _retreat_tick(p: Dictionary, t: float, rm: bool, items: Array) -> bool:
+	var id := str(p["fort_id"])
+	var c := SetpieceLogic.cfg()
+	if model.fort(id).is_empty():
+		return true
+	var a := SetpieceLogic.callout_alpha(t, float(c["callout_beats"]), rm)
+	if a > 0.0:
+		var item := _callout(id, SetpieceLogic.return_text(SetpieceLogic.RETREAT, str(model.names.get(id, id))), a)
+		item["key"] = "text"
+		items.append(item)
+	return t >= float(c["callout_beats"])
 
 
 func _redraw_fort_all(id: String) -> void:
@@ -434,6 +477,8 @@ func _fire_debug() -> void:
 			_add(SetpieceLogic.FLIP, id)
 		SetpieceLogic.FIRST_FLIP:
 			_add(SetpieceLogic.FIRST_FLIP, id)
+		SetpieceLogic.RETREAT:
+			_add(SetpieceLogic.RETREAT, id)
 		SetpieceLogic.TITHE:
 			on_event({"type": "tithe_warning", "fort_id": id})
 			on_event({"type": "tithe_wave", "fort_id": id})

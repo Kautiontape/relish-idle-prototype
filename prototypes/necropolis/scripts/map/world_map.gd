@@ -73,11 +73,14 @@ func _ready() -> void:
 	opening.refresh()
 	tithe_explain.open_pending()
 	_fit()
+	var returned := setpieces.note_return(_arrive_from)  # "taken by you" or "stays Vei's", before the set pieces go live
 	var ease_s := _begin_arrival()
 	if ease_s > 0.0:  # the set pieces play once the camera has eased out to the map
 		get_tree().create_timer(ease_s).timeout.connect(setpieces.go_live)
 	else:
 		setpieces.go_live()
+	if returned == SetpieceLogic.TAKEN:
+		_show_taken(_arrive_from, ease_s)
 	hud.inset_changed.connect(func(_inset: float) -> void: _refit())  # the bar's sizes settle a frame later
 	setpieces.note_mount(away.open_if_shown())  # builds finished while away from the map get their callout, unless the away report lists them
 	_replay_clicks()
@@ -237,13 +240,28 @@ func _begin_arrival() -> float:
 	return float(tl["zoom_s"])
 
 
+## A fort the raid just took: once the camera has eased out (`wait_s`), its card opens and the camera
+## comes to it, so the HELD chip with Vei's grace countdown (draining) and the "taken by you" line are
+## on screen together. Skipped if the player has already moved the camera.
+func _show_taken(id: String, wait_s: float) -> void:
+	if wait_s > 0.0:
+		await get_tree().create_timer(wait_s).timeout
+	if is_inside_tree() and not cam.user_moved:
+		_act_on({"kind": "fort", "id": id})
+
+
 ## The router's dive (router contract: dive_to(node_id, duration_s) -> Signal): the camera zooms
 ## into the node and the whole HUD (top bar, strip, chip, sidebar, valve, callouts, toasts, away
 ## panel, tithe card) fades out over hud_fade_s inside that time, so the router's snapshot (taken
 ## once the signal fires) has none of it. The signal fires when the zoom ends.
 func dive_to(node_id: String, duration_s: float) -> Signal:
-	var t := TransitionLogic.dive_target(cam.zoom.x, model.node_pos(node_id), TransitionLogic.cfg(),
-		float(MapLogic.cfg()["zoom_min"]), float(MapLogic.cfg()["zoom_max"]))
+	var t := {}
+	if model.forts_by_id.has(node_id):  # a fort: its ring ends centred and large, for the dungeon's first room to pick up
+		t = TransitionLogic.dive_fort_target(int(model.fort(node_id)["tier"]), model.node_pos(node_id), get_viewport_rect().size,
+			cam.zoom.x, TransitionLogic.cfg(), float(MapLogic.cfg()["zoom_min"]))
+	else:
+		t = TransitionLogic.dive_target(cam.zoom.x, model.node_pos(node_id), TransitionLogic.cfg(),
+			float(MapLogic.cfg()["zoom_min"]), float(MapLogic.cfg()["zoom_max"]))
 	cam.begin_dive(t["zoom"], t["centre"], duration_s)
 	_fade_hud(TransitionLogic.IN, TransitionLogic.hud_fade_len(TransitionLogic.cfg(), MapTransition.slow(), duration_s))
 	return cam.move_done

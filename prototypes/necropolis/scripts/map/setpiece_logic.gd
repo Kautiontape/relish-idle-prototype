@@ -13,7 +13,9 @@ const FIRST_FLIP := "first_flip"
 const TITHE := "tithe"
 const GARRISON := "garrison"
 const VICTORY := "victory"
-const KINDS := [VALVE, FLIP, FIRST_FLIP, TITHE, GARRISON, VICTORY]
+const RETREAT := "retreat"  # back from a raid that left the fort Vei's: one callout line
+const KINDS := [VALVE, FLIP, FIRST_FLIP, TITHE, GARRISON, VICTORY, RETREAT]
+const TAKEN := "taken"  # return_kind: the raid took the fort (its set piece is FLIP or FIRST_FLIP)
 const RUN := "run"    # victory: every lane green, running toward Vei
 const STOP := "stop"  # victory: every dash frozen, the victory line up
 const NONE := Vector2(-1.0, -1.0)  # no band this frame
@@ -114,6 +116,34 @@ static func first_flip(fort_id: String, forts: Array) -> bool:
 
 static func first_flip_text(fort_name: String) -> String:
 	return _s("first_flip_fmt") % fort_name
+
+
+## What the map says on mounting after a scene: TAKEN, RETREAT or "" (no line). `arrive_from` is the
+## node just left, `fort` its view (empty for Covington, Vei or none), `taken_event` whether the
+## router replayed this fort's fort_flipped, `relish` view_relish. The event, or a fort held
+## within its grace, is taken; a fort still Vei's with Relish alive is a retreat (she keeps what she
+## found); a death, a held fort past its grace (raided again, nothing taken) and any other scene say nothing.
+static func return_kind(arrive_from: String, fort: Dictionary, taken_event: bool, relish: Dictionary) -> String:
+	if arrive_from == "" or fort.is_empty() or str(fort.get("id", "")) != arrive_from:
+		return ""
+	if taken_event:
+		return TAKEN
+	var held := bool(fort.get("held", false))
+	if held:
+		return TAKEN if float(fort.get("grace_s_left", 0.0)) > 0.0 else ""
+	if float(relish.get("dead_s_left", 0.0)) > 0.0 or str(relish.get("state", "")) == "dead":
+		return ""
+	return RETREAT
+
+
+## The return line for `kind` (TAKEN or RETREAT) at a fort named `fort_name`; "" for any other kind.
+static func return_text(kind: String, fort_name: String) -> String:
+	match kind:
+		TAKEN:
+			return _s("taken_fmt") % fort_name
+		RETREAT:
+			return _s("retreat_fmt") % fort_name
+	return ""
 
 
 ## The first flip's green ripple at the fort's beat `phase` (Pulse.phase at its hops): {reach
