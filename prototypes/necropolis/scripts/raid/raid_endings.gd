@@ -9,6 +9,7 @@ extends RefCounted
 
 var ended := false      # run is over; gameplay stops (raid._ended forwards here)
 var finished := false   # `finished` already emitted
+var win_result := {}    # the warden's win, built once at chest open on the clear-card path ({} for the bot); what the card shows and every exit emits
 var pending_exit := ""  # the exit an ending beat will emit (relish_died, warden_beaten); a close keeps it
 
 var banked := {}                 # the last checkpoint snapshot (full loot shape)
@@ -16,6 +17,7 @@ var banked_rooms := {}           # checkpoint room index -> true once it has ban
 var revived := 0                 # phylactery revives spent this run
 var exit_idx := -1               # index into layout.doors of the exit Relish stands at, else -1
 var left_spawn_exit := false     # Relish has been outside the spawn exit's radius once
+var retreat_by := ""             # what ended a retreat (capture's retreat_by): click | bot | dev | held_clear | close
 
 var _raid: Node2D
 var _room := -2                  # Relish's current room
@@ -106,15 +108,17 @@ func can_retreat() -> bool:
 
 
 ## The HUD's confirmed RETREAT: re-checks the exit, since Relish may have drifted off.
-func try_retreat() -> void:
+func try_retreat(by := "") -> void:
 	if can_retreat():
-		confirm_exit()
+		confirm_exit(by)
 
 
-func confirm_exit() -> void:
+## `by` labels the retreat for the capture (the retreat panel's click, the bot, a dev flag, the held clear).
+func confirm_exit(by := "") -> void:
 	if ended:
 		return
 	ended = true
+	retreat_by = by
 	_raid.trance.force_end()
 	RaidFx.ring(_raid.fx_root, _raid.relish.global_position, Palette.c("relish"), 60.0, 0.5, 4.0)
 	finish(_raid._exit_result())
@@ -142,9 +146,14 @@ func close_request() -> bool:
 		finish(r)
 		return true
 	var plan := RaidLogic.close_plan(ended, pending_exit)
+	if not ended:
+		retreat_by = "close"
 	ended = true
 	_raid.trance.force_end()
-	finish(_raid._death_result() if plan["exit"] == "relish_died" else build_result(plan["exit"], plan["closing"]))
+	if plan["exit"] == "warden_beaten" and not win_result.is_empty():
+		finish(win_result)   # the clear card's frozen win: the same dict the card shows
+	else:
+		finish(_raid._death_result() if plan["exit"] == "relish_died" else build_result(plan["exit"], plan["closing"]))
 	return true
 
 

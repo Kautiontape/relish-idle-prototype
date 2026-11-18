@@ -52,8 +52,12 @@ const CLOCK := 1_800_000_000  # a "now" for the saves (unix seconds)
 ## bit for bit) fails only the three states here, and with API_VERSION set back to 11 passes every old pin in this
 ## suite, test_stances and test_big_undead; the events don't move. Was: day1 a8ee3651…, midgame_2flips 875e15d2…,
 ## pre_vei 4dff39f0… (states), 4f807d58… / 1d3c4855… / 0915402c… (away reports).
+## Re-pinned at Phase I P2 (API v13, view_town's queue_slots and queue_list_max; the standing re-pin rule): the three
+## states only, since to_dict() carries api_version; the events and away reports don't move, and neither does any pin
+## from the vat clip (no fixture tends a vat). The proof: the P2 tip with API_VERSION set back to 12 passes the old pins.
+## Was: day1 60e6df8c…, midgame_2flips 033dd114…, pre_vei ae145315….
 const TIP := {
-	"day1": {"state": "60e6df8c49ec6175fe35b3b10c8ca0383c3ae27250f74d4c744d57d462205476",
+	"day1": {"state": "e0c2c449d10dfb43370d5dc819ef91fd94752a992c0384ea078b19de90a5e4c5",
 		"events": "bf49daaddc2123e6ee4b4da8affd68561ee577d54c464d657e414d0452193d34",
 		"away": "ab49446c969569f989a1f08c655f3247f929c4c7837d0e7820a1f43e45afd839", "steps": 4320, "n_events": 2},
 	# midgame's state and away report re-baselined at E3-3's foreman: its Market's foreman (u8, m 1.183, presence +0.064)
@@ -80,7 +84,7 @@ const TIP := {
 	# under hold.mint_ref), so α plays no part. The proof tree (the most-undead rule in _tithe_target and the train,
 	# mint_alpha 0.7, the old line, fort_retaken without the two keys) passes the old pins (was 54ae7149… / 7eb703c3… /
 	# e0a288bf…)
-	"midgame_2flips": {"state": "033dd1148f66cc38b730e6e882a8c831bfa8d671c2d9cd1dfb9cc5e7eea52df3",
+	"midgame_2flips": {"state": "99fdcbb4e5a603810ad23f3bcfb1f4559728aab4e80aa944f914c94c50964b6f",
 		"events": "d1014dbadd6ad58404818316e0e65a295e012af5ef8675ffb59dd678d1899e90",
 		"away": "330008c2b9838f07917f3f4b503f5b83cf77bb43299b8ec361438f9cdb6991ec", "steps": 4356, "n_events": 240},
 	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i) on the gold-trap stop; the standing re-pin
@@ -95,7 +99,7 @@ const TIP := {
 	# +1,868,492 (+1,867,726), the mint +2,251,317 (+2,251,104), the bone not stored 4,731 (4,730), the end bodies 0.34
 	# (0). The events are unchanged. day1's and midgame_2flips' convoys land nothing in these 12 h, so they don't move.
 	# The proof: the claim off (× 0) passes the old pins (was f23659ff… / a8a97ed8…).
-	"pre_vei": {"state": "ae145315f65c97ca88a3397f77192af73a8b8ec8fc7b0cef3ecb6b8860089232",
+	"pre_vei": {"state": "579ad7808c60f00ca9581c077a31044c726877b255e51d6f5b35191d3dba441b",
 		"events": "e3093d57d7355dc31433aca50040e476c11b5e6fa89ed1372a608aa1860d5a84",
 		"away": "50f7cc0b2696b50d0f54f21abaddb8d858442e4410f8a7ad9148fa415774d44d", "steps": 4321, "n_events": 15},
 }
@@ -116,6 +120,7 @@ func run() -> int:
 	_old_save()
 	_demolish()
 	_catchup_fill()
+	_catchup_hand()
 	_identity()
 	_death_order()
 	_each_outcome()
@@ -436,8 +441,8 @@ func _demolish() -> void:
 # -------------------------------------------------------------- catch-up ----
 ## A tended pre_vei vat (vat 1, empty; pre_vei's idle hands tend it) fills at the same time caught up as live, within
 ## one catch-up step: live at 0.5 s from the save, and a 12 h catch-up run one core step per chunk (10 s steps), the
-## first step boundary it shows ready at. No clip is needed: the growth is linear and clamps at 1, so each step's
-## grow is exact, and no event or rule inside a catch-up reads it (no run is open during one).
+## first step boundary it shows ready at. The growth is linear and clamps at 1, so each step's grow is exact; since
+## Phase I P2 the catch-up also clips at the fill (Catchup.vat_fill_s, _catchup_hand below), for the tend hand.
 func _catchup_fill() -> void:
 	var c: Dictionary = load("res://tests/test_stances.gd").cfgs({"economy.idle.catchup_steps_per_chunk": 1})
 	var s := _fixture("pre_vei", c)
@@ -467,6 +472,52 @@ func _catchup_fill() -> void:
 		"live: vat 1 fills %.2f s in ((1 − 0) / grow_per_s %.2f)" % [t_live, want])
 	t.ok(cu.view_backups()["vats"][1]["ready"] and absf(t_cu - t_live) <= step + 1e-9,
 		"caught up (%.0f s steps): it fills %.2f s in, %.2f s from live, within one catch-up step" % [step, t_cu, t_cu - t_live])
+
+
+## Phase I P2 (the run's manager's ruling 4, Q-c; IDLE §8's ready-vat gap): a ready vat's tend hand comes back at the
+## fill caught up as live. The same pre_vei save as _catchup_fill, vat 1 staffed: live at 0.5 s substeps, and a 12 h
+## catch-up one core step per chunk (10 s steps), each to the first moment its tend slot closes (the hand back on the
+## ladder: E4 step 10's ready clone needs no tending). IDLE §8's recorded bound before the clip was one catch-up step
+## (under 10 s here); with Catchup.vat_fill_s the step that contains the fill ends on it, at exactly 1 (the float
+## guard), so the hand comes back within live's own 0.5 s substep.
+## Revert proof (vat_fill_s taken out of next_event_s): the vat fills inside a 10 s step and the hand comes back at its
+## end, 9.5 s after live, and the step's end reads the vat at 1 only after the fill; the second and third asserts fail.
+func _catchup_hand() -> void:
+	var c: Dictionary = load("res://tests/test_stances.gd").cfgs({"economy.idle.catchup_steps_per_chunk": 1})
+	var s := _fixture("pre_vei", c)
+	t.ok(s.cmd_staff_vat(1, true)["ok"] and int(_tend(s)["slots"]) >= 1, "(setup) pre_vei, vat 1 staffed: a tend slot open (%s)" % str(_tend(s)))
+	s.clock_override = CLOCK
+	s.cmd_save("hand")
+	var t0 := s.t
+	var want := Catchup.vat_fill_s(s)
+	var live := GameState.new(c)
+	live.debug_enabled = true
+	live.save_dir = _dir
+	live.clock_override = CLOCK
+	live.cmd_load("hand")
+	while int(_tend(live)["slots"]) >= 1 and live.t - t0 < 400.0:
+		live.tick(live.substep_s())
+	var t_live := live.t - t0
+	var cu := GameState.new(c)
+	cu.debug_enabled = true
+	cu.save_dir = _dir
+	cu.clock_override = CLOCK + 43200
+	cu.cmd_load("hand", true)
+	cu._catchup.trace = []
+	var step := Catchup.base_dt(cu, 43200.0)
+	while cu.catching_up() and int(_tend(cu)["slots"]) >= 1:
+		cu.tick(cu.substep_s())
+	var t_cu := cu.t - t0
+	var on := false
+	for tr in cu._catchup.trace:
+		on = on or absf(float(tr[0]) + float(tr[1]) - (t0 + want)) < 1e-6
+	t.ok(live.view_backups()["vats"][1]["ready"] and t_live >= want - 1e-9 and t_live - want < live.substep_s() + 1e-9,
+		"live: vat 1 fills %.3f s in (vat_fill_s %.3f) and its hand is back at the next substep's end, %.2f s" % [want, want, t_live])
+	t.ok(absf(t_cu - t_live) <= live.substep_s() + 1e-9,
+		"caught up (%.0f s steps): the hand is back %.3f s in, %.3f s from live, within live's %.1f s substep (the bound before the clip: one step)" % [
+		step, t_cu, t_cu - t_live, live.substep_s()])
+	t.ok(on and float(cu.vats_grow[1]) == 1.0 and absf(t_cu - want) < 1e-6,
+		"a catch-up step ends on the fill (%.6f s in), with the vat at exactly 1 (%s): the float guard" % [want, str(cu.vats_grow[1])])
 
 
 ## The tip's 12 h catch-up identity (TIP's function): the whole state (less the big undead's filled_slots, E3-3's

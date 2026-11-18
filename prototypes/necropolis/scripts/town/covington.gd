@@ -7,6 +7,7 @@ signal finished(result: Dictionary)
 
 const HudScript := preload("res://scripts/town/town_hud.gd")
 const ViewScript := preload("res://scripts/town/town_view.gd")
+const StripScript := preload("res://scripts/town/town_away_strip.gd")
 const PANELS := [
 	["Build", preload("res://scripts/town/panel_build.gd")],
 	["Jobs", preload("res://scripts/town/panel_jobs.gd")],
@@ -27,6 +28,8 @@ var _tab := 0  # the tab on show: its panel binds on every fetch, the others onc
 var _last_rev := -1
 var _since_fetch := 0.0
 var _dirty := false
+var _pending: Dictionary = {}  # a spread refresh's phase-A views, waiting for phase B next frame ({} = none)
+var _pending_cmd := false  # the pending refresh is a command's: its binds start with the tab on show
 var _refresh_s := 0.25
 ## Debug-only harness (`--town-demo=full|tierup`, ignored unless Game.state.debug_enabled):
 ## "full" binds the synthetic demo city instead of the fetched views; "tierup" fires a synthetic
@@ -56,11 +59,25 @@ var _last_views := {}
 ## `--town-place=<uid>:<lot>` places an existing big undead the same way, after demo_raise.place_delay_s.
 ## `--town-staff-vat=<slot>[,<slot>]` staffs those clone vats (the real cmd_staff_vat) right after setup's
 ## first fetch; the rev change shows it on the next one (a debug driver for the Backups tab's screenshot).
+## `--town-show=<building_id>` opens the Build tab with that building's row focused and scrolled into view
+## (the backups' "Show the Chapel of Vats" route), for a screenshot of a row below the fold.
 var _raise_lot := ""
 var _log_set := false  # prints frame numbers of the set-piece beats
 var _frame := 0
 var _walkers_n := 0
 var _grow_label: Label
+var _goal: Label  # the first goal in town (TownGuide.goal), top-left of the town view; hidden once met
+## The welcome-back replay (TownReplay): the away strip sits in the dock over the tabs. `_replayed` is the
+## last away report replayed this session (a static, so a second visit doesn't replay it; never saved);
+## `_away_check` asks the next fetch to look (setup's first, and each away_report). `_replay_lots` are the lots
+## still to flash, `_replay_left` the seconds to the next one (-1 = none due).
+## `--town-away=<seconds>` (debug builds) runs a real reporting catch-up of that gap right after setup.
+static var _replayed := 0
+var _away_check := true
+var _plates: VBoxContainer
+var _strip: PanelContainer
+var _replay_lots: Array = []
+var _replay_left := -1.0
 var _grow_log: Array = []  # [{t, building_id, lot_id}] of what the autoplayer built
 var _grown_s := 0.0
 
@@ -94,6 +111,9 @@ func setup(_args: Dictionary) -> void:
 	_debug_slab()
 	_fetch()
 	_debug_set_pieces()
+	var show := _debug_arg("town-show")  # debug `--town-show=<building_id>`: the Build tab, that row focused
+	if show != "":
+		_on_show_building(show, _panels[0])
 	if _demo == "tierup":
 		var spec: Dictionary = ConfigDb.v("town", "view", {}).get("demo_tierup", {})
 		get_tree().create_timer(float(spec.get("delay_s", 0.0))).timeout.connect(
@@ -296,6 +316,10 @@ func _build_ui() -> void:
 	dock.add_child(col)
 	var tab_row := HBoxContainer.new()
 	col.add_child(tab_row)
+	# the welcome-back strip: in the dock over every tab, so it never covers a lot the replay flashes
+	_strip = StripScript.new()
+	_strip.setup(cfg.get("replay", {}))
+	col.add_child(_strip)
 	var stack := Control.new()
 	stack.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	col.add_child(stack)
@@ -332,6 +356,8 @@ func _build_ui() -> void:
 	build.to_realm.connect(_on_return)  # the relic pin's To the realm: the same one exit as the HUD's Return
 	_view.suggestion_dismissed.connect(build.on_suggestion_dismissed)
 	_view.sfx.connect(_on_sfx)
+	_build_goal()
+	_strip.acted.connect(_on_strip_acted)
 	var crypt: Control = _panels[4]
 	crypt.hold_started.connect(_play.bind("raise_hold"))
 	crypt.raise_started.connect(_on_raise_started)
@@ -394,32 +420,73 @@ func _process(delta: float) -> void:
 	_beat_i = int(beat["i"])
 	if bool(beat["fire"]):
 		_play("beat")
-	if not _later.is_empty():
-		(_later.pop_front() as Node).bind(_last_views)
+	if _replay_left >= 0.0:
+		_replay_step(delta)
 	_since_fetch += delta
+	# One piece of the refresh per frame, so no frame carries a whole one (a cold fetch is ~5 ms, the binds ~3 ms):
+	# a command's phase A (it drops what was pending), else a fetch's phase B, else one bind, else a due refresh.
 	if _dirty:
-		_fetch()
+		_refresh_a(true)
+	elif not _pending.is_empty():
+		_refresh_b()
+	elif not _later.is_empty():
+		(_later.pop_front() as Node).bind(_last_views)
 	elif Game.state.rev != _last_rev and _since_fetch >= _refresh_s:
-		_fetch(true)
+		_refresh_a(false)
 
 
-## Fetches the views and binds what is on screen. `spread` (the twice-a-second refresh) fetches in this frame
-## and binds one node in each frame after, so no frame carries the whole refresh; a command's refresh, the
-## setup and the debug drivers bind it all at once.
-func _fetch(spread := false) -> void:
+## Fetches the views and binds what is on screen, all in this frame: the setup and the debug drivers. Every other
+## refresh is spread over frames (_refresh_a, _refresh_b, then one bind a frame).
+func _fetch() -> void:
 	_last_rev = Game.state.rev
 	_since_fetch = 0.0
 	_dirty = false
+	_pending = {}
 	var views := _fetch_views()
+	_take(views)
+	_later = []
+	for n in _bound.filter(_binds_now):
+		n.bind(views)
+
+
+## A spread refresh's first frame: the views that must agree with each other (phase A, _fetch_views_a). A command's
+## (`cmd`) drops the binds still pending, which would show the views from before it, and binds the tab on show
+## first once phase B lands, so the panel clicked answers first.
+func _refresh_a(cmd: bool) -> void:
+	_last_rev = Game.state.rev
+	_since_fetch = 0.0
+	_dirty = false
+	_pending = _fetch_views_a()
+	_pending_cmd = cmd or _pending_cmd
+	if cmd:
+		_later = []
+
+
+## A spread refresh's second frame: the rest of the views (_fetch_views_b), the goal and the replay check, and the
+## binds queued one a frame after this one.
+func _refresh_b() -> void:
+	var views := _fetch_views_b(_pending)
+	_pending = {}
+	_take(views)
+	var now := _bound.filter(_binds_now)
+	if _pending_cmd:
+		_pending_cmd = false
+		var tab: Node = _panels[_tab]
+		now.erase(tab)
+		now.push_front(tab)
+		_later = now
+	else:
+		_later = TownModel.merge_pending(_later, now)  # merged: a fetch before the queue drains drops nothing
+
+
+## What every fetch does with its views before the binds: the tier, the last views, the goal, the replay check.
+func _take(views: Dictionary) -> void:
 	_tier = String(views["town"].get("tier", ""))
 	_last_views = views
-	var now := _bound.filter(_binds_now)
-	if spread:
-		_later = TownModel.merge_pending(_later, now)  # merged: a fetch before the queue drains drops nothing
-		return
-	_later = []
-	for n in now:
-		n.bind(views)
+	_update_goal(views)
+	if _away_check:
+		_away_check = false
+		_check_replay(views)
 
 
 ## Whether `n` binds on this fetch: the HUD and the town view always; the tab on show; and the Build tab even
@@ -432,29 +499,37 @@ func _binds_now(n: Node) -> bool:
 	return i < 0 or i == _tab or i == 0
 
 
-## The jobs TownSim would staff for job `order`, with `extra` ({vat slot: on}) applied: the projection
-## view when GameState has it (api-request #16), else the display-only stand-in. Made once per (rev,
-## order, extra); the tabs get this as a Callable and never call GameState for it.
+## The jobs TownSim would staff for job `order`, with `extra` ({vat slot: on}) applied: GameState's
+## view_staffing_projection (STATE-API v5, TownSim's own rule; the #16 stand-in is retired). Made once per
+## (rev, order, extra); the tabs get this as a Callable and never call GameState for it.
 func project_staffing(order: Array, extra := {}) -> Array:
-	var s = Game.state
-	var real: bool = s.has_method("view_staffing_projection")  # by name: GameState doesn't declare it yet
-	# the real view is as fresh as GameState; the stand-in reads the views fetched last
-	var key: int = int(s.rev) if real else int(_last_views.get("town", {}).get("rev", -1))
-	return _staff_cache.fetch(key, [order, extra], func() -> Variant:
-		if real:
-			var args: Array = [order] if extra.is_empty() else [order, extra]
-			return (s.callv("view_staffing_projection", args) as Dictionary).get("jobs", [])
-		return TownStandins.project(_last_views, order, ConfigDb.data.get("buildings", {}), extra)["jobs"]) as Array
+	var s: GameState = Game.state
+	return _staff_cache.fetch(int(s.rev), [order, extra], func() -> Variant:
+		return s.view_staffing_projection(order, extra).get("jobs", [])) as Array
 
 
 func _fetch_views() -> Dictionary:
+	return _fetch_views_b(_fetch_views_a())
+
+
+## Phase A of a fetch: the views the Build tab and the HUD read together (the queue, can_build, the stocks and
+## rates, from one rev), and the cheap ones. ~3 ms cold at midgame.
+func _fetch_views_a() -> Dictionary:
 	var s = Game.state
-	var views := {
+	return {
 		"town": s.view_town(), "hud": s.view_hud(), "rates": s.view_rates(), "catalog": s.view_catalog(),
-		"stances": s.view_stances(), "backups": s.view_backups(),
-		"inventory": s.view_inventory(), "big_undead": s.view_big_undead(), "party": s.view_party(),
-		"relish": s.view_relish(), "vei": s.view_vei(), "fort_names": _fort_names, "forts": _forts(s.view_realm()),
+		"backups": s.view_backups(), "inventory": s.view_inventory(), "big_undead": s.view_big_undead(),
+		"party": s.view_party(), "relish": s.view_relish(), "vei": s.view_vei(), "fort_names": _fort_names,
 	}
+
+
+## Phase B: the stances, the fort digest (view_realm), and what is computed from all of the views (the demo city,
+## the lot hops, the shared suggestion). A spread refresh runs it a frame after phase A; the views may then be a rev
+## apart, and the next refresh (rev moved) closes the gap.
+func _fetch_views_b(views: Dictionary) -> Dictionary:
+	var s = Game.state
+	views["stances"] = s.view_stances()
+	views["forts"] = _forts(s.view_realm())
 	if _demo == "full":
 		views = TownStandins.demo_views(views, ConfigDb.data.get("buildings", {}), ConfigDb.data.get("town", {}))
 	# the same lot hops the autoplayer breaks ties with, and the one suggestion the Build tab and the HUD show,
@@ -468,15 +543,103 @@ func _fetch_views() -> Dictionary:
 	return views
 
 
-## The forts as the crypt's Siege… chooser needs them: [{id, name, held}] in world order.
+## The first-goal plate: one line in `text` on a ground plate edged in `select`, at guide.goal's x/y in the
+## town view, under the lot card (so an open card is never covered). Hidden until a goal is due.
+func _build_goal() -> void:
+	var vcfg: Dictionary = ConfigDb.v("town", "view", {})
+	var g: Dictionary = vcfg.get("guide", {}).get("goal", {})
+	_plates = VBoxContainer.new()
+	_plates.add_theme_constant_override("separation", int(vcfg.get("replay", {}).get("gap_px", 6.0)))
+	_plates.position = Vector2(float(g.get("x_px", 12.0)), float(g.get("y_px", 8.0)))
+	_plates.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_view.add_child(_plates)
+	_view.move_child(_plates, _view.card.get_index())
+	_goal = TownUI.label("", maxi(int(g.get("px", 14)), TownUI.MIN_TEXT), "text")
+	var sb := TownUI.panel_box()
+	sb.border_color = Palette.c("select")
+	_goal.add_theme_stylebox_override("normal", sb)
+	_goal.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	_goal.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_goal.visible = false
+	_plates.add_child(_goal)
+
+
+## The welcome-back replay, when the away report is due one (TownReplay.due): the strip, then each finished build's
+## lot flashing in the report's order, replay.first_beats then flash_beats apart. Marks the report replayed.
+func _check_replay(views: Dictionary) -> void:
+	if _demo != "":
+		return
+	var rep: Dictionary = Game.state.view_away()
+	if not TownReplay.due(rep, _replayed):
+		return
+	_replayed = TownReplay.key(rep)
+	var rcfg: Dictionary = ConfigDb.v("town", "view", {}).get("replay", {})
+	_strip.show_report(TownReplay.title(rep, rcfg), TownReplay.lines(rep, rcfg))
+	_replay_lots = TownReplay.finished_lots(rep, views.get("town", {}), ConfigDb.data.get("buildings_view", {}),
+		ConfigDb.v("economy", "idle", {}).get("report", {}))
+	_replay_left = _beats_s(float(rcfg.get("first_beats", 1.0)))
+	if _log_set:
+		print("TOWNSET replay lots=%s frame=%d" % [str(_replay_lots), _frame])
+
+
+## `beats` of Pulse's tempo, in seconds.
+func _beats_s(beats: float) -> float:
+	return maxf(beats * Pulse.tempo_ms * 0.001, 0.0)
+
+
+func _replay_step(delta: float) -> void:
+	_replay_left -= delta
+	if _replay_left > 0.0:
+		return
+	if _replay_lots.is_empty():
+		_replay_left = -1.0
+		_strip.flashes_done()
+		return
+	_view.flash_lot(String(_replay_lots.pop_front()))
+	_replay_left = _beats_s(float(ConfigDb.v("town", "view", {}).get("replay", {}).get("flash_beats", 1.0)))
+
+
+## A strip line's button: the Crypt tab (the slab), the Build tab (the queue), or back to the realm (a raid line).
+func _on_strip_acted(act: String) -> void:
+	match act:
+		"crypt":
+			_select_tab(4)
+		"build":
+			_select_tab(0)
+		"realm":
+			_on_return()
+
+
+## Sets the goal line from the fetched views; the label is touched only when the text changes.
+func _update_goal(views: Dictionary) -> void:
+	if _goal == null:
+		return
+	var text := String(TownGuide.goal(views, ConfigDb.v("town", "view", {}).get("guide", {})).get("text", ""))
+	if text != _goal.text:
+		_goal.text = text
+		_goal.visible = text != ""
+		_goal.reset_size()
+		_plates.reset_size()
+
+
+## The forts as the crypt's Siege… chooser and the first goal (TownGuide) need them:
+## [{id, name, held, flipped_count, first_dungeon}] in world order.
 func _forts(realm: Dictionary) -> Array:
 	var out: Array = []
 	for f in realm.get("forts", []):
-		out.append({"id": String(f.get("id", "")), "name": String(f.get("name", "")), "held": bool(f.get("held", false))})
+		out.append({"id": String(f.get("id", "")), "name": String(f.get("name", "")), "held": bool(f.get("held", false)),
+			"flipped_count": int(f.get("flipped_count", 0)), "first_dungeon": bool(f.get("first_dungeon", false)),
+			"margin": String(f.get("margin", ""))})  # the forecast's will_fall (TownForecast)
 	return out
 
 
 func _on_game_event(ev: Dictionary) -> void:
+	if String(ev.get("type", "")) == "away_report":
+		# a catch-up's events went to the away report, not to the scenes: away_report is the cue to re-read every
+		# view (the catch-up ruling, STATE-API §6), so the next frame fetches and binds everything at once; that fetch
+		# also looks for the welcome-back replay
+		_dirty = true
+		_away_check = true
 	for n in _bound:
 		if n.has_method("on_game_event"):
 			n.on_game_event(ev)
@@ -537,6 +700,22 @@ func _debug_set_pieces() -> void:
 	if place.size() == 2:
 		_log_set = true
 		get_tree().create_timer(float(spec.get("place_delay_s", 0.0))).timeout.connect(_debug_place.bind(place[0], place[1]))
+	# `--town-enqueue=inn:lot-13,bakery:lot-08`: the real cmd_queue_build (where --town-queue seeds only the stand-in)
+	for pair in _debug_arg("town-enqueue").split(",", false):
+		var bl := pair.split(":")
+		if bl.size() == 2:
+			var r: Dictionary = Game.state.cmd_queue_build(bl[0], bl[1])
+			print("TOWNSET enqueue %s -> %s ok=%s %s" % [bl[0], bl[1], str(r.get("ok", false)), str(r.get("reason", ""))])
+			_dirty = true
+			_panels[0].debug_show_queue(6.0)
+	# `--town-away=<seconds>`: a real open-game gap of that length (GameState.tick's reporting catch-up), so its
+	# away_report reaches this scene as it would after a sleep: the welcome-back replay's driver
+	var away := _debug_arg("town-away")
+	if away.is_valid_float() and float(away) > 0.0:
+		_log_set = true
+		var s: GameState = Game.state
+		s.tick(float(away) * s.time_scale, s.max_substeps_per_frame())
+		print("TOWNSET away %s s, catching up=%s frame=%d" % [away, str(s.view_catchup().get("active", false)), _frame])
 
 
 ## A building with no foreman, other than the crypt, for the demo raise's walk-out.

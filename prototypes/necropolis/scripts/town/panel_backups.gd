@@ -211,7 +211,8 @@ func _on_toggle(slot: int) -> void:
 		return
 	var r: Dictionary = Game.state.cmd_staff_vat(slot, not bool(_vats[slot]["staffed"]))
 	if not bool(r.get("ok", false)):
-		_say(String(_tx.get("staff_refused", "")).format({"reason": String(_tx.get("staff_reasons", {}).get(String(r.get("reason", "")), String(r.get("reason", ""))))}))
+		var why := String(_tx.get("staff_reasons", {}).get(String(r.get("reason", "")), String(r.get("reason", ""))))
+		_say(TownUI.refusal(String(r.get("reason", "")), why, String(_tx.get("staff_refused", "")).format({"reason": why})))
 	else:
 		_say("")
 	command_issued.emit()
@@ -228,6 +229,8 @@ func _build_ossuary() -> void:
 	_body.add_child(_simulacra)
 	_stock = _wrap("", 14)
 	_body.add_child(_stock)
+	# where essence comes from and what it pays for (view.guide; Shawn's checklist item 11): beside the count
+	_body.add_child(_wrap(String(ConfigDb.v("town", "view", {}).get("guide", {}).get("essence_line", "")), 14, "text_dim"))
 	_craft_box = VBoxContainer.new()
 	_craft_box.add_theme_constant_override("separation", 6)
 	_body.add_child(_craft_box)
@@ -287,7 +290,8 @@ func _on_craft(item_id: String) -> void:
 	if bool(r.get("ok", false)):
 		_say(String(_tx.get("craft_ok", "")).format({"label": BackupsModel.craft_label(item_id, _tx)}))
 	else:
-		_say(String(_tx.get("craft_refused", "")).format({"reason": BackupsModel.craft_reason_text(String(r.get("reason", "")), _tx)}))
+		var why := BackupsModel.craft_reason_text(String(r.get("reason", "")), _tx)
+		_say(TownUI.refusal(String(r.get("reason", "")), why, String(_tx.get("craft_refused", "")).format({"reason": why})))
 	command_issued.emit()
 
 

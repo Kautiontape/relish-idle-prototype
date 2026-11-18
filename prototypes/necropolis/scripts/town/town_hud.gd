@@ -230,15 +230,16 @@ func _bind_cell(id: String, c: Dictionary, town: Dictionary, hud: Dictionary, fl
 			"  (%s)" % why if why != "" else ""]
 		c["stock"].tooltip_text = c["stock"].text
 		var war := HudModel.surplus_rate(town, steady, kept, _hcfg)
-		var idle := HudModel.idle_parts(views, _vcfg, _bview, _bcfg, _tab)
+		var idle := HudModel.idle_parts(views, _vcfg, _bview, _bcfg, _tab, true)  # the cell's short line
+		var whole := HudModel.parts_text(HudModel.idle_parts(views, _vcfg, _bview, _bcfg, _tab))  # the tooltip's
 		(c["war_row"] as Control).visible = war > 0.0 or not idle.is_empty()
 		(c["war_rate"] as Label).visible = war > 0.0
 		(c["war_word"] as Label).visible = war > 0.0
 		(c["war_rate"] as Label).text = HudModel.war_text(war, _hcfg)
 		TownUI.set_parts(c["idle"], idle)
 		(c["idle"] as Control).visible = not idle.is_empty()
-		(c["war_row"] as Control).tooltip_text = HudModel.parts_text(idle)
-		(c["idle"] as Control).tooltip_text = HudModel.parts_text(idle)
+		(c["war_row"] as Control).tooltip_text = whole
+		(c["idle"] as Control).tooltip_text = whole
 	elif id == "living":
 		split = HudModel.split_text([["in", float(town.get("migrants", inn))], ["out", -float(town.get("departures", out))]], _hcfg)
 		c["stock"].text = "%d / %d" % [roundi(float(town.get("living", 0.0))), roundi(float(town.get("living_cap", 0.0)))]

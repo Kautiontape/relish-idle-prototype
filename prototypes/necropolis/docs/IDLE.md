@@ -134,12 +134,14 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
 - First-order quantities (worker rot, `q`, the EMAs) use the exact update
   `x += (x_ss − x)(1 − e^(−dt/τ))`. The EMA uses `α = 1 − e^(−dt/readout.ema_s)`.
 - **The vats** (E3-2, MECHANICS §7) grow linearly, `min(1, grow + vats.grow_per_s · hands · dt)` on the step's tend
-  hands, which is exact at any step. **Catch-up doesn't clip at a vat's fill:** it raises no event, and though
-  `view_backups().death` reads it (a clone ready), nothing inside a catch-up does (no run is open during one: every
-  run ends before it starts), so a step that contains the fill ends at exactly 1, as live play's would. A tended
-  pre_vei vat fills 310 s into a 12 h catch-up at its 10 s steps against 300.5 s live, within one step
-  (`test_backups`). Since 4f8b493 a ready vat gives its tend hand back at the end of that step, so caught up the hand
-  returns up to one step late (§8's known gap, with its bound). With no vat tended a 12 h catch-up from each fixture is bit-identical to 646f288's (state, events,
+  hands, which is exact at any step. The fill raises no event, and though `view_backups().death` reads it (a clone
+  ready), nothing inside a catch-up does (no run is open during one: every run ends before it starts). Since 4f8b493
+  a ready vat gives its tend hand back at the end of the step it fills in, so **from Phase I P2 catch-up clips at a
+  tended vat's fill** (`Catchup.vat_fill_s`, the run's manager's ruling 4, Q-c): the step that contains it ends on it,
+  at exactly 1 (a projection whose float product falls short of 1 is moved 1e-9 s later), and the hand is back at the
+  moment it fills. A tended pre_vei vat fills 300.03 s into a 12 h catch-up at its 10 s steps against 300.5 s live,
+  and its hand is back at 300.03 s against live's 300.5 s, within live's 0.5 s substep (`test_backups`
+  `_catchup_hand`; before the clip the fill read 310 s and the hand came back up to one step late, §8). With no vat tended a 12 h catch-up from each fixture is bit-identical to 646f288's (state, events,
   away report; `test_backups`).
 - **The foremen** (E3-3, MECHANICS §4.2) can't change inside a catch-up: they move only by command
   (`cmd_place_big_undead`, `cmd_set_party`, a demolish or a cancelled build sending one home), and every command
@@ -666,9 +668,20 @@ same profile with the game closed.
   same.
 
 ## 5. The build queue
-- An ordered list of builds and upgrades (`cmd_queue_build`, `cmd_unqueue`, `cmd_reorder_queue`), up
-  to `queue.max_len` (8; E2b-2 T3.2, MECHANICS §4.4). Builds take their `build_work` through the build
+- An ordered list of builds and upgrades (`cmd_queue_build`, `cmd_unqueue`, `cmd_reorder_queue`), with
+  `queue.max_len` (8; E2b-2 T3.2, MECHANICS §4.4) slots. Builds take their `build_work` through the build
   job, as before.
+- **The queue rule** (Phase I P2, the run's manager's ruling 1 of 2026-11-17 22:40; STATE-API §10 A14):
+  - A gated entry (one waiting on a tier, a relic or anything else it can't start on: the walk's `skipped_gate`)
+    holds no resources and **doesn't count toward `queue.max_len`**.
+  - It stays in the list: it is the player's intent, and its chip is the visible wall ("needs relics: raid a fort").
+  - It never blocks a relic-free entry behind it, in the walk or for a slot.
+  - The whole list caps at `queue.max_len` × `queue.list_mult` (2 × 8 = 16).
+  - Before P2 every entry counted, so eight gated entries refused every relic-free build (`queue_full`):
+    town_only's bot jammed at 8.0 h at c15f874 (vision-e4-final item 3).
+  - How long a full queue lasts while closed (ruling 3) is measured in BALANCE §5's P2 re-measure (88e18a6):
+    pure_idle's 8 finish 1.96 h into its close, and past 16 entries `max_len` isn't the limit. `queue.max_len` stays
+    8 (the run's manager, 2026-11-18).
 - **Processing**, every core step, right after the tier check:
   - The queue is processed in order.
   - An entry blocked by an **unmet gate** (blueprint, tier, a building, a locked lot, relics) is flagged
@@ -749,8 +762,13 @@ a **"While you were away"** panel. It is ordered **gains, then ready actions, th
       (`TownSim.trade_bound()` at the report, beside the `gold_income()` the gate reads), not the last step's flag: the
       living and the staffing move after the stalls inside a step, so a catch-up's last step can start under the bind
       and end over it (the E4 final review's item 7; test_trade_starved (h)). The income test's "Still stopped … Build a
-      Market" (`unpaid_upkeep_fmt`) is unchanged: in a new game the shed reaches the Market and its stalls first, so
-      no test reaches it with the living binding (a Phase I item if a larger town shows it).
+      Market" (`unpaid_upkeep_fmt`) picks its lever the same way from Phase I P2 (Q-d): in that state it reads "…: House.
+      The living buy less than the stalls can sell: build housing or an Inn" (`unpaid_upkeep_living_fmt`;
+      test_trade_starved (i), set by hand, since in a new game the shed reaches the Market and its stalls first).
+    - A head never on gold that waits on bone, whose gold covers it now but falls under it by the time its bone comes
+      (`_afford_at`'s falling-net check), is short 0 gold. Under the living's bind it reads the living's lever without
+      the count (Phase I P2, Q-d; `afford_living_falling_fmt` and `_last_fmt`; test_trade_starved (j)), not "0 gold
+      short". The bone line has no such corner: no building has bone upkeep, so bone's net never falls.
   - **Stores full, queue empty: raid** (R2; the run's manager, from Shawn's "needs relics: raid a fort",
     the review's question 2). When the absence ends with every capped store full (gold and bone, each within
     `idle.report.full_tol` of its cap: 1%) and the queue empty, the plateau is the wall Shawn asked for, and
@@ -770,7 +788,9 @@ a **"While you were away"** panel. It is ordered **gains, then ready actions, th
     became a waiting head and the queue got no line. When the absence ends with no entry able to start and at
     least one skipped on `no_relics`, `ready` gets "Crypt level 2 needs relics: raid a fort"
     (`afford_relics_last_fmt`, kind `queue`, target `queue`) for the first such entry in queue order: no rate,
-    no "move it down" (a gated entry holds nothing). Stores full or not. **No entry can start** is read off
+    no "move it down" (a gated entry holds nothing). Stores full or not. From Phase I P2 (§5's queue rule) the
+    relic-gated entry holds no slot either, so it can wait in the list beside eight relic-free builds; the wall
+    shows once those have all started. **No entry can start** is read off
     the walk's statuses: no row is `next`, and no `waiting_funds` head will be afforded (`affordable_in_s` >= 0);
     either means the town is still building, so no wall. An entry `queued` behind a head at −1.0 can't start
     either (the queue never jumps), so it doesn't clear the wall: House (−1.0 on bone), Well (queued), then a
@@ -836,8 +856,8 @@ dismissed) and the `away_report` event.
 | Vei-ready under the sessions profile | about 5–8 days (about 4–10 h of active play in all) |
 | share of backlog growth that happens while away, under sessions | ≥ 70%. At c15f874 (BALANCE §5's calibration list): 96.3%, and 79.4% of the build value |
 | dead air: active minutes in which nothing has positive projected value | < 10% |
-| continuous play (open all day, always acting), in calendar time to Vei-ready | **10–30% sooner** than sessions. Being present is never pointless, and idle still wins. The throttles are loot recovery and the relic cap. At 69542f2 (E4 step 9, the win odds, mostly time-based with the backlog term capped; BALANCE §5's `odds` row), unchanged through 553a66f, 4384a17 and b475eb3: continuous day 4.8291 against sessions' 6.0001, **19.5% sooner** (was 44.9% with the odds the strain), and no profile's odds reach 0.6 before day 4.24. At c15f874, after 4f8b493's ready-vat hand moved the sim (BALANCE §5's calibration list): continuous 4.8358 against 6.0001, **19.4% sooner**. Two trees, so two numbers. |
-| pure idle from a fresh start (never raids) | never Vei-ready (relics gate the endgame), but a full queue and a supported setup keep growing for about 2–3 days. **Missed at c15f874** (BALANCE §5's calibration list): pure_idle's one queue runs dry 1.9 h into its close, and town_only's bot jams its queue on gated entries at 8.0 h; with a fill that skips them, town_only's relic-free content lasts to day 1.46 |
+| continuous play (open all day, always acting), in calendar time to Vei-ready | **10–30% sooner** than sessions. Being present is never pointless, and idle still wins. The throttles are loot recovery and the relic cap. At 69542f2 (E4 step 9, the win odds, mostly time-based with the backlog term capped; BALANCE §5's `odds` row), unchanged through 553a66f, 4384a17 and b475eb3: continuous day 4.8291 against sessions' 6.0001, **19.5% sooner** (was 44.9% with the odds the strain), and no profile's odds reach 0.6 before day 4.24. At c15f874, after 4f8b493's ready-vat hand moved the sim (BALANCE §5's calibration list): continuous 4.8358 against 6.0001, **19.4% sooner**. Two trees, so two numbers. At 88e18a6 (Phase I P2's queue rule and fill; BALANCE §5's P2 re-measure) sessions reads day 6.1667, one session later, and a player who parks gated builds reads 5.1667; continuous isn't re-run until P3's batch, so there is no "sooner" at 88e18a6 |
+| pure idle from a fresh start (never raids) | never Vei-ready (relics gate the endgame), but a full queue and a supported setup keep growing for about 2–3 days. **Missed at c15f874** (BALANCE §5's calibration list): pure_idle's one queue runs dry 1.9 h into its close, and town_only's bot jams its queue on gated entries at 8.0 h; with a fill that skips them, town_only's relic-free content lasts to day 1.46. **Still missed at 88e18a6**, after P2's queue rule and fill (BALANCE §5's P2 re-measure): pure_idle's 8 builds finish 1.96 h into its close (3.11 h if it parks gated builds; 3.86 h at `max_len` 16), and town_only's jam is gone but its last relic-free build is at day 1.41. The limit is relic-free content depth, not `max_len` (ruled 2026-11-18: 8 stays; depth is P3's) |
 | after an 8 h night away with a sensible setup | the report shows backlog ▲ and at least one thing to do. From E4 step 3 the backlog line ends with Vei's odds before and after ("· odds 0.02 → 0.11" on sessions' first night), and one night never takes them near 1. Since E4 step 9 they are the win odds (MECHANICS §3.5): sessions' first night reads 0.06 at its close and 0.16 on its load, its sixth 0.57 → 0.61 |
 | away 24 h with the default setup | at least half the held forts lost |
 | away 24 h with a prepared setup (WAR support, siege on the likely targets, weak forts raided before leaving) | at most a quarter lost; Covington never |
@@ -1034,6 +1054,11 @@ The profiles:
         mid-step.
       - catchup_accuracy checks the steady case: 30 h with every t1 fort held, the same 2 relics and carried
         seconds.
+    - **A ready vat's hand, open against closed: closed in Phase I P2** (the run's manager's ruling 4 of 2026-11-17
+      22:40, Q-c). `Catchup.next_event_s` now clips at a tended vat's fill (`Catchup.vat_fill_s`, §4's vats), so the
+      hand comes back at the fill caught up as live, within live's 0.5 s substep (`test_backups` `_catchup_hand`: 300.03
+      s against 300.5 s; with the clip taken out, 9.5 s late). The bound below was the gap until then. It moves closed
+      trajectories with a tended vat (the batch's numbers are from the P2 tip). What was recorded:
     - **A ready vat's hand, open against closed: a known catch-up gap** (the E4 final review's item 2; recorded,
       not fixed, per the run's manager's ruling of 2026-11-17 20:20). Since 4f8b493 a staffed vat holding a ready
       clone gives its tend hand back to the ladder at the end of the step it fills in (`GameState._sync_tend`, after
@@ -1167,6 +1192,17 @@ The policies (the run's manager's, for Shawn):
 - **The queue** is kept filled to `queue_max` from a fixed priority list of build, lot and level, walked top first. An
   item is queued once the level below it on its lot is built, building or queued. A refusal (mostly `cost_exceeds_cap`)
   leaves it for a later look.
+  - **The fill skips gated entries** (Phase I P2, the run's manager's ruling 2: test hygiene; §5's queue rule is what a
+    real player hits). Before each command it reads the walk with the item appended (statuses only, no command), and
+    passes over an item that would be `skipped_gate`, except an upgrade waiting on its own lot's construction
+    (`under_construction`, which the shipped fill queued and still counts toward `queue_max`) and one `no_relics` entry
+    while the queue holds no other (`park_relics`: the build a player parks behind the relics, so the wall's chip
+    shows; it counts toward nothing). It parks only a `no_relics` entry, so a queue set at Hamlet (pure_idle's one
+    setup, where the Chapel and the Walls read `lot_locked`) holds none, and pure_idle's wall is the away report's
+    `full_raid` line instead. A player can park any gated build for free under §5's rule; the bot doesn't, and at
+    88e18a6 that costs sessions a day against a parking player (BALANCE §5's P2 re-measure). Before P2 the fill counted every entry, so gated ones filled `queue_max` and
+    jammed it (town_only at 8.0 h at c15f874). `cost_exceeds_cap` is a gate on the walk, so such an item is now passed
+    over without a command, and the `queue:cost_exceeds_cap` refusal count drops.
   - The list (`BUILD_LIST`): Market level 2, a Raising Pit, the Bone Mill, a House (the Village gate), mill level 2, pit
     level 2, charnel level 2, a second House; then the Chapel of Vats on lot-13 and Walls on lot-23 (the Town gate),
     Market and mill level 3, the Forge, two more pits, the Stables, a House, the Embalmer, another pit, the Ossuary on

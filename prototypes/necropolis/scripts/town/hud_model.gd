@@ -101,8 +101,10 @@ static func kept_reason(town: Dictionary, hud: Dictionary, steady: float, kept_n
 ## item is buildable. A new build's gain is the catalog row's `projected` rates (api-request #9, oblique, "now") or
 ## else its job count; an upgrade's, the building's jobs per level. "10 idle: no job building affordable;
 ## mustering to WAR" (or "waiting at the crypt" while nobody musters) only when no job build or upgrade can
-## be paid for. [] when the idle hands are no need.
-static func idle_parts(views: Dictionary, vcfg: Dictionary, bview: Dictionary, bcfg: Dictionary, tab: Dictionary = {}) -> Array:
+## be paid for. [] when the idle hands are no need. `short` (the HUD cell, whose width clips the full line; the
+## tooltip keeps it whole): the job count as the gain and hud.text's `_short` templates, with no "or let them muster".
+static func idle_parts(views: Dictionary, vcfg: Dictionary, bview: Dictionary, bcfg: Dictionary, tab: Dictionary = {},
+		short := false) -> Array:
 	var hcfg: Dictionary = vcfg.get("hud", {})
 	var need := BuildSort.idle_need(views, vcfg.get("needs", {}), bcfg)
 	if need.is_empty():
@@ -141,13 +143,16 @@ static func idle_parts(views: Dictionary, vcfg: Dictionary, bview: Dictionary, b
 		var row: Dictionary = best["row"]
 		var bid := String(row.get("building_id", ""))
 		var gain: Array = []
-		if not bool(row.get("upgrade", false)) and row.get("projected") is Dictionary:
+		if not short and not bool(row.get("upgrade", false)) and row.get("projected") is Dictionary:
 			var rt := BuildSort.rate_texts(row["projected"], vcfg)
 			if not rt.is_empty():
 				gain = [[", ".join(rt), true]]
 		if gain.is_empty():
 			gain = [[BuildSort.fmt(_t(hcfg, "idle_jobs"), {"n": BuildSort.job_slots(bid, bcfg)}), false]]
-		return fill_parts(_t(hcfg, "idle_upgrade" if bool(row.get("upgrade", false)) else "idle_build"),
+		var key := "idle_upgrade" if bool(row.get("upgrade", false)) else "idle_build"
+		if short and (hcfg.get("text", {}) as Dictionary).has(key + "_short"):
+			key += "_short"
+		return fill_parts(_t(hcfg, key),
 			{"n": str(n), "label": BuildSort.label_of(bid, bview), "level": int(row.get("level", 0)), "gain": gain})
 	var mustering := float(views.get("town", {}).get("workers", {}).get("muster", 0.0)) > 0.0
 	return [[BuildSort.fmt(_t(hcfg, "idle_none" if mustering else "idle_none_wait"), {"n": n}), false]]
@@ -332,10 +337,16 @@ static func stuck_line(id: String, fix: String, views: Dictionary, hcfg: Diction
 		if net < 0.0 and not is_flat(net, hcfg):
 			return BuildSort.fmt(String(tx.get("upkeep", "")), vars)
 		var staffed := 0.0
+		var cause := ""  # the producer's own reason (view_town buildings[].starved, STATE-API §5.9)
 		for b in views.get("town", {}).get("buildings", []):
 			if String(b.get("building_id", "")) == fix:
 				staffed += float(b.get("staffed", 0.0))
-		if staffed > 0.0:  # it has hands but nothing to work on: name the input it lacks
+				if String(b.get("starved", "")) != "":
+					cause = String(b["starved"])
+		if staffed > 0.0:  # it has hands but nothing to work on: the sim's cause when it gives one, else the input it lacks
+			var sw: Dictionary = tx.get("starved_why", {})
+			if sw.has(cause):
+				return BuildSort.fmt(String(sw[cause]), vars)
 			vars["input"] = String((hcfg.get("producer_input", {}) as Dictionary).get(fix, ""))
 			return BuildSort.fmt(String(tx.get("starved", "")), vars)
 		return BuildSort.fmt(String(tx.get("unstaffed", "")), vars)

@@ -275,7 +275,51 @@ func run() -> int:
 	_boss_logic(t, cfg)
 	_result_wiring(t, cfg)
 	_hud_readouts(t, cfg)
+	_pressure(t, cfg)
 	return t.failures
+
+
+## Phase I P1: the break's guards scale with her living pool (VeiFronts.pressure_mult, pressured), and the scene
+## spawns them from the pressured copy.
+func _pressure(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("vei_pressure")
+	var pc: Dictionary = cfg["pressure"]
+	var free := float(pc["pool_free"])
+	var per := float(pc["per_pool"])
+	t.ok(per > 0.0, "vei.json sets a pool-scaled pressure")
+	t.near(VeiFronts.pressure_mult(free, cfg), 1.0, 0.0, "at pool_free the pressure is exactly 1")
+	t.near(VeiFronts.pressure_mult(free * 0.5, cfg), 1.0, 0.0, "below pool_free it is 1 (never under)")
+	t.near(VeiFronts.pressure_mult(0.0, {}), 1.0, 0.0, "no pressure block: 1")
+	var demo_pool := float(cfg["demo"]["seed"]["living_pool"])
+	t.ok(demo_pool <= free and VeiFronts.pressure_mult(demo_pool, cfg) == 1.0,
+		"the demo seed's pool sits at or under pool_free: its guards are unchanged")
+	t.near(VeiFronts.pressure_mult(600.0, cfg), 1.0 + per * (600.0 - free), 0.000001, "her full pool: 1 + per_pool x (600 - pool_free)")
+	t.ok(VeiFronts.pressure_mult(600.0, cfg) > VeiFronts.pressure_mult(500.0, cfg)
+		and VeiFronts.pressure_mult(500.0, cfg) > 1.0, "a fuller pool presses harder")
+	var m := VeiFronts.pressure_mult(600.0, cfg)
+	var rate := float(cfg["guards"]["rate_per_uncleared"])
+	var cap := float(cfg["guards"]["cap"])
+	var pv := VeiFronts.pressured(cfg, 600.0)
+	t.near(float(pv["guards"]["rate_per_uncleared"]), rate * m, 0.000001, "pressured: the guards' rate x the pressure")
+	t.near(float(pv["guards"]["cap"]), cap * m, 0.000001, "pressured: the guards' cap x the pressure")
+	t.ok(pv["guards"]["unit"] == cfg["guards"]["unit"] and float(pv["guards"]["life_s"]) == float(cfg["guards"]["life_s"])
+		and pv["weaves"] == cfg["weaves"] and pv["anchors"] == cfg["anchors"], "pressured: nothing else changes")
+	t.ok(float(cfg["guards"]["rate_per_uncleared"]) == rate and float(cfg["guards"]["cap"]) == cap, "pressured leaves cfg untouched")
+	t.ok(VeiFronts.pressured(cfg, demo_pool) == cfg, "at the demo's pool the pressured copy equals cfg")
+	t.ok(int(BossLogic.guard_spawn(0.0, 10.0, 1, 0, pv)["n"]) == floori(10.0 * rate * m)
+		and int(BossLogic.guard_spawn(0.0, 10.0, 1, 0, cfg)["n"]) == floori(10.0 * rate),
+		"guard_spawn on the pressured copy sends pressure x as many guards a second")
+	t.ok(BossLogic.guard_ceiling(1, pv) > BossLogic.guard_ceiling(1, cfg), "the guards' ceiling rises with the pressure")
+	# the scene: the break's pressured copy is built from the seed's pool once, and the guards spawn from it
+	var src := FileAccess.get_file_as_string("res://scripts/raid/vei_boss.gd")
+	var bi := src.find("func _begin_break(")
+	var bbody := src.substr(bi, src.find("\nfunc ", bi + 1) - bi)
+	t.ok(bbody.contains("_gvc = VeiFronts.pressured(vc, float(seed_data.get(\"living_pool\", 0.0)))"),
+		"_begin_break: the guards' cfg is VeiFronts.pressured at the seed's living pool")
+	var si := src.find("func _step_break(")
+	var sbody := src.substr(si, src.find("\nfunc ", si + 1) - si)
+	t.ok(sbody.contains("_spawn_guards(delta, _gvc)") and not sbody.contains("_spawn_guards(delta, vc)"),
+		"_step_break: the guards spawn from the pressured cfg")
 
 
 func _lanes(cfg: Dictionary) -> Array:
