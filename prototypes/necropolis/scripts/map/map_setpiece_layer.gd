@@ -49,16 +49,13 @@ func _draw_runs(it: Dictionary) -> void:
 	var lf := MapType.label_font()
 	var rf := MapType.rate_font()
 	var mf := MapType.mass_font()
-	var space := lf.get_string_size(" ", HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
 	var runs: Array = it["runs"]
-	var widths: Array = []
-	var total := 0.0
-	for r in runs:
-		var w := _font_of(str(r["kind"]), lf, rf, mf).get_string_size(str(r["text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
-		widths.append(w)
-		total += w + (space if widths.size() > 1 else 0.0)
-	var h := maxf(lf.get_height(size), maxf(rf.get_height(size), mf.get_height(size)))
-	var asc := maxf(lf.get_ascent(size), maxf(rf.get_ascent(size), mf.get_ascent(size)))
+	var m := SetpieceLogic.build_metrics(runs, size)  # the same measure the placement used
+	var widths: Array = m["widths"]
+	var space := float(m["space"])
+	var total := float(m["total"])
+	var h := float(m["h"])
+	var asc := float(m["asc"])
 	var sc := 1.0 / maxf(ctx.zoom, 0.001)
 	draw_set_transform(it["pos"], 0.0, Vector2(sc, sc))
 	var fill := NodeLogic.label_plate_color()
@@ -68,12 +65,6 @@ func _draw_runs(it: Dictionary) -> void:
 	for i in runs.size():
 		var kind := str(runs[i]["kind"])
 		var key := str(c["build_rate_key" if kind == "rate" else "build_label_key"])
-		draw_string(_font_of(kind, lf, rf, mf), Vector2(x, -pad - h + asc), str(runs[i]["text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, size, Palette.c(key, a))
+		draw_string(SetpieceLogic.build_font_of(kind, lf, rf, mf), Vector2(x, -pad - h + asc), str(runs[i]["text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, size, Palette.c(key, a))
 		x += float(widths[i]) + space
 	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
-
-
-static func _font_of(kind: String, lf: Font, rf: Font, mf: Font) -> Font:
-	if kind == "rate":
-		return rf
-	return mf if kind == "mass" else lf

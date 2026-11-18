@@ -27,6 +27,7 @@ func run() -> int:
 	_garrison(t, c)
 	_sources_of_garrison(t, c)
 	_builds(t, c)
+	_build_place(t, c)
 	_victory(t, c)
 	_reduced(t, c)
 	_debug(t, c)
@@ -523,6 +524,45 @@ func _sources_of_garrison(t: TestUtil, c: Dictionary) -> void:
 	var src := FileAccess.get_file_as_string("%s/map_setpieces.gd" % MAP_DIR)
 	t.ok(src.contains("\"counter_garrison_cleared\":") and src.contains("SetpieceLogic.garrison_from_event(ev)") and src.contains("_add(SetpieceLogic.GARRISON"), "MapSetpieces starts the garrison piece from the real event")
 	t.ok(not src.contains("stand_in") and not src.contains("_standin"), "and no stand-in path is left")
+
+
+## Where the build line sits at Covington (SetpieceLogic.build_place), in the zoomed frame: Covington at
+## (500, 500), outer ring 30, a 220 px line on a 34 px plate; its default place is the plate's bottom
+## build_gap_px over the ring.
+func _build_place(t: TestUtil, c: Dictionary) -> void:
+	t.suite("map_setpieces-build-place")
+	var cov := Vector2(500.0, 500.0)
+	var bottom := 500.0 - 30.0 - float(c["build_gap_px"])
+	var none := {"rings": [], "circles": [], "rects": [], "soft": []}
+	var home := SetpieceLogic.build_place(cov, 30.0, bottom, 220.0, 34.0, [], none)
+	var plate: Rect2 = home["plate"]
+	t.ok(is_equal_approx(plate.size.x, 220.0 + float(c["build_pad_px"]) * 2.0) and is_equal_approx(plate.size.y, 34.0), "the plate is the text plus build_pad_px each side, at the height given")
+	t.ok(is_equal_approx(plate.get_center().x, 500.0) and is_equal_approx(plate.end.y, bottom) and (home["pos"] as Vector2).is_equal_approx(Vector2(500.0, bottom)), "nothing near: centred above the rings, bottom build_gap_px clear, as it always sat")
+	# (1) a fort's name plate under the default place: the line moves off it
+	var name_plate := Rect2(430.0, 430.0, 140.0, 22.0)
+	var moved := SetpieceLogic.build_place(cov, 30.0, bottom, 220.0, 34.0, [], {"rings": [], "circles": [], "rects": [name_plate], "soft": []})
+	t.ok(plate.intersects(name_plate), "(the default place does cover that plate)")
+	t.ok(not (moved["plate"] as Rect2).intersects(name_plate) and float((moved["at"] as Dictionary)["hard"]) == 0.0, "(1) it is moved so it clears the fort's name plate: %s" % str(moved["plate"]))
+	t.ok(not (moved["plate"] as Rect2).is_equal_approx(plate), "(1) and is not the default place")
+	# (2) Covington's own discs and plates are its own, not hard: Vei's stay hard
+	var nodes := [{"pos": Vector2(500.0, 500.0), "r": 40.0, "rects": [Rect2(450.0, 535.0, 100.0, 20.0)]},
+		{"pos": Vector2(900.0, 100.0), "r": 60.0, "rects": [Rect2(880.0, 20.0, 80.0, 18.0)]}]
+	var sp := SetpieceLogic.build_obstacles(nodes, 2.0)
+	t.ok(sp["own"] == [Rect2(900.0, 1070.0, 200.0, 40.0)] and (sp["circles"] as Array) == [Vector3(1800.0, 200.0, 120.0)] and (sp["rects"] as Array) == [Rect2(1760.0, 40.0, 160.0, 36.0)],
+		"Covington's plates are its own (zoomed), Vei's disc and plates stay hard: %s" % str(sp))
+	var own_only := SetpieceLogic.build_place(cov, 30.0, bottom, 220.0, 34.0, [Rect2(450.0, 535.0, 100.0, 20.0)], none)
+	t.ok((own_only["plate"] as Rect2).is_equal_approx(plate), "(2) Covington's own plates do not push it off its default place")
+	# (3) a fort callout placed first is hard to it
+	var callout := Rect2(440.0, 415.0, 120.0, 40.0)
+	var past := SetpieceLogic.build_place(cov, 30.0, bottom, 220.0, 34.0, [], {"rings": [], "circles": [], "rects": [callout], "soft": []})
+	t.ok(plate.intersects(callout) and not (past["plate"] as Rect2).intersects(callout) and float((past["at"] as Dictionary)["hard"]) == 0.0, "(3) a fort callout fed as hard is avoided: %s" % str(past["plate"]))
+	# the sum of the runs' widths, in the faces the layer draws them in
+	var runs := SetpieceLogic.build_spans("Bone Mill built · BODIES −0.4/s")
+	var m := SetpieceLogic.build_metrics(runs, 16)
+	var sum := 0.0
+	for w in m["widths"]:
+		sum += float(w)
+	t.ok(runs.size() >= 2 and is_equal_approx(float(m["total"]), sum + float(m["space"]) * (runs.size() - 1)) and float(m["h"]) > 0.0 and float(m["asc"]) > 0.0, "the line's width is its runs' widths and the spaces between: %s" % str(m["total"]))
 
 
 ## A finished build's callout at Covington: the projection store (by lot and level, only ever

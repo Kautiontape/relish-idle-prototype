@@ -689,6 +689,62 @@ static func build_spans(text: String) -> Array:
 	return AwayLogic.spans(text)
 
 
+## How the build line's runs measure at `size`, in the faces they are drawn in (MapType: the rate oblique,
+## a count heavy, words regular), one space between runs: {widths: [each run's], space, total (the
+## line's width), h (the tallest face's height), asc (its tallest ascent)}. The layer draws from this and
+## build_place places from it, so the plate drawn is the plate placed.
+static func build_metrics(runs: Array, size: int) -> Dictionary:
+	var lf := MapType.label_font()
+	var rf := MapType.rate_font()
+	var mf := MapType.mass_font()
+	var space := lf.get_string_size(" ", HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+	var widths: Array = []
+	var total := 0.0
+	for r in runs:
+		var w := build_font_of(str(r["kind"]), lf, rf, mf).get_string_size(str(r["text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+		widths.append(w)
+		total += w + (space if widths.size() > 1 else 0.0)
+	return {"widths": widths, "space": space, "total": total, "h": maxf(lf.get_height(size), maxf(rf.get_height(size), mf.get_height(size))),
+		"asc": maxf(lf.get_ascent(size), maxf(rf.get_ascent(size), mf.get_ascent(size)))}
+
+
+static func build_font_of(kind: String, lf: Font, rf: Font, mf: Font) -> Font:
+	if kind == "rate":
+		return rf
+	return mf if kind == "mass" else lf
+
+
+## Covington's and Vei's obstacles for the build line (`nodes`: IdleLogic.node_obstacles, Covington first, in
+## world px) in the zoomed frame: {own: Covington's name and stream plates (its own, like a fort's: they
+## read as the line's, and it still keeps off them), circles / rects: Vei's reach and name (hard)}. Covington's
+## disc is not an obstacle: the line sits over its outer ring (build_place's `ring_r`).
+static func build_obstacles(nodes: Array, zoom: float) -> Dictionary:
+	var hard := node_hard(nodes.slice(1), zoom)
+	var own: Array = node_hard(nodes.slice(0, 1), zoom)["rects"]
+	return {"own": own, "circles": hard["circles"], "rects": hard["rects"]}
+
+
+## Where the finished build's plate goes at Covington (`cov`, outer ring `ring_r`, zoomed frame), by
+## callout_place's rules for a one-line row (no two-line form: it has no ": "). `bottom_y` is the plate's
+## bottom when it stands above the rings (the default place); `text_w` its text's width and `plate_h` its
+## height (build_metrics). `own` Covington's plates and Relish's token when she stands at home; `obs` as
+## callout_place's: the other forts' rings, plates and chips, Relish's halo, Vei, and the fort callouts
+## already placed (hard: fort callouts are placed first, then the build line goes round them), the lane
+## callouts soft. The row is placed as a label plate of the same size, so the plate returned is exactly the
+## drawn one. Returns {plate: Rect2, pos: the plate's bottom centre (what MapSetpieceLayer anchors a
+## "runs" item at), choice: {form, place, slide} to pass back as `prev`, at: callout_place's result}.
+static func build_place(cov: Vector2, ring_r: float, bottom_y: float, text_w: float, plate_h: float, own: Array, obs: Dictionary, prev := {}) -> Dictionary:
+	var pad := _n("build_pad_px")
+	var plate_w := text_w + pad * 2.0
+	var nc := NodeLogic.ncfg()
+	var size := maxi(roundi(plate_h / float(nc["plate_height"])), 1)  # the font whose label plate is plate_h tall
+	var base_y := bottom_y - float(size) * (float(nc["plate_height"]) - float(nc["plate_ascent"]))
+	var at := callout_place(cov, ring_r, base_y, size, {"one": plate_w - float(nc["plate_pad_px"]) * 2.0}, own, obs, prev)
+	var r: Rect2 = (at["rects"] as Array)[0]
+	var plate := Rect2(r.get_center().x - plate_w * 0.5, r.end.y - plate_h, plate_w, plate_h)
+	return {"plate": plate, "pos": Vector2(r.get_center().x, r.end.y), "choice": {"form": at["form"], "place": at["place"], "slide": at["slide"]}, "at": at}
+
+
 ## The plate's alpha `t` beats in: full, fading over the last callout_fade_beats; under reduced
 ## motion full until it is gone.
 static func build_alpha(t: float, reduced: bool) -> float:

@@ -63,6 +63,9 @@ var _won := false  # victory has played (or is playing): once per map
 var _builds: Array = []  # the finished builds the callout at Covington names: [{lot_id, building_id, level}]
 var _build_runs: Array = []  # its line as runs (SetpieceLogic.build_spans)
 var _build_start_ms := -1.0  # when it started; -1 until the set pieces are live
+var _build_line := ""  # its text
+var _build_hit := {}  # its place, kept until its inputs change: {sig, pos (world, the plate's bottom centre), choice}
+var _fort_rects: Array = []  # the fort callouts placed this frame (zoomed frame): hard to the build line
 
 
 func _ready() -> void:
@@ -192,6 +195,7 @@ func _process(_delta: float) -> void:
 	_tempo()
 	_valve_tick()
 	var items: Array = []
+	_fort_rects = []  # refilled by this frame's fort callouts (_callout), before the build line reads it
 	var now := Pulse.now_ms()
 	var rm: bool = Pulse.reduced_motion
 	for p in _active.duplicate():
@@ -344,8 +348,9 @@ func _callout(id: String, text: String, alpha: float, key := "undead") -> Array:
 	var hit: Dictionary = _placed.get(ck, {})
 	if hit.is_empty() or hit["sig"] != sig:
 		var made := _place_callout(id, text, hit.get("choice", {}))  # the last choice stays while it is still free
-		hit = {"sig": sig, "lines": made["lines"], "choice": made["choice"]}
+		hit = {"sig": sig, "lines": made["lines"], "rects": made["rects"], "choice": made["choice"]}
 		_placed[ck] = hit
+	_fort_rects.append_array(hit["rects"])  # the build line, placed after this frame's callouts, goes round them
 	var out: Array = []
 	for l in hit["lines"]:
 		out.append({"kind": "label", "pos": l["pos"], "text": l["text"], "size": int(l["size"]), "key": key, "alpha": alpha})
@@ -365,32 +370,14 @@ func _place_callout(id: String, text: String, prev: Dictionary) -> Dictionary:
 	var base_y := p.y - ring_r - gap
 	var halo := float(NodeLogic.relish_radii(z)["halo"]) * z
 	var token := ctx.relish_pos * z
-	var own: Array = []
 	var node_hard := SetpieceLogic.node_hard(nodes.node_obstacles(), z)  # Covington's and Vei's discs and plates
-	var obs := {"rings": [], "circles": [Vector3(token.x, token.y, halo)] + (node_hard["circles"] as Array), "rects": (node_hard["rects"] as Array).duplicate(),
-		"soft": callouts.drawn_rects() if callouts != null else []}
+	var forts := _fort_obstacles(id, z)
+	var own: Array = forts["own"]
+	var obs := {"rings": forts["rings"], "circles": [Vector3(token.x, token.y, halo)] + (node_hard["circles"] as Array),
+		"rects": (node_hard["rects"] as Array) + (forts["rects"] as Array), "soft": callouts.drawn_rects() if callouts != null else []}
 	if str(model.relish.get("at", "")) == id and str(model.relish.get("state", "")) != "travelling":
 		base_y = minf(base_y, token.y - halo - gap)
 		own.append(Rect2(token - Vector2(halo, halo), Vector2(halo, halo) * 2.0))
-	var font := ThemeDB.fallback_font  # what the map's labels measure with
-	var label_size := int(MapLogic.cfg()["font_label"])
-	for g in model.forts:
-		var gid := str(g["id"])
-		var tier := int(g["tier"])
-		var bucket: Array = own if gid == id else obs["rects"]
-		if gid != id:
-			var gp := MapModel.to_vec(g["pos"]) * z
-			(obs["rings"] as Array).append(Vector3(gp.x, gp.y, NodeLogic.outer_radius("fort", tier, 0.0) * z))
-		if NodeLogic.fort_label_shown(ctx.tier, tier):
-			var tag := NodeLogic.name_tag(g)
-			var tag_w := -1.0
-			if not tag.is_empty() and ctx.tier != "far":
-				tag_w = font.get_string_size(str(tag["text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, NodeLogic.tag_size()).x
-			var name_w := font.get_string_size(str(g["name"]), HORIZONTAL_ALIGNMENT_LEFT, -1, label_size).x
-			bucket.append_array(SetpieceLogic.fort_plates(MapModel.to_vec(g["pos"]), tier, name_w, tag_w, z, ctx.panel))
-		if bool(g.get("held", false)) and IdleLogic.chip_shown(ctx.tier, z):
-			var r := nodes.chip_world_rect(g)
-			bucket.append(Rect2(r.position * z, r.size * z))
 	var widths := {"one": MapNodeLayer.label_width(text, size)}
 	var split := SetpieceLogic.split_text(text)
 	var size_two := int(c.get("callout_font_two", size))
@@ -407,7 +394,37 @@ func _place_callout(id: String, text: String, prev: Dictionary) -> Dictionary:
 	for i in texts.size():
 		var pos := (at["pos"] as Vector2) + Vector2(0.0, float(i) * float(at["line"]))
 		lines.append({"pos": pos / z, "text": str(texts[i]), "size": int(at["size"])})
-	return {"lines": lines, "choice": {"form": at["form"], "place": at["place"], "slide": at["slide"]}}
+	return {"lines": lines, "rects": at["rects"], "choice": {"form": at["form"], "place": at["place"], "slide": at["slide"]}}
+
+
+## The forts' hard obstacles in the zoomed frame, for a callout at the fort `own_id` ("" at Covington): {rings:
+## [Vector3] every other fort's outermost ring, rects: every other fort's name and tag plates and held chip,
+## own: the fort's own plates and chip}.
+func _fort_obstacles(own_id: String, z: float) -> Dictionary:
+	var ctx := nodes.ctx
+	var rings: Array = []
+	var rects: Array = []
+	var own: Array = []
+	var font := ThemeDB.fallback_font  # what the map's labels measure with
+	var label_size := int(MapLogic.cfg()["font_label"])
+	for g in model.forts:
+		var gid := str(g["id"])
+		var tier := int(g["tier"])
+		var bucket: Array = own if gid == own_id else rects
+		if gid != own_id:
+			var gp := MapModel.to_vec(g["pos"]) * z
+			rings.append(Vector3(gp.x, gp.y, NodeLogic.outer_radius("fort", tier, 0.0) * z))
+		if NodeLogic.fort_label_shown(ctx.tier, tier):
+			var tag := NodeLogic.name_tag(g)
+			var tag_w := -1.0
+			if not tag.is_empty() and ctx.tier != "far":
+				tag_w = font.get_string_size(str(tag["text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, NodeLogic.tag_size()).x
+			var name_w := font.get_string_size(str(g["name"]), HORIZONTAL_ALIGNMENT_LEFT, -1, label_size).x
+			bucket.append_array(SetpieceLogic.fort_plates(MapModel.to_vec(g["pos"]), tier, name_w, tag_w, z, ctx.panel))
+		if bool(g.get("held", false)) and IdleLogic.chip_shown(ctx.tier, z):
+			var r := nodes.chip_world_rect(g)
+			bucket.append(Rect2(r.position * z, r.size * z))
+	return {"rings": rings, "rects": rects, "own": own}
 
 
 # --- a finished build -------------------------------------------------------------------------
@@ -419,7 +436,8 @@ func _note_build(b: Dictionary) -> void:
 	if next.size() == _builds.size():
 		return
 	_builds = next
-	_build_runs = SetpieceLogic.build_spans(SetpieceLogic.build_text(_builds, MapModel.proj_store, _building_names()))
+	_build_line = SetpieceLogic.build_text(_builds, MapModel.proj_store, _building_names())
+	_build_runs = SetpieceLogic.build_spans(_build_line)
 	_build_start_ms = Pulse.now_ms() if _live else -1.0
 
 
@@ -445,17 +463,55 @@ func _build_tick(items: Array) -> void:
 		items.append(_build_plate(a))
 
 
-## The plate's bottom centre sits build_gap_px above Covington's rings, and above Relish's token
-## when she stands there (home, she does).
+## The build line's plate, where SetpieceLogic.build_place puts it: by default its bottom centre build_gap_px
+## above Covington's rings, and above Relish's token when she stands there (home, she does); else slid or
+## under, so it covers no fort's label. Placed AFTER the fort callouts (_process runs them first): theirs are
+## hard to it (_fort_rects), while it is not hard to them. Kept until its inputs change (the line, zoom,
+## camera, viewport, tier, model.rev, Relish's token on the callouts' grid, the lane callouts and the fort
+## callouts' rects, the open card), never recomputed per frame.
 func _build_plate(alpha: float) -> Dictionary:
 	var c := SetpieceLogic.cfg()
 	var ctx := nodes.ctx
-	var p := model.node_pos(MapModel.COVINGTON)
-	var gap := ctx.px(float(c["build_gap_px"]))
-	var y := p.y - NodeLogic.outer_radius("covington", 0, 0.0) - gap
+	var z := ctx.zoom
+	var grid := float(MapLogic.cfg()["callouts"]["token_key_px"])
+	var cp := cam.position if cam != null else Vector2.ZERO
+	var tok := ctx.relish_pos * z
+	var soft: Array = callouts.drawn_rects() if callouts != null else []
+	var sig := SetpieceLogic.callout_key(_build_line, z, cp, get_viewport().get_visible_rect().size, ctx.tier, model.rev,
+		Vector2(roundi(tok.x / grid), roundi(tok.y / grid)), HudLogic.rects_key(soft + _fort_rects), NodeLogic.panel_key(ctx.panel))
+	if _build_hit.is_empty() or _build_hit["sig"] != sig:
+		var made := _place_build(soft, _build_hit.get("choice", {}))
+		_build_hit = {"sig": sig, "pos": made["pos"], "choice": made["choice"]}
+	return {"kind": "runs", "pos": (_build_hit["pos"] as Vector2) / z, "runs": _build_runs, "size": int(c["build_font"]), "alpha": alpha}
+
+
+## Where the build line goes now: {pos (the plate's bottom centre, zoomed frame), choice}. Obstacles as the fort
+## callouts see them (hard: every fort's ring, name and tag plates and chip, Relish's halo, Vei, the fort callouts
+## placed this frame; soft: the lane callouts), but Covington's own plates are its own.
+func _place_build(soft: Array, prev: Dictionary) -> Dictionary:
+	var c := SetpieceLogic.cfg()
+	var ctx := nodes.ctx
+	var z := ctx.zoom
+	var p := model.node_pos(MapModel.COVINGTON) * z
+	var ring_r := NodeLogic.outer_radius("covington", 0, 0.0) * z
+	var gap := float(c["build_gap_px"])
+	var bottom := p.y - ring_r - gap
+	var halo := float(NodeLogic.relish_radii(z)["halo"]) * z
+	var token := ctx.relish_pos * z
+	var split := SetpieceLogic.build_obstacles(nodes.node_obstacles(), z)
+	var forts := _fort_obstacles("", z)
+	var own: Array = split["own"]
 	if str(model.relish.get("at", "")) == MapModel.COVINGTON and str(model.relish.get("state", "")) != "travelling":
-		y = minf(y, ctx.relish_pos.y - float(NodeLogic.relish_radii(ctx.zoom)["halo"]) - gap)
-	return {"kind": "runs", "pos": Vector2(p.x, y), "runs": _build_runs, "size": int(c["build_font"]), "alpha": alpha}
+		bottom = minf(bottom, token.y - halo - gap)
+		own.append(Rect2(token - Vector2(halo, halo), Vector2(halo, halo) * 2.0))
+	var obs := {"rings": forts["rings"], "circles": [Vector3(token.x, token.y, halo)] + (split["circles"] as Array),
+		"rects": (split["rects"] as Array) + (forts["rects"] as Array) + _fort_rects, "soft": soft}
+	if hud != null:
+		var cp := cam.position if cam != null else Vector2.ZERO
+		obs["bounds"] = SetpieceLogic.screen_bounds(get_viewport().get_visible_rect().size, cp, z, hud.bar_bottom(), hud.bottom_top())
+	var m := SetpieceLogic.build_metrics(_build_runs, int(c["build_font"]))
+	var at := SetpieceLogic.build_place(p, ring_r, bottom, float(m["total"]), float(m["h"]) + float(c["build_pad_px"]) * 2.0, own, obs, prev)
+	return {"pos": at["pos"], "choice": at["choice"]}
 
 
 # --- bands along a lane -----------------------------------------------------------------------
