@@ -2999,7 +2999,7 @@ its check, revives ≤ the seed's charges, holds at 0 whatever the stock), and `
 equals it, so the fort's undead don't move). Its events are queued as live, stamped at the save's `t`, and
 `rev` rises by 1 more. A boss run needs nothing: the save holds it forfeited (Relish `at_vei`, no run, the
 party intact), unless it carries `won_result` (P3b, api-request #22; §10 A20): then the load reopens it (its seed
-rebuilt, `boss_seed_v2`) and applies that win, its events queued as live. A save without `pending_retreat` (written before T3.3c) forfeits its run as before: no loot,
+rebuilt, `boss_seed_v2`) and applies that win, its events queued as live, and (P9) rebuilds the load's dispatch so the split reads won before the first substep (`split.flood` 0, `muster_to` `"war"`). A save without `pending_retreat` (written before T3.3c) forfeits its run as before: no loot,
 no flip, no event, the party intact.
 
 **Catch-up** (v6, E2b-2 T3.3b): only `cmd_load` catches up the time since a save (§4.1), from the file's

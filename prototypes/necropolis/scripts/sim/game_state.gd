@@ -3226,7 +3226,12 @@ func from_dict(d: Dictionary) -> Dictionary:
 	# IDLE I5 (E2b-2 T3.3c): a run open at the save ends now, from its last checkpoint, before any catch-up
 	# (cmd_load's, either path); its events are queued as live
 	if m.get("pending_retreat") is Dictionary:
+		var was_won := won
 		StateRuns.apply_pending(self, m["pending_retreat"])
+		if won and not was_won:
+			# (P9, the P3b review's split-order nit) the end applied a recorded win (api-request #22): the dispatch is
+			# rebuilt so the split reads won from the load on (FLOOD and the muster to WAR), not from the first substep
+			_restore_dispatch()
 	return {"ok": true, "reason": ""}
 
 
