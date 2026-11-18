@@ -191,6 +191,55 @@ static func apply_tip(c: Control, id: String) -> void:
 		c.mouse_filter = Control.MOUSE_FILTER_PASS
 
 
+## Where the plate of a bar word's tooltip goes (screen px). `word`: the word's rect; `tip`: the plate's
+## size; `plates`: the HUD's text plates (the bar, strip, goal, leave line's slot, Relish chip, legend, valve);
+## `card`: the open fort card (Rect2() closed), avoided but never used as an edge to sit beside. Candidates
+## in order, the first clear of every plate and the card and wholly on screen (tooltip.margin_px in) wins:
+## (1) just under the word (tooltip.gap_px), pushed down past each plate it meets, at the word's x;
+## (2) right of the plates under the bar (the widest end of those the word is not on), just under the plates
+## the word is on: over the map. Fallback, when neither is clear: the one overlapping least (the first on a
+## tie), then clamped on screen; a plate larger than the viewport less its margins is shrunk to fit, so the
+## result is always inside the viewport.
+static func tip_rect(word: Rect2, tip: Vector2, plates: Array, viewport: Vector2, card := Rect2()) -> Rect2:
+	var tc: Dictionary = MapLogic.cfg()["clarity"]["tooltip"]
+	var gap := float(tc["gap_px"])
+	var margin := float(tc["margin_px"])
+	var size := Vector2(minf(tip.x, viewport.x - margin * 2.0), minf(tip.y, viewport.y - margin * 2.0))
+	var inside := Rect2(Vector2(margin, margin), viewport - Vector2(margin, margin) * 2.0)
+	var avoid: Array = plates.duplicate()
+	if card.size.x > 0.0 and card.size.y > 0.0:
+		avoid.append(card)
+	var host_end := word.end.y
+	var right := 0.0
+	for p in plates:
+		if (p as Rect2).intersects(word):
+			host_end = maxf(host_end, (p as Rect2).end.y)
+		else:
+			right = maxf(right, (p as Rect2).end.x)
+	var down := Rect2(Vector2(word.position.x, word.end.y + gap), size)
+	for _i in avoid.size() + 1:
+		for p in avoid:
+			if down.intersects(p):
+				down.position.y = (p as Rect2).end.y + gap
+	var cands: Array = [down, Rect2(Vector2(right + gap, host_end + gap), size)]
+	var best := Rect2()
+	var best_over := INF
+	for c in cands:
+		var over := 0.0
+		for p in avoid:
+			var i: Rect2 = (c as Rect2).intersection(p)
+			over += maxf(i.size.x, 0.0) * maxf(i.size.y, 0.0)
+		if not inside.encloses(c):
+			over += 1.0e9  # off screen: worse than any overlap
+		if over == 0.0:
+			return c
+		if over < best_over:
+			best_over = over
+			best = c
+	best.position = Vector2(clampf(best.position.x, inside.position.x, inside.end.x - size.x), clampf(best.position.y, inside.position.y, inside.end.y - size.y))
+	return best
+
+
 ## A screen rect (the open card) in a world-anchored layer's frame, world x zoom (MapCallouts'):
 ## screen - viewport / 2 + camera position x zoom.
 static func screen_to_zoomed(r: Rect2, cam_pos: Vector2, zoom: float, viewport: Vector2) -> Rect2:

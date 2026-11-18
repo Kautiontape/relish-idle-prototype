@@ -178,6 +178,9 @@ func _build_ui() -> void:
 	callouts_view.card = sidebar  # the callouts keep off the open card
 	nodes_view.card = sidebar  # the node labels shift clear of it, or hide
 	hud.next_chosen.connect(_act_on)
+	hud.valve = valve  # the bar's tooltips keep off the valve, the legend and the open card
+	hud.legend = legend
+	hud.card = sidebar
 	opening = MapOpening.new()
 	opening.model = model
 	opening.hud = hud

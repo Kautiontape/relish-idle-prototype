@@ -24,7 +24,43 @@ func run() -> int:
 	_fit(t)
 	_wrap(t)
 	_clarity(t)
+	_tip_rect(t)
 	return t.failures
+
+
+## The bar tooltip's own place (HudLogic.tip_rect): clear of every HUD text plate, inside the viewport.
+func _tip_rect(t: TestUtil) -> void:
+	t.suite("map_hud-tip-rect")
+	var vp := Vector2(1600.0, 900.0)
+	var plates: Array = [Rect2(0, 0, 860, 60), Rect2(0, 60, 560, 48), Rect2(0, 110, 550, 50), Rect2(0, 160, 560, 35),
+		Rect2(10, 195, 300, 43), Rect2(10, 245, 490, 260), Rect2(10, 512, 500, 328)]
+	var tip := Vector2(420.0, 64.0)
+	var odds := Rect2(32, 34, 68, 22)
+	var mint := Rect2(12, 6, 36, 20)
+	var card := Rect2(1110, 12, 490, 888)
+	var view := Rect2(Vector2.ZERO, vp)
+	for case in [["row 2 (ODDS)", odds, Rect2()], ["row 1 (MINT)", mint, Rect2()], ["row 2, the card open", odds, card], ["row 1, the card open", mint, card]]:
+		var r := HudLogic.tip_rect(case[1], tip, plates, vp, case[2])
+		var hit := false
+		for p in plates:
+			hit = hit or r.intersects(p)
+		t.ok(not hit and view.encloses(r) and r.size == tip, "%s: the plate clears every HUD plate and stays on screen: %s" % [case[0], str(r)])
+		t.ok(not (case[2] as Rect2).intersects(r), "%s: and the open card" % case[0])
+	var r2 := HudLogic.tip_rect(odds, tip, plates, vp)
+	t.ok(r2.position.x >= 560.0 and r2.position.y >= 60.0, "with the column below the goal full, it goes right of the plates under the bar, over the map: %s" % str(r2))
+	var roomy := HudLogic.tip_rect(odds, tip, [Rect2(0, 0, 860, 60)], vp)
+	t.ok(roomy.position.x == odds.position.x and roomy.position.y >= 60.0 and roomy.position.y < 80.0, "nothing under the bar: just below the word's plate, at its x: %s" % str(roomy))
+	# nothing fits cleanly: still inside the viewport (the fallback is documented on tip_rect)
+	var tiny := Vector2(300.0, 120.0)
+	var small := HudLogic.tip_rect(odds, tip, plates, tiny, Rect2(100, 0, 200, 120))
+	t.ok(Rect2(Vector2.ZERO, tiny).encloses(small), "a tiny viewport: the plate is still inside it: %s" % str(small))
+	var huge := HudLogic.tip_rect(odds, Vector2(900.0, 400.0), plates, tiny)
+	t.ok(Rect2(Vector2.ZERO, tiny).encloses(huge), "a plate larger than the viewport is shrunk into it: %s" % str(huge))
+	var tc: Dictionary = MapLogic.cfg()["clarity"]["tooltip"]
+	t.ok(float(tc["gap_px"]) > 0.0 and float(tc["margin_px"]) > 0.0 and float(tc["delay_s"]) > 0.0 and float(tc["max_w_px"]) > 100.0, "the placement's numbers are in clarity.tooltip")
+	var th := MapUi.tooltip_theme()
+	var pbox := th.get_stylebox("panel", "TooltipPanel") as StyleBoxFlat
+	t.ok(pbox != null and pbox.bg_color.a >= 0.95, "the shared tooltip theme (the valve's tooltips) still has its TooltipPanel plate")
 
 
 ## The hover lines on the real nodes. MapValve compiles headless, so it is built as the scene builds it

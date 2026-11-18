@@ -20,7 +20,12 @@ var model: MapModel
 
 ## A bar word that explains itself on hover: a Label that draws a thin dotted underline under its text
 ## once it carries a tooltip (HudLogic.apply_tip), in a dim key, so the hover is discoverable and calm.
+## It keeps the glossary line in tooltip_text, but Godot's own popup is switched off for it (_get_tooltip
+## returns ""): the hud draws the plate itself, in the place HudLogic.tip_rect picks (MapHud._show_tip).
 class TipWord extends Label:
+	func _get_tooltip(_at_position: Vector2) -> String:
+		return ""
+
 	func _draw() -> void:
 		if tooltip_text == "":
 			return
@@ -34,6 +39,35 @@ class TipWord extends Label:
 			draw_rect(Rect2(x, y, minf(dot, size.x - x), 1.0), col)
 			x += step
 
+## The plate of a bar word's tooltip: the same look as MapUi.tooltip_theme's (MapUi.plate_box, the HUD's
+## tooltip text colour and size), drawn at exactly its size and position (set by MapHud._show_tip), its
+## text wrapped by the same call that measured it. It takes no mouse, so it never steals the hover.
+class TipPlate extends Control:
+	var text := ""
+	var font: Font
+	var font_size := 14
+	var pad := 6
+	var text_w := 0.0
+	var color := Color.WHITE
+	var box: StyleBox
+
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_IGNORE
+		z_as_relative = false
+		z_index = int(MapLogic.cfg()["clarity"]["tooltip"]["z_index"])
+		visible = false
+
+	func _draw() -> void:
+		draw_style_box(box, Rect2(Vector2.ZERO, size))
+		draw_multiline_string(font, Vector2(pad, pad + font.get_ascent(font_size)), text, HORIZONTAL_ALIGNMENT_LEFT, text_w, font_size, -1, color,
+			TextServer.BREAK_WORD_BOUND | TextServer.BREAK_MANDATORY)
+
+var valve: Control  # the HUD's plates a bar tooltip keeps clear of (set by world_map): the valve, the legend, the open card
+var legend: Control
+var card: Control
+var _tip_word: Label  # the bar word the cursor rests on
+var _tip_wait := 0.0  # seconds until its plate shows
+var _tip_plate: TipPlate
 var _bar: VBoxContainer  # one HBoxContainer row per HudLogic.wrap_rows row
 var _cells: Array = []  # the bar items (a box per stream, then the status box), in order
 var _row_sig := ""
@@ -111,6 +145,8 @@ func _ready() -> void:
 	_victory.add_theme_stylebox_override("normal", MapUi.plate_box(float(cfg["controls"]["toast_plate_alpha"]), int(cfg["controls"]["toast_pad_px"])))
 	_victory.visible = false
 	_build_speed_row(cfg)
+	_tip_plate = TipPlate.new()
+	add_child(_tip_plate)
 	Game.game_event.connect(_on_event)
 
 
@@ -336,7 +372,65 @@ func _bar_label(parent: Node, word := false) -> Label:
 	var l: Label = TipWord.new() if word else Label.new()
 	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	parent.add_child(l)
+	if word:  # the words that explain themselves: their plate shows after a short rest, hides on leaving
+		l.mouse_entered.connect(_tip_enter.bind(l))
+		l.mouse_exited.connect(_tip_leave.bind(l))
 	return l
+
+
+func _tip_enter(word: Label) -> void:
+	_tip_word = word
+	_tip_wait = float(MapLogic.cfg()["clarity"]["tooltip"]["delay_s"])
+
+
+func _tip_leave(word: Label) -> void:
+	if _tip_word == word:
+		_hide_tip()
+
+
+func _hide_tip() -> void:
+	_tip_word = null
+	_tip_plate.visible = false
+
+
+## The HUD's text plates a bar tooltip keeps clear of, in screen px: the bar, the strip, the goal (shown),
+## the leave line's room, and the Relish chip, legend and valve while they show.
+func _tip_plates() -> Array:
+	_relayout()
+	var out: Array = [Rect2(_bar_plate.position, _bar_plate.size), Rect2(_obj_plate.position, _obj_plate.size), _leave_rect]
+	if _goal_plate.visible:
+		out.append(Rect2(_goal_plate.position, _goal_plate.size))
+	for c in [chip, legend, valve]:
+		if c != null and is_instance_valid(c) and (c as Control).is_visible_in_tree():
+			out.append((c as Control).get_global_rect())
+	return out
+
+
+## Shows the resting word's glossary line on its own plate: sized by the same wrap call that draws it, placed
+## by HudLogic.tip_rect (clear of the HUD's plates and the open card), so what shows is where that put it.
+func _show_tip() -> void:
+	var st := HudLogic.tooltip_style()
+	var pad := int(st["pad"])
+	var font := get_theme_default_font()
+	var fs := int(st["size"])
+	var flags := TextServer.BREAK_WORD_BOUND | TextServer.BREAK_MANDATORY
+	var limit := float(MapLogic.cfg()["clarity"]["tooltip"]["max_w_px"]) - pad * 2.0
+	var text_sz := font.get_multiline_string_size(_tip_word.tooltip_text, HORIZONTAL_ALIGNMENT_LEFT, limit, fs, -1, flags)
+	var open_card := card != null and is_instance_valid(card) and card.is_visible_in_tree()
+	var r := HudLogic.tip_rect(Rect2(_tip_word.global_position, _tip_word.size), text_sz + Vector2(pad, pad) * 2.0, _tip_plates(),
+		get_viewport_rect().size, card.get_global_rect() if open_card else Rect2())
+	var p := _tip_plate
+	p.text = _tip_word.tooltip_text
+	p.font = font
+	p.font_size = fs
+	p.pad = pad
+	p.text_w = r.size.x - pad * 2.0
+	p.color = st["text"]
+	p.box = MapUi.plate_box(float(MapLogic.cfg()["clarity"]["tooltip"]["plate_alpha"]), pad)
+	p.position = r.position - global_position
+	p.size = r.size
+	p.visible = true
+	p.queue_redraw()
 
 
 ## Sets the bar's text from the model's hud. A no-op until the model has a new rev.
@@ -478,6 +572,13 @@ func _sign_key(sign: int) -> String:
 
 
 func tick(delta: float) -> void:
+	if _tip_word != null:  # a resting bar word: its plate after the delay, gone with the word
+		if not is_instance_valid(_tip_word) or not _tip_word.is_visible_in_tree():
+			_hide_tip()
+		elif not _tip_plate.visible:
+			_tip_wait -= delta
+			if _tip_wait <= 0.0:
+				_show_tip()
 	if _toast_t > 0.0:
 		_sit_toast()
 		_toast_t -= delta

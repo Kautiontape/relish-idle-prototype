@@ -560,7 +560,7 @@
     "tip_underline_alpha": 0.6,
     "tip_underline_dot_px": 1.0,
     "tip_underline_gap_px": 2.0,
-    "tooltip": {"plate_alpha": 0.97, "pad_px": 6, "size_px": 14, "text_key": "text"},
+    "tooltip": {"plate_alpha": 0.97, "pad_px": 6, "size_px": 14, "text_key": "text", "gap_px": 6, "margin_px": 8, "delay_s": 0.5, "max_w_px": 420, "z_index": 100},
     "tips": {
       "mint": "Mint: the undead your Raising Pits make each second. The map's valve splits it into WORK (your town's jobs), WAR (your forts) and FLOOD (Vei's queue).",
       "odds": "Your chance to beat Vei if you faced her now. It grows with time and with her clogged queue.",
