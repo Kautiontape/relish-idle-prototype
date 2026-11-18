@@ -11,6 +11,12 @@ static func result_stale(kind: String, relish_view: Dictionary) -> bool:
 	return kind == "raid" and int(relish_view.get("run_id", -1)) == -1
 
 
+## The line the map shows when a raid's result is stale (controls.stale_raid): the win or loss is not lost
+## to the player without a word; the away report has the story.
+static func stale_toast() -> String:
+	return str(MapLogic.cfg()["controls"]["stale_raid"])
+
+
 # --- the catch-up progress screen (configs/map_view.json "catchup") ---------------------------
 
 static func catchup_cfg() -> Dictionary:

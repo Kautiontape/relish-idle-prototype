@@ -226,7 +226,7 @@ func _teleport(id: String, arrive_from := "", from_map := false) -> void:
 func _apply(kind: String, result: Dictionary, seed: Dictionary, arrive_from: String) -> void:
 	var s := Game.state
 	if RouterLogic.result_stale(kind, s.view_relish()):
-		_open_map(arrive_from)  # the state already ended this run (a gap: run_ended); nothing to write back
+		_open_map(arrive_from, RouterLogic.stale_toast())  # the state already ended this run (a gap: run_ended); nothing to write back
 		return
 	var v2 := result if result.has("v") else Results.from_v1(kind, result, seed)
 	var out := s.apply_result(kind, v2)

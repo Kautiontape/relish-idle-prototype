@@ -87,6 +87,8 @@ func _stale(t: TestUtil) -> void:
 	t.ok(RouterLogic.result_stale("raid", rv), "(ii) after the gap the raid's result is stale")
 	t.ok(not RouterLogic.result_stale("boss", rv), "(iii) a boss result is not stale by this rule even with no run")
 	t.ok(RouterLogic.result_stale("raid", {}), "no run_id at all reads as -1: stale")
+	t.ok(RouterLogic.stale_toast() == "That raid ended while you were away; see the away report", "a stale result's toast line is the config's, exactly: %s" % RouterLogic.stale_toast())
+	t.ok(RouterLogic.stale_toast() == str(MapLogic.cfg()["controls"]["stale_raid"]) and RouterLogic.stale_toast() != "", "it comes from controls.stale_raid")
 	var refused := s.apply_result("raid", {"v": 2, "run_id": rid})
 	t.ok(not refused["ok"], "a raid result for the ended run is refused by apply_result (%s; the result here is a bare stand-in), so the router must not call it" % str(refused.get("reason", "")))
 	var refused_valid := s.apply_result("raid", valid)
@@ -133,7 +135,7 @@ func _sources(t: TestUtil) -> void:
 	t.ok(ap.contains("RouterLogic.result_stale(kind, s.view_relish())"), "_apply asks RouterLogic.result_stale")
 	t.ok(ap.find("result_stale(") >= 0 and ap.find("result_stale(") < ap.find("apply_result("), "the stale check comes before apply_result")
 	var stale_branch := ap.substr(ap.find("result_stale("), ap.find("apply_result(") - ap.find("result_stale("))
-	t.ok(stale_branch.contains("_open_map(arrive_from)") and stale_branch.contains("return") and not stale_branch.contains("push_warning") and not stale_branch.contains("cmd_abort_dungeon"), "a stale result opens the map and returns: no warning, no abort")
+	t.ok(stale_branch.contains("_open_map(arrive_from, RouterLogic.stale_toast())") and stale_branch.contains("return") and not stale_branch.contains("push_warning") and not stale_branch.contains("cmd_abort_dungeon"), "a stale result opens the map and returns: no warning, no abort")
 	var after := ap.substr(ap.find("apply_result("))
 	t.ok(after.contains("push_warning") and after.contains("cmd_abort_dungeon") and after.count("push_warning") == 1 and after.count("cmd_abort_dungeon") == 1, "push_warning and cmd_abort_dungeon remain only for a non-stale refusal")
 	var tp := _body(src, "func _teleport(")
@@ -143,6 +145,8 @@ func _sources(t: TestUtil) -> void:
 	t.ok(src.contains("--catchup=demo") and src.contains("Game.state.debug_enabled"), "--catchup=demo is debug-gated")
 	t.ok(_body(src, "func _mount(").contains("move_child(_catchup, -1)"), "_mount keeps the screen last so its _input hears events first")
 	var cus := FileAccess.get_file_as_string("res://scripts/map/map_catchup.gd")
-	t.ok(cus.contains("_plate.mouse_filter = Control.MOUSE_FILTER_STOP") and _body(cus, "func _input(").contains("set_input_as_handled()"), "the plate stops the mouse and _input swallows the rest while active")
+	# the plate's mouse stop is behavioural in _catchup (plate_stops_mouse); only _input's handled call is pinned as text,
+	# since set_input_as_handled needs the node in a running tree
+	t.ok(_body(cus, "func _input(").contains("if _active:") and _body(cus, "func _input(").contains("set_input_as_handled()"), "_input swallows events only while active")
 	var wm := FileAccess.get_file_as_string("res://scripts/map/world_map.gd")
 	t.ok(wm.contains("args.get(\"toast\"") and wm.contains("hud.show_toast(_arrive_toast)"), "the map shows it on the HUD's existing toast")

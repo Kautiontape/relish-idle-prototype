@@ -670,6 +670,7 @@
     "route_label_up_px": 18.0,
     "hover_hint_covington": "Covington: click to enter the town",
     "reason_fallback": "That can't be done now (%s)",
+    "stale_raid": "That raid ended while you were away; see the away report",
     "returned_fmt": "Vei retook %s. Relish is walking home.",
     "reasons": {
       "dead": "Relish is dead",
