@@ -291,6 +291,12 @@ func flash_lot(lot_id: String) -> void:
 		_build.flash(lot_id)
 
 
+## The goal plate's rect (this view's space; Rect2() when hidden): the suggestion's tag keeps clear of it.
+func set_cover(r: Rect2) -> void:
+	if _build != null:
+		_build.set_cover(_build.transform.affine_inverse() * r if r.has_area() else Rect2())
+
+
 ## Shows the (already filled) lot card beside `lot_id`.
 func open_card(lot_id: String) -> void:
 	_card_lot = lot_id
@@ -512,34 +518,21 @@ func _legend() -> void:
 ## Small upright text on a ground plate (like the labels) so street lines and agents behind it
 ## never cut the letters. A badge with open slots draws in `text`, a full one in `text_dim`.
 func _badges(b: Dictionary) -> void:
-	var bc: Dictionary = _v.get("badge", {})
-	var lines := TownModel.badge_lines(b, String(bc.get("sep", " · ")))
-	if lines.is_empty():
-		return
 	var font := ThemeDB.fallback_font
-	var fs := maxi(int(bc.get("px", TownUI.MIN_TEXT)), TownUI.MIN_TEXT)
-	var gap := float(bc.get("gap_px", 2.0))
-	var pad := float(bc.get("pad_px", 3.0))
-	var r: Rect2 = b["rect"]
-	var y := r.end.y + gap
-	for ln in lines:
-		var sz := font.get_string_size(String(ln[0]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
-		var x := clampf(r.get_center().x - sz.x * 0.5, pad + 2.0, maxf(size.x - sz.x - pad - 2.0, pad + 2.0))
-		_overlay.draw_rect(Rect2(x - pad, y, sz.x + pad * 2.0, sz.y), Palette.c("ground"))
-		_overlay.draw_string(font, Vector2(x, y + font.get_ascent(fs)), String(ln[0]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs,
-			Palette.c(String(ln[1])))
-		y += sz.y
+	for p in TownModel.badge_plates(b, _v.get("badge", {}), font, size.x):  # (the suggestion's tag keeps clear of these)
+		var fs: int = p["fs"]
+		_overlay.draw_rect(p["rect"], Palette.c("ground"))
+		_overlay.draw_string(font, Vector2(float(p["x"]), (p["rect"] as Rect2).position.y + font.get_ascent(fs)), String(p["text"]),
+			HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Palette.c(String(p["key"])))
 
 
 ## `text` centred above `r` on a ground plate so lines behind it never cut through the letters.
 func _label(r: Rect2, text: String, key: String) -> void:
 	var font := ThemeDB.fallback_font
 	var fs := maxi(int(_v.get("label_px", TownUI.MIN_TEXT)), TownUI.MIN_TEXT)
-	var sz := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs)
-	var base := Vector2(r.get_center().x - sz.x * 0.5, r.position.y - font.get_descent(fs) - 2.0)
-	var plate := Rect2(base - Vector2(4, font.get_ascent(fs) + 1), Vector2(sz.x + 8, sz.y + 2))
-	_overlay.draw_rect(plate, Palette.c("ground"))
-	_overlay.draw_string(font, base, text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Palette.c(key))
+	var np := TownModel.name_plate(r, text, font, fs)
+	_overlay.draw_rect(np["rect"], Palette.c("ground"))
+	_overlay.draw_string(font, np["base"], text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Palette.c(key))
 
 
 # ----------------------------------------------------------------- picks ----
