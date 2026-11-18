@@ -139,8 +139,9 @@ func _ready() -> void:
 ## t-card-crypt).
 func _scroll_to_inspector() -> void:
 	await get_tree().process_frame
-	if (_insp["node"] as Control).visible:
-		ensure_control_visible(_insp["node"])
+	var n: Control = _insp["node"]
+	if is_instance_valid(n) and n.visible and is_visible_in_tree():
+		ensure_control_visible(n)
 
 
 ## Leaving this tab ends placement. Coming back to it with a lot's inspector open in the card closes the card: the
@@ -986,7 +987,7 @@ func _update_queue() -> void:
 	_q_empty.visible = entries.is_empty()
 	while _q_pool.size() < entries.size():
 		_q_pool.append(_make_q_row(_q_pool.size()))
-	var etas :=BuildSort.queue_etas(entries, _st, _ctx.get("catalog", {}), _views.get("town", {}), _tp.rate, _vcfg)
+	var etas := BuildSort.queue_etas(entries, _st, _ctx.get("catalog", {}), _views.get("town", {}), _tp.rate, _vcfg)
 	for i in _q_pool.size():
 		var w: Dictionary = _q_pool[i]
 		w["node"].visible = i < entries.size()

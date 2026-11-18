@@ -84,6 +84,8 @@ static func step(views: Dictionary, gcfg: Dictionary, hcfg: Dictionary, bview: D
 			"have": nl["b_have"], "missing": missing}), "short": String(nl["text"]), "relics": false}
 	var left := forts_left(views)
 	var id := "forts" if left > 0 else "vei"
+	if (views.get("forts", []) as Array).is_empty():
+		id = "forts_any"  # no forts digest to count: the goal's own words, never a "face Vei" it can't vouch for
 	return {"id": id, "text": lead + BuildSort.fmt(String(g.get(id, "")), {"n": left}),
 		"short": BuildSort.fmt(String(g.get(id + "_short", "")), {"n": left}), "relics": false}
 

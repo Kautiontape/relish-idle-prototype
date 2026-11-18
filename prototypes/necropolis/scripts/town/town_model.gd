@@ -604,12 +604,16 @@ static func badge_plates(b: Dictionary, bcfg: Dictionary, font: Font, host_w: fl
 
 ## What the suggestion's tag on lot `except` keeps clear of (BuildSort.sug_place; V-I1: at City it sat on the
 ## Raising Pit's "4 working" above its lot): every other lot, the badges under their buildings and the crypt's name,
-## as the labels layer draws them in a view `host_w` wide (badge_plates, name_plate).
+## as the labels layer draws them in a view `host_w` wide (badge_plates, name_plate). The suggested lot's own name
+## too when it is the crypt (its name always shows above it; the tag tucked over its top edge would cover it).
 func sug_keep(except: String, font: Font, host_w: float) -> Array:
 	var keep: Array = []
 	var fs := maxi(int(_v.get("label_px", TownUI.MIN_TEXT)), TownUI.MIN_TEXT)
 	for l in lots:
 		if String(l["id"]) == except:
+			var own: Dictionary = l.get("building", {})
+			if String(own.get("building_id", "")) == HEART:
+				keep.append(name_plate(l["rect"], String(own.get("label", "")), font, fs)["rect"])
 			continue
 		keep.append(l["rect"])
 		var b: Dictionary = l.get("building", {})

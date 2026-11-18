@@ -19,7 +19,44 @@ func run() -> int:
 	_chip()
 	_burst()
 	_lot_click()
+	_plate_fits()
 	return t.failures
+
+
+## The goal plate's step at its worst (every gate building of the next tier missing, two-digit counts): one line that
+## fits inside the town view from the plate's x, so the plate (and the cover rect the suggestion's tag keeps clear of)
+## never runs past the view. And with no forts digest, a neutral realm step, never "face Vei".
+func _plate_fits() -> void:
+	var g: Dictionary = vcfg["guide"]["goal"]
+	var font := ThemeDB.fallback_font
+	var room := VIEW.size.x - float(g["x_px"]) - 2.0 * 8.0 - 8.0  # the panel's content margins, and a little air
+	var tiers: Dictionary = cfg["economy"]["town"]["tiers"]
+	var order := ["hamlet", "village", "town", "city"]
+	var forts: Array = []
+	for i in 12:
+		forts.append({"held": i == 0, "flipped_count": 1 if i == 0 else 0, "first_dungeon": i == 0, "name": "Mourner's Gate"})
+	var lines: Array = []
+	for i in 3:
+		var to: Dictionary = tiers[order[i + 1]]
+		var need := int(to["buildings"])
+		var v := {"town": {"tier": order[i], "buildings": [{"building_id": "bone_mill"}],
+			"next_tier": {"tier": order[i + 1], "have": need - 1, "need": need, "missing": to["requires"]}}, "forts": forts}
+		var s := TownGuide.step(v, vcfg["guide"], vcfg["hud"], cfg["buildings_view"])
+		t.ok(s["id"] == "tier", "(setup) %s → %s: the tier step: '%s'" % [order[i], order[i + 1], s["text"]])
+		lines.append(s["text"])
+	var lead := String(g["lead"])
+	lines.append(lead + BuildSort.fmt(String(g["relics"]), {"tier": "Village", "n": 99, "unit": "relics", "have": 98}))
+	for id in ["forts", "vei", "forts_any"]:
+		lines.append(lead + BuildSort.fmt(String(g[id]), {"n": 99}))
+	for st in g["steps"]:
+		lines.append(String(st.get("lead", lead)) + BuildSort.fmt(String(st["text"]), {"fort": "Mourner's Gate"}))
+	for ln in lines:
+		var w := font.get_string_size(String(ln), HORIZONTAL_ALIGNMENT_LEFT, -1, int(g["px"])).x
+		t.ok(w <= room and String(ln).length() <= 100, "the plate's step fits the view (%d of %d px, %d chars): '%s'" % [w, room, String(ln).length(), ln])
+	var bare := {"town": {"tier": "city", "buildings": [{"building_id": "bone_mill"}], "next_tier": {"tier": "", "have": 20, "need": 0, "missing": []}}, "forts": []}
+	var s0 := TownGuide.step(bare, vcfg["guide"], vcfg["hud"], cfg["buildings_view"])
+	t.ok(s0["id"] == "forts_any" and not String(s0["text"]).contains("still hers") and String(s0["short"]).begins_with("next: take Vei's forts"),
+		"no forts digest at the top tier: the goal's own step, not 'face Vei': '%s' / '%s'" % [s0["text"], s0["short"]])
 
 
 func _fixture(fx: String) -> GameState:
@@ -112,6 +149,9 @@ func _chip() -> void:
 			old_badge_hits.append(id)
 		if keep.any(func(k): return (k as Rect2).intersects(plate)):
 			stuck.append(id)  # no spot was clear: the old place (a layout can be that tight)
+		if String((l["building"] as Dictionary).get("building_id", "")) == TownModel.HEART:  # the crypt suggested: its own name shows
+			var nm: Rect2 = TownModel.name_plate(l["rect"], String(l["building"].get("label", "")), font, fs)["rect"]
+			t.ok(not nm.intersects(plate) and keep.has(nm), "the crypt suggested (%s): its tag keeps clear of its own name" % id)
 		# its own: over its lot's span, and over its top edge (above it, or tucked half over it) or under its foot
 		var own := plate.position.x < r.end.x and plate.end.x > r.position.x and (plate.position.y < r.position.y or plate.position.y >= r.end.y)
 		if not own:
@@ -202,7 +242,8 @@ func _lot_click() -> void:
 	t.ok(click.contains("BuildSort.lot_click(") and click.contains("is_visible_in_tree()") and click.contains("_scroll_to_inspector()"),
 		"on_lot_clicked follows lot_click with the tab's visibility, and scrolls the dock to the inspector")
 	var scroll := panel.substr(panel.find("func _scroll_to_inspector("), 400)
-	t.ok(scroll.contains("await get_tree().process_frame") and scroll.find("await") < scroll.find("ensure_control_visible(_insp[\"node\"])"),
+	t.ok(scroll.contains("await get_tree().process_frame") and scroll.contains("is_visible_in_tree()")
+		and scroll.find("await") < scroll.find("ensure_control_visible(n)") and scroll.contains("var n: Control = _insp[\"node\"]"),
 		"the scroll waits a frame for the inspector's layout (a deferred call read its stale rect and showed mid-catalog)")
 	t.ok(panel.contains("func _on_visibility()") and panel.contains("elif _card_mode == \"inspect\":"),
 		"coming back to the Build tab closes an inspect card (the dock shows that lot)")

@@ -496,7 +496,7 @@
         "phylactery": "Phylactery charge: revives Relish in place, at most once per dungeon. The Ossuary Tower crafts it from essence."
       },
       "goal": {
-        "_doc": "The goal plate, at every tier (TownGuide.goal/step, V-I1): the game's goal (head, head_px) over the step due now (its own lead, else lead; px). The top bar's next: line shows the same step's `short`. steps: the first steps, at `tiers` only, while one isn't met; then the next tier (tier, with tier_missing; relics while relics hold it back; the top bar's own line is its short); then at the top tier forts (any fort not held) or vei.",
+        "_doc": "The goal plate, at every tier (TownGuide.goal/step, V-I1): the game's goal (head, head_px) over the step due now (its own lead, else lead; px). The top bar's next: line shows the same step's `short`. steps: the first steps, at `tiers` only, while one isn't met; then the next tier (tier, with tier_missing; relics while relics hold it back; the top bar's own line is its short); then at the top tier forts (any fort not held) or vei (forts_any with no forts digest to count). Every step's text stays one line inside the town view (test_town_vi1 _plate_fits).",
         "head": "Your goal: take Vei's forts, then beat Vei. Beating Vei wins the game.",
         "lead": "Next step: ",
         "steps": [
@@ -512,6 +512,8 @@
         "relics": "reach {tier}. The buildings it needs cost {n} {unit} (you have {have}): raid a fort.",
         "forts": "take Vei's forts ({n} still hers), then face Vei when your odds are good.",
         "forts_short": "next: take Vei's forts ({n} still hers) → Return to the realm",
+        "forts_any": "take Vei's forts, then face Vei when your odds are good.",
+        "forts_any_short": "next: take Vei's forts → Return to the realm",
         "vei": "face Vei when your odds are good. Return to the realm to face her.",
         "vei_short": "next: face Vei when your odds are good → Return to the realm",
         "fort_any": "a fort Vei holds",
