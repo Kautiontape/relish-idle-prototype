@@ -10,8 +10,8 @@ extends RefCounted
 ## - a save and a load 1 h on: pending_retreat carries won_result; the load applies it (won, vei_result once, Relish
 ##   at_vei, the run applied), and a save whose won_result isn't a won result of that run is corrupt;
 ## - an abort applies it too; without a record the gap still forfeits (test_away's _gap_ends_run).
-## Revert proof (run once, then restored): end_open without the won_result branch, 4 FAIL (the gap, the load, its
-## press and the abort all forfeit).
+## Revert proof (run once, then restored): end_open without the won_result branch, 5 FAIL (the gap, the load and the
+## abort forfeit, and the press after the gap and after the load reads wrong_run).
 
 var t := TestUtil.new()
 var _dir := "user://test_boss_won_%d" % OS.get_process_id()

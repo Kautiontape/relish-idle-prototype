@@ -335,7 +335,7 @@
       "thrift": "Buildings over a gold upkeep threshold idle when gold income is below upkeep.",
       "muster": "Idle workers muster to WAR at once (no idle cap).",
       "hearth": "Stalls and the inn jump to the top while morale is under 0.5.",
-      "grow": "After your first build, upgrades what stands, one at a time, whenever your queue isn't saving for something and your gold income pays the upkeep. Never spends relics. Takes no slot."
+      "grow": "After your first build, upgrades what stands, one at a time, whenever your queue isn't saving for something, your gold income pays the upkeep and no building is unpaid. Never spends relics. Takes no slot."
     },
     "stance_jobs": {"vigil": ["tend"], "harvest": ["haul"], "thrift": "idled", "muster": ["idle"], "hearth": ["stall"]},
     "stance_trade": {

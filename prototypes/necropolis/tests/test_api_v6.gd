@@ -1365,7 +1365,7 @@ func _catchup_chunked_api() -> void:
 		"cmd_craft_husk": ["skeleton"], "cmd_deploy_simulacrum": ["ashgate"], "cmd_staff_vat": [0, true], "cmd_set_party": [[]],
 		"cmd_assign_front": ["u1", "giants"], "cmd_begin_dungeon": ["ashgate"], "cmd_begin_boss": [],
 		"cmd_abort_dungeon": [], "cmd_run_checkpoint": [1, {"relics": 0, "blueprints": [], "husks": [], "remnants": [], "essence": 0}],
-		"cmd_dismiss_away": [],
+		"cmd_dismiss_away": [], "cmd_boss_won": [1, {}],  # (P3b, #22: a dead run's refusal first, as the checkpoint's)
 		"cmd_debug_grant": [{"gold": 1.0}], "cmd_debug_set_state": [{"paused": false}],
 		"cmd_debug_load_fixture": ["day1"], "cmd_debug_skip_time": [1.0],
 	}
@@ -1384,7 +1384,7 @@ func _catchup_chunked_api() -> void:
 		ApiSchema.check_command(name, res, errs)
 		# T3.3c: the run commands give a dead run's refusal before catching_up (no run is open during a
 		# catch-up: every open run ends before one starts), so a dungeon scene on an ended run learns it is over
-		var want := "no_run" if name in ["cmd_abort_dungeon", "cmd_run_checkpoint"] else "catching_up"
+		var want := "no_run" if name in ["cmd_abort_dungeon", "cmd_run_checkpoint", "cmd_boss_won"] else "catching_up"
 		if not (errs.is_empty() and res["ok"] == false and res["reason"] == want and n.rev == rv):
 			bad.append("%s: %s %s" % [name, str(res), str(errs)])
 		var evs := n.drain_events()
