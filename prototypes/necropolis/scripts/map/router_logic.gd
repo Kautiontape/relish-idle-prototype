@@ -11,11 +11,12 @@ static func result_stale(kind: String, relish_view: Dictionary) -> bool:
 	return kind == "raid" and int(relish_view.get("run_id", -1)) == -1
 
 
-## Whether apply_result's answer `out` leaves the run done with: applied now (ok), or applied already
-## (duplicate_run: the Vei fight's win, recorded as she broke, was applied by a gap or a load before the card's
-## press; P3b, api-request #22). Anything else is a refusal the router logs, forfeiting the run.
-static func result_done(out: Dictionary) -> bool:
-	return bool(out.get("ok", false)) or str(out.get("reason", "")) == "duplicate_run"
+## Whether apply_result's answer `out` to a `kind` result ("raid" or "boss") leaves the run done with: applied
+## now (ok), or, for the boss only, applied already (duplicate_run: the Vei fight's win, recorded as she broke,
+## was applied by a gap or a load before the card's press; P3b, api-request #22). Anything else, a raid's
+## duplicate_run included, is a refusal the router logs, forfeiting the run (the #22 review's should-fix 1).
+static func result_done(kind: String, out: Dictionary) -> bool:
+	return bool(out.get("ok", false)) or (kind == "boss" and str(out.get("reason", "")) == "duplicate_run")
 
 
 ## The line the map shows when a raid's result is stale (controls.stale_raid): the win or loss is not lost
