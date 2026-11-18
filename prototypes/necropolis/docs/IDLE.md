@@ -1011,7 +1011,10 @@ The profiles:
         - **Re-measured and pinned (the E4 close-out, the final review's item 3).** At 3137462 (i1b2_probe), the hour
           reads open +122.99 against +123.01 at 0.5 s, +138.12 at 5 s, +131.89 at 7 s and +151.34 at 10 s, so the
           numbers above hold on today's code. test_haul_hour (default suite, about 26 s) runs the same hour at 5 s
-          and 10 s and fails past ±16.0 and ±29.5 of the open hour (measured +15.13 and +28.35).
+          and 10 s and fails past ±16.0 and ±29.5 of the open hour (measured +15.13 and +28.35). With 4384a17's
+          TownSim change reversed on 26c978c's tree, 5 s reads +54.98 (it fails) and 10 s +26.76 (it passes): at 10
+          s the hour doesn't see the departure fix, and `_haul_wait`'s 10 s case below does. Not chased: the 5 s
+          figure is well above the pre-fix "+138 to +151 at 5, 7 and 10 s" recorded above at 0b2a9ec.
         - **Where it is not.** test_town_sim `_haul_wait` runs live 0.5 s steps against one 5 s and one 10 s step
           on a fort forming at a fixed rate, debited by what each step takes. The departures (1.5 s, and 8.0 s for
           the second leg), the mass taken (6.5 and 13.0) and the convoy's end all match. So the residual is not the

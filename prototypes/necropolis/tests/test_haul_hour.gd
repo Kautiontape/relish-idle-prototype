@@ -9,6 +9,9 @@ extends RefCounted
 ## match live at 5 s and 10 s), so what is left is not the departure; IDLE's reading (the convoy's corpse projection
 ## holds the last realm step's dead_rate over a step) stays unconfirmed. This pins the bound: a closed run more than
 ## BOUND[dt] off the open hour fails, so a regression past the recorded residual shows. Wall time is printed.
+## Revert proof (26c978c's tree with 4384a17's TownSim change reversed, the convoy waiting to the step's end): 5 s reads
+## +54.98 and fails; 10 s reads +26.76 and passes, so at 10 s this hour doesn't see the departure fix (test_town_sim
+## _haul_wait's 10 s case does).
 
 var t := TestUtil.new()
 const CLOCK := 1_800_000_000
