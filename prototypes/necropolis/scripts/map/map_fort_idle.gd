@@ -74,7 +74,7 @@ func _chip_shift(f: Dictionary, c: Dictionary) -> Vector2:
 ## coarse grid cell (callouts.token_key_px screen px) with its radius padded by half the cell's
 ## diagonal, so a layout kept for the cell still clears her (IdleLogic.layout_token).
 func _layout(c: Dictionary) -> Dictionary:
-	var shares := HudLogic.glyph_shares(ctx.valve_shares if not ctx.valve_shares.is_empty() else ctx.model.hud.get("valve_target", ctx.model.hud.get("valve", {})), ctx.model.hud)  # as MapCovington._shares
+	var shares := ValveLogic.won_valve(ctx.valve_shares if not ctx.valve_shares.is_empty() else ctx.model.hud.get("valve_target", ctx.model.hud.get("valve", {})), ctx.model.hud)  # as MapCovington._shares
 	var has_token := not ctx.relish.is_empty()
 	var cell_w := ctx.px(float(MapLogic.cfg()["callouts"]["token_key_px"]))
 	var tok := IdleLogic.layout_token(ctx.relish_pos, str(ctx.relish.get("state", "")) == "travelling", cell_w)
@@ -115,7 +115,7 @@ func _layout(c: Dictionary) -> Dictionary:
 ## Covington's glyph, name and stream labels and Vei's reach and name as obstacles (IdleLogic.node_obstacles),
 ## in world px, measured as their layers do. The chips and the set-piece callouts keep clear of them.
 func node_obstacles() -> Array:
-	var shares := HudLogic.glyph_shares(ctx.valve_shares if not ctx.valve_shares.is_empty() else ctx.model.hud.get("valve_target", ctx.model.hud.get("valve", {})), ctx.model.hud)  # as MapCovington._shares
+	var shares := ValveLogic.won_valve(ctx.valve_shares if not ctx.valve_shares.is_empty() else ctx.model.hud.get("valve_target", ctx.model.hud.get("valve", {})), ctx.model.hud)  # as MapCovington._shares
 	var size := int(MapLogic.cfg()["font_label"])
 	var font := ThemeDB.fallback_font
 	var names := NodeLogic.node_names()

@@ -120,6 +120,21 @@ static func percents(valve: Dictionary) -> Dictionary:
 	return out
 
 
+## The valve a won map shows and sends (P7 review, the manager's ruling): `valve` with FLOOD's share folded into WAR
+## once the game is won (HudLogic.flood_shown false), so WORK and WAR add to 100, the handle stays on the WORK–WAR
+## edge and a drag toward the hidden FLOOD corner lands on WAR (a won drag sends FLOOD 0). `valve` as it is before
+## the win. The panel, its handle and ghost ring, and Covington's stems all read it.
+## TODO(api-request #21): once won, economy sends FLOOD's share to WAR. The fold stays right after #21 (it shows where
+## the mint goes); what #21 closes is a valve left untouched since the win showing WAR the sim still sends to Vei.
+static func won_valve(valve: Dictionary, hud: Dictionary) -> Dictionary:
+	if HudLogic.flood_shown(hud):
+		return valve
+	var out := valve.duplicate()
+	out["war"] = float(valve.get("war", 0.0)) + float(valve.get("flood", 0.0))
+	out["flood"] = 0.0
+	return out
+
+
 ## True when two valves agree to within `eps` per share.
 static func same(a: Dictionary, b: Dictionary, eps: float) -> bool:
 	for k in KEYS:

@@ -89,26 +89,18 @@ static func objective_text(hud: Dictionary) -> String:
 
 ## Whether Vei's odds / strain / drain show (her node's readout and the top bar's group): not once the game
 ## is won. The tithe line and its telegraph are not keyed on this: they follow view data.
+## TODO(api-request #21): keyed on `won` while the sim still runs her odds after a win; permanent design (a beaten
+## Vei has no odds to read), so it stays after #21.
 static func vei_readout_shown(hud: Dictionary) -> bool:
 	return not bool(hud.get("won", false))
 
 
-## Whether the valve panel shows its FLOOD row and corner button: not once the game is won (the share
-## goes to WAR in the sim; the triangle's drag is untouched).
-## TODO(api-request #21): economy reroutes FLOOD's share to WAR after a win.
+## Whether the valve panel shows its FLOOD row and corner button: not once the game is won. The panel, its
+## drag and Covington's stems then show FLOOD's share as WAR's (ValveLogic.won_valve).
+## TODO(api-request #21): a stand-in until economy reroutes FLOOD's share to WAR after a win; hiding FLOOD once
+## won stays the design after #21.
 static func flood_shown(hud: Dictionary) -> bool:
 	return not bool(hud.get("won", false))
-
-
-## The valve shares Covington's glyph draws (its stems and their WORK / WAR / FLOOD labels): `shares` as
-## they are, or with FLOOD at 0 once the game is won (flood_shown), so no FLOOD stem or label points at a
-## beaten Vei while the sim still runs her share (#21). The glyph and the chips' obstacles both read it.
-static func glyph_shares(shares: Dictionary, hud: Dictionary) -> Dictionary:
-	if flood_shown(hud):
-		return shares
-	var out := shares.duplicate()
-	out["flood"] = 0.0
-	return out
 
 
 ## Whether your goal shows under the strip: at every tier (V-I1 item 9), until the game is won (the

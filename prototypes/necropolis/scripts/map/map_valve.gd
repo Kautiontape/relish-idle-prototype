@@ -190,16 +190,17 @@ func _label(parent: Node, color_key: String) -> Label:
 
 # --- state ------------------------------------------------------------------------
 
-## The valve to show as the target: what the player is setting, else the view's target.
+## The valve to show as the target: what the player is setting, else the view's target. Once won, FLOOD's
+## share is WAR's (ValveLogic.won_valve): the rows add to 100 without a FLOOD row.
 func shown_target() -> Dictionary:
 	if not _override.is_empty():
-		return _override
-	return ValveLogic.normalise(model.hud.get("valve_target", model.hud.get("valve", {})))
+		return ValveLogic.won_valve(_override, model.hud)
+	return ValveLogic.won_valve(ValveLogic.normalise(model.hud.get("valve_target", model.hud.get("valve", {}))), model.hud)
 
 
 ## Re-reads the model (the held override clears once the view echoes it) and refreshes the rows.
 func refresh(force := false) -> void:
-	var target := ValveLogic.normalise(model.hud.get("valve_target", model.hud.get("valve", {})))
+	var target := ValveLogic.won_valve(ValveLogic.normalise(model.hud.get("valve_target", model.hud.get("valve", {}))), model.hud)  # folded as the override is
 	if not _override.is_empty() and not _dragging and ValveLogic.same(_override, target, float(MapLogic.cfg()["controls"]["valve_sync_eps"])):
 		_override = {}
 	var shown := shown_target()
@@ -249,8 +250,8 @@ func _bone_text(shown: Dictionary) -> String:
 ## at the valve shown (the "now" side at the current valve through the same projection) with the
 ## drain or odds, then what the drag costs (ValveLogic.payoff_costs against the same base split).
 func _payoff_parts_for(proj: Dictionary) -> Array:
-	if not ValveLogic.payoff_shown(_dragging, _since_release):
-		return []
+	if not ValveLogic.payoff_shown(_dragging, _since_release) or not HudLogic.vei_readout_shown(model.hud):
+		return []  # won: no Vei odds or queue line after a drag, as nowhere else on the map
 	var base := IdleLogic.split_at(model.state, model.hud.get("valve", {}))
 	var p := ValveLogic.payoff(model.vei, proj, float(model.realm_cfg.get("K", 0.0)), model.realm_cfg.get("odds", {}),
 		float(model.hud.get("t", 0.0)))  # (E4 step 9: the win odds view_vei shows)
@@ -386,7 +387,7 @@ func _gui_input(e: InputEvent) -> void:
 
 
 func _drag_to(pos: Vector2, released: bool) -> void:
-	_override = ValveLogic.valve_at(pos - _origin, _side)
+	_override = ValveLogic.won_valve(ValveLogic.valve_at(pos - _origin, _side), model.hud)  # won: on the WORK–WAR edge, FLOOD 0 sent
 	refresh()
 	queue_redraw()  # the handle follows the pointer even when no percentage changed
 	var now := Time.get_ticks_msec() / 1000.0  # lint-ok: send throttle, not animation
@@ -397,7 +398,7 @@ func _drag_to(pos: Vector2, released: bool) -> void:
 
 
 func _snap(key: String) -> void:
-	_override = ValveLogic.snap(key)
+	_override = ValveLogic.won_valve(ValveLogic.snap(key), model.hud)
 	refresh()
 	queue_redraw()
 	if _send():
@@ -459,7 +460,7 @@ func _draw() -> void:
 		var at := _origin + (tick[1] as Vector2) + Vector2(float(c["valve_bone_label_gap_px"]), lf.get_ascent(ls) * 0.5)
 		draw_string(lf, at, str(c["valve_bone_label"]), HORIZONTAL_ALIGNMENT_LEFT, -1, ls, Palette.c(str(c["valve_bone_label_key"])))
 	var hp := _origin + ValveLogic.point_of(shown_target(), _side)
-	var cur := ValveLogic.now_ring_pos(_origin + ValveLogic.point_of(model.hud.get("valve", shown_target()), _side), hp)
+	var cur := ValveLogic.now_ring_pos(_origin + ValveLogic.point_of(ValveLogic.won_valve(model.hud.get("valve", shown_target()), model.hud), _side), hp)
 	LineGlow.ring(self, cur, float(c["valve_ghost_r_px"]), Palette.c("undead"), float(c["valve_ghost_w_px"]), float(c["valve_edge_glow"]))
 	LineGlow.ring(self, hp, float(c["valve_handle_r_px"]), Palette.c("undead"), float(c["valve_ghost_w_px"]), float(c["valve_edge_glow"]))
 	draw_circle(hp, float(c["valve_handle_r_px"]), Palette.c("undead_core"))

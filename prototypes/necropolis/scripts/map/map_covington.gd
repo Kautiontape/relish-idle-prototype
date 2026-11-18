@@ -40,11 +40,11 @@ func _label_layout(dirs: Dictionary, widths: Dictionary) -> Dictionary:
 	return NodeLogic.valve_label_layout(dirs, widths, ctx.tier != "far", ctx.zoom, text_w, float(size))
 
 
-## The stems' shares: the set piece's (the committed valve, or its swing), else the view's target; no FLOOD
-## stem once the game is won (HudLogic.glyph_shares).
+## The stems' shares: the set piece's (the committed valve, or its swing), else the view's target; once the game
+## is won, FLOOD's share is WAR's (ValveLogic.won_valve, as the valve panel shows it): no FLOOD stem or label.
 func _shares() -> Dictionary:
 	var s: Dictionary = ctx.valve_shares if not ctx.valve_shares.is_empty() else ctx.model.hud.get("valve_target", ctx.model.hud.get("valve", {}))
-	return HudLogic.glyph_shares(s, ctx.model.hud)
+	return ValveLogic.won_valve(s, ctx.model.hud)
 
 
 ## The valve: WAR toward the forts' centroid, FLOOD toward Vei, WORK a hook curling back home.
