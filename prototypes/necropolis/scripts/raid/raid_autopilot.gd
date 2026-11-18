@@ -579,7 +579,7 @@ func _time_out() -> void:
 	_timed_out = true
 	var e: RaidEndings = _raid.endings
 	if e.can_retreat():
-		e.confirm_exit()
+		e.confirm_exit("bot")
 	elif not e.ended:
 		e.ended = true
 		_raid.trance.force_end()
@@ -1181,7 +1181,7 @@ func _door_goal(pos: Vector2) -> Vector2:
 ## Walk to the exit nearest by rooms, and retreat once standing in it.
 func _head_for_exit(pos: Vector2) -> Vector2:
 	if _raid.endings.can_retreat():
-		_raid.endings.try_retreat()
+		_raid.endings.try_retreat("bot")
 		return pos
 	var best := -1
 	var bh := 1 << 30

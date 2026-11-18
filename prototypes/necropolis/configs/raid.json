@@ -53,7 +53,31 @@
     "pip_row_max": 24,
     "pip_px": 8.0,
     "label_px": 13,
-    "value_px": 15
+    "value_px": 15,
+    "cues": {
+      "_doc": "One-line onboarding cues shown through the banner. max_wait_s: a cue queued behind a visible banner is dropped after this many real seconds. first_mote_s: how long the first-mote cue shows. undead_s / undead_delay_s: the 'your undead fight on their own' cue's time and the scene seconds after which it is due even with no kill.",
+      "max_wait_s": 6.0,
+      "first_mote_s": 4.0,
+      "undead_s": 3.5,
+      "undead_delay_s": 5.0
+    },
+    "legend": {
+      "_doc": "The control legend (bottom left, above the trance meter): open every raid until a fort has been taken, then a collapsed chip the player can reopen. Sizes in px; plate_alpha backs it; chip_h is at least 44 (touch target).",
+      "row_px": 14,
+      "key_px": 13,
+      "pad_px": 10,
+      "gap_px": 8,
+      "plate_alpha": 0.86,
+      "chip_w": 140,
+      "chip_h": 44
+    },
+    "goal": {
+      "_doc": "The goal block (top centre, where the warden's block sits, before the wake and after the warden falls; a held raid keeps it the whole run): the goal line (goal_px), the route line (route_px) and the rows under them (row_px), on a ground plate at plate_alpha. The words are RaidLogic.goal_line / route_line and WardenLogic.break_line / takes_line / counter_line.",
+      "goal_px": 17,
+      "route_px": 14,
+      "row_px": 13,
+      "plate_alpha": 0.86
+    }
   },
   "trace_notch": {
     "len_px": 9.0,
@@ -75,6 +99,12 @@
   "death": {
     "_doc": "The death frame (RaidDeathCard): card_s is how long the death beat holds the card before the result goes out (the measuring bot never waits, it keeps the 0.9 s beat; 0 = no card), skip_after_s when a click or SPACE may end it early, fade_s its fade-in (none under reduced motion).",
     "card_s": 4.5,
+    "skip_after_s": 0.8,
+    "fade_s": 0.3
+  },
+  "clear": {
+    "_doc": "The clear card (RaidClearCard): when Relish opens the warden's chest the run holds one card naming what was won (the fort is yours, the warden broken, the loot, what comes next). card_s is the longest it holds before the win goes out, skip_after_s when a click or SPACE may end it early, fade_s its fade-in (none under reduced motion). The measuring bot never sees it (it keeps the wardens.victory_s banner beat).",
+    "card_s": 12.0,
     "skip_after_s": 0.8,
     "fade_s": 0.3
   },
@@ -492,7 +522,7 @@
     }
   },
   "wardens": {
-    "_doc": "The wardens (Bellringer, Huntsman, Shieldwall, Pyre-priest) and their fights. The meter row under a warden (warden.gd _draw_meter_row): meter_pips pips of meter_pip_px screen px, meter_gap_px under its body, label_px is the in-world labels' size on screen; a dormant (unwoken) warden draws at dormant_alpha. The Bellringer's clapper (warden_bellringer.gd): clapper_strike_rad is the strike angle, held clapper_hold_beats of a beat after a slam, and clapper_swing_rad_s the swing rate through the tell. The Shieldwall's GLANCE and FLANKED words hold shield_label_s scene seconds after the last such hit and sit shield_label_out_px beyond its body (clear of the crowd at it). The Pyre-priest's meter gives each acolyte pyre_pips_per_acolyte pips (the right-hand band, spent as they fall; its hp has the rest); its BURNED, SNUFFED and WARDED words hold pyre_label_s scene seconds. A warden's pack (archetypes.<id>.pack, the Huntsman's hounds) shows HORN and its entry rings through the horn, NAME · WARDED while it stands and NAME DOWN for pack_label_s after it falls, and THE PACK BREAKS · WARD DOWN for twice pack_label_s when it breaks because no undead stands (D-d/E 3c; the banner says it too). The risk lever (D-d/E Step 4; WardenLogic.spec): from lever_min_tier up, never in the first dungeon, attack_dmg_mult multiplies all of a warden's attack damage (dmg_unit to her undead and dmg_relish to Relish), relish_dmg_mult its damage to Relish only. Both 1.0: no change. A pack (D-d/E quality pass, knobs at their old values): its units come in at the horn points pushed pack_spawn_wall_px clear of the walls, and while it runs the next attack waits until attack.pack_rest_beats beats past the tell after the beat (the Bellringer, Shieldwall and Pyre-priest 1; the Huntsman 0, its lunge comes at the beat after the tell once the pack is down).",
+    "_doc": "The wardens (Bellringer, Huntsman, Shieldwall, Pyre-priest) and their fights. The meter row under a warden (warden.gd _draw_meter_row): meter_pips pips of meter_pip_px screen px, meter_gap_px under its body, label_px is the in-world labels' size on screen; a dormant (unwoken) warden draws at dormant_alpha, and a Pyre-priest's sleeping acolytes at the fainter acolyte_dormant_alpha (their alpha is their only dormant cue).The Bellringer's clapper (warden_bellringer.gd): clapper_strike_rad is the strike angle, held clapper_hold_beats of a beat after a slam, and clapper_swing_rad_s the swing rate through the tell. The Shieldwall's GLANCE and FLANKED words hold shield_label_s scene seconds after the last such hit and sit shield_label_out_px beyond its body (clear of the crowd at it). The Pyre-priest's meter gives each acolyte pyre_pips_per_acolyte pips (the right-hand band, spent as they fall; its hp has the rest); its BURNED, SNUFFED and WARDED words hold pyre_label_s scene seconds. A warden's pack (archetypes.<id>.pack, the Huntsman's hounds) shows HORN and its entry rings through the horn, NAME · WARDED while it stands and NAME DOWN for pack_label_s after it falls, and THE PACK BREAKS · WARD DOWN for twice pack_label_s when it breaks because no undead stands (D-d/E 3c; the banner says it too). The risk lever (D-d/E Step 4; WardenLogic.spec): from lever_min_tier up, never in the first dungeon, attack_dmg_mult multiplies all of a warden's attack damage (dmg_unit to her undead and dmg_relish to Relish), relish_dmg_mult its damage to Relish only. Both 1.0: no change. A pack (D-d/E quality pass, knobs at their old values): its units come in at the horn points pushed pack_spawn_wall_px clear of the walls, and while it runs the next attack waits until attack.pack_rest_beats beats past the tell after the beat (the Bellringer, Shieldwall and Pyre-priest 1; the Huntsman 0, its lunge comes at the beat after the tell once the pack is down).",
     "lever_min_tier": 2,
     "attack_dmg_mult": 1.0,
     "relish_dmg_mult": 1.0,
@@ -518,7 +548,23 @@
     "meter_pip_px": 3.5,
     "meter_gap_px": 16.0,
     "label_px": 15,
-    "dormant_alpha": 0.32,
+    "dormant_alpha": 0.8,
+    "acolyte_dormant_alpha": 0.32,
+    "presence": {
+      "_doc": "A sleeping warden reads as a boss (warden.gd _draw_presence, dormant only): a plinth (flattened ellipse under the glyph, centre radius*plinth_y down, half-axes radius*plinth_rx by radius*plinth_ry, plinth_alpha), a boss ring of radius*ring_mult in ring_alpha with meter_n outward ticks tick_px long and a dashed second ring dash_gap_px outside it, and name plates (WARDEN, the name, and 'break it to take this fort') on ground at plate_alpha. name_px and label_px are the plates' text sizes and the _px knobs are all screen px (divided by the zoom). plate_gap_px is the clearance between the dashed ring and a plate.",
+      "ring_mult": 1.9,
+      "ring_alpha": 0.85,
+      "dash_gap_px": 7.0,
+      "tick_px": 7.0,
+      "plinth_y": 0.9,
+      "plinth_rx": 1.35,
+      "plinth_ry": 0.38,
+      "plinth_alpha": 0.55,
+      "name_px": 20,
+      "label_px": 13,
+      "plate_alpha": 0.8,
+      "plate_gap_px": 6.0
+    },
     "clapper_strike_rad": 0.5,
     "clapper_hold_beats": 0.25,
     "clapper_swing_rad_s": 14.0,
