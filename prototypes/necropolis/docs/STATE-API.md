@@ -414,7 +414,8 @@ from `BALANCE.md` §0.
   - **A row's own reason** (the E4 close-out, the final review's item 5; no shape change): a queue row's
     `starved` and `lever` are set only on the head waiting on funds at `affordable_in_s` −1.0, from the store it is
     never on; a timed wait reads `""` (before, any row short of gold read the stalls' flag and any row short of bone
-    the mills').
+    the mills'). The upkeep gate's away line (§5.19) reads the stalls' bind from the state the gate evaluated
+    (`TownSim.trade_bound()`, the final review's item 7), not from the last step's `trade_starved`.
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become

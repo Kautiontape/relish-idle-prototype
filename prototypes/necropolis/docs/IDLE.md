@@ -744,7 +744,10 @@ a **"While you were away"** panel. It is ordered **gains, then ready actions, th
       stalls can sell. Build housing or an Inn, or move it down" (`idle.report.afford_living_fmt`;
       `afford_living_last_fmt` without the move down). The upkeep gate's line takes the same lever in that state:
       "House waits: the current income of +0.050/s gold can't pay its upkeep, and the living buy less than the stalls
-      can sell: build housing or an Inn" (`afford_upkeep_living_fmt`). The income test's "Still stopped … Build a
+      can sell: build housing or an Inn" (`afford_upkeep_living_fmt`). "That state" is the one the gate evaluated
+      (`TownSim.trade_bound()` at the report, beside the `gold_income()` the gate reads), not the last step's flag: the
+      living and the staffing move after the stalls inside a step, so a catch-up's last step can start under the bind
+      and end over it (the E4 final review's item 7; test_trade_starved (h)). The income test's "Still stopped … Build a
       Market" (`unpaid_upkeep_fmt`) is unchanged: in a new game the shed reaches the Market and its stalls first, so
       no test reaches it with the living binding (a Phase I item if a larger town shows it).
   - **Stores full, queue empty: raid** (R2; the run's manager, from Shawn's "needs relics: raid a fort",

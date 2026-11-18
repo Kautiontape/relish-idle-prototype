@@ -706,8 +706,7 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	var gold_in := sales * _price * _job_f("stall") * dt
 	gold += gold_in
 	# the stalls' reason (trade_starved): the living buy less than the staffed stalls could sell
-	var stall_cap := _job("stall") * _stall_rate
-	trade_starved = "living_first" if stall_cap > 0.0 and living * _shop_rate < stall_cap * (1.0 - 1e-9) else ""
+	trade_starved = trade_bound()
 
 	# 5. the forge: work toward the next q level; a level completes only with its relics
 	var forge_work := 0.0
@@ -1910,6 +1909,16 @@ func _sales() -> float:
 ## upkeep_short) reads it, so it is the same before a load's first step as after it.
 func gold_income() -> float:
 	return _sales() * _price * _job_f("stall")
+
+
+## What binds the stalls at today's staffing and living (the state gold_income() reads): "living_first" when the
+## living's shopping (living · market.shop_rate) is under the staffed stalls' rate (staffed · stall.rate) by more than
+## float noise, else "" (the stalls bind, or none are staffed). Step 4 sets trade_starved with it at the step's own
+## state; the upkeep gate's away line reads it at the report, the state the gate evaluates (the E4 final review's
+## item 7), since the living (step 7) and the staffing (step 10) move after step 4 inside a step.
+func trade_bound() -> String:
+	var stall_cap := _job("stall") * _stall_rate
+	return "living_first" if stall_cap > 0.0 and living * _shop_rate < stall_cap * (1.0 - 1e-9) else ""
 
 
 ## The resume rule's income test (E4 step 4, the run's manager's ruling on the gold-trap stop: (i), gold only): an

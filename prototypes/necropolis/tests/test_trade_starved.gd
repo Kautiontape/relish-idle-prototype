@@ -27,6 +27,13 @@ extends RefCounted
 ## - (g) TownSim.clone() copies both flags (the E4 final review's item 6): (a)'s state, mill_starved set to no_bodies by
 ##   hand, cloned; the twin reads living_first and no_bodies, and a queue walk with the twin as the town reads the
 ##   head's living_first and raise_living as the town itself does. Revert proof: on 2a9e596 the twin reads "" and "".
+## - (h) The upkeep gate's line reads the state the gate evaluated (the E4 final review's item 7): TownSim.trade_bound()
+##   at the report, not the last step's trade_starved. With market.price 0.3 (full stalls earn 0.09/s, under the bill
+##   0.10, so a new House is gated at any living) and idle.catchup_max_steps 1 (a 10 s load is one 10 s step), the
+##   living are placed half the step's measured growth under the tie at 10: the step's flag (step 4, at its start)
+##   reads living_first and the state at its end reads "", the stalls binding. The line is afford_upkeep_fmt's ("build
+##   a Market": a Market level would sell more), not afford_upkeep_living_fmt's. Revert proof: with 2a9e596's
+##   state_views.gd the line follows the stale flag and reads afford_upkeep_living_fmt's.
 
 var t := TestUtil.new()
 var _dir := "user://test_trade_starved_%d" % OS.get_process_id()
@@ -45,6 +52,7 @@ func run() -> int:
 	_tie(c)
 	_timed(c)
 	_clone(c)
+	_upkeep_state(c, rep)
 	_cleanup()
 	return t.failures
 
@@ -206,6 +214,47 @@ func _clone(c: Dictionary) -> void:
 	s.town_sim = live
 	t.ok(str(row["starved"]) == "living_first" and str(row["lever"]) == "raise_living" and float(row["affordable_in_s"]) == -1.0,
 		"(g) a queue walk on the twin reads the head's living_first and raise_living: %s" % JSON.stringify(row))
+
+
+## Saves `s` under `key` and loads it `away` s on in a fresh game with `s`'s configs (one catch-up, as _load).
+func _load_at(s: GameState, key: String, away: int) -> GameState:
+	s.drain_events()
+	s.clock_override = CLOCK
+	t.ok(s.cmd_save(key)["ok"], "(setup) (%s) saved" % key)
+	var n := GameState.new(s._cfgs)
+	n.debug_enabled = true
+	n.save_dir = _dir
+	n.clock_override = CLOCK + away
+	t.ok(n.cmd_load(key)["ok"], "(setup) (%s) loaded %d s on" % [key, away])
+	return n
+
+
+func _upkeep_state(c0: Dictionary, rep: Dictionary) -> void:
+	var c: Dictionary = c0.duplicate(true)
+	c["economy"]["market"]["price"] = 0.3
+	c["economy"]["idle"]["catchup_max_steps"] = 1
+	var s := _game(c)
+	t.ok(s.cmd_queue_build("house", "lot-07")["ok"], "(setup) (h) a new House queued")
+	s.tick(s.substep_s())
+	var tie := float(c["economy"]["opening"]["living"])  # 10 living buy what the start's 2 stalls sell
+	t.ok(absf(tie * s.town_sim._shop_rate - s.town_sim._job("stall") * s.town_sim._stall_rate) < 1e-9,
+		"(setup) (h) %.0f living tie the staffed stalls (%.2f)" % [tie, s.town_sim._job("stall")])
+	# the step's growth at the tie, measured on a dry run of the same load
+	s.town_sim.living = tie
+	var dry := _load_at(s, "upkeep_dry", 10)
+	var grow := dry.town_sim.living - tie
+	t.ok(grow > 1e-6, "(setup) (h) the living grow %.5f over the 10 s step" % grow)
+	s.town_sim.living = tie - grow / 2.0
+	var n := _load_at(s, "upkeep_state", 10)
+	t.ok(n.town_sim.trade_starved == "living_first" and n.town_sim.trade_bound() == "",
+		"(setup) (h) the last step's flag reads living_first, the state at its end \"\" (living %.5f -> %.5f)" % [tie - grow / 2.0, n.town_sim.living])
+	var head: Dictionary = n.view_town()["queue"][0]
+	t.ok(str(head["status"]) == "skipped_gate" and str(head["reason"]) == "upkeep", "(setup) (h) the House is gated upkeep: %s" % JSON.stringify(head))
+	var fill := {"name": StateViews._building_name(n, rep, "house", 1), "rate": StateViews._fmt_rate(rep, n.town_sim.gold_income())}
+	var ready: Array = n.view_away()["ready"]
+	t.ok(ready.filter(func(l): return str(l["text"]) == str(rep["afford_upkeep_fmt"]).format(fill)).size() == 1
+		and not ready.any(func(l): return str(l["text"]) == str(rep["afford_upkeep_living_fmt"]).format(fill)),
+		"(h) the upkeep line reads the state's bind, afford_upkeep_fmt's: %s" % JSON.stringify(ready))
 
 
 func _cleanup() -> void:

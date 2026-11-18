@@ -1130,8 +1130,9 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 			elif i == wall and stuck:
 				ready.append(_away_line(afford_text(gs, rep, row, "relics", {}, false), "queue", "queue"))
 			elif i == upk:
-				# E4 step 10: while the living buy less than the stalls can sell, a Market adds no income either
-				var ufmt := "afford_upkeep_living_fmt" if gs.town_sim.trade_starved == "living_first" else "afford_upkeep_fmt"
+				# E4 step 10: while the living buy less than the stalls can sell, a Market adds no income either. Read from
+				# the state the gate evaluated (TownSim.trade_bound, beside gold_income), not the last step's flag
+				var ufmt := "afford_upkeep_living_fmt" if gs.town_sim.trade_bound() == "living_first" else "afford_upkeep_fmt"
 				ready.append(_away_line(str(rep[ufmt]).format({
 					"name": _building_name(gs, rep, str(row["building_id"]), int(row["level"])),
 					"rate": _fmt_rate(rep, gs.town_sim.gold_income())}), "queue", "queue"))
