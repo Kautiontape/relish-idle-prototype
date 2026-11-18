@@ -403,7 +403,7 @@ static func risk_phrase(c: Dictionary) -> String:
 ## way to the nearest exit (the first step of its route, so never through a wall), "" when there is
 ## none (the clause is dropped); `hops` the rooms between her room and the exit's (0 this room, -1
 ## unknown: a doorway band).
-static func push_line(living: int, exit_word: String, hops: int, at_risk: Dictionary, at_exit := false, rooms_seen := 0, rooms_total := 0) -> String:
+static func push_line(living: int, exit_word: String, hops: int, at_risk: Dictionary, at_exit := false, rooms_seen := 0, rooms_total := 0, with_risk := true) -> String:
 	var parts: PackedStringArray = []
 	if rooms_total > 0:
 		parts.append(rooms_phrase(rooms_seen, rooms_total))
@@ -412,7 +412,8 @@ static func push_line(living: int, exit_word: String, hops: int, at_risk: Dictio
 		parts.append("AT EXIT")
 	elif exit_word != "":
 		parts.append("exit " + exit_word + ("" if hops <= 0 else (", next room" if hops == 1 else ", %d rooms" % hops)))
-	parts.append(risk_phrase(at_risk))
+	if with_risk:   # false once the win is banked (the clear card): nothing is at risk to name
+		parts.append(risk_phrase(at_risk))
 	return " · ".join(parts)
 
 

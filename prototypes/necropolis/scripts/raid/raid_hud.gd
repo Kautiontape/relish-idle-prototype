@@ -38,7 +38,9 @@ var _hops_left := -1                # hops from Relish's room to the warden's (k
 var _risk := {}                     # the UNBANKED counts, for the push line
 var exit_pos := Vector2.INF         # the nearest exit's inner point (the Pointers' EXIT chevron)
 var _banner_top := 70.0
-var _loot_key := []              # [banked, found_loot, carried, on the floor] the BANKED/UNBANKED lines show
+var _clearing := false              # the clear card is up: BANKED is the win, nothing is unbanked (on_clear)
+var _clear_counts := {}             # the win's loot counts, for BANKED while _clearing
+var _loot_key := []            # [banked, found_loot, carried, on the floor] the BANKED/UNBANKED lines show
 var _door_prompt: Label = null    # D-e task 6: the held door's plate prompt, while she can send a big (its row is the StatBlock's DOOR)
 var _door_text := ""             # the DOOR row's text as last wrapped
 # boss extras
@@ -337,6 +339,9 @@ func refresh() -> void:
 			_loot_key = [raid.endings.banked, raid.found_loot, carried, floor_n]
 			var bk: Dictionary = RaidLogic.loot_counts(raid.endings.banked)
 			var ub: Dictionary = RaidLogic.unbanked(raid.found_loot, carried, raid.endings.banked)
+			if _clearing:   # the win is banked: what the clear card shows, and nothing at stake
+				bk = _clear_counts
+				ub = RaidLogic.loot_counts(RaidLogic.empty_loot())
 			st.banked_text = RaidLogic.loot_line(bk)
 			st.unbanked_text = RaidLogic.loot_line(ub)
 			_risk = ub
@@ -510,7 +515,7 @@ func _update_push() -> void:
 		if rf >= 0 and rt >= 0 and lay.has("room_hops"):
 			hops = int(((lay["room_hops"] as Array)[rf] as Array)[rt])
 	_push.set_text(RaidLogic.push_line(raid.enemies.size(), word, hops, _risk, at_exit,
-		raid.endings.rooms_seen(), (lay.get("rooms", []) as Array).size()))
+		raid.endings.rooms_seen(), (lay.get("rooms", []) as Array).size(), not _clearing))
 
 
 ## Width the push line may use without running under the warden's block (narrow windows wrap it).
@@ -559,7 +564,25 @@ func flash(color: Color) -> void:
 
 
 ## A plain banner line for `secs` seconds (warden wake, last chance, victory).
+## The warden is beaten and the clear card is up (RaidWardenRun.on_chest_opened, not the measuring bot): the HUD
+## must not contradict the win. The banner under the card is hidden (and none shows after), BANKED reads the win's
+## loot counts, UNBANKED reads none with no stakes row, and the push line drops its "at risk" clause.
+func on_clear(win_counts: Dictionary) -> void:
+	_clearing = true
+	_clear_counts = win_counts
+	_banner_t = -1.0
+	_banner_live = Callable()
+	_cue_queue.clear()
+	_banner.visible = false
+	if _banner_plate != null:
+		_banner_plate.visible = false
+	_loot_key = []   # refresh() rebuilds BANKED/UNBANKED from the win on its next pass
+	_push_t = 1.0
+
+
 func show_banner(text: String, secs: float, color_key := "relish") -> void:
+	if _clearing:
+		return
 	_banner_live = Callable()
 	_banner.text = text
 	_banner.add_theme_color_override("font_color", Palette.c(color_key))

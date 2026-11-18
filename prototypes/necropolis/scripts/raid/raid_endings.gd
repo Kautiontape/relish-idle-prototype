@@ -9,6 +9,7 @@ extends RefCounted
 
 var ended := false      # run is over; gameplay stops (raid._ended forwards here)
 var finished := false   # `finished` already emitted
+var win_result := {}    # the warden's win, built once at chest open on the clear-card path ({} for the bot); what the card shows and every exit emits
 var pending_exit := ""  # the exit an ending beat will emit (relish_died, warden_beaten); a close keeps it
 
 var banked := {}                 # the last checkpoint snapshot (full loot shape)
@@ -149,7 +150,10 @@ func close_request() -> bool:
 		retreat_by = "close"
 	ended = true
 	_raid.trance.force_end()
-	finish(_raid._death_result() if plan["exit"] == "relish_died" else build_result(plan["exit"], plan["closing"]))
+	if plan["exit"] == "warden_beaten" and not win_result.is_empty():
+		finish(win_result)   # the clear card's frozen win: the same dict the card shows
+	else:
+		finish(_raid._death_result() if plan["exit"] == "relish_died" else build_result(plan["exit"], plan["closing"]))
 	return true
 
 

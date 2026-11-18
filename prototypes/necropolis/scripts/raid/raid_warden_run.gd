@@ -236,13 +236,18 @@ func on_chest_opened(c: RaidChest) -> void:
 		for k in cards:
 			if is_instance_valid(k):
 				k.queue_free()
-		e.finish(e.build_result("warden_beaten"))   # finish guards a double: the card's click and its timer both land here
+		# the card's path finishes with the result frozen at chest open (e.win_result); the bot has none and builds it now
+		e.finish(e.win_result if not e.win_result.is_empty() else e.build_result("warden_beaten"))   # finish guards a double: the card's click and its timer both land here
 	if RaidAutopilot.enabled():   # the measuring bot never sees the card: the banner and the victory_s beat, as before
 		_raid.hud.show_banner("THE WARDEN IS BEATEN · loot banked", float(wc.get("victory_s", 1.5)) + 1.0, "vei")
 		_raid.get_tree().create_timer(float(wc.get("victory_s", 1.5))).timeout.connect(finish_win)
 		return
 	# everyone else: the clear card names what was won; a click/SPACE or `clear.card_s` ends it
-	var won := RaidLogic.loot_counts(RaidLogic.result_loot("warden_beaten", false, _raid.found_loot, _raid.carried_count(), e.banked))
+	# the win is built ONCE, now (the chest's loot is merged): the card, the HUD and the emit all read this one dict,
+	# so motes drifting into her slots during the card change nothing. A window close emits it too (close_request).
+	e.win_result = e.build_result("warden_beaten")
+	var won := RaidLogic.loot_counts(e.win_result["loot"])
+	_raid.hud.on_clear(won)
 	var card := RaidClearCard.new()
 	_raid.hud.add_child(card)
 	cards.append(card)
