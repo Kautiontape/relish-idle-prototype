@@ -102,6 +102,7 @@ var bank_bigs := false  # bank_bigs (E3-7): no raid takes a big once the giants 
 var _banking := false  # bank_bigs' latch: set at the first look that finds giants or carvers short
 var keep_fronts := true  # E4 step 2: good front bigs stay home (_keepers) and the rest raid; off = the E3 policy
 var _keep: Array = []  # keep_fronts: the keepers' uids at the last look (_place); _raid leaves them home
+var park_relics := true  # Phase I P2 (_fill): keep one no_relics entry parked in the queue (the wall's chip); off = skip every gated item
 var _crypt_up := false  # the crypt-level latch (_fill): set at the first look that keeps a big, or finds the crypt full while a husk waits
 var crypt_up_t := -1.0  # when _crypt_up set (s.t), -1 never; it never clears, so it can't churn (the E4 review's item 5)
 ## The keepers' churn (the E4 review's item 5, a report): looks whose keepers changed, keepers dropped while still held
@@ -324,18 +325,20 @@ func _stock_snap() -> Dictionary:
 	var inv := s.view_inventory()
 	return {"bone": float(tn["bone"]), "gold": float(tn["gold"]), "relics": int(inv["relics"]),
 		"remnants": (inv["remnants"] as Array).size(), "husks": (inv["husks"] as Array).size(),
-		"queue_len": (tn["queue"] as Array).size(), "bodies": float(tn["bodies"])}
+		"queue_len": (tn["queue"] as Array).size(), "queue_slots": int(tn["queue_slots"]), "bodies": float(tn["bodies"])}
 
 
 ## The thresholds `op`'s answer turns on, read from this run's state: [stock, "ge" | "lt", value]. A husk craft needs the
-## bone and the remnants at their price; a queue command needs the queue under queue_max. Other ops: none known.
+## bone and the remnants at their price; a queue command needs a slot (queue_slots under queue_max) and the list under its
+## cap (Phase I P2's queue rule). Other ops: none known.
 func _thresholds(op: String) -> Array:
 	match op:
 		"craft_husk":
 			var cost: Dictionary = s.view_catalog()["husk_craft"]["cost"]
 			return [["bone", "ge", float(cost["bone"])], ["remnants", "ge", float(cost["remnants"])]]
 		"queue":
-			return [["queue_len", "lt", float(s.view_town()["queue_max"])]]
+			var tn := s.view_town()
+			return [["queue_slots", "lt", float(tn["queue_max"])], ["queue_len", "lt", float(tn["queue_list_max"])]]
 	return []
 
 
@@ -913,6 +916,13 @@ static func _list(cfg: Dictionary) -> Array:
 ## big (_keep), or finds the crypt full (big undead at the cap) while a husk waits or the bot would craft one but for the
 ## room (_husk_kind), the crypt's levels (CRYPT_LEVELS) head the list: a keeper takes a place a raider would use, a husk
 ## that can't be raised is a big lost, and a level is a place (big_undead.per_crypt_level).
+## Phase I P2 (the run's manager's ruling 2 of 2026-11-17 22:40, test hygiene): the fill skips gated entries. Before
+## each command it reads the walk with the item appended (BuildRules.queue_walk, statuses only: no command, nothing
+## logged), and an item that would be skipped_gate is passed over this look, with two exceptions: an upgrade waiting on its own lot's construction (under_construction: it starts when that
+## ends; the shipped fill queued these, and they still count toward the fill's queue_max as they did, so its mix of
+## builds is unchanged), and one no_relics entry while the queue holds no other (park_relics: the build a player
+## parks behind the relics, so the wall's chip shows, IDLE §7; it counts toward nothing). Within the list's cap
+## (queue_list_max). Before P2 every entry counted, so a fill of gated entries jammed the queue (town_only at 8.0 h).
 func _fill() -> void:
 	if not _crypt_up:
 		var bu := s.view_big_undead()
@@ -929,19 +939,39 @@ func _fill() -> void:
 	for e in q:
 		var cur: Array = plan.get(str(e["lot_id"]), ["", 0])
 		plan[str(e["lot_id"])] = [str(e["building_id"]), maxi(int(cur[1]), int(e["level"]))]
-	var n := q.size()
+	# the fill's own count: what the shipped fill counted, less the gated entries it now skips (an upgrade on its lot's
+	# construction still counts, so the fill's mix of builds is the shipped one's)
+	var n := 0
+	var m := q.size()
+	var list_max := int(tn["queue_list_max"])
+	var parked := false
+	for e in q:
+		var gated := str(e["status"]) == "skipped_gate" and str(e["reason"]) != "under_construction"
+		n += 0 if gated else 1
+		parked = parked or (gated and str(e["reason"]) == "no_relics")
 	var walk: Array = CRYPT_LEVELS + _list(c) if _crypt_up else _list(c)
 	for it in walk:
-		if n >= qmax:
+		if n >= qmax or m >= list_max:
 			break
 		var lot: String = it[1]
 		var lv: int = it[2]
 		var cur: Array = plan.get(lot, ["", 0])
 		if (str(cur[0]) != "" and str(cur[0]) != str(it[0])) or int(cur[1]) != lv - 1:
 			continue
-		if bool(_cmd("queue", [str(it[0]) if lv == 1 else "", lot])["ok"]):
-			plan[lot] = [str(it[0]), lv]
-			n += 1
+		# the walk with the item appended, read only (the statuses of the entries ahead don't change): the status it would
+		# take, so a gated item is passed over without a command
+		var row: Dictionary = BuildRules.queue_walk(s, s.build_queue + [{"building_id": str(it[0]), "lot_id": lot,
+			"upgrade": lv > 1, "waited_on": ""}], false)["rows"].back()
+		var counts := str(row["status"]) != "skipped_gate" or str(row["reason"]) == "under_construction"
+		var park := not counts and park_relics and str(row["reason"]) == "no_relics" and not parked
+		if not (counts or park):
+			continue
+		if not bool(_cmd("queue", [str(it[0]) if lv == 1 else "", lot])["ok"]):
+			continue
+		m += 1
+		n += 1 if counts else 0
+		parked = parked or park
+		plan[lot] = [str(it[0]), lv]
 
 
 ## The first entry that isn't skipped_gate (the one the queue saves toward), or -1.

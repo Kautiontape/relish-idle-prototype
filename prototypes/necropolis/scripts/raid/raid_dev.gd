@@ -9,6 +9,7 @@ extends RefCounted
 ## --raid-clones=<n> / --raid-death-ends=<clone|unmade>:<respawn_s> (the death card's AFTER row: clones_ready, or the injected seed key),
 ## --raid-archetype=<id> (demo seed's warden), --raid-big-speed=<n> (demo party big undead),
 ## --raid-ding-chance=<p> (every tier's ding chance, to see dings), --raid-warden-go (with it: Relish walks into the warden room, then to the chest),
+## --raid-warden-fell=<frames> (the warden falls that many frames after it wakes: with --raid-warden-go, the clear beat's shots),
 ## --raid-loot-sample (one floor pickup of each loot kind in a row by Relish: the glyph screenshot; only remnants drop in play),
 ## --raid-autopilot=<score> [--raid-autopilot-seed=<n>] [--raid-autopilot-answer-mult=<x>] (RaidAutopilot: plays the raid headless, prints AUTOPILOT_RESULT, quits),
 ## --raid-profile=<party_tier> --raid-fort=<fort_id> (BALANCE 3's standard party of that tier at that world.json fort; raid.json autopilot.party_profiles),
@@ -23,6 +24,8 @@ var _stress := 0                # --raid-stress=N
 var _autoexit := -1             # --raid-autoexit=<frames>
 var _autodie := -1              # --raid-autodie=<frames>
 var _go := false                # --raid-warden-go autopilot
+var _fell := -1                 # --raid-warden-fell=<frames>: frames after the wake, the warden falls (the clear card's shots)
+var _woke_at := -1
 var _ap: RaidAutopilot = null   # --raid-autopilot=<score>: the headless measuring bot
 var _perf := false
 var _perf_cpu: Array = []
@@ -144,6 +147,7 @@ func start() -> void:
 	if cli_flag("--raid-warden") and not _raid.is_boss():
 		_place_in_antechamber()
 	_go = cli_flag("--raid-warden-go")
+	_fell = int(cli_value("--raid-warden-fell=")) if cli_value("--raid-warden-fell=") != "" else -1
 	if RaidAutopilot.enabled() and not _raid.is_boss():
 		_ap = RaidAutopilot.new(_raid)
 		_ap.start()
@@ -182,13 +186,15 @@ func tick() -> void:
 	var frame := Engine.get_process_frames()
 	if _autoexit >= 0 and frame >= _autoexit and not _raid._ended:
 		_autoexit = -1
-		_raid.confirm_exit()
+		_raid.endings.confirm_exit("dev")
 	if _autodie > 0 and frame > 0 and frame % _autodie == 0 and not _raid._ended and not _raid.is_boss():   # not at frame 0: the first hit at frame N
 		_autodie_hit()
 	if _perf:
 		_perf_sample(frame)
 	if _go and not _raid._ended:
 		_autopilot()
+	if _fell >= 0 and not _raid._ended:
+		_fell_tick(frame)
 
 
 ## Hook 3: every physics frame of a live run (the measuring bot's think step).
@@ -239,6 +245,20 @@ func _autopilot() -> void:
 		var from: Vector2 = _raid.relish.position
 		# a point 80px inside the room towards where Relish stands
 		_raid.relish.move_target = c + (from - c).normalized() * minf(room.size.x, room.size.y) * 0.3
+
+
+## --raid-warden-fell=<frames>: `frames` process frames after the warden wakes, deal it a killing blow
+## (through take_hit, so it drops its motes and the chest as in play). With --raid-warden-go Relish then
+## walks to the chest and opens it: the clear beat, for its screenshots.
+func _fell_tick(frame: int) -> void:
+	var w = _raid.warden_run.warden if _raid.warden_run != null else null
+	if w == null or not is_instance_valid(w) or not w.alive or not w.awake:
+		return
+	if _woke_at < 0:
+		_woke_at = frame
+	if frame - _woke_at >= _fell:
+		_fell = -1
+		w.take_hit(w.max_hp * 1000.0)   # past any ward or pack multiplier
 
 
 ## Kill every ally and deal Relish a lethal hit (a revive, then the run's end).

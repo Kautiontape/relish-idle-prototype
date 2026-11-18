@@ -103,6 +103,11 @@ static func _wrap(l: Label) -> Label:
 	return l
 
 
+## What a para's style depends on: its face and colour key (the structure signature ignores both).
+static func _para_style(blk: Dictionary) -> String:
+	return "%s:%s" % [blk["face"], blk["key"]]
+
+
 static func _face(l: Label, face: String, key: String) -> void:
 	match face:
 		"mass":
@@ -133,6 +138,7 @@ func _build(blk: Dictionary) -> Dictionary:
 			_face(l, str(blk["face"]), str(blk["key"]))
 			_body.add_child(l)
 			refs["label"] = l
+			refs["para_style"] = _para_style(blk)
 		"chips":
 			var f := HFlowContainer.new()
 			f.add_theme_constant_override("h_separation", int(cards["chip_gap_px"]))
@@ -263,6 +269,10 @@ func _update(refs: Dictionary, blk: Dictionary) -> void:
 			_put(refs["label"], str(blk["text"]))
 		"para":
 			_put(refs["label"], str(blk["text"]))
+			var style := _para_style(blk)  # a para's colour can change under the same id
+			if refs.get("para_style", "") != style:
+				refs["para_style"] = style
+				_face(refs["label"], str(blk["face"]), str(blk["key"]))
 		"chips":
 			for i in (blk["chips"] as Array).size():
 				var chip: Dictionary = refs["chips"][i]

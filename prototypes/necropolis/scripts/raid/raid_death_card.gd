@@ -3,7 +3,7 @@ extends Control
 ## The death frame: when Relish dies in a dungeon, one card before the result goes out. What killed
 ## her, what the last checkpoint banked, what is lost (RaidLogic.death_card_rows). It plays in the
 ## death beat RaidEndings already runs (the beat is `death.card_s` long instead of 0.9 s, except in the
-## measuring bot, which never waits); a click or SPACE after `death.skip_after_s` ends it early. The
+## measuring bot, which never waits); a click, SPACE or Enter after `death.skip_after_s` ends it early. The
 ## result and its single emit are RaidEndings' and unchanged: the card only holds the frame.
 ## A window close during it stays a death (RaidEndings.close_request). Numbers: raid.json `death`.
 
@@ -43,14 +43,9 @@ func _alpha() -> float:
 
 
 func _input(ev: InputEvent) -> void:
-	if _skipped or not can_skip():
+	if _skipped:
 		return
-	var go := false
-	if ev is InputEventMouseButton and ev.pressed:
-		go = true
-	elif ev is InputEventKey and ev.pressed and not ev.echo and ev.keycode in [KEY_SPACE, KEY_ENTER, KEY_KP_ENTER]:
-		go = true
-	if go:
+	if RaidLogic.card_skips(ev, _t, _skip_after):   # the rule both cards share
 		_skipped = true
 		get_viewport().set_input_as_handled()
 		dismissed.emit()

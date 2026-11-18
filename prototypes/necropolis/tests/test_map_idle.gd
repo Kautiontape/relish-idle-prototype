@@ -4,11 +4,12 @@ extends RefCounted
 ## real-field-over-stand-in switch, and the chip colours' contrast. No autoloads.
 
 
-## A GameState stand-in that has the E2b members.
+## A GameState stand-in with the real view_projection and view_away shapes.
 class FakeE2 extends RefCounted:
 	func view_projection(valve: Dictionary) -> Dictionary:
-		return {"split": {"work": 0.0, "war": 9.0, "flood": 0.0}, "war_supports": {"n": 7, "m": 8},
-			"margins": {"greywall": "thin"}, "echo": valve}
+		return {"rev": 1, "valve": valve, "split": {"work": 0.0, "war": 9.0, "flood": 0.0}, "workers_steady": 3.0, "backlog_diff": -2.0,
+			"war_supports": {"n": 7, "m": 8},
+			"margins": {"greywall": {"margin": "thin", "margin_cause": "", "fall_s": 500.0, "garrison_rate": -0.1, "margin_verified": false}}}
 
 	func view_away() -> Dictionary:
 		return {"rev": 5, "shown": true, "away_s": 100.0, "capped": false, "gains": [], "ready": [], "losses": []}
@@ -29,11 +30,6 @@ class FakeAwayApi extends RefCounted:
 		dismissed += 1
 
 
-## One without them (E1).
-class FakeE1 extends RefCounted:
-	pass
-
-
 func run() -> int:
 	var t := TestUtil.new()
 	t.suite("map_idle")
@@ -49,116 +45,95 @@ func run() -> int:
 	_demo(t)
 	_contrast(t)
 	_model(t)
+	_sources(t)
 	return t.failures
 
 
-func _fort(id: String, ship_in: float, held := true) -> Dictionary:
-	return {"id": id, "held": held, "ship_in": ship_in, "undead": 10.0}
+func _fort(id: String, margin: String, held := true) -> Dictionary:
+	return {"id": id, "held": held, "margin": margin, "ship_in": 0.0, "undead": 10.0, "garrison": 10.0, "garrison_rate": 0.0, "fall_s": -1.0}
 
 
 func _margin(t: TestUtil) -> void:
-	var c: Dictionary = IdleLogic.cfg()
-	var safe := float(c["margin_safe_ratio"])
-	var thin := float(c["margin_thin_ratio"])
-	t.ok(safe > thin and thin > 0.0, "safe ratio is above thin ratio")
-	t.ok(IdleLogic.margin(0.0, 0.0, c) == "safe", "no pressure is safe even with no support")
-	t.ok(IdleLogic.margin(5.0, -1.0, c) == "safe", "negative pressure is safe")
-	t.ok(IdleLogic.margin(safe * 2.0, 2.0, c) == "safe", "support at the safe ratio is safe")
-	t.ok(IdleLogic.margin(safe * 2.0 - 0.01, 2.0, c) == "thin", "just under the safe ratio is thin")
-	t.ok(IdleLogic.margin(thin * 2.0, 2.0, c) == "thin", "support at the thin ratio is thin")
-	t.ok(IdleLogic.margin(thin * 2.0 - 0.01, 2.0, c) == "will_fall", "just under the thin ratio will fall")
-	t.ok(IdleLogic.margin(0.0, 1.0, c) == "will_fall", "no support under pressure will fall")
 	t.ok(IdleLogic.word("safe") == "SAFE" and IdleLogic.word("thin") == "THIN" and IdleLogic.word("will_fall") == "WILL FALL", "the chip words")
 	var keys := {}
 	for m in ["safe", "thin", "will_fall"]:
 		keys[IdleLogic.color_key(m)] = true
 		t.ok(Palette.has(IdleLogic.color_key(m)), "%s colour is a palette key" % m)
 	t.ok(keys.size() == 3, "the three margins have three colours")
-	t.ok(IdleLogic.garrison({"undead": 12.0}) == 12.0, "garrison stand-in is the fort's undead")
-	t.ok(IdleLogic.garrison({"undead": 12.0, "garrison": 40.0}) == 40.0, "the view's garrison wins")
+	t.ok(IdleLogic.garrison({"undead": 12.0, "garrison": 40.0}) == 40.0, "garrison is the view's garrison")
+	t.ok(IdleLogic.garrison({"undead": 12.0}) == 0.0, "the fort's undead is not a garrison: no stand-in")
 
 
 func _supports(t: TestUtil) -> void:
-	var forts := [_fort("a", 0.3), _fort("b", 0.6), _fort("c", 1.2), _fort("d", 5.0, false)]
-	var held := IdleLogic.held_forts(forts)
-	t.ok(held.size() == 3, "held_forts skips the unheld")
-	t.ok(IdleLogic.war_supports(1.0, forts)["m"] == 3, "m is the held count")
-	t.ok(IdleLogic.war_supports(1.0, [])["m"] == 0, "no held forts: m is 0")
-	var prev := -1
-	var ok_n := true
-	var ok_le := true
-	for i in 21:
-		var s := IdleLogic.war_supports(float(i), forts)
-		ok_n = ok_n and int(s["n"]) >= prev
-		ok_le = ok_le and int(s["n"]) <= int(s["m"])
-		prev = int(s["n"])
-	t.ok(ok_n, "more WAR never lowers n")
-	t.ok(ok_le, "n never exceeds m")
-	t.ok(IdleLogic.war_supports(0.0, forts)["n"] == 0, "no WAR supports none (all under pressure)")
-	t.ok(IdleLogic.war_supports(300.0, forts)["n"] == 3, "plenty of WAR supports all")
-	# holding more forts thins every garrison: the same WAR over twice the forts is no better
-	var one := IdleLogic.margins([_fort("a", 1.0)], 2.5)
-	var two := IdleLogic.margins([_fort("a", 1.0), _fort("b", 1.0)], 2.5)
-	t.ok(one["a"] == "safe" and two["a"] == "thin", "WAR is split across the held forts")
-	var ms := IdleLogic.margins(forts, 3.0)
-	t.ok(ms.size() == 3 and not ms.has("d"), "margins cover the held forts only")
+	var forts := [_fort("a", "safe"), _fort("b", "thin"), _fort("c", "will_fall"), _fort("d", "", false)]
+	t.ok(IdleLogic.held_forts(forts).size() == 3, "held_forts skips the unheld")
+	t.ok(IdleLogic.committed_margins(forts) == {"a": "safe", "b": "thin", "c": "will_fall"}, "committed margins are view_fort.margin of the held forts")
+	# "WAR supports N of M" is view_hud.war_supports, whatever the forts' ship_in
+	var hud := {"war_supports": {"n": 2, "m": 5}}
+	t.ok(IdleLogic.committed_supports(hud) == {"n": 2, "m": 5}, "committed N of M is view_hud.war_supports")
+	t.ok(ValveLogic.supports_text({"war_supports": IdleLogic.committed_supports(hud)}) == "WAR supports 2 of 5 held forts", "the valve text reads it")
+	# a held fort with no margin: no word, and never SAFE
+	var blank := IdleLogic.committed_margins([_fort("a", "")])
+	t.ok(blank == {"a": ""}, "a held fort with an empty margin keeps it empty")
+	t.ok(IdleLogic.word(blank["a"]) == "", "and shows no margin word")
+	t.ok(NodeLogic.fort_state(_fort("a", ""), "") != IdleLogic.SAFE, "and is not SAFE")
+	t.ok(IdleLogic.committed_margins([_fort("t", "thin")])["t"] != IdleLogic.SAFE and NodeLogic.fort_state(_fort("t", "thin"), "thin") == IdleLogic.THIN, "a thin held fort never reads SAFE")
+	t.ok(IdleLogic.chip_parts(_fort("t", "thin"), "thin", {"rate": 0.0, "fall_s": -1.0})["word"] == "THIN", "its chip says THIN")
+	# the same view, from a real GameState, is the model's
+	var s := GameState.new(TestUtil.configs())
+	s.debug_enabled = true
+	s.cmd_debug_load_fixture("midgame_2flips")
+	var hv := s.view_hud()
+	var m := MapModel.new(s)
+	m.refresh(true)
+	t.ok(m.supports == hv["war_supports"] and m.supports_now() == hv["war_supports"], "the model's WAR supports N of M is view_hud's")
+	var rv := s.view_realm()
+	var ok := true
+	for f in IdleLogic.held_forts(rv["forts"]):
+		var id := str(f["id"])
+		ok = ok and m.margins[id] == str(f["margin"]) and m.margin_of(id) == str(f["margin"]) and m.margins[id] != ""
+		ok = ok and is_equal_approx(float(m.clock_of(id)["rate"]), float(f["garrison_rate"])) and is_equal_approx(float(m.clock_of(id)["fall_s"]), float(f["fall_s"]))
+		ok = ok and is_equal_approx(IdleLogic.garrison(f), float(f["garrison"]))
+	t.ok(ok and not m.margins.is_empty(), "every held fort's margin, rate and fall_s on the map are the view_fort ones")
 
 
 func _projection(t: TestUtil) -> void:
-	var forts := [_fort("a", 0.3), _fort("b", 0.6), _fort("c", 1.2)]
-	var hud := {"rates": [{"id": "mint", "rate": 3.0}], "valve": {"work": 1.0, "war": 0.0, "flood": 0.0}, "workers_steady": 10.0}
-	var rank := {"will_fall": 0, "thin": 1, "safe": 2}
-	var last := {}
-	var mono := true
-	var no_thin := true
-	for i in 21:
-		var war := float(i) / 20.0
+	var s := GameState.new(TestUtil.configs())
+	s.debug_enabled = true
+	s.cmd_debug_load_fixture("midgame_2flips")
+	var m := MapModel.new(s)
+	m.refresh(true)
+	var seen := {}
+	for i in 11:
+		var war := float(i) / 10.0
 		var valve := {"work": 1.0 - war, "war": war, "flood": 0.0}
-		var p := IdleLogic.projection(null, hud, valve, forts)
-		for id in p["margins"]:
-			if last.has(id) and rank[p["margins"][id]] < rank[last[id]]:
-				mono = false
-			if last.get(id, "") == "safe" and p["margins"][id] == "thin":
-				no_thin = false
-		last = p["margins"]
-		t.ok(p["war_supports"]["m"] == 3 and p["war_supports"]["n"] <= 3, "projection N of M is bounded")
-	t.ok(mono, "dragging WAR up never worsens a margin")
-	t.ok(no_thin, "dragging WAR up never turns a safe fort thin")
-	var full := IdleLogic.projection(null, hud, {"work": 0.0, "war": 1.0, "flood": 0.0}, forts)
-	t.near(float(full["split"]["war"]), 3.0, 1e-6, "split.war is mint x the WAR share")
-	t.ok(full["margins"]["a"] == "safe" and full["margins"]["c"] == "will_fall", "all-WAR margins")
-	var none := IdleLogic.projection(null, hud, {"work": 1.0, "war": 0.0, "flood": 0.0}, forts)
-	t.ok(none["margins"]["a"] == "will_fall" and none["war_supports"]["n"] == 0, "no WAR: every held fort will fall")
-	t.ok(IdleLogic.projection(null, hud, {"work": 1.0}, [])["war_supports"]["m"] == 0, "no held forts: m is 0")
+		var p := IdleLogic.projection(s, valve, m.forts)
+		var v := s.view_projection(ValveLogic.normalise(valve))
+		t.ok(p["war_supports"] == v["war_supports"], "drag projection N of M is view_projection's at war %.1f" % war)
+		t.ok(int(p["war_supports"]["m"]) == IdleLogic.held_forts(m.forts).size() and int(p["war_supports"]["n"]) <= int(p["war_supports"]["m"]), "and bounded by the held count")
+		for id in v["margins"]:
+			t.ok(p["margins"][id] == str(v["margins"][id]["margin"]), "the projected margin word is view_projection's (%s)" % id)
+			seen[p["margins"][id]] = true
+	t.ok(not seen.is_empty(), "the drag shows margin words")
+	t.ok(IdleLogic.split_at(s, m.hud["valve"]) == s.view_projection(ValveLogic.normalise(m.hud["valve"]))["split"], "the base split is view_projection's")
 
 
 func _switch(t: TestUtil) -> void:
-	var forts := [_fort("greywall", 0.3), _fort("b", 0.6)]
-	var hud := {"rates": [{"id": "mint", "rate": 3.0}], "valve": {"work": 1.0, "war": 0.0, "flood": 0.0}, "workers_steady": 10.0}
+	var forts := [_fort("greywall", "safe"), _fort("b", "safe")]
 	var valve := {"work": 0.0, "war": 1.0, "flood": 0.0}
-	var e1 := IdleLogic.projection(FakeE1.new(), hud, valve, forts)
-	t.ok(e1["margins"]["greywall"] == "safe", "without view_projection the stand-in answers")
-	var e2 := IdleLogic.projection(FakeE2.new(), hud, valve, forts)
-	t.ok(e2["margins"] == {"greywall": "thin"}, "with view_projection its margins are used")
-	t.ok(e2["war_supports"] == {"n": 7, "m": 8}, "with view_projection its N of M is used")
-	t.near(float(e2["split"]["war"]), 9.0, 1e-6, "with view_projection its split is used")
-	t.near(float(e2["workers_steady"]), float(e1["workers_steady"]), 1e-6, "a field the real one lacks keeps the stand-in's")
-	# committed reads: the field when present, else the stand-in
-	var hud0 := {"split": {"war": 3.0}}
-	var held := [_fort("a", 1.0)]
-	t.ok(IdleLogic.committed_margins(held, hud0) == {"a": "safe"}, "committed margin stand-in")
-	var with_field := [{"id": "a", "held": true, "ship_in": 1.0, "margin": "will_fall"}]
-	t.ok(IdleLogic.committed_margins(with_field, hud0) == {"a": "will_fall"}, "fort.margin wins when present")
-	var blank := [{"id": "a", "held": true, "ship_in": 1.0, "margin": ""}]
-	t.ok(IdleLogic.committed_margins(blank, hud0) == {"a": "safe"}, "an empty fort.margin falls back")
-	t.ok(IdleLogic.committed_supports(hud0, held) == {"n": 1, "m": 1}, "committed N of M stand-in")
-	t.ok(IdleLogic.committed_supports({"war_supports": {"n": 2, "m": 5}}, held) == {"n": 2, "m": 5}, "hud.war_supports wins when present")
+	var e2 := IdleLogic.projection(FakeE2.new(), valve, forts)
+	t.ok(e2["margins"] == {"greywall": "thin"}, "view_projection's margins are used")
+	t.ok(e2["war_supports"] == {"n": 7, "m": 8}, "view_projection's N of M is used")
+	t.near(float(e2["split"]["war"]), 9.0, 1e-6, "view_projection's split is used")
+	t.near(float(e2["workers_steady"]), 3.0, 1e-6, "view_projection's workers_steady is used")
+	t.near(float(e2["backlog_diff"]), -2.0, 1e-6, "view_projection's backlog_diff is used")
+	t.ok(float(e2["clocks"]["greywall"]["fall_s"]) == 500.0 and is_equal_approx(float(e2["clocks"]["greywall"]["rate"]), -0.1), "its fall_s and garrison_rate are the chip's clock")
+	t.ok(e2["clocks"].has("b"), "a held fort it leaves out keeps its committed clock")
 	# the away report
 	var demo := {"shown": true, "rev": 1}
-	t.ok(AwayLogic.report(FakeE1.new(), {}) == {"shown": false}, "no view_away and no demo: nothing to show")
 	t.ok(AwayLogic.report(null, {}) == {"shown": false}, "no state: nothing to show")
-	t.ok(AwayLogic.report(FakeE1.new(), demo) == demo, "the demo report is used without view_away")
-	t.ok(int(AwayLogic.report(FakeE2.new(), {})["rev"]) == 5, "view_away is used when the state has it")
+	t.ok(AwayLogic.report(null, demo) == demo, "the demo report is used")
+	t.ok(int(AwayLogic.report(FakeE2.new(), {})["rev"]) == 5, "view_away is used")
 	t.ok(AwayLogic.report(FakeE2.new(), demo) == demo, "the debug flag's report wins over the real one")
 
 
@@ -174,15 +149,21 @@ func _away_api(t: TestUtil) -> void:
 	AwayLogic.dismiss(api)
 	t.ok(api.dismissed == 1 and not api.shown, "acting on a line sends cmd_dismiss_away")
 	t.ok(not AwayLogic.should_open(api, false, AwayLogic.report(api, {}), closed), "after a dismissed real report the panel does not reopen")
-	# the stand-in path compares rev
+	# the debug demo compares rev
 	var demo := {"shown": true, "rev": 1}
-	t.ok(AwayLogic.should_open(FakeE1.new(), true, demo, -1), "the demo opens")
-	t.ok(not AwayLogic.should_open(FakeE1.new(), true, demo, 1), "the demo's closed rev keeps it closed")
-	t.ok(not AwayLogic.should_open(api, true, demo, 1), "the demo flag uses the rev even when the state has view_away")
-	t.ok(not AwayLogic.should_open(FakeE1.new(), false, {"shown": false}, -1), "not shown: never open")
-	AwayLogic.dismiss(FakeE1.new())
+	t.ok(AwayLogic.should_open(api, true, demo, -1), "the demo opens")
+	t.ok(not AwayLogic.should_open(api, true, demo, 1), "the demo's closed rev keeps it closed")
+	t.ok(not AwayLogic.should_open(api, false, {"shown": false}, -1), "not shown: never open")
 	AwayLogic.dismiss(null)
-	t.ok(true, "dismiss tolerates a state without cmd_dismiss_away")
+	t.ok(true, "dismiss tolerates no state")
+	# a real GameState: the panel's report is view_away()
+	var s := GameState.new(TestUtil.configs())
+	s.debug_enabled = true
+	s.cmd_debug_load_fixture("midgame_2flips")
+	var real := AwayLogic.report(s, {})
+	var va := s.view_away()
+	t.ok(real["shown"] == va["shown"] and real["away_s"] == va["away_s"] and real["capped"] == va["capped"] and real["gains"] == va["gains"]
+		and real["ready"] == va["ready"] and real["losses"] == va["losses"], "the away report is view_away's {shown, away_s, capped, gains, ready, losses}")
 
 
 func _away(t: TestUtil) -> void:
@@ -233,20 +214,25 @@ func _spans(t: TestUtil) -> void:
 
 func _demo(t: TestUtil) -> void:
 	var d: Dictionary = MapLogic.cfg()["demo_nodes"]
-	var forts: Array = []
-	for id in [d["held"]["fort"], d["also_held"][0]["fort"], d["also_held"][1]["fort"]]:
-		forts.append({"id": id, "held": true, "ship_in": 0.0, "undead": 1.0})
 	var all: Array = [d["held"]]
 	all.append_array(d["also_held"])
 	var seen := {}
-	var hud := {"rates": [{"id": "mint", "rate": float(d["mint_rate"])}], "valve": {}, "workers_steady": 0.0}
-	for i in forts.size():
-		forts[i]["ship_in"] = float(all[i]["ship_in"])
-	for war in [0.5, 0.8, 1.0]:
-		var p := IdleLogic.projection(null, hud, {"work": 1.0 - war, "war": war, "flood": 0.0}, forts)
-		for id in p["margins"]:
-			seen[p["margins"][id]] = true
-	t.ok(seen.has("safe") and seen.has("thin") and seen.has("will_fall"), "the demo held forts show all three margins across a drag")
+	for h in all:
+		seen[str(h["margin"])] = true
+	t.ok(seen.has("safe") and seen.has("thin") and seen.has("will_fall"), "the demo held forts show all three margins")
+	var gs := GameState.new(TestUtil.configs())
+	gs.debug_enabled = true
+	gs.cmd_debug_load_fixture("midgame_2flips")
+	var dm := MapModel.new(gs)
+	dm.nodes_demo = true
+	dm.refresh(true)
+	var ok := true
+	for h in all:
+		var ck := dm.clock_of(str(h["fort"]))
+		ok = ok and dm.margins[h["fort"]] == h["margin"] and is_equal_approx(float(ck["rate"]), float(h["garrison_rate"])) and is_equal_approx(float(ck["fall_s"]), float(h["fall_s"]))
+	t.ok(ok, "the demo overlay writes the view's own margin, garrison_rate and fall_s")
+	var held_n := IdleLogic.held_forts(dm.forts).size()
+	t.ok(int(dm.supports["m"]) == held_n and int(dm.supports["n"]) < held_n, "and its N of M (the will-fall fort does not count)")
 	var c: Dictionary = IdleLogic.cfg()
 	t.ok(int(c["chip_font"]) >= 12, "the chip's text (garrison, rate, word, clock) is at least 12 px")
 	t.ok(float(AwayLogic.cfg()["line_min_h_px"]) >= 44.0 and float(AwayLogic.cfg()["dismiss_w_px"]) >= 44.0, "away targets are at least 44 px")
@@ -265,6 +251,23 @@ func _contrast(t: TestUtil) -> void:
 		t.ok(MapLogic.contrast_ratio(Palette.c(key), panel) >= 4.5, "%s on the away panel is >= 4.5:1" % key)
 
 
+## No stand-in for a view field is left in scripts/map: no api-request #7, #12 or #13 TODO, and
+## nothing reads the dead hold-timer field.
+func _sources(t: TestUtil) -> void:
+	var dir := DirAccess.open("res://scripts/map")
+	var names := Array(dir.get_files()).filter(func(n): return str(n).ends_with(".gd"))
+	t.ok(names.size() > 20, "the map's scripts are found (%d)" % names.size())
+	var bad: Array = []
+	for n in names:
+		var src := FileAccess.get_file_as_string("res://scripts/map/%s" % n)
+		for needle in ["TODO(api-request #7", "TODO(api-request #12", "TODO(api-request #13", "held_s_left"]:
+			if src.contains(needle):
+				bad.append("%s: %s" % [n, needle])
+	t.ok(bad.is_empty(), "no #7/#12/#13 stand-in TODO and no held_s_left in scripts/map (%s)" % str(bad))
+	var cfg := IdleLogic.cfg()
+	t.ok(not cfg.has("hold_word") and not cfg.has("hold_fmt") and not cfg["colors"].has("hold"), "the hold-timer chip's config keys are gone")
+
+
 func _model(t: TestUtil) -> void:
 	var s := GameState.new(TestUtil.configs())
 	s.debug_enabled = true
@@ -280,10 +283,11 @@ func _model(t: TestUtil) -> void:
 	var demo_held := IdleLogic.held_forts(m2.forts).size()
 	t.ok(demo_held > real_held and m2.margins.size() == demo_held, "the demo holds more forts and the model has every margin (%d)" % demo_held)
 	var before := m2.margin_sig
-	var id: String = m2.margins.keys()[0]
+	var id: String = m.margins.keys()[0]  # a fort the real view_projection carries
 	var held := m2.margin_of(id)
-	var hud := m2.hud
-	var proj := IdleLogic.projection(s, hud, {"work": 0.0, "war": 1.0, "flood": 0.0}, m2.forts)
+	var proj := IdleLogic.projection(s, {"work": 0.0, "war": 1.0, "flood": 0.0}, m2.forts)
+	t.ok(proj["margins"].has(id), "the projection carries the held fort")
+	proj["margins"][id] = "will_fall" if held != "will_fall" else "safe"  # a margin the drag changes, whatever the fixture's
 	m2.set_projection(proj)
 	t.ok(m2.margin_of(id) == proj["margins"][id], "while a projection is set the chips read it")
 	t.ok(m2.supports_now() == proj["war_supports"], "and so does N of M")
@@ -292,7 +296,7 @@ func _model(t: TestUtil) -> void:
 	t.ok(m2.margin_of(id) == held and m2.margin_sig == before, "cleared: the committed margins are back")
 	t.ok(m2.supports_now() == m2.supports, "cleared: the committed N of M is back")
 	# the valve panel: not dragging, N of M is the committed one even when the target differs
-	var tgt := IdleLogic.projection(s, hud, {"work": 1.0, "war": 0.0, "flood": 0.0}, m2.forts)
+	var tgt := IdleLogic.projection(s, {"work": 1.0, "war": 0.0, "flood": 0.0}, m2.forts)
 	tgt["war_supports"] = {"n": int(m2.supports["n"]) + 1, "m": int(m2.supports["m"])}  # a target the split hasn't reached
 	t.ok(tgt["war_supports"] != m2.supports_now(), "the target's N of M differs from the committed (setup)")
 	t.ok(IdleLogic.panel_projection(tgt, m2.supports_now(), false)["war_supports"] == m2.supports_now(), "not dragging: the panel's N of M is supports_now()")

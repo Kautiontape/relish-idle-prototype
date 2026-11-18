@@ -12,7 +12,8 @@ extends "res://scripts/raid/raid.gd"
 ##   (phase 2)         (VeiFronts.ferry_rate). Motes fall at the anchors at a rate tied to F; Relish
 ##                     raises there, and every tempo beat feeds VeiFronts.break_beat(raised value
 ##                     that beat, F per beat). break_beats in a row -> victory; H at 0 -> lost.
-##                     Uncleared lanes send guards (they hunt Relish and the undead); raised undead
+##                     Uncleared lanes send guards (they hunt Relish and the undead), more of them
+##                     on a fuller pool (VeiFronts.pressured: rate and cap x pressure_mult); raised undead
 ##                     fight; Vei's weaves hunt Relish on the beat (vei.gd).
 ##   backups           a Relish death spends VeiFronts.next_backup (a phylactery, then a clone): she
 ##                     revives in place under a cracked violet ring that stays. None left: the final
@@ -40,6 +41,8 @@ var horde0 := 0.0
 var ferry := 0.0                # F, mass/s
 var ferry_beat := 0.0           # F per beat on the break's scale
 var uncleared := 0
+var pressure := 1.0             # VeiFronts.pressure_mult at the seed's living pool (the break's guards)
+var _gvc := {}                  # vcfg() with the guards pressured (VeiFronts.pressured), from the break's start
 var brk := {}                   # VeiFronts break state
 var streak_max := 0
 var lapses := 0                 # beats that lapsed with a streak to lose (the meter's running count)
@@ -361,6 +364,8 @@ func _begin_break() -> void:
 	uncleared = VeiFronts.FRONT_IDS.size() - fronts_cleared.size()
 	ferry = VeiFronts.ferry_rate({"living_pool": float(seed_data.get("living_pool", 0.0)),
 		"digest_q": float(seed_data.get("digest_q", 1.0))}, uncleared, vc)
+	pressure = VeiFronts.pressure_mult(float(seed_data.get("living_pool", 0.0)), vc)
+	_gvc = VeiFronts.pressured(vc, float(seed_data.get("living_pool", 0.0)))
 	horde0 = maxf(0.0, float(seed_data.get("backlog", 0.0)))
 	horde = horde0
 	ferry_beat = BossLogic.ferry_per_beat(ferry, tempo_s(), vc)
@@ -378,8 +383,8 @@ func _begin_break() -> void:
 	if _bdev != null:
 		_bdev.on_break()
 	if _standalone:
-		print("BOSS_BREAK t=%.1f cleared=%s uncleared=%d ferry=%.2f ferry_per_beat=%.3f horde=%.0f" % [
-			fight_t, str(fronts_cleared), uncleared, ferry, ferry_beat, horde])
+		print("BOSS_BREAK t=%.1f cleared=%s uncleared=%d ferry=%.2f ferry_per_beat=%.3f horde=%.0f pressure=%.3f" % [
+			fight_t, str(fronts_cleared), uncleared, ferry, ferry_beat, horde, pressure])
 
 
 ## The party's big undead step out of the streams they led, as units that fight.
@@ -428,7 +433,7 @@ func _step_break(delta: float) -> void:
 			_win()
 			return
 	_anchor_motes(delta, vc)
-	_spawn_guards(delta, vc)
+	_spawn_guards(delta, _gvc)
 	if stress and _bdev != null:
 		_bdev.stress_tick()
 	vei.weave_step(b1)

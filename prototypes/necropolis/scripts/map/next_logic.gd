@@ -176,8 +176,8 @@ static func quiet(inp: Dictionary, rule: String) -> bool:
 	return true
 
 
-## The leave line, from the smallest IdleLogic.fort_horizon among the held forts (the garrison
-## clock or the hold timer, whichever is nearer): none, every fort holds; at least leave_safe_s,
+## The leave line, from the smallest IdleLogic.fort_horizon among the held forts (the view's
+## fall_s): none, every fort holds; at least leave_safe_s,
 ## "Safe to leave: first fort falls in ~9 h"; under it, "If you leave, Old Sluice falls in ~3 min"
 ## (never called safe). Words in "next".
 static func leave_text(inp: Dictionary, c := {}) -> String:
@@ -231,7 +231,7 @@ static func _pick(rule: String, target: String, text: String, fort_ids: Array) -
 ## under next_fall_warn_s; `prev`'s fort (after a FALL pick) stays under next_fall_warn_s x
 ## next_fall_exit_mult, and gives way only to a fort that falls in under switch_ratio of its time.
 static func _fall(inp: Dictionary, prev: Dictionary, c: Dictionary) -> Dictionary:
-	# garrison fall_s only, not the hold timer: every held fort has a timer of a few minutes, so a timer rule would take over the strip and its advice (raise WAR, send Relish) doesn't apply to it.
+	# the view's fall_s only (the garrison clock; there is no hold timer)
 	var clocks: Dictionary = inp.get("clocks", {})
 	var warn := float(c["next_fall_warn_s"])
 	var kept_id := str(prev.get("target", "")) if str(prev.get("rule", "")) == FALL else ""

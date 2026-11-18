@@ -53,8 +53,59 @@ func run() -> int:
 	_timed(c)
 	_clone(c)
 	_upkeep_state(c, rep)
+	_unpaid_living(c, rep)
+	_falling(c, rep)
 	_cleanup()
 	return t.failures
+
+
+## (i) Phase I P2 (Q-d): the income test's unpaid line names the lever that applies. (a)'s House, its state set unpaid
+## by hand (unpaid_s 0, so held_by_income decides) at 1 living: the income 0.03 can't pay it, and the living buy less
+## than the stalls can sell, so the line is unpaid_upkeep_living_fmt's (housing or an Inn), not "Build a Market".
+## Revert proof: with fee92d6's state_views.gd the line is unpaid_upkeep_fmt's and both asserts on the text fail.
+func _unpaid_living(c: Dictionary, rep: Dictionary) -> void:
+	var s := _with_house(c)
+	s.town_sim.living = 1.0
+	s.town_sim.buildings["lot-07"]["state"] = "unpaid"
+	s.town_sim.buildings["lot-07"]["unpaid_s"] = 0.0
+	t.ok(s.town_sim.held_by_income("lot-07") and s.town_sim.trade_bound() == "living_first",
+		"(setup) (i) the House unpaid and held by the income test, the living bound (income %.4f)" % s.town_sim.gold_income())
+	var n := _load(s, "unpaid_living")
+	t.ok(n.town_sim.held_by_income("lot-07") and n.town_sim.trade_bound() == "living_first", "(setup) (i) still so after the load")
+	var fill := {"names": StateViews._building_name(n, rep, "house", 1), "rate": StateViews._fmt_rate(rep, n.town_sim.gold_income())}
+	var ready: Array = n.view_away()["ready"]
+	t.ok(ready.filter(func(l): return str(l["text"]) == str(rep["unpaid_upkeep_living_fmt"]).format(fill)).size() == 1,
+		"(i) the unpaid line names housing or an Inn: %s" % JSON.stringify(ready))
+	t.ok(not ready.any(func(l): return str(l["text"]) == str(rep["unpaid_upkeep_fmt"]).format(fill)), "(i) and not a Market")
+
+
+## (j) Phase I P2 (Q-d, the close-out's "0 gold short" corner): a head waiting on bone whose gold covers it now, but
+## whose gold falls under its price by the time the bone comes, is never on gold (_afford_at's falling-net check), so
+## its short gold is 0. Set by hand on (a)'s state: gold 100, bone 0, the stalls' 0.03 g/s against 0.10 out (net
+## −0.07), the mill's 0.01 bone/s, trade_starved living_first; the House's level 2 (80 gold, 20 bone) queued: 2 000 s to
+## its bone, by when the gold is −40. The line keeps the living's lever and drops the count (afford_living_falling_fmt
+## and _last_fmt). Revert proof: with fee92d6's state_views.gd it reads "0 gold short" and both asserts on it fail.
+func _falling(c: Dictionary, rep: Dictionary) -> void:
+	var s := _with_house(c)
+	var ts := s.town_sim
+	ts.gold = 100.0
+	ts.bone = 0.0
+	ts.rates["gold"].merge({"in": 0.03, "trade": 0.03, "out": 0.10}, true)
+	ts.rates["bone"].merge({"in": 0.01, "mill": 0.01, "out": 0.0}, true)
+	ts.trade_starved = "living_first"
+	t.ok(s.cmd_queue_build("", "lot-07")["ok"], "(setup) (j) the House's level 2 queued")
+	var w := BuildRules.queue_walk(s, s.build_queue)
+	var row: Dictionary = w["rows"][0]
+	t.ok(str(row["status"]) == "waiting_funds" and str(row["reason"]) == "no_bone" and float(row["affordable_in_s"]) == -1.0
+		and str(w["waits"][0]) == "gold" and str(row["starved"]) == "living_first" and float(row["short"]["gold"]) == 0.0,
+		"(setup) (j) waiting on bone, never on gold, starved living_first, 0 gold short: %s" % JSON.stringify(row))
+	var net := BuildRules.queue_net(s)
+	var name := StateViews._building_name(s, rep, "house", 2)
+	for movable in [true, false]:
+		var got := StateViews.afford_text(s, rep, row, str(w["waits"][0]), net, movable)
+		var want := str(rep["afford_living_falling_fmt" if movable else "afford_living_falling_last_fmt"]).format({"name": name,
+			"rate": StateViews._fmt_rate(rep, float(net["gold"]))})
+		t.ok(got == want and not got.contains("0 gold short"), "(j) movable %s: the living's lever, no count: %s" % [str(movable), got])
 
 
 func _game(c: Dictionary) -> GameState:

@@ -1239,7 +1239,8 @@ mass; bodies, rot return, WORK and muster are mass.
       could start. With it a town whose income can't pay everything keeps the rest unpaid and saves the
       surplus (pre_vei: +0.01 g/s, past the Market's next level in about 20 min). A building held by the
       test reads `upkeep` as an upgrade's queue reason and `waited_on` (not `unpaid`), and the away report
-      lists such buildings with the income and "Build a Market" (`idle.report.unpaid_upkeep_fmt`). The
+      lists such buildings with the income and "Build a Market" (`idle.report.unpaid_upkeep_fmt`), or, while the
+      living buy less than the stalls can sell, "build housing or an Inn" (`unpaid_upkeep_living_fmt`, Phase I P2). The
       Thrift stance's resume of the buildings it idled is unchanged; no command resumes an unpaid one.
       Thrift's resume runs no income test (`TownSim.thrift_resume` sets them active), so when it stops acting
       with the income still short, the shed order sheds them again at the next gold floor and the income
@@ -1311,11 +1312,14 @@ until the new level completes; the construction adds `job.build.slots` build slo
 upgrade refunds in full and changes nothing else.
 
 **The build queue** (IDLE §5, E2b-2 T3.2; `BuildRules.queue_walk`, STATE-API §4.3, §5.9). GameState keeps an
-ordered list of entries `{building_id, lot_id, upgrade, waited_on}`, at most `queue.max_len` (8), saved.
+ordered list of entries `{building_id, lot_id, upgrade, waited_on}`, saved. From Phase I P2 (IDLE §5's queue rule)
+`queue.max_len` (8) counts only the entries that hold a slot: a `skipped_gate` entry holds none, and the whole list
+caps at `queue.max_len` × `queue.list_mult` (16).
 Everything else an entry shows is derived from today's state by one walk, which `view_town().queue`,
 `cmd_queue_build` and the core step's processing all run, so a status always says what the next
 processing does.
-- **What `cmd_queue_build` refuses:** only what waiting can never make valid: `queue_full`,
+- **What `cmd_queue_build` refuses:** only what waiting can never make valid: `queue_full` (the list at its cap, or
+  a slot-holding entry with the slots full: STATE-API §4.3),
   `unknown_building`, `unknown_lot`, `unique` (one stands, is under construction or is queued),
   `lot_taken` (a building stands or is under construction there), `lot_too_small`; for an upgrade
   `empty_lot` (nothing stands or is queued there) and `max_level`; and `cost_exceeds_cap` (a gold, bone or
@@ -1357,7 +1361,8 @@ processing does.
 - **The manager's four rules for gated entries:**
   1. **A gated entry never stalls the queue.** The head is the first entry that isn't gated. When a gate
      clears, the entry starts at its own position: it never jumps an earlier entry that waits for funds.
-  2. **A gated entry holds nothing.** It reserves no gold, bone or relics and claims no lot. If another
+  2. **A gated entry holds nothing.** It reserves no gold, bone or relics, claims no lot and (Phase I P2) holds
+     no slot toward `queue.max_len`. If another
      entry or the player's `cmd_build` takes its lot first, it turns `skipped_gate` with `lot_taken`, and
      stays for the player to see and unqueue; it is never dropped silently. Two queued builds on one lot:
      whichever starts first takes it. An upgrade behind an entry for its lot that hasn't started shows that
@@ -1713,6 +1718,11 @@ The Watchtower turns the bands into exact percentages and lists every tell.
     (never below 0), so the beats need not be consecutive, but a lapse costs about four good beats.
   - Uncleared fronts' guards fall back to the line after `vei.guards.life_s` (6 s) and drop no mote,
     so they never outnumber rate × uncleared fronts × life; the fight can't snowball into a guard pile.
+  - **A fuller pool presses harder** (Phase I P1): the break's guards come at `vei.guards.rate_per_uncleared` and
+    `cap` × `1 + vei.pressure.per_pool × max(0, living pool − pool_free)` (`VeiFronts.pressure_mult`). Below
+    `pool_free` (400) they come as listed; at her full pool of 600 the multiplier is 2.3. Her ferry already scales
+    with the pool, and so do the anchor motes that feed Relish's allies, which soak her lethal hits (the sacrifice
+    chain). Without this, a full pool made the break easier, not harder (BALANCE §5's fight-grade row).
   - Her weaves hunt Relish, telegraphed on the beat.
 - **Backups in the fight:** each Relish death spends a phylactery charge first, then a ready clone.
   None left means the fight is lost. Each spent backup is a cracked violet ring, and from E3-5 the writeback raises
@@ -1782,8 +1792,10 @@ free stock.
   before E3 whose Chapel was demolished kept its stub clones. From E3-2 a demolished Chapel's ready clones become
   spare clones at the next core step, and a Chapel built again starts empty. The save writes `clones_ready` as the
   total, so its shape is unchanged.
-- **Catch-up** doesn't clip at a vat's fill (IDLE §4): the growth is linear and clamps at 1, so each step's update is
-  exact at any length, the fill raises no event, and nothing inside a catch-up reads it (no run is open during one).
+- **Catch-up**: the growth is linear and clamps at 1, so each step's update is exact at any length, the fill raises no
+  event, and nothing inside a catch-up reads it (no run is open during one). From Phase I P2 catch-up clips at a tended
+  vat's fill (IDLE §4, `Catchup.vat_fill_s`), so a ready clone's tend hand goes back to the ladder at the fill, as
+  live (below), not up to one catch-up step late.
 
 `view_backups` always shows what a death would cost right now.
 

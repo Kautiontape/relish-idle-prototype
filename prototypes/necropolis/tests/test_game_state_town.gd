@@ -228,7 +228,7 @@ func _muster() -> void:
 		"the muster reached Vei's queue: r_flood %.2f, her queue's inflow %.2f mass/s (queue %.2f → %.2f, less her digestion)" % [s.realm.r_flood,
 		float(s.realm.vei["r_in_undead"]), q0, float(s.realm.vei["undead_queue"])])
 	var err := GameState.Ledger.error(s.ledger())
-	t.ok(err <= 1e-12, "the ledger still balances (relative miss %.2e)" % err)
+	t.ok(err <= 1e-12, "the ledger still balances (relative miss %s)" % String.num_scientific(err))  # (GDScript's % has no %e)
 	t.ok(s.town_sim.workers <= 17.0 + 1e-9, "the workforce ends the step at slots + idle_cap")
 	# the Muster stance: every idle worker musters, to WAR
 	var m := _mk()

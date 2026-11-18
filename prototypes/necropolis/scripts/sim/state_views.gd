@@ -311,6 +311,7 @@ static func convoys(gs: GameState) -> Array:
 ## stances acting (E3-1: TownSim.effective_ladder).
 static func town(gs: GameState) -> Dictionary:
 	var ts := gs.town_sim
+	var rows := BuildRules.queue_rows(gs)
 	var lots: Array = []
 	for l in BuildRules.lots_cfg(gs):
 		var id := str(l.get("id", ""))
@@ -364,7 +365,10 @@ static func town(gs: GameState) -> Dictionary:
 		"morale": {"value": ts.morale, "target": ts.morale_target(), "factors": ts.morale_factors()},
 		"gold": ts.gold, "bone": ts.bone, "bodies": ts.bodies, "bodies_cap": ts.body_cap(), "trade_rate": float(r["trade_rate"]),
 		"gold_cap": ts.gold_cap(), "bone_cap": ts.bone_cap(),
-		"queue": BuildRules.queue_rows(gs), "queue_max": BuildRules.queue_max(gs),
+		"queue": rows, "queue_max": BuildRules.queue_max(gs),
+		# v13 (Phase I P2, the queue rule): the rows that hold a slot toward queue_max (a gated one holds none), and the
+		# whole list's cap
+		"queue_slots": BuildRules.queue_slots(rows), "queue_list_max": BuildRules.queue_list_max(gs),
 		"haul": {"target": gs.haul_target, "current": str(ts.haul["current"]), "convoys": convoys(gs)},
 		"relish_home": gs.relish["state"] == "home",
 	}
@@ -1090,7 +1094,10 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 			var hb: Dictionary = gs.town_sim.buildings[lot_id]
 			held.append(_building_name(gs, rep, str(hb["building_id"]), int(hb["level"])))
 	if not held.is_empty():
-		ready.append(_away_line(str(rep["unpaid_upkeep_fmt"]).format({"names": str(rep["list_sep"]).join(PackedStringArray(held)),
+		# Phase I P2 (Q-d): the lever that applies, as the upkeep gate's line picks it (TownSim.trade_bound, from the state
+		# the income test read): while the living buy less than the stalls can sell, a Market adds no income, so housing
+		var held_fmt := "unpaid_upkeep_living_fmt" if gs.town_sim.trade_bound() == "living_first" else "unpaid_upkeep_fmt"
+		ready.append(_away_line(str(rep[held_fmt]).format({"names": str(rep["list_sep"]).join(PackedStringArray(held)),
 			"rate": _fmt_rate(rep, gs.town_sim.gold_income())}), "queue", "queue"))
 	if gs.build_queue.is_empty():
 		if stores_full(gs, float(rep["full_tol"])):
@@ -1220,9 +1227,15 @@ static func afford_text(gs: GameState, rep: Dictionary, row: Dictionary, store: 
 		# the gold short and the living's lever, "House level 2 can't be afforded, 50 gold short at the current income
 		# of −0.04/s gold: the living buy less than the stalls can sell. Build housing or an Inn, or move it down"
 		if s == "gold" and str(row.get("starved", "")) == "living_first":
+			# Phase I P2 (Q-d, the close-out's corner): a head waiting on bone whose gold covers it now but falls under it by
+			# the time the bone comes (_afford_at's falling-net check) is short 0 gold: the same lever, without "0 gold short".
+			# The bone line has no such corner: no building has bone upkeep, so bone's net never falls
+			var gshort := ceilf(float((row.get("short", {}) as Dictionary).get("gold", 0.0)))
+			if gshort <= 0.0:
+				return str(rep["afford_living_falling_fmt" if movable else "afford_living_falling_last_fmt"]).format({"name": name,
+					"rate": _fmt_rate(rep, float(net.get(s, 0.0)))})
 			return str(rep["afford_living_fmt" if movable else "afford_living_last_fmt"]).format({"name": name,
-				"short": _fmt_count(rep, ceilf(float((row.get("short", {}) as Dictionary).get("gold", 0.0)))),
-				"rate": _fmt_rate(rep, float(net.get(s, 0.0)))})
+				"short": _fmt_count(rep, gshort), "rate": _fmt_rate(rep, float(net.get(s, 0.0)))})
 		var own := str(row["building_id"]) == str((rep["afford_producer"] as Dictionary).get(s, ""))
 		var fmt := ("afford_never_self" if own else "afford_never") + ("_fmt" if movable else "_last_fmt")
 		return str(rep[fmt]).format({"name": name, "store": str(rep["afford_stores"][s]),

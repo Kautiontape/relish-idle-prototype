@@ -37,7 +37,7 @@ func static_sig():
 		if bool(f.get("held", false)):
 			var ck := ctx.model.clock_of(str(f["id"]))
 			var shift := _chip_shift(f, IdleLogic.cfg()) * ctx.zoom if IdleLogic.chip_shown(ctx.tier, ctx.zoom) else Vector2.ZERO
-			out.append([str(f["id"]), IdleLogic.garrison_units(f), IdleLogic.chip_parts(f, str(ck["margin"]), ck), NodeLogic.first_dungeon_pulse(f),
+			out.append([str(f["id"]), IdleLogic.garrison_units(f), IdleLogic.chip_parts(f, str(ck["margin"]), ck), not NodeLogic.name_tag(f).is_empty(),
 				Vector2(roundf(shift.x), roundf(shift.y)), ctx.reink.has(str(f["id"])), ctx.chip_fx.get(str(f["id"]), {})])
 	return out
 
@@ -48,7 +48,7 @@ func chip_world_rect(f: Dictionary) -> Rect2:
 	var c := IdleLogic.cfg()
 	var p := MapModel.to_vec(f["pos"])
 	var w := _chip_width(f, ctx.model.clock_of(str(f["id"])), c)
-	var base := IdleLogic.chip_rect(p, MapLogic.fort_radius(int(f["tier"])), ctx.zoom, NodeLogic.first_dungeon_pulse(f), w)
+	var base := IdleLogic.chip_rect(p, MapLogic.fort_radius(int(f["tier"])), ctx.zoom, not NodeLogic.name_tag(f).is_empty(), w)
 	return Rect2(base.position + _chip_shift(f, c), base.size)
 
 
@@ -59,7 +59,7 @@ func _chip_shift(f: Dictionary, c: Dictionary) -> Vector2:
 		return Vector2.ZERO
 	var p := MapModel.to_vec(f["pos"])
 	var r := MapLogic.fort_radius(int(f["tier"]))
-	var second := NodeLogic.first_dungeon_pulse(f)
+	var second := not NodeLogic.name_tag(f).is_empty()
 	var ck := ctx.model.clock_of(str(f["id"]))
 	var w := _chip_width(f, ck, c)
 	var others: Array = []
@@ -131,7 +131,7 @@ func _chip(f: Dictionary, c: Dictionary) -> void:
 	var rate := MapType.rate_font()
 	var bold := _bold_font()
 	var label := MapType.label_font()
-	var top := IdleLogic.chip_top_px(NodeLogic.first_dungeon_pulse(f))
+	var top := IdleLogic.chip_top_px(not NodeLogic.name_tag(f).is_empty())
 	var sc := 1.0 / maxf(ctx.zoom, 0.001)
 	draw_set_transform(anchor, 0.0, Vector2(sc, sc))
 	plate(self, Rect2(-w * 0.5, top, w, IdleLogic.chip_height_px()), Palette.c("ground", float(c["plate_alpha"])), col, float(c["chip_border_px"]))

@@ -2127,7 +2127,7 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(rdv.contains("take_hit(_raid.relish.hp,") and not rdv.contains("1000"), "the dev autodie blow equals her remaining hp (the STRUCK cue showed -1030)")
 	t.ok(RaidLogic.death_card_rows("a wound", {}, {}, 0)[1]["text"] == "nothing" and RaidLogic.death_card_rows("a wound", {}, {}, 0)[2]["key"] == "text_dim",
 		"a bare death says nothing banked, nothing lost (dim)")
-	t.ok(RaidLogic.last_chance_banner(2) == "LAST CHANCE · a free trance · 2 loose essence to gather" and RaidLogic.last_chance_banner(0) == "LAST CHANCE · a free trance",
+	t.ok(RaidLogic.last_chance_banner(2) == "LAST CHANCE · a free trance · 2 loose essence here: walk close and it drifts to you" and RaidLogic.last_chance_banner(0) == "LAST CHANCE · a free trance",
 		"the last-chance banner names the loose essence, never 'to bank' (banked and carried are other figures)")
 	t.ok(cfg["death"]["card_s"] > cfg["death"]["skip_after_s"], "the death card holds longer than its skip delay")
 	t.suite("raid_push_line")
@@ -2171,7 +2171,7 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(RaidLogic.exposed_tint(RaidLogic.exposed_level(0, 0.5, cfg), cfg) > 0.4 and RaidLogic.exposed_tint(RaidLogic.exposed_level(0, 0.5, cfg), cfg) < 0.6, "half hp: half way")
 	t.ok(RaidLogic.push_line(3, "N", 1, {}).contains("exit N, next room"), "one room away")
 	t.suite("raid_beat_lines")
-	t.ok(RaidLogic.last_chance_banner(10) == "LAST CHANCE · a free trance · 10 loose essence to gather", "last chance names the loose essence")
+	t.ok(RaidLogic.last_chance_banner(10) == "LAST CHANCE · a free trance · 10 loose essence here: walk close and it drifts to you", "last chance names the loose essence")
 	t.ok(RaidLogic.last_chance_banner(0) == "LAST CHANCE · a free trance", "and drops it when there is none")
 	t.ok(RaidLogic.held_map_effect(255.0) == "on the map: counter-garrison −255", "held clear: the killed mass comes off the map")
 	t.ok(RaidLogic.held_map_effect(-3.0) == "on the map: counter-garrison −0", "never a negative count")

@@ -49,6 +49,16 @@ extends RefCounted
 ##   by lapse_cost beats (never below 0). lapse_cost defaults to -1 (the reset). beats += 1.
 ## broken(state, cfg) -> bool         streak >= break_beats.
 ##
+## --- Break pressure (phase 2; Phase I P1) -----------------------------------------------
+## pressure_mult(living_pool, cfg) -> float
+##   1 + pressure.per_pool * max(0, living_pool - pressure.pool_free): her break presses harder
+##   on a fuller pool. Exactly 1 at or below pool_free, and when cfg has no pressure block.
+## pressured(cfg, living_pool) -> Dictionary
+##   a deep copy of cfg with guards.rate_per_uncleared and guards.cap multiplied by
+##   pressure_mult (the guards' other keys, and every other block, as cfg has them; cfg itself
+##   is not touched). The boss scene spawns its break's guards from it (vei_boss._gvc), so a
+##   fuller pool sends more of her living at Relish and her undead.
+##
 ## --- Backups and result ----------------------------------------------------------------
 ## next_backup(spent {phylactery, clones}, charges, clones_ready) -> String
 ##   "phylactery" while spent.phylactery < charges, else "clone" while spent.clones <
@@ -248,6 +258,24 @@ static func break_beat(state: Dictionary, raised_value_this_beat: float, ferry_p
 
 static func broken(state: Dictionary, cfg: Dictionary) -> bool:
 	return int(state["streak"]) >= int(_f(cfg, "break_beats", 8.0))
+
+
+# --------------------------------------------------------------- break pressure ----
+static func pressure_mult(living_pool: float, cfg: Dictionary) -> float:
+	var pc: Variant = cfg.get("pressure", {})
+	return 1.0 + maxf(0.0, _f(pc, "per_pool", 0.0)) * maxf(0.0, living_pool - _f(pc, "pool_free", 0.0))
+
+
+static func pressured(cfg: Dictionary, living_pool: float) -> Dictionary:
+	var out: Dictionary = cfg.duplicate(true)
+	var m := pressure_mult(living_pool, cfg)
+	var gc: Variant = out.get("guards", {})
+	if typeof(gc) != TYPE_DICTIONARY:
+		return out
+	for k in ["rate_per_uncleared", "cap"]:
+		if gc.has(k) and (typeof(gc[k]) == TYPE_INT or typeof(gc[k]) == TYPE_FLOAT):
+			gc[k] = float(gc[k]) * m
+	return out
 
 
 # ------------------------------------------------------------------ backups, result ----

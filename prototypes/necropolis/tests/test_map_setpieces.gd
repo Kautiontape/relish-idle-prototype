@@ -171,13 +171,13 @@ func _garrison(t: TestUtil, c: Dictionary) -> void:
 func _sources_of_garrison(t: TestUtil, c: Dictionary) -> void:
 	var real := SetpieceLogic.garrison_from_event({"type": "counter_garrison_cleared", "fort_id": "ashgate", "killed_mass": 23.6})
 	t.ok(real == {"fort_id": "ashgate", "n": 24}, "the real event gives its fort and N")
-	t.ok(SetpieceLogic.garrison_text(int(real["n"])) == "Garrison cleared: −24 living", "the real event's callout shows N")
+	t.ok(SetpieceLogic.garrison_text(int(real["n"])) == "Vei's living routed: −24", "the real event's callout shows N")
 	t.ok(SetpieceLogic.garrison_from_event({"type": "loot_banked", "fort_id": "ashgate"}).is_empty(), "another event is not the source")
 	var forts := {"ashgate": {"id": "ashgate", "held": true, "living": 0.0}, "vespers": {"id": "vespers", "held": false}}
 	var seen := {"ashgate": {"loot_banked": true}}
 	var si := SetpieceLogic.garrison_stand_in("ashgate", forts, seen)
 	t.ok(si == {"fort_id": "ashgate", "n": -1}, "the stand-in: back from a held fort's raid that banked loot, no N")
-	t.ok(SetpieceLogic.garrison_text(-1) == str(c["garrison_standin_text"]) and not SetpieceLogic.garrison_text(-1).contains("living"), "the stand-in's callout has no number")
+	t.ok(SetpieceLogic.garrison_text(-1) == str(c["garrison_standin_text"]) and not SetpieceLogic.garrison_text(-1).contains("−"), "the stand-in's callout has no number")
 	t.ok(SetpieceLogic.garrison_stand_in("ashgate", forts, {"ashgate": {"loot_banked": true, "fort_flipped": true}}).is_empty(), "a flip is the flip's set piece, not this")
 	t.ok(SetpieceLogic.garrison_stand_in("ashgate", forts, {"ashgate": {"loot_banked": true, "counter_garrison_cleared": true}}).is_empty(), "the real event replaces the stand-in")
 	t.ok(SetpieceLogic.garrison_stand_in("ashgate", forts, {}).is_empty(), "no raid banked: nothing")

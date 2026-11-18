@@ -57,7 +57,7 @@ func _draw() -> void:
 	var has_priest := priest != null and is_instance_valid(priest)
 	var alpha := 1.0
 	if not has_priest or not priest.awake:
-		alpha = float(priest.wcfg().get("dormant_alpha", 0.32)) if has_priest else 0.32
+		alpha = float(priest.wcfg().get("acolyte_dormant_alpha", 0.32)) if has_priest else 0.32   # faint: its only dormant cue
 	var col := Palette.c("vei", alpha)
 	if flash > 0.0:
 		col = col.lerp(Palette.c("text"), minf(0.85, flash))

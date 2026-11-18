@@ -61,8 +61,8 @@ func _need_edge() -> void:
 	var o_hi := sim.strain()
 	var n_hi: float = need.call()
 	t.ok((hi - lo) / hi < 1e-12 and floorf(o_lo / step) == 29.0 and floorf(o_hi / step) == 30.0,
-		"(setup) backlogs %s and %s, a hair apart (%.1e relative), read odds %.9f and %.9f: bins 29 and 30" % [str(lo), str(hi),
-		(hi - lo) / hi, o_lo, o_hi])
+		"(setup) backlogs %s and %s, a hair apart (%s relative), read odds %.9f and %.9f: bins 29 and 30" % [str(lo), str(hi),
+		String.num_scientific((hi - lo) / hi), o_lo, o_hi])  # (GDScript's % has no %e: Phase I P2, Q-d)
 	t.ok(n_hi > n_lo and (n_hi - n_lo) / n_lo < 0.05, "a bin apart: the needs %.6f and %.6f (one step's %.3f%%)" % [
 		n_hi, n_lo, 100.0 * (n_hi - n_lo) / n_lo])
 	sim._need_cache = {}
