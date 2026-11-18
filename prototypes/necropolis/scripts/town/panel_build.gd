@@ -695,6 +695,11 @@ func _on_demolish() -> void:
 	_update_inspector()
 
 
+## Debug (the shell's `--town-enqueue`): keep the Queue, the tab's last section, in view for `s` seconds.
+func debug_show_queue(s: float) -> void:
+	_scroll_q_s = s
+
+
 func _process(delta: float) -> void:
 	if _scroll_q_s > 0.0:
 		_scroll_q_s -= delta

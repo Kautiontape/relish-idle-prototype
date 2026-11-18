@@ -22,7 +22,18 @@ func run() -> int:
 	_lines()
 	_due()
 	_real()
+	_placement()
 	return t.failures
+
+
+## The strip sits in the dock over the tabs, never in the town view: in the view it covered the top-left lots, the
+## Inn the replay was flashing among them (the M2 window shot). Source only (the shell needs the Game autoload).
+func _placement() -> void:
+	var shell := FileAccess.get_file_as_string("res://scripts/town/covington.gd")
+	var ui := shell.substr(shell.find("func _build_ui("), shell.find("func _debug_tab(") - shell.find("func _build_ui("))
+	var goal := shell.substr(shell.find("func _build_goal("), shell.find("func _check_replay(") - shell.find("func _build_goal("))
+	t.ok(ui.contains("_strip = StripScript.new()") and ui.contains("col.add_child(_strip)"), "the strip is built into the dock's column")
+	t.ok(not goal.contains("_strip"), "the town view's goal plate holds no strip")
 
 
 func _nm(bid: String, level := 1) -> String:

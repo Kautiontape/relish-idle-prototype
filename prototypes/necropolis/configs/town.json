@@ -488,7 +488,7 @@
       }
     },
     "replay": {
-      "_doc": "The welcome-back replay (TownReplay, Q-f): once per away report in a session, each build that finished while you were away flashes in order, first_beats then flash_beats apart (Pulse beats), under a strip of the report's build and ready lines (at most max_lines). The strip hides hold_s after the last flash (0: until closed). acts: the button on a line with somewhere to go.",
+      "_doc": "The welcome-back replay (TownReplay, Q-f): once per away report in a session, each build that finished while you were away flashes in order, first_beats then flash_beats apart (Pulse beats), under a strip in the dock (over the tabs, clear of every lot) of the report's build and ready lines (at most max_lines). The strip hides hold_s after the last flash (0: until closed). acts: the button on a line with somewhere to go.",
       "title": "While you were away ({time})",
       "under_minute": "under a minute",
       "close": "Close",
@@ -498,7 +498,6 @@
       "flash_beats": 1.0,
       "hold_s": 20.0,
       "gap_px": 6.0,
-      "line_w_px": 360.0,
       "px": 14
     },
     "forecast": {

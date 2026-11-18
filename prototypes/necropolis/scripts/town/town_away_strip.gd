@@ -1,6 +1,6 @@
 extends PanelContainer
-## The "While you were away" strip of the welcome-back replay (TownReplay): a plate under the first-goal line in the
-## town view with the report's build and ready lines. A line with somewhere to go has a button (TownReplay.act_of);
+## The "While you were away" strip of the welcome-back replay (TownReplay): a plate in the dock, over the tabs, with
+## the report's build and ready lines. A line with somewhere to go has a button (TownReplay.act_of);
 ## Close hides it, and so does cfg.hold_s after the replay's last flash (0 keeps it until closed).
 
 signal acted(act: String)  # "crypt", "build" or "realm"
@@ -53,7 +53,6 @@ func show_report(title: String, lines: Array) -> void:
 		var lab := TownUI.label(String(l["text"]), _px(), "text")
 		lab.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 		lab.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		lab.custom_minimum_size = Vector2(float(_cfg.get("line_w_px", 360.0)), 0)
 		row.add_child(lab)
 		var act := String(l["act"])
 		if act != "" and acts.has(act):
@@ -63,7 +62,6 @@ func show_report(title: String, lines: Array) -> void:
 			row.add_child(b)
 	_left = -1.0
 	visible = true
-	reset_size()
 
 
 ## The replay's flashes are done: the strip hides cfg.hold_s from now (0 or less keeps it until closed).

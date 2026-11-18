@@ -67,7 +67,7 @@ var _frame := 0
 var _walkers_n := 0
 var _grow_label: Label
 var _goal: Label  # the first goal in town (TownGuide.goal), top-left of the town view; hidden once met
-## The welcome-back replay (TownReplay): the goal plate and the away strip stack in `_plates`. `_replayed` is the
+## The welcome-back replay (TownReplay): the away strip sits in the dock over the tabs. `_replayed` is the
 ## last away report replayed this session (a static, so a second visit doesn't replay it; never saved);
 ## `_away_check` asks the next fetch to look (setup's first, and each away_report). `_replay_lots` are the lots
 ## still to flash, `_replay_left` the seconds to the next one (-1 = none due).
@@ -316,6 +316,10 @@ func _build_ui() -> void:
 	dock.add_child(col)
 	var tab_row := HBoxContainer.new()
 	col.add_child(tab_row)
+	# the welcome-back strip: in the dock over every tab, so it never covers a lot the replay flashes
+	_strip = StripScript.new()
+	_strip.setup(cfg.get("replay", {}))
+	col.add_child(_strip)
 	var stack := Control.new()
 	stack.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	col.add_child(stack)
@@ -540,8 +544,7 @@ func _fetch_views_b(views: Dictionary) -> Dictionary:
 
 
 ## The first-goal plate: one line in `text` on a ground plate edged in `select`, at guide.goal's x/y in the
-## town view, under the lot card (so an open card is never covered). Hidden until a goal is due. The welcome-back
-## strip stacks under it in the same column.
+## town view, under the lot card (so an open card is never covered). Hidden until a goal is due.
 func _build_goal() -> void:
 	var vcfg: Dictionary = ConfigDb.v("town", "view", {})
 	var g: Dictionary = vcfg.get("guide", {}).get("goal", {})
@@ -559,10 +562,6 @@ func _build_goal() -> void:
 	_goal.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_goal.visible = false
 	_plates.add_child(_goal)
-	_strip = StripScript.new()
-	_strip.setup(vcfg.get("replay", {}))
-	_strip.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	_plates.add_child(_strip)
 
 
 ## The welcome-back replay, when the away report is due one (TownReplay.due): the strip, then each finished build's
@@ -576,7 +575,6 @@ func _check_replay(views: Dictionary) -> void:
 	_replayed = TownReplay.key(rep)
 	var rcfg: Dictionary = ConfigDb.v("town", "view", {}).get("replay", {})
 	_strip.show_report(TownReplay.title(rep, rcfg), TownReplay.lines(rep, rcfg))
-	_plates.reset_size()
 	_replay_lots = TownReplay.finished_lots(rep, views.get("town", {}), ConfigDb.data.get("buildings_view", {}),
 		ConfigDb.v("economy", "idle", {}).get("report", {}))
 	_replay_left = _beats_s(float(rcfg.get("first_beats", 1.0)))
@@ -709,6 +707,7 @@ func _debug_set_pieces() -> void:
 			var r: Dictionary = Game.state.cmd_queue_build(bl[0], bl[1])
 			print("TOWNSET enqueue %s -> %s ok=%s %s" % [bl[0], bl[1], str(r.get("ok", false)), str(r.get("reason", ""))])
 			_dirty = true
+			_panels[0].debug_show_queue(6.0)
 	# `--town-away=<seconds>`: a real open-game gap of that length (GameState.tick's reporting catch-up), so its
 	# away_report reaches this scene as it would after a sleep: the welcome-back replay's driver
 	var away := _debug_arg("town-away")
