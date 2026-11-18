@@ -21,6 +21,7 @@ func run() -> int:
 	_comes(t)
 	_parity(t)
 	_sidebar_src(t)
+	_snap(t)
 	_contrast(t)
 	_real(t)
 	return t.failures
@@ -80,7 +81,7 @@ func _death(t: TestUtil) -> void:
 	var p := CardLogic.death_lines({"outcome": "phylactery", "respawn_s": 0.0, "loses": []})
 	t.ok(p == ["If she dies now: a phylactery charge revives her in place.", "loses nothing"], "phylactery loses nothing: " + str(p))
 	var all := CardLogic.death_lines({"outcome": "unmade", "respawn_s": 600.0, "loses": ["party", "unbanked_loot", "flip", "morale"]})
-	t.ok(all[2] == "loses: the party, unbanked loot, the flip, morale" and all[1] == "Back on her feet in 10:00.", "every loss word, 600 s is 10:00: " + str(all))
+	t.ok(all[2] == "loses: the party, unbanked loot, taking the fort, morale" and all[1] == "Back on her feet in 10:00.", "every loss word, 600 s is 10:00: " + str(all))
 	t.ok(CardLogic.death_lines({}).size() >= 2 and str(CardLogic.death_lines({})[0]) != "", "an empty death still reads")
 
 
@@ -95,11 +96,31 @@ func _chips(t: TestUtil) -> void:
 	var now := CardLogic.status_chips({"tithe": {"targeted": true, "eta_s": 0.0, "wave_active": true}}, names)
 	t.ok(now.size() == 2 and now[1]["text"] == "TITHE WAVE NOW", "wave now")
 	t.ok(CardLogic.status_chips({"tithe": {"targeted": false, "eta_s": -1.0, "wave_active": false}}, names).size() == 1, "an untargeted tithe shows nothing")
+	var nxt := CardLogic.status_chips({"tithe": {"targeted": false, "eta_s": -1.0, "wave_active": false, "next": true, "next_s": 750.0}}, names)
+	t.ok(nxt.size() == 2 and nxt[1]["text"] == "NEXT TITHE IN 12:30", "the next pick gets a quiet chip with next_s")
+	t.ok(CardLogic.status_chips({"tithe": {"targeted": true, "eta_s": 88.0, "wave_active": false, "next": true, "next_s": 88.0}}, names)[1]["text"] == "TITHE WAVE IN 1:28", "a warning wins over next")
+	t.ok(CardLogic.status_chips({"tithe": {"next": true, "next_s": -1.0}}, names).size() == 1, "no next_s, no chip")
 	var here := CardLogic.status_chips({"relish_here": true, "tide": true, "redirect": true}, names)
 	t.ok(here[1]["text"] == "RELISH HERE · tide · redirect", "relish here with tide and redirect")
 	t.ok(CardLogic.status_chips({"relish_here": true}, names)[1]["text"] == "RELISH HERE", "relish here alone")
 	var siege := CardLogic.status_chips({"siege": ["u1", "u2", "u9"]}, names)
 	t.ok(siege[1]["text"] == "SIEGE · Old Gristle, Pale Ann, u9", "siege by name, unknown uid as itself")
+	# what siege does (realm.tithe.siege_block): it blocks that share of a wave, block only, and a second adds nothing
+	var block := float(TestUtil.load_json("res://configs/realm.json")["tithe"]["siege_block"])
+	var one := CardLogic.status_chips({"siege": ["u1"]}, names, block)
+	t.ok(one.size() == 3 and one[1]["text"] == "SIEGE · Old Gristle" and one[2]["text"] == "blocks 60% of a tithe wave; kills none", "one siege: its name, then what it does: " + str(one.map(func(c): return c["text"])))
+	t.ok(one[2]["key"] == one[1]["key"], "the line wears the siege chip's key")
+	var two := CardLogic.status_chips({"siege": ["u1", "u2"]}, names, block)
+	t.ok(two.size() == 4 and two[3]["text"] == "a second adds nothing", "two or more at one fort: a second adds nothing")
+	t.ok(two[2]["text"].contains("kills none"), "block only: the chip says it kills none")
+	t.ok(CardLogic.status_chips({"siege": []}, names, block).size() == 1, "no siege: no line")
+	t.ok(CardLogic.status_chips({"siege": ["u1"]}, names).size() == 2, "no block share given: the plain chip, no claim")
+	var sieged := _fort_entry()
+	sieged["siege"] = ["u1"]
+	var back := {"death": {"outcome": "unmade", "respawn_s": 0.0, "loses": ["party", "unbanked_loot", "morale"]}}
+	var ts := CardBlocksLogic.fort_card(sieged, "", back, names, _loot_cfg(), {"party": []}, TestUtil.load_json("res://configs/raid.json"),
+		TestUtil.load_json("res://configs/economy.json"), 0.0, block)
+	t.ok((ts["blocks"][0]["chips"] as Array).any(func(c): return c["text"] == "blocks 60% of a tithe wave; kills none"), "the fort card passes the block share through")
 	var sim := CardLogic.status_chips({"simulacrum_charges": 3.0}, names)
 	t.ok(sim[1]["text"] == "SIMULACRUM · 3 charges", "simulacrum charges")
 	t.ok(CardLogic.status_chips({"first_dungeon": true}, names)[1]["text"] == "YOUR FIRST DUNGEON", "first dungeon")
@@ -263,6 +284,7 @@ func _blocks(t: TestUtil) -> void:
 	t.ok(by["odds"]["value"] == "61%" and by["sign"]["value"] == "▲" and by["diff"]["value"] == "+6.1/s" and by["drain"]["value"] == "∞", "odds, sign, differential, drain (holding is ∞)")
 	t.ok(by["diff"]["vkind"] == "rate" and by["odds"]["vkind"] == "mass", "the differential is a rate, odds a mass")
 	t.ok(by.has("front_giants") and by["fronts_met"]["text"] == "fronts met 1 of 3 required", "front row and the met count")
+	t.ok(by["fronts_hint"]["text"] == "A front is one part of Vei's final test. Your big undead on it (pick them below) and, for some fronts, her clogged queue must add up to what it needs.", "the fronts hint names the units and the queue")
 	t.ok(by.has("party_empty") and by["party_empty"]["text"].contains("crypt slab"), "an empty party says where to raise them")
 	var party := [{"uid": "u1", "name": "Old Gristle", "kind": "hulk", "role": "brute", "front": "giants"}]
 	var vp := CardBlocksLogic.vei_card({"fronts": [{"id": "giants"}, {"id": "swarm"}, {"id": "carvers"}, {"id": "raw"}]}, "", party, {}, {})
@@ -293,6 +315,13 @@ func _contrast(t: TestUtil) -> void:
 		var tint := plate.lerp(Palette.c(k), float(cards["chip_bg_alpha"]))
 		var rc := MapLogic.contrast_ratio(Palette.c(k), tint)
 		t.ok(rc >= 4.5, "%s chip text on its own tint is %.1f:1 (>= 4.5)" % [k, rc])
+	# the chips are drawn as map_card_view._style_chip does: the key at chip_bg_alpha over the card plate, text in the key
+	for ck in ["tithe_next", "siege"]:
+		var key := str(cards["chip_keys"][ck])
+		var chip_bg := plate.lerp(Palette.c(key), float(cards["chip_bg_alpha"]))
+		var cr := MapLogic.contrast_ratio(Palette.c(key), chip_bg)
+		t.ok(cr >= 4.5, "the %s chip (%s on its own tint over the card plate) reads %.1f:1 (>= 4.5)" % [ck, key, cr])
+	t.ok(str(cards["chip_keys"]["tithe_next"]) == "living", "NEXT TITHE IN is the living's key")
 	for k in ["undead", "living"]:
 		t.ok(MapLogic.contrast_ratio(Palette.c(k), plate) >= 3.0, "the %s comparison bar is >= 3:1" % k)
 	t.ok(int(cfg["font_body"]) >= 12 and int(cfg["type"]["size_label"]) >= 12 and float(cfg["button_min_h_px"]) >= 44.0, "no text under 12 px, buttons at least 44 px")
@@ -450,6 +479,21 @@ func _comes(t: TestUtil) -> void:
 	t.ok(CardLogic.comes_count_text({"garrison": 2, "starter": 8, "bigs": 1, "total": 11}) == "10 undead and 1 big undead come in", "the pinned count")
 	t.ok(CardLogic.descend_confirm_text(w0) == w0["text"] + "\n\nDescend anyway?", "the descend dialog's text")
 	t.ok(CardLogic.descend_confirm_text(wp) == wp["text"] + "\n\nDescend anyway?", "the dialog opens for the corpse-pile case too")
+	# fort_actions puts the party warning line directly above DESCEND
+	var fa_fort := {"id": "old-sluice", "can_descend": true}
+	var fa_home := {"at": "elsewhere", "heading": ""}
+	var fa_none := RelishLogic.fort_actions(fa_fort, fa_home, {"target": "auto"}, {}, {"ci": zero, "warn": w0})
+	var fa_i := fa_none.find_custom(func(i): return str(i["act"]) == "descend")
+	t.ok(fa_i > 0 and fa_none[fa_i - 1]["kind"] == "line" and fa_none[fa_i - 1]["text"] == w0["text"] and fa_none[fa_i - 1]["key"] == "danger", "party 0, no corpses: the comes_none line (danger) sits above DESCEND")
+	var fa_piles := RelishLogic.fort_actions(fa_fort, fa_home, {"target": "auto"}, {}, {"ci": zero, "warn": wp})
+	var fa_pi := fa_piles.find_custom(func(i): return str(i["act"]) == "descend")
+	t.ok(fa_piles[fa_pi - 1]["text"] == wp["text"] and fa_piles[fa_pi - 1]["key"] == "select", "party 0 over corpse piles: the comes_none_piles line (select) sits above DESCEND")
+	var fa_low := RelishLogic.fort_actions(fa_fort, fa_home, {"target": "auto"}, {}, {"ci": low, "warn": w2})
+	var fa_li := fa_low.find_custom(func(i): return str(i["act"]) == "descend")
+	t.ok(fa_low[fa_li - 1]["text"] == w2["text"] and fa_low[fa_li - 1]["text"].begins_with("Below a standard tier-2") and fa_low[fa_li - 1]["key"] == "select", "below the tier profile: the comes_below line sits above DESCEND")
+	var fa_ok := RelishLogic.fort_actions(fa_fort, fa_home, {"target": "auto"}, {}, {"ci": {"garrison": 6, "starter": 0, "bigs": 1, "total": 7}, "warn": {}})
+	var fa_oi := fa_ok.find_custom(func(i): return str(i["act"]) == "descend")
+	t.ok(fa_ok[fa_oi - 1]["text"] == "6 undead and 1 big undead come in" and not fa_ok[fa_oi - 1].has("key"), "no warning: the count line sits above DESCEND, uncoloured")
 	# vei: fronts short versus met
 	var short := {"fronts_met": 1, "fronts_required": 3}
 	var sentence := "Fronts met 1 of 3 required: Vei will likely win. Assign big undead to the open fronts."
@@ -492,6 +536,21 @@ func _parity(t: TestUtil) -> void:
 
 ## map_sidebar.gd names autoloads, so it is read as text: DESCEND checks who comes in before it dives, and a
 ## "Descend anyway" dialog (its own, so a confirmed BEGIN still dives to Vei) dives to the fort.
+## A card taller than its room ends its visible area on a block boundary, never mid-line (C2 item 2).
+func _snap(t: TestUtil) -> void:
+	var bottoms: Array = [30.0, 52.0, 96.0, 140.0, 200.0, 262.0, 300.0]
+	t.ok(CardLogic.snap_bottom(bottoms, 150.0) == 140.0, "the area ends at the last block that fits (140)")
+	t.ok(CardLogic.snap_bottom(bottoms, 140.0) == 140.0, "a block that exactly fits stays")
+	t.ok(CardLogic.snap_bottom(bottoms, 262.1) == 262.0, "never past the room")
+	t.ok(CardLogic.snap_bottom(bottoms, 10.0) == 10.0, "no block fits: the room itself")
+	t.ok(CardLogic.snap_bottom([], 80.0) == 80.0, "an empty card keeps the room")
+	t.ok(CardLogic.snap_bottom([300.0, 30.0, 140.0], 150.0) == 140.0, "the order of the list does not matter")
+	var cards: Dictionary = TestUtil.load_json("res://configs/map_view.json")["cards"]
+	t.ok(str(cards.get("scroll_cue", "")) != "", "the scroll-for-more cue's words are config")
+	var src := FileAccess.get_file_as_string("res://scripts/map/map_sidebar.gd")
+	t.ok(src.contains("CardLogic.snap_bottom(") and src.contains("_cue"), "the sidebar fits its scroll to block boundaries and shows a cue")
+
+
 func _sidebar_src(t: TestUtil) -> void:
 	var src := FileAccess.get_file_as_string("res://scripts/map/map_sidebar.gd")
 	var a := src.find('"descend":')
@@ -502,6 +561,12 @@ func _sidebar_src(t: TestUtil) -> void:
 	t.ok(branch.contains("_descend_confirm.popup_centered()"), "and opens the dialog when nobody comes in")
 	t.ok(src.contains("_descend_confirm.confirmed.connect(func(): dive.emit(_descend_id))") and src.contains("_confirm.confirmed.connect(func(): dive.emit(MapModel.VEI))"), "each dialog dives to its own id")
 	t.ok(src.contains("descend_confirm_ok") and src.contains("descend_confirm_title"), "the dialog's words come from config")
+	# both dialogs' text is a snapshot at popup time, so a changed selection hides them
+	var sa := src.find("func select(")
+	var sb := src.find("func refresh(")
+	var sel := src.substr(sa, sb - sa)
+	t.ok(sa >= 0 and sb > sa and sel.contains("if id != selected_id:") and sel.contains("_descend_confirm.hide()") and sel.contains("_confirm.hide()"), "select() hides both confirm dialogs when the id changes")
+	t.ok(sel.find("_descend_confirm.hide()") < sel.find("selected_id = id") and sel.find("_confirm.hide()") < sel.find("selected_id = id"), "and does it before selected_id changes")
 	var cards: Dictionary = TestUtil.load_json("res://configs/map_view.json")["cards"]
 	t.ok(cards["descend_confirm_ok"] == "Descend anyway" and cards["descend_confirm_title"] == "No undead come in", "the dialog's title and OK")
 	t.ok(src.contains('items[i].get("key", "text_dim")'), "a line is coloured by its key, text_dim by default")

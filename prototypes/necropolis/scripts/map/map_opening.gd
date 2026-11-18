@@ -29,7 +29,7 @@ func _ready() -> void:
 
 
 func _on_committed(_v: Dictionary) -> void:
-	seen.mark(MapSeen.VALVE, float(model.hud.get("t", 0.0)))  # TODO(api-request #18): the time stands in for a game id
+	seen.mark(MapSeen.VALVE)
 	refresh()
 
 

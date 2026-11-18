@@ -68,6 +68,29 @@ func _occupied(z: float) -> Array:
 	if not _card_key.is_empty():
 		out.append(HudLogic.screen_to_zoomed(_card_key[0], cam.position, z, get_viewport_rect().size))
 	out.append_array(_chip_rects_cache)
+	out.append_array(_label_rects(z))
+	return out
+
+
+## Every fort's name label and tag line as drawn (MapFortRing: the plates NodeLogic.fort_label_rects
+## gives), in this layer's frame: the fort's label anchor x zoom plus the plates' screen-px rects.
+func _label_rects(z: float) -> Array:
+	var out: Array = []
+	var size := int(MapLogic.cfg()["font_label"])
+	var font := ThemeDB.fallback_font  # what MapNodeLayer.draw_label measures with
+	var off := float(NodeLogic.ncfg()["label_off_px"])
+	for f in model.forts:
+		var tier := int(f["tier"])
+		if not NodeLogic.fort_label_shown(_tier, tier):
+			continue
+		var tag := NodeLogic.name_tag(f)
+		var tag_w := -1.0
+		if not tag.is_empty() and _tier != "far":
+			tag_w = font.get_string_size(str(tag["text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, NodeLogic.tag_size()).x
+		var name_w := font.get_string_size(str(f["name"]), HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+		var at := (MapModel.to_vec(f["pos"]) + Vector2(0.0, MapLogic.fort_radius(tier) + off)) * z
+		for r in NodeLogic.fort_label_rects(name_w, tag_w, size):
+			out.append(Rect2(at + (r as Rect2).position, (r as Rect2).size))
 	return out
 
 

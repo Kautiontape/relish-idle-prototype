@@ -34,6 +34,15 @@ static func reason_text(reason: String) -> String:
 	return str(_c().get("reason_fallback", "%s")) % reason
 
 
+## The toast for a relish_returned event {fort_id, cause: "retaken"}: Vei retook the fort Relish stood
+## at and she walks home. "" for any other event or a fort the map does not know (`names`: node id
+## -> display name).
+static func returned_toast(ev: Dictionary, names: Dictionary) -> String:
+	if str(ev.get("type", "")) != "relish_returned" or not names.has(str(ev.get("fort_id", ""))):
+		return ""
+	return str(_c()["returned_fmt"]) % HudLogic.node_name(str(ev["fort_id"]), names)
+
+
 # --- the chip --------------------------------------------------------------------
 
 ## Whether Relish stands at node `id` (in its dungeon or the boss fight counts).

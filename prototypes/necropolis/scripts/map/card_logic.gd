@@ -15,6 +15,17 @@ static func _table(name: String) -> Dictionary:
 	return _c().get(name, {})
 
 
+## Where a card taller than `room` ends its visible area: the bottom of the last block (`bottoms`,
+## each block's bottom edge in the card's frame) that fits, so no line is cut at the fold; `room`
+## itself when no block fits.
+static func snap_bottom(bottoms: Array, room: float) -> float:
+	var best := -1.0
+	for b in bottoms:
+		if float(b) <= room and float(b) > best:
+			best = float(b)
+	return best if best > 0.0 else room
+
+
 ## "m:ss" from seconds, ceiling so "0:00 left" never shows while time remains.
 static func fmt_clock(s: float) -> String:
 	var n := maxi(ceili(s), 0)
@@ -120,8 +131,9 @@ static func death_lines(death: Dictionary) -> Array:
 # --- status chips ------------------------------------------------------------------------
 
 ## The fort's status chips, each {text, key}. `names` maps big-undead uids to names (a siege
-## uid with no name shows as itself).
-static func status_chips(fort: Dictionary, names: Dictionary) -> Array:
+## uid with no name shows as itself). `siege_block` is realm.json tithe.siege_block, the share of a
+## tithe wave a siege there blocks (0: not given, the siege chip makes no claim).
+static func status_chips(fort: Dictionary, names: Dictionary, siege_block := 0.0) -> Array:
 	var ch := _table("chips")
 	var keys := _table("chip_keys")
 	var out: Array = []
@@ -131,6 +143,8 @@ static func status_chips(fort: Dictionary, names: Dictionary) -> Array:
 		out.append({"text": str(ch.get("tithe_now", "")), "key": keys.get("tithe", "text")})
 	elif bool(tithe.get("targeted", false)) and float(tithe.get("eta_s", -1.0)) >= 0.0:
 		out.append({"text": str(ch.get("tithe_in_fmt", "%s")) % fmt_clock(float(tithe["eta_s"])), "key": keys.get("tithe", "text")})
+	elif bool(tithe.get("next", false)) and float(tithe.get("next_s", -1.0)) >= 0.0:
+		out.append({"text": str(ch.get("tithe_next_fmt", "%s")) % fmt_clock(float(tithe["next_s"])), "key": keys.get("tithe_next", "text_dim")})
 	if bool(fort.get("relish_here", false)):
 		var parts: Array = [str(ch.get("relish_here", ""))]
 		if bool(fort.get("tide", false)):
@@ -144,6 +158,11 @@ static func status_chips(fort: Dictionary, names: Dictionary) -> Array:
 		for u in siege:
 			who.append(str(names.get(str(u), str(u))))
 		out.append({"text": str(ch.get("siege_fmt", "%s")) % ", ".join(who), "key": keys.get("siege", "text")})
+		# what siege does: it blocks a share of a tithe wave and kills nothing; a second at the same fort adds nothing
+		if siege_block > 0.0:
+			out.append({"text": str(ch.get("siege_blocks_fmt", "%d")) % roundi(siege_block * 100.0), "key": keys.get("siege", "text")})
+			if siege.size() > 1:
+				out.append({"text": str(ch.get("siege_second", "")), "key": keys.get("siege", "text")})
 	var charges := float(fort.get("simulacrum_charges", 0.0))
 	if charges > 0.0:
 		out.append({"text": str(ch.get("simulacrum_fmt", "%s")) % MapLogic.fmt_mass(charges), "key": keys.get("simulacrum", "text")})

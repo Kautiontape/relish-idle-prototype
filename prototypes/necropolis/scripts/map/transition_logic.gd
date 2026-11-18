@@ -61,6 +61,17 @@ static func dive_target(zoom: float, node_pos: Vector2, c: Dictionary, zoom_min:
 	return {"zoom": clampf(zoom * float(c["dive_zoom_mult"]), zoom_min, zoom_max), "centre": node_pos}
 
 
+## The dive from a fort's card: the fort's ring (MapLogic.fort_radius of `tier`) ends dive_ring_frac of
+## the window's short side in radius on screen, centred, so it is the last thing on screen before the
+## crossfade and the dungeon's first room picks it up. Never zooms out from `zoom_now`, never past
+## dive_ring_zoom_max (above the map's zoom_max on purpose: the dive is not a user zoom). {zoom, centre}.
+static func dive_fort_target(tier: int, node_pos: Vector2, viewport: Vector2, zoom_now: float, c: Dictionary, zoom_min: float) -> Dictionary:
+	var ring := maxf(MapLogic.fort_radius(tier), 1.0)
+	var want := float(c["dive_ring_frac"]) * minf(viewport.x, viewport.y) / ring
+	var z := minf(maxf(maxf(want, zoom_now), zoom_min), float(c["dive_ring_zoom_max"]))
+	return {"zoom": z, "centre": node_pos}
+
+
 ## The arrival's start state: the dive's end state, from the default fit.
 static func arrive_start(fit_zoom: float, node_pos: Vector2, c: Dictionary, zoom_min: float, zoom_max: float) -> Dictionary:
 	return dive_target(fit_zoom, node_pos, c, zoom_min, zoom_max)

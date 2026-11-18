@@ -55,6 +55,27 @@ func _targets(t: TestUtil, c: Dictionary) -> void:
 	t.ok(TransitionLogic.dive_target(2.5, node, c, zmin, zmax)["zoom"] == zmax, "the dive zoom clamps to zoom_max")
 	t.ok(TransitionLogic.dive_target(0.05, node, c, zmin, zmax)["zoom"] >= zmin, "the dive zoom never falls under zoom_min")
 	t.ok(TransitionLogic.arrive_start(0.61, node, c, zmin, zmax) == TransitionLogic.dive_target(0.61, node, c, zmin, zmax), "the arrival starts at the dive's end state")
+	# the dive from a fort card: its ring centred and large, the last thing on screen before the crossfade
+	var vp := Vector2(1600, 900)
+	var tier := 2
+	var r := MapLogic.fort_radius(tier)
+	var loose := c.duplicate()
+	loose["dive_ring_zoom_max"] = 100.0
+	var f := TransitionLogic.dive_fort_target(tier, node, vp, 0.6, loose, zmin)
+	t.ok(f["centre"] == node, "the fort dive centres the fort")
+	t.near(f["zoom"] * r, float(c["dive_ring_frac"]) * 900.0, 1e-3, "the ring's radius on screen is dive_ring_frac of the short side")
+	var real := TransitionLogic.dive_fort_target(tier, node, vp, 0.6, c, zmin)
+	t.ok(real["zoom"] <= float(c["dive_ring_zoom_max"]) and real["zoom"] > TransitionLogic.dive_target(0.6, node, c, zmin, zmax)["zoom"], "the ring ends larger than the old 3x dive, within dive_ring_zoom_max (%.2f)" % real["zoom"])
+	t.ok(TransitionLogic.dive_fort_target(tier, node, vp, 5.0, loose, zmin)["zoom"] >= 5.0, "a dive never zooms out from where the camera already is")
+	t.ok(TransitionLogic.dive_fort_target(tier, node, vp, 9.0, c, zmin)["zoom"] == float(c["dive_ring_zoom_max"]), "and never past dive_ring_zoom_max")
+	t.ok(TransitionLogic.dive_fort_target(tier, node, Vector2(900, 1600), 0.6, loose, zmin)["zoom"] == f["zoom"], "the short side of the window counts, portrait or not")
+	t.ok(TransitionLogic.dive_fort_target(1, node, vp, 0.6, loose, zmin)["zoom"] > TransitionLogic.dive_fort_target(5, node, vp, 0.6, loose, zmin)["zoom"], "a bigger fort needs less zoom for the same ring")
+	t.ok(float(c["dive_ring_frac"]) > 0.0 and float(c["dive_ring_frac"]) < 0.5, "the ring fits the window")
+	var wm := FileAccess.get_file_as_string("res://scripts/map/world_map.gd")
+	t.ok(wm.contains("TransitionLogic.dive_fort_target("), "the map dives into a fort through dive_fort_target")
+	t.ok(TransitionLogic.timeline(c, TransitionLogic.IN, true)["zoom_s"] == 0.0, "reduced motion: no zoom time")
+	var main_src := FileAccess.get_file_as_string("res://scripts/main.gd")
+	t.ok(main_src.contains("if dive_to != \"\" and not reduced and old.has_method(\"dive_to\")"), "reduced motion cuts: the router never asks the map to ease")
 
 
 func _slow(t: TestUtil) -> void:

@@ -140,54 +140,59 @@ static func eta_text(eta_s: float) -> String:
 	if eta_s <= 0.0:
 		return str(cfg()["tithe_now_text"])
 	var s := ceili(eta_s)
+	if s >= 3600:
+		return str(cfg()["eta_hours_fmt"]) % [s / 3600, (s % 3600) / 60]
 	return "%d:%02d" % [floori(s / 60.0), s % 60]
 
 
 ## The explanation for the fort `fort_name` whose wave is `eta_s` away (live: the caller passes the
-## fort's tithe.eta_s each refresh).
+## fort's tithe.eta_s each refresh). A running wave (ETA 0) reads "at X now", not "in now".
 static func tithe_text(fort_name: String, eta_s: float) -> String:
+	if eta_s <= 0.0:
+		return str(cfg()["tithe_now_fmt"]) % fort_name
 	return str(cfg()["tithe_text_fmt"]) % [fort_name, eta_text(eta_s)]
 
 
-## The ETA to show for `fort_id`: its view's tithe.eta_s while targeted, else `fallback` (the
-## warning event's own eta_s).
-static func tithe_eta(forts: Array, fort_id: String, fallback: float) -> float:
-	for f in forts:
-		if str(f.get("id", "")) == fort_id:
-			var t: Dictionary = f.get("tithe", {})
-			if bool(t.get("targeted", false)):
-				return float(t.get("eta_s", fallback))
-	return fallback
-
-
-## The fort a debug trigger explains: the first fort a warning targets, else `preferred`.
-static func debug_tithe_fort(forts: Array, preferred: String) -> String:
-	for f in forts:
-		if bool(f.get("tithe", {}).get("targeted", false)):
-			return str(f["id"])
-	return preferred
-
-
-## A warning already pending when the map mounts: {fort_id, eta_s} for the first fort a tithe
-## targets, or {} when the explanation was seen (`seen`) or none is targeted.
-static func pending_tithe(forts: Array, seen: bool) -> Dictionary:
-	if seen:
-		return {}
-	for f in forts:
-		var t: Dictionary = f.get("tithe", {})
-		if bool(t.get("targeted", false)):
-			return {"fort_id": str(f["id"]), "eta_s": float(t.get("eta_s", -1.0))}
-	return {}
+## Vei's own target, from view_vei().tithe: {fort_id, eta_s}. The warned (or waving) fort while
+## `target` is set, with tithe.eta_s; else the fort the rule would pick now (`next_target`), with
+## `next_s`; else {fort_id: "", eta_s: -1.0}.
+static func tithe_focus(vei_tithe: Dictionary) -> Dictionary:
+	var target := str(vei_tithe.get("target", ""))
+	if target != "":
+		return {"fort_id": target, "eta_s": float(vei_tithe.get("eta_s", -1.0))}
+	var nxt := str(vei_tithe.get("next_target", ""))
+	if nxt != "":
+		return {"fort_id": nxt, "eta_s": float(vei_tithe.get("next_s", -1.0))}
+	return {"fort_id": "", "eta_s": -1.0}
 
 
 # --- placing the explanation panel ------------------------------------------------------
 
 ## Where a panel of `size` goes for a fort at screen point `anchor`: `gap` above it (below when
-## there is no room under `top`), then kept `margin` inside the viewport and below `top`.
-static func panel_pos(anchor: Vector2, size: Vector2, viewport: Vector2, top: float, gap: float, margin: float) -> Vector2:
+## there is no room under `top`), then kept `margin` inside the viewport and below `top`. A panel
+## that would cover `avoid` (the open card's screen rect; a zero Rect2 is nothing) moves to the
+## card's free side: its right edge `margin` left of the card. With no room on the left (a narrow
+## viewport or a wide card) it goes below the card (`margin` under its bottom edge) if that fits
+## in the viewport, else above it (`margin` over its top edge, under `top`). When nothing fits it
+## keeps the left-clamped position and overlaps the card: the last resort.
+static func panel_pos(anchor: Vector2, size: Vector2, viewport: Vector2, top: float, gap: float, margin: float, avoid := Rect2()) -> Vector2:
 	var y := anchor.y - gap - size.y
 	if y < top + margin:
 		y = anchor.y + gap
 	var x := anchor.x - size.x * 0.5
-	return Vector2(clampf(x, margin, maxf(viewport.x - size.x - margin, margin)),
-		clampf(y, top + margin, maxf(viewport.y - size.y - margin, top + margin)))
+	var max_x := maxf(viewport.x - size.x - margin, margin)
+	var pos := Vector2(clampf(x, margin, max_x), clampf(y, top + margin, maxf(viewport.y - size.y - margin, top + margin)))
+	if avoid.has_area() and Rect2(pos, size).intersects(avoid):
+		var left := avoid.position.x - margin - size.x
+		if left >= margin:
+			pos.x = left
+		else:
+			var below := avoid.end.y + margin
+			var above := avoid.position.y - margin - size.y
+			if below + size.y <= viewport.y - margin:
+				pos.y = below
+			elif above >= top + margin:
+				pos.y = above
+			else:
+				pos.x = margin
+	return pos

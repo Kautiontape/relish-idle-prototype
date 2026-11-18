@@ -5,15 +5,23 @@ extends Node
 ##   valve swing   a committed valve (MapValve.committed): Covington's stems tween to the new
 ##                 shares over one beat, brighter for that beat; Synth "whoosh".
 ##   flip          fort_flipped: the fort's ring re-inks orange to green segment by segment from
-##                 12 o'clock over 1.5 beats, then its glyph and chip change; Synth "flip". The
-##                 game's first flip adds a green ripple on the fort's beat and a callout.
+##                 12 o'clock over 1.5 beats, then its glyph and chip change; Synth "flip"; a
+##                 callout "<Fort> taken by you". The game's first fort adds a green ripple on
+##                 the fort's beat. note_return: after a raid whose fort is held (event missed)
+##                 it plays too.
+##   retreat       the map mounts after a raid that left the fort Vei's (Relish alive): a callout
+##                 "<Fort> stays Vei's: you kept everything you found". No re-ink, no sound.
 ##   tithe         tithe_warning: Synth "horn"; tithe_wave: an orange band sweeps from Vei along the
 ##                 living lane to the target fort over 2 beats.
-##   garrison      counter_garrison_cleared (or its stand-in, api-request #10): a green pulse along
-##                 the fort's WAR lane from Covington, a green burst at the fort, the chip's
-##                 counter-garrison draining to 0 and flipping to the margin word, a callout.
+##   garrison      counter_garrison_cleared: a green pulse along the fort's WAR lane from
+##                 Covington, a green burst at the fort, the chip's counter-garrison draining to
+##                 0 and flipping to the margin word, a callout.
 ##   victory       vei_result won (or won at map open): every lane runs green toward Vei for 2
 ##                 beats, then every dash stops and the victory line shows.
+##   build         building_done (or a lot whose level rose while the map was not up, found at mount):
+##                 a plate above Covington, "Inn built · MINT +0.8/s", the sim's own projection for it
+##                 (MapModel.proj_store) named by its biggest rate; several builds read as one plate.
+##                 Not for a mount whose away panel opens: its report lists the builds.
 ## Garrison and victory play no sound of their own (VISUAL-LANGUAGE 2f names none).
 ## It hears events through Game.game_event (the router re-emits the ones it held while the map
 ## mounted). It drives the existing layers through small hooks: MapNodes' context
@@ -24,8 +32,10 @@ extends Node
 ## reduced motion (each set piece straight to its end state) still times them; sounds still play.
 ## Debug: --setpiece=<kind> fires one at a demo fort debug_delay_s after going live;
 ## --setpiece-slow=k stretches every set piece k times. Always pair them with --fixture=:
-## --setpiece=valve sends a real cmd_set_valve, and --setpiece is not a harness arg (DEV_ARGS),
-## so without a fixture it would autosave over the shared auto.json (api-request #11). Timing: setpiece_logic.gd. Tuning:
+## --setpiece=valve sends a real cmd_set_valve. --setpiece is not in BootRule.DEV_ARGS (those match engine
+## args given without the `--` separator), but it never autosaves over auto.json either: as a user arg
+## (after `--`) it is outside PLAYER_ARGS, so BootRule.is_harness_args makes the session a harness
+## one. The fixture still pins the state it runs on. Timing: setpiece_logic.gd. Tuning:
 ## configs/map_view.json "setpieces"; sounds: configs/synth.json.
 
 var model: MapModel
@@ -39,16 +49,17 @@ var _synth: Synth
 var _live := false
 var _queue: Array = []  # set pieces that arrived before go_live: {kind, fort_id, n}
 var _active: Array = []  # running: {kind, fort_id, n, start_ms, track?}
-var _seen := {}  # fort id -> {event type: true} since the map opened (the garrison stand-in)
-var _arrive_from := ""
-var _standin_in := -1  # frames until the garrison stand-in is checked (-1: never)
 var _beat := -1
 var _slow := 1.0
 var _debug_kind := ""
 var _committed := {}  # the valve Covington's stems show at rest
 var _swing := {}  # {from, to, start_ms} while the valve swing runs
 var _valve_rev := -1  # the model.rev the idle valve target was last read at
+var _taken_ids: Array = []  # forts whose fort_flipped this map heard (the router replays the ones it held): note_return's "taken"
 var _won := false  # victory has played (or is playing): once per map
+var _builds: Array = []  # the finished builds the callout at Covington names: [{lot_id, building_id, level}]
+var _build_runs: Array = []  # its line as runs (SetpieceLogic.build_spans)
+var _build_start_ms := -1.0  # when it started; -1 until the set pieces are live
 
 
 func _ready() -> void:
@@ -73,14 +84,10 @@ func _exit_tree() -> void:
 func on_event(ev: Dictionary) -> void:
 	var type := str(ev.get("type", ""))
 	var id := str(ev.get("fort_id", ""))
-	if type == "relish_died":
-		id = SetpieceLogic.ANY_FORT  # a death names no fort: any held fort's stand-in refuses it
-	if id != "":
-		if not _seen.has(id):
-			_seen[id] = {}
-		_seen[id][type] = true
 	match type:
 		"fort_flipped":
+			if not _taken_ids.has(id):
+				_taken_ids.append(id)
 			_add(SetpieceLogic.FIRST_FLIP if SetpieceLogic.first_flip(id, model.forts) else SetpieceLogic.FLIP, id)
 		"tithe_warning":
 			_synth.play("horn")
@@ -92,22 +99,46 @@ func on_event(ev: Dictionary) -> void:
 		"vei_result":
 			if bool(ev.get("won", false)):
 				_add(SetpieceLogic.VICTORY, "")
+		"building_done":
+			_note_build({"lot_id": str(ev.get("lot_id", "")), "building_id": str(ev.get("building_id", "")), "level": int(ev.get("level", 1))})
 
 
-## The camera has settled on the map: queued set pieces start, a won realm plays victory, the
-## garrison stand-in is checked a few frames on (so the return's events have all arrived), and
-## the debug trigger is armed. `arrive_from`: the node whose scene was just left.
-func go_live(arrive_from: String) -> void:
+## The map mounted: the builds that finished while it was not up (model.mount_rises, found by its first
+## refresh) get their callout, unless `away_opened` (the away panel opened for this return, and its report
+## already lists them). They take the same path as the live event, so one that is both is named once.
+func note_mount(away_opened: bool) -> void:
+	for b in SetpieceLogic.mount_builds(model.mount_rises, away_opened):
+		_note_build(b)
+
+
+## The map mounted after a scene: `arrive_from` is the node just left. A raid that took the fort
+## (its fort_flipped, replayed by the router before this call, or a fort held within its grace that
+## was not already held when the map dove into it, SetpieceLogic.note_dive) says "<Fort> taken by you"
+## through the flip set piece; one that left it Vei's says it stays hers and you kept what you found
+## (SetpieceLogic.return_kind); a held fort raided again says nothing. Returns the kind (TAKEN, RETREAT, "").
+func note_return(arrive_from: String) -> String:
+	var kind := SetpieceLogic.return_kind(arrive_from, model.fort(arrive_from), _taken_ids.has(arrive_from), model.relish)
+	if kind == SetpieceLogic.TAKEN and not _taken_ids.has(arrive_from):
+		_taken_ids.append(arrive_from)  # no event came: the flip set piece still plays, as for the event
+		_add(SetpieceLogic.FIRST_FLIP if SetpieceLogic.first_flip(arrive_from, model.forts) else SetpieceLogic.FLIP, arrive_from)
+	elif kind == SetpieceLogic.RETREAT:
+		_add(SetpieceLogic.RETREAT, arrive_from)
+	return kind
+
+
+## The camera has settled on the map: queued set pieces start, a won realm plays victory, and the
+## debug trigger is armed.
+func go_live() -> void:
 	if _live or not is_inside_tree():
 		return
 	_live = true
-	_arrive_from = arrive_from
 	if bool(model.hud.get("won", false)):
 		_add(SetpieceLogic.VICTORY, "")
 	for p in _queue:
 		_start(p)
 	_queue.clear()
-	_standin_in = int(SetpieceLogic.cfg()["standin_frames"]) if model.forts_by_id.has(arrive_from) else -1
+	if not _builds.is_empty():
+		_build_start_ms = Pulse.now_ms()
 	if _debug_kind != "":
 		get_tree().create_timer(float(SetpieceLogic.cfg()["debug_delay_s"])).timeout.connect(_fire_debug)
 
@@ -143,10 +174,6 @@ func _start(p: Dictionary) -> void:
 
 func _process(_delta: float) -> void:
 	_tempo()
-	if _standin_in >= 0:
-		_standin_in -= 1
-		if _standin_in < 0:
-			_check_standin()
 	_valve_tick()
 	var items: Array = []
 	var now := Pulse.now_ms()
@@ -163,8 +190,11 @@ func _process(_delta: float) -> void:
 				done = _garrison_tick(p, t, rm, items)
 			SetpieceLogic.VICTORY:
 				done = _victory_tick(t, rm)
+			SetpieceLogic.RETREAT:
+				done = _retreat_tick(p, t, rm, items)
 		if done:
 			_active.erase(p)
+	_build_tick(items)
 	layer.set_items(items)
 
 
@@ -239,12 +269,15 @@ func _flip_tick(p: Dictionary, t: float, rm: bool, items: Array) -> bool:
 	elif ctx.reink.has(id):
 		ctx.reink.erase(id)
 		_redraw_fort_all(id)  # the ring is done: now the glyph and the chip change
-	if str(p["kind"]) != SetpieceLogic.FIRST_FLIP:
-		return done
 	var c := SetpieceLogic.cfg()
 	var f := model.fort(id)
 	if f.is_empty():
 		return done
+	if str(p["kind"]) != SetpieceLogic.FIRST_FLIP:  # every fort taken says so: "<Fort> taken by you"
+		var a0 := SetpieceLogic.callout_alpha(t, float(c["callout_beats"]), rm)
+		if a0 > 0.0:
+			items.append(_callout(id, SetpieceLogic.return_text(SetpieceLogic.TAKEN, str(model.names.get(id, id))), a0))
+		return done and t >= float(c["callout_beats"])
 	var rip := SetpieceLogic.ripple(Pulse.phase(model.hops_of(id)), t, rm)
 	if not rip.is_empty():
 		items.append({"kind": "ring", "pos": MapModel.to_vec(f["pos"]), "key": "undead", "alpha": float(rip["alpha"]),
@@ -254,6 +287,21 @@ func _flip_tick(p: Dictionary, t: float, rm: bool, items: Array) -> bool:
 	if a > 0.0:
 		items.append(_callout(id, SetpieceLogic.first_flip_text(str(model.names.get(id, id))), a))
 	return done and t >= maxf(float(c["ripple_beats"]), float(c["callout_beats"]))
+
+
+## A retreat: the fort stays Vei's, so no re-ink and no sound, just the line over the fort for
+## callout_beats (a plain word colour: it is not a win).
+func _retreat_tick(p: Dictionary, t: float, rm: bool, items: Array) -> bool:
+	var id := str(p["fort_id"])
+	var c := SetpieceLogic.cfg()
+	if model.fort(id).is_empty():
+		return true
+	var a := SetpieceLogic.callout_alpha(t, float(c["callout_beats"]), rm)
+	if a > 0.0:
+		var item := _callout(id, SetpieceLogic.return_text(SetpieceLogic.RETREAT, str(model.names.get(id, id))), a)
+		item["key"] = "text"
+		items.append(item)
+	return t >= float(c["callout_beats"])
 
 
 func _redraw_fort_all(id: String) -> void:
@@ -274,6 +322,54 @@ func _callout(id: String, text: String, alpha: float) -> Dictionary:
 	if str(model.relish.get("at", "")) == id and str(model.relish.get("state", "")) != "travelling":
 		y = minf(y, ctx.relish_pos.y - float(NodeLogic.relish_radii(ctx.zoom)["halo"]) - gap)
 	return {"kind": "label", "pos": Vector2(p.x, y), "text": text, "size": int(c["callout_font"]), "key": "undead", "alpha": alpha}
+
+
+# --- a finished build -------------------------------------------------------------------------
+
+## A build finished (the live event, or the mount's diff): it joins the callout at Covington, which
+## restarts its clock with the new line. Several at once read as one plate.
+func _note_build(b: Dictionary) -> void:
+	var next := SetpieceLogic.add_build(_builds, b)
+	if next.size() == _builds.size():
+		return
+	_builds = next
+	_build_runs = SetpieceLogic.build_spans(SetpieceLogic.build_text(_builds, MapModel.proj_store, _building_names()))
+	_build_start_ms = Pulse.now_ms() if _live else -1.0
+
+
+## building id -> its label (configs/buildings_view.json), as the HUD's bone line reads them.
+func _building_names() -> Dictionary:
+	var names := {}
+	var view: Dictionary = ConfigDb.data.get("buildings_view", {})
+	for id in view:
+		names[id] = str(view[id].get("label", str(id).capitalize()))
+	return names
+
+
+func _build_tick(items: Array) -> void:
+	if _builds.is_empty() or _build_start_ms < 0.0:
+		return
+	var t := SetpieceLogic.beats(_build_start_ms, Pulse.now_ms(), Pulse.tempo_ms, _slow)
+	if SetpieceLogic.build_done(t):
+		_builds = []
+		_build_start_ms = -1.0
+		return
+	var a := SetpieceLogic.build_alpha(t, Pulse.reduced_motion)
+	if a > 0.0:
+		items.append(_build_plate(a))
+
+
+## The plate's bottom centre sits build_gap_px above Covington's rings, and above Relish's token
+## when she stands there (home, she does).
+func _build_plate(alpha: float) -> Dictionary:
+	var c := SetpieceLogic.cfg()
+	var ctx := nodes.ctx
+	var p := model.node_pos(MapModel.COVINGTON)
+	var gap := ctx.px(float(c["build_gap_px"]))
+	var y := p.y - NodeLogic.outer_radius("covington", 0, 0.0) - gap
+	if str(model.relish.get("at", "")) == MapModel.COVINGTON and str(model.relish.get("state", "")) != "travelling":
+		y = minf(y, ctx.relish_pos.y - float(NodeLogic.relish_radii(ctx.zoom)["halo"]) - gap)
+	return {"kind": "runs", "pos": Vector2(p.x, y), "runs": _build_runs, "size": int(c["build_font"]), "alpha": alpha}
 
 
 # --- bands along a lane -----------------------------------------------------------------------
@@ -308,15 +404,6 @@ func _tithe_tick(p: Dictionary, t: float, rm: bool, items: Array) -> bool:
 
 
 # --- the garrison cleared ---------------------------------------------------------------------
-
-## The stand-in for counter_garrison_cleared: back from a held fort's raid that banked loot and
-## flipped nothing, the burst plays without a number.
-# TODO(api-request #10): remove with SetpieceLogic.garrison_stand_in once the event is emitted.
-func _check_standin() -> void:
-	var g := SetpieceLogic.garrison_stand_in(_arrive_from, model.forts_by_id, _seen)
-	if not g.is_empty():
-		_add(SetpieceLogic.GARRISON, str(g["fort_id"]), -1)
-
 
 func _garrison_tick(p: Dictionary, t: float, rm: bool, items: Array) -> bool:
 	var id := str(p["fort_id"])
@@ -391,6 +478,8 @@ func _fire_debug() -> void:
 			_add(SetpieceLogic.FLIP, id)
 		SetpieceLogic.FIRST_FLIP:
 			_add(SetpieceLogic.FIRST_FLIP, id)
+		SetpieceLogic.RETREAT:
+			_add(SetpieceLogic.RETREAT, id)
 		SetpieceLogic.TITHE:
 			on_event({"type": "tithe_warning", "fort_id": id})
 			on_event({"type": "tithe_wave", "fort_id": id})

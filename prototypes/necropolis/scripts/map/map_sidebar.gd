@@ -11,11 +11,13 @@ signal dive(node_id: String)
 signal toast(msg: String)
 
 var model: MapModel
+var hud: MapHud  # its plates decide how high the card may start (set by world_map)
 var selected_id := ""
 
 var _scroll: ScrollContainer
 var _scroll_box: Control  # holds the scroll and the fade over its bottom edge
 var _fade: Control
+var _cue: Label
 var _card: MapCardView
 var _actions: VBoxContainer
 var _act_sig := ""
@@ -58,6 +60,13 @@ func _ready() -> void:
 	_fade.offset_top = -float(cfg["sidebar_fade_px"])
 	_fade.draw.connect(_draw_fade)
 	_scroll_box.add_child(_fade)
+	_cue = Label.new()  # "▼ scroll for more", in the gap under a scrolled card's last whole block
+	_cue.text = str(cfg["cards"]["scroll_cue"])
+	_cue.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	MapType.style_label(_cue, "text_dim", int(cfg["font_body"]))
+	_cue.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+	_cue.visible = false
+	_scroll_box.add_child(_cue)
 	_scroll.get_v_scroll_bar().value_changed.connect(func(_v: float) -> void: _update_fade())
 	_scroll.get_v_scroll_bar().changed.connect(_update_fade)
 	_card = MapCardView.new()
@@ -88,6 +97,8 @@ func _ready() -> void:
 func select(id: String) -> void:
 	if id != selected_id:
 		_scroll.scroll_vertical = 0
+		_confirm.hide()  # their text is a snapshot from popup time
+		_descend_confirm.hide()
 	selected_id = id
 	visible = id != ""
 	if visible:
@@ -106,7 +117,8 @@ func refresh() -> void:
 	elif model.forts_by_id.has(selected_id):
 		var f := model.fort(selected_id)
 		_card.show_card(CardBlocksLogic.fort_card(f, _fort_desc(selected_id), model.backups, model.unit_names, ConfigDb.data.get("loot", {}),
-			model.party, ConfigDb.data.get("raid", {}), ConfigDb.data.get("economy", {}), _tide_bias()))
+			model.party, ConfigDb.data.get("raid", {}), ConfigDb.data.get("economy", {}), _tide_bias(),
+			float(model.realm_cfg.get("tithe", {}).get("siege_block", 0.0))))
 		_flush_actions(RelishLogic.fort_actions(f, model.relish, model.haul, model.names, _comes(f)))
 	elif not model.village(selected_id).is_empty():
 		_card.show_card(CardBlocksLogic.village_card(model.village(selected_id), ""))
@@ -121,16 +133,35 @@ func refresh() -> void:
 ## bottom after the pinned actions; a taller card scrolls.
 func _fit_scroll() -> void:
 	var cfg := MapLogic.cfg()
+	if hud != null:  # where the HUD's plates leave room, the card rises to the screen's top and uses the height
+		offset_top = HudLogic.sidebar_top(get_viewport_rect().size.x, float(cfg["sidebar_width_px"]), hud.plates_right(),
+			float(cfg["sidebar_top_gap_px"]), float(cfg["sidebar_top_px"]), float(cfg["sidebar_top_high_px"]))
 	var chrome := 2.0 * float(cfg["sidebar_margin_px"]) + 2.0 * float(cfg["sidebar_vsep_px"]) + _sep.get_combined_minimum_size().y
 	var room := get_viewport_rect().size.y - offset_top - float(cfg["sidebar_bottom_px"]) - chrome - _actions.get_combined_minimum_size().y
-	_scroll_box.custom_minimum_size.y = clampf(_card.get_combined_minimum_size().y, 0.0, maxf(room, 0.0))
+	var full := _card.get_combined_minimum_size().y
+	room = maxf(room, 0.0)
+	_scroll_box.custom_minimum_size.y = clampf(full, 0.0, room)
+	# A card taller than its room ends its visible area on a block boundary, with a cue line in the
+	# gap under it (the scroll box fills the room, so the scroll is shortened from its bottom).
+	var gap := 0.0
+	_cue.visible = full > room
+	if full > room:
+		var cue_h := _cue.get_combined_minimum_size().y
+		gap = room - CardLogic.snap_bottom(_card.block_bottoms(), maxf(room - cue_h, 0.0))
+		gap = maxf(gap, cue_h)
+		_cue.offset_top = -cue_h
+	_scroll.offset_bottom = -gap
+	_fade.offset_bottom = -gap
+	_fade.offset_top = -gap - float(cfg["sidebar_fade_px"])
 	_update_fade()
 
 
 ## The fade shows while the card runs past the bottom of its room.
 func _update_fade() -> void:
 	var bar := _scroll.get_v_scroll_bar()
-	_fade.visible = bar.max_value - bar.page > 0.5 and bar.value < bar.max_value - bar.page - 0.5
+	# only mid-scroll: at the top the visible area already ends on a whole block, so nothing fades
+	_fade.visible = bar.max_value - bar.page > 0.5 and bar.value > 0.5 and bar.value < bar.max_value - bar.page - 0.5
+	_cue.modulate.a = 1.0 if bar.max_value - bar.page > 0.5 and bar.value < bar.max_value - bar.page - 0.5 else 0.0
 	_fade.queue_redraw()
 
 

@@ -25,6 +25,12 @@ static func _n(key: String) -> float:
 	return float(ncfg().get(key, 0.0))
 
 
+## The node labels' texts, keyed war / flood / work / covington / vei (configs/map_view.json
+## "node_names"): the one source the layers draw from and IdleLogic's obstacles are measured from.
+static func node_names() -> Dictionary:
+	return MapLogic.cfg().get("node_names", {})
+
+
 ## LineGlow's stroke stack for one glowing line, with every halo pulled toward the core by the
 ## same share so the outermost is at most `halo_max` wide (the same cap LaneStyle.capped_halo
 ## applies to lanes). [[width, Color], ...], outermost first, the core last.
@@ -208,7 +214,8 @@ static func fort_static_sig(f: Dictionary, flip: Dictionary, state := "", raid :
 
 ## A tithe is on its way to this fort (targeted, or the wave is on): the glyph's triangle badge.
 static func tithe_badge(f: Dictionary) -> bool:
-	return tithe_mode(f) != ""
+	var m := tithe_mode(f)
+	return m == "warning" or m == "wave"
 
 
 ## Half the state glyph's extent in world px at `zoom`: state_glyph_px on screen at every zoom.
@@ -233,14 +240,22 @@ static func held_fraction(f: Dictionary, flip: Dictionary) -> float:
 	return clampf(float(f.get("grace_s_left", 0.0)) / g, 0.0, 1.0)
 
 
-## "wave" while the tithe wave is on this fort, "warning" while it is targeted, else "".
+## "wave" while the tithe wave is on this fort, "warning" while it is targeted, "next" while it is
+## only Vei's next pick, else "".
 static func tithe_mode(f: Dictionary) -> String:
 	var t: Dictionary = f.get("tithe", {})
 	if bool(t.get("wave_active", false)):
 		return "wave"
 	if bool(t.get("targeted", false)):
 		return "warning"
+	if bool(t.get("next", false)):
+		return "next"
 	return ""
+
+
+## The fort is Vei's next tithe pick (not yet warned): the quiet hollow triangle, no ring.
+static func tithe_next(f: Dictionary) -> bool:
+	return tithe_mode(f) == "next"
 
 
 ## The tithe countdown's sweep, 0..1: eta_s / tithe_warning_s (0 for eta_s < 0, the API's "none").
@@ -266,17 +281,41 @@ static func first_dungeon_pulse(f: Dictionary) -> bool:
 ## The one line under a fort's name, {text, key} (key: a Palette key), or {} for none:
 ##   the first dungeon (its first clear still pays a blueprint): relish;
 ##   retaken (not held, flipped before: Vei took it back): danger;
-##   overrun (not held, your undead inside, never taken): text_dim.
+##   overrun (not held, your undead inside, never taken): `label_tag_keys.overrun` (text).
+## Drawn at tag_size() px, at least the name's.
 static func name_tag(f: Dictionary) -> Dictionary:
 	var n := ncfg()
+	var keys: Dictionary = n["label_tag_keys"]
 	if first_dungeon_pulse(f):
-		return {"text": str(n["label_first_dungeon"]), "key": "relish"}
+		return {"text": str(n["label_first_dungeon"]), "key": str(keys["first"])}
 	if not bool(f.get("held", false)):
 		if int(f.get("flipped_count", 0)) > 0:
-			return {"text": str(n["label_retaken"]), "key": "danger"}
+			return {"text": str(n["label_retaken"]), "key": str(keys["retaken"])}
 		if fort_state(f, "") == OVERRUN:
-			return {"text": str(n["label_overrun"]), "key": "text_dim"}
+			return {"text": str(n["label_overrun"]), "key": str(keys["overrun"])}
 	return {}
+
+
+## The tag line's font size in screen px (the name's is font_label).
+static func tag_size() -> int:
+	return int(_n("label_tag_px"))
+
+
+## A label's plate in screen px around its anchor, as MapNodeLayer.draw_label draws it: the text of
+## width `w` starting at x, its baseline `dy` below the anchor, `size` px tall.
+static func label_plate(x: float, w: float, size: int, dy: float) -> Rect2:
+	var pad := _n("plate_pad_px")
+	return Rect2(x - pad, dy - size * _n("plate_ascent"), w + pad * 2.0, size * _n("plate_height"))
+
+
+## The plates a fort's labels cover, in screen px around the label anchor (the fort's position plus
+## r + label_off_px down): its name (baseline `size`), and, when `tag_w` >= 0, its tag line under it
+## (baseline `size` + label_line_px). Both are centred. The lane callouts keep clear of them.
+static func fort_label_rects(name_w: float, tag_w: float, size: int) -> Array:
+	var out: Array = [label_plate(-name_w * 0.5, name_w, size, float(size))]
+	if tag_w >= 0.0:
+		out.append(label_plate(-tag_w * 0.5, tag_w, tag_size(), float(size) + _n("label_line_px")))
+	return out
 
 
 ## Fort name labels: shown at mid and near zoom; at far zoom only forts of label_far_min_tier+.

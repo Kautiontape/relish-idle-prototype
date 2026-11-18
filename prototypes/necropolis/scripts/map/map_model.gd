@@ -10,7 +10,8 @@ var state: GameState
 var demo := false  # --lanes=demo: synthetic lanes instead of the view's (debug only)
 var nodes_demo := false  # --nodes=demo: E2-only node states overlaid on the views (debug only)
 var flip_cfg := {}  # realm.json "flip", for the held grace total (set by world_map)
-var realm_cfg := {}  # realm.json: K (odds), readout.sign_eps, relish.travel_speed (set by world_map)
+var slab_cfg := {}  # town.json slab: names a big undead that still carries the mint default (set by world_map)
+var realm_cfg := {} # realm.json: K (odds), readout.sign_eps, relish.travel_speed (set by world_map)
 var idle_cap := 0.0  # economy.json worker.idle_cap: the workforce cap's idle part (set by world_map)
 var rev := -1
 var realm := {}
@@ -19,7 +20,9 @@ var vei := {}
 var hud := {}
 var haul := {}  # view_town().haul: {target, current, convoys}
 var job_slots := 0  # view_town().jobs' slots summed
-var town_queue = null  # view_town().queue when the view has one (api-request #3), else null
+var town_queue: Array = []  # view_town().queue ([] when empty)
+var mill := {}  # the Bone Mill's view_town().buildings row's {starved, lever} ("" each when it is not built or not starved)
+var queue_stall := {}  # the queue row that reads a starved reason (only a head that can never be afforded does), else {}
 var backups := {}  # view_backups(): death is what a death costs now
 var party := {}  # view_party()
 var unit_names := {}  # big-undead uid -> name (view_big_undead)
@@ -34,10 +37,23 @@ var clocks := {}  # held fort id -> {rate, fall_s}: the committed fall clocks (s
 var supports := {}  # the committed "WAR supports N of M": {n, m}
 var projection := {}  # the dragged valve's IdleLogic.projection while the valve is being dragged, else {}
 var margin_sig := ""  # the margins and clocks now shown (projected or committed): the nodes redraw when it changes
+var next_place := ""  # NextLogic.next_place: the fort the strip's standing line names ("" when every fort is held)
 var raids: Array = []  # NextLogic.raid_set, once per refresh: [{fort, why}] ranked and capped; the ring's tag and the strip's raid rule
+
+var built := {}  # SetpieceLogic.lot_levels of view_town().buildings: lot id -> {building_id, level}
+var mount_rises: Array = []  # the builds that finished since the map was last up (a build done in town, or away): found by this model's first refresh; [] on a new game
 
 var _villages_by_id := {}
 var _last_read_s := -1.0e9
+var _proj_read_s := -1.0e9  # real seconds of the last view_catalog read for projections
+var _first_read := true
+# A finished build's callout (SetpieceLogic: a finished build): the last real projection read per pending
+# build, and the built levels as of the map's last refresh. Static, so they survive a scene swap to the
+# town and back (MapHud's _next is the pattern); the game id says whose they are.
+static var proj_store := {}  # "lot:level" -> {building_id, rates}
+static var level_snap := {}  # lot id -> {building_id, level}, as of the last refresh of any map model
+static var snap_game := ""
+static var snap_set := false
 static var _raid_why := {}  # fort id -> why, for raids (its keys are the last set's ids: raid_set's memory, kept across map mounts)
 static var _raid_t := -1.0  # the game time of the last set: time going backwards is a new game, which clears _raid_why
 
@@ -66,13 +82,22 @@ func refresh(force := false) -> bool:
 	job_slots = 0
 	for j in town.get("jobs", []):
 		job_slots += int(j.get("slots", 0))
-	town_queue = town["queue"] if town.has("queue") else null  # TODO(api-request #3): view_town().queue
+	town_queue = town["queue"]
+	_note_builds(town)
+	var stall := stall_from(town)
+	mill = stall["mill"]
+	queue_stall = stall["queue_stall"]
 	backups = state.view_backups()
 	party = state.view_party()
 	unit_names.clear()
 	big_undead.clear()
-	for b in state.view_big_undead().get("big_undead", []):
-		unit_names[str(b["uid"])] = str(b["name"])
+	var bigs: Array = state.view_big_undead().get("big_undead", [])
+	if slab_cfg.is_empty():
+		for b in bigs:
+			unit_names[str(b["uid"])] = str(b["name"])
+	else:  # the slab's name while a unit still carries the mint default "Big u1"
+		unit_names = CryptLogic.display_names(bigs, slab_cfg)
+	for b in bigs:
 		big_undead[str(b["uid"])] = b
 	villages = state.view_villages().get("villages", [])
 	forts = realm.get("forts", [])
@@ -100,6 +125,62 @@ func refresh(force := false) -> bool:
 	return true
 
 
+## Forgets the statics (a test's fresh start; a new game does this by its game id).
+static func reset_statics() -> void:
+	proj_store = {}
+	level_snap = {}
+	snap_game = ""
+	snap_set = false
+
+
+## The finished-build callout's inputs, once per refresh: the built levels against the last
+## snapshot (the mount's diff, taken at this model's first refresh), the upgrades' projections the
+## town view carries, and, on the slow cadence, the catalog's for the new builds pending.
+func _note_builds(town: Dictionary) -> void:
+	built = SetpieceLogic.lot_levels(town.get("buildings", []))
+	var gid := str(hud.get("game_id", ""))
+	var same := snap_set and snap_game == gid
+	if not same:
+		proj_store = {}  # another game's projections
+	if _first_read:
+		_first_read = false
+		mount_rises = SetpieceLogic.rises(level_snap, built) if same else []
+	level_snap = built.duplicate(true)
+	snap_game = gid
+	snap_set = true
+	SetpieceLogic.note_upgrades(proj_store, town.get("buildings", []))
+	read_projections(town)
+
+
+## Reads view_catalog() for the projections of the new builds pending (queued or under construction),
+## at most every projection_read_s of real time and only while one is pending: it is the costly read,
+## and the sim refreshes the projections only while the catalog is being read (STATE-API §5.10), so
+## the first read of a build comes back cold and the next one holds its value. `force` skips the clock.
+func read_projections(town: Dictionary, force := false) -> void:
+	var fresh := SetpieceLogic.pending_new(town)
+	if fresh.is_empty():
+		return  # upgrades carry upgrade_projected in view_town(): no catalog read for them
+	var now := Time.get_ticks_msec() / 1000.0
+	if not force and now - _proj_read_s < float(MapLogic.cfg().get("projection_read_s", 4.0)):
+		return
+	_proj_read_s = now
+	SetpieceLogic.note_catalog(proj_store, fresh, state.view_catalog().get("buildings", []))
+
+
+## The store stalls view_town() reports: {mill: {starved, lever} of the Bone Mill row ("" each when it
+## is not built or not starved), queue_stall: the queue's head (queue[0]) when it reads a starved reason, else {}}.
+static func stall_from(town: Dictionary) -> Dictionary:
+	var mill_row := {"starved": "", "lever": ""}
+	for b in town.get("buildings", []):
+		if str(b.get("building_id", "")) == "bone_mill" and str(b.get("starved", "")) != "":
+			mill_row = {"starved": str(b["starved"]), "lever": str(b.get("lever", ""))}
+	var head := {}
+	var queue: Array = town.get("queue", [])
+	if not queue.is_empty() and str(queue[0].get("starved", "")) != "":
+		head = queue[0]
+	return {"mill": mill_row, "queue_stall": head}
+
+
 ## The raid set (NextLogic.raid_set) from these views, after the demo overlay: ranked from
 ## Relish's node, with the last set as its memory.
 func _refresh_raids() -> void:
@@ -111,6 +192,7 @@ func _refresh_raids() -> void:
 		_raid_why.clear()
 	_raid_t = now_t
 	raids = NextLogic.raid_set(forts, _raid_why.keys(), _raid_from(), positions)
+	next_place = NextLogic.next_place(forts, _raid_from(), positions)
 	_raid_why.clear()
 	for r in raids:
 		_raid_why[str(r["fort"]["id"])] = str(r["why"])

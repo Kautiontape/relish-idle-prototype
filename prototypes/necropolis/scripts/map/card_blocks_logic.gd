@@ -56,12 +56,13 @@ static func card_sig(card: Dictionary) -> String:
 ## warden, loot, threat in advance, matter.
 ## `backups` is view_backups(), `names` maps big-undead uids to names, `loot_cfg` is configs/loot.json
 ## (for the dungeon's loot line). `party` is view_party(), `raid_cfg` and `econ_cfg` are configs/raid.json
-## and economy.json (who comes in, and the tier's standard party), `tide_bias` is realm.relish.tide_bias.
+## and economy.json (who comes in, and the tier's standard party), `tide_bias` is realm.relish.tide_bias,
+## `siege_block` is realm.tithe.siege_block (the siege chip's "blocks 60% of a tithe wave").
 static func fort_card(fort: Dictionary, desc: String, backups: Dictionary, names: Dictionary, loot_cfg: Dictionary,
-		party: Dictionary, raid_cfg: Dictionary, econ_cfg: Dictionary, tide_bias: float) -> Dictionary:
+		party: Dictionary, raid_cfg: Dictionary, econ_cfg: Dictionary, tide_bias: float, siege_block := 0.0) -> Dictionary:
 	var c := _c()
 	var blocks: Array = []
-	var chips := CardLogic.status_chips(fort, names)
+	var chips := CardLogic.status_chips(fort, names, siege_block)
 	if not chips.is_empty():
 		blocks.append({"kind": "chips", "id": "chips", "chips": chips})
 	var held := bool(fort.get("held", false))
@@ -124,6 +125,7 @@ static func vei_card(vei: Dictionary, desc: String, party: Array, names: Diction
 	blocks.append(_row("diff", str(c.get("vei_diff_label", "")), MapLogic.fmt_rate(float(vei.get("diff_ema", 0.0))), "rate"))
 	blocks.append(_row("drain", str(c.get("vei_drain_label", "")), str(st["drain_text"]), "mass"))
 	blocks.append(_head("fronts_head", str(c.get("fronts_head", ""))))
+	blocks.append(_para("fronts_hint", str(c.get("fronts_hint", "")), "text_dim"))
 	for r in CardLogic.front_rows(vei.get("fronts", []), names):
 		blocks.append({"kind": "front", "id": "front_%s" % r["id"], "name": r["name"], "count": "%s / %s" % [r["have"], r["need"]],
 			"mark": r["mark"], "cleared": r["cleared"], "assigned": r["assigned"]})

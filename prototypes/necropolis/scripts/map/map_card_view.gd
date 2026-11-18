@@ -88,6 +88,33 @@ func show_card(card: Dictionary) -> void:
 		_update(_refs[i], card["blocks"][i])
 
 
+## The bottom edge of every block, in this card's frame, from the controls' minimum sizes (a layout
+## pass behind a text change would give stale positions): the sidebar ends a scrolled card's visible
+## area on one of these (CardLogic.snap_bottom), so no line is cut at the fold.
+func block_bottoms() -> Array:
+	var out: Array = []
+	var gap := float(get_theme_constant("separation"))
+	var y := 0.0
+	for c in get_children():
+		var ctl := c as Control
+		if not ctl.visible:
+			continue
+		if ctl == _body:
+			var bgap := float(_body.get_theme_constant("separation"))
+			var by := y
+			for b in _body.get_children():
+				if (b as Control).visible:
+					by += (b as Control).get_combined_minimum_size().y
+					out.append(by)
+					by += bgap
+			y = by - bgap
+		else:
+			y += ctl.get_combined_minimum_size().y
+			out.append(y)
+		y += gap
+	return out
+
+
 static func _put(l: Label, text: String) -> void:
 	if l.text != text:
 		l.text = text

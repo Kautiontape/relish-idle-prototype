@@ -112,13 +112,17 @@ func _countdowns(t: TestUtil) -> void:
 	t.ok(NodeLogic.fmt_eta(-3.0) == "0:00", "a negative ETA reads 0:00")
 	t.ok(NodeLogic.tithe_mode({}) == "" and NodeLogic.tithe_mode({"tithe": {"targeted": true, "wave_active": false}}) == "warning" \
 		and NodeLogic.tithe_mode({"tithe": {"targeted": true, "wave_active": true}}) == "wave", "tithe mode: none, warning, wave")
+	var nx := {"tithe": {"targeted": false, "wave_active": false, "next": true, "next_s": 600.0}}
+	t.ok(NodeLogic.tithe_mode(nx) == "next" and NodeLogic.tithe_next(nx) and not NodeLogic.tithe_badge(nx), "the next pick is mode next: the quiet telegraph, not the warning badge")
+	t.ok(NodeLogic.tithe_mode({"tithe": {"targeted": true, "wave_active": false, "next": true}}) == "warning", "a warning wins over next")
+	t.ok(not NodeLogic.tithe_next({"tithe": {"next": false}}) and not NodeLogic.tithe_next({}), "not next: no telegraph")
 	t.ok(NodeLogic.first_dungeon_pulse({"first_dungeon": true, "first_clear": true}) and not NodeLogic.first_dungeon_pulse({"first_dungeon": true, "first_clear": false}) \
 		and not NodeLogic.first_dungeon_pulse({"first_clear": true}), "the first-dungeon pulse needs both flags")
 	# the one tag line under a name
 	var n := NodeLogic.ncfg()
 	var over := _fort(100.0, 0.0, 60.0, 0.0)
 	var tag := NodeLogic.name_tag(over)
-	t.ok(NodeLogic.fort_state(over, "") == NodeLogic.OVERRUN and tag.get("text", "") == n["label_overrun"] and tag.get("key", "") == "text_dim", "overrun, never taken: Vei's tag in text_dim")
+	t.ok(NodeLogic.fort_state(over, "") == NodeLogic.OVERRUN and tag.get("text", "") == n["label_overrun"] and tag.get("key", "") == "text", "overrun, never taken: Vei's tag in full text (it read dim at the whole-map zoom)")
 	var first := _fort(100.0, 0.0, 60.0, 0.0)
 	first["first_dungeon"] = true
 	first["first_clear"] = true
@@ -437,6 +441,10 @@ func _contrast(t: TestUtil) -> void:
 		t.ok(cr >= 3.0, "%s pips and arcs read 3:1 over ground (%.2f)" % [k, cr])
 	for k in ["undead", "living", "relish", "vei"]:
 		t.ok(MapLogic.contrast_ratio(Palette.c(k), ground) >= 3.0, "%s pips read 3:1" % k)
+	# the next-tithe hollow badge: the living's key at tithe_next_alpha (contrast_ratio composites the alpha over the ground)
+	var badge := Palette.c("living", float(n["tithe_next_alpha"]))
+	var br := MapLogic.contrast_ratio(badge, ground)
+	t.ok(br >= 3.0, "the next-tithe hollow badge reads 3:1 over ground (%.2f)" % br)
 	var lab := Palette.c("text_dim", float(MapLogic.cfg()["node_label_dim_alpha"]))
 	t.ok(MapLogic.contrast_ratio(lab, ground) >= 4.5, "fort labels read 4.5:1 (%.2f)" % MapLogic.contrast_ratio(lab, ground))
 	t.ok(NodeLogic.fort_label_key("far") == "text" and NodeLogic.fort_label_key("mid") == "text" and NodeLogic.fort_label_key("near") == "text_dim", "fort names are full text in the overview tiers (far, mid), dim at near")
@@ -446,6 +454,20 @@ func _contrast(t: TestUtil) -> void:
 	t.ok(float(MapLogic.cfg()["node_label_dim_alpha"]) == 1.0 and MapLogic.contrast_ratio(Palette.c("text"), ground) >= MapLogic.contrast_ratio(Palette.c("text_dim"), ground), "the far name is at least as bright as the dim one")
 	for k in ["undead", "living", "relish", "danger", "text"]:
 		t.ok(MapLogic.contrast_ratio(Palette.c(k), ground) >= 4.5, "%s text reads 4.5:1" % k)
+	# the fort tags (first dungeon, retaken, overrun) under the names: no smaller than the name, 4.5:1 on the label plate
+	t.ok(NodeLogic.tag_size() >= int(MapLogic.cfg()["font_label"]), "the tag line is %d px, no smaller than the fort name's %d" % [NodeLogic.tag_size(), int(MapLogic.cfg()["font_label"])])
+	var bright := ""  # the plate is the ground at label_plate_alpha; the brightest palette key may show through the rest
+	for k in Palette.keys():
+		if bright == "" or MapLogic.luminance(Palette.c(k)) > MapLogic.luminance(Palette.c(bright)):
+			bright = k
+	var plate_bg := Palette.c("ground").lerp(Palette.c(bright), 1.0 - float(n["label_plate_alpha"]))
+	for tk in n["label_tag_keys"]:
+		var key := str(n["label_tag_keys"][tk])
+		var tr_ := MapLogic.contrast_ratio(Palette.c(key), plate_bg)
+		t.ok(tr_ >= 4.5, "the %s tag (%s) reads 4.5:1 on the ground (%.2f)" % [tk, key, tr_])
+	var tag_plate: Rect2 = NodeLogic.fort_label_rects(60.0, 100.0, int(MapLogic.cfg()["font_label"]))[1]
+	var name_plate: Rect2 = NodeLogic.fort_label_rects(60.0, 100.0, int(MapLogic.cfg()["font_label"]))[0]
+	t.ok(tag_plate.position.y >= name_plate.end.y - 0.5, "the bigger tag plate starts at or below the name plate's bottom (%.1f vs %.1f)" % [tag_plate.position.y, name_plate.end.y])
 	t.ok(int(MapLogic.cfg()["font_label"]) >= 12 and int(n["font_tithe"]) >= 12 and int(n["font_odds_sub"]) >= 12 and int(n["font_odds"]) >= 12, "no text under 12 px")
 	t.ok(MapLogic.cfg()["redirect_ring_pad_px"] > float(n["tithe_off_px"]) + float(n["tithe_halo_max_px"]) * 0.5, "the tithe ring sits inside the REDIRECT ring")
 
@@ -496,6 +518,13 @@ func _sources(t: TestUtil) -> void:
 	var layers := ""
 	for f in ["map_fort_ring.gd", "map_covington.gd", "map_vei.gd", "map_relish.gd"]:
 		layers += FileAccess.get_file_as_string("%s/%s" % [MAP_DIR, f])
+	var names := NodeLogic.node_names()
+	t.ok(names == {"war": "WAR", "flood": "FLOOD", "work": "WORK", "covington": "COVINGTON", "vei": "VEI'S DOMAIN"}, "the node names reader returns the five labels' texts")
+	for f in ["map_covington.gd", "map_vei.gd", "map_fort_idle.gd"]:
+		var src := FileAccess.get_file_as_string("%s/%s" % [MAP_DIR, f])
+		t.ok(src.length() > 500 and src.contains("NodeLogic.node_names()"), "%s reads its label texts from NodeLogic.node_names()" % f)
+		for k in names:
+			t.ok(not src.contains("\"%s\"" % names[k]), "%s carries no \"%s\" literal" % [f, names[k]])
 	t.ok(layers.contains("Pulse.wave(") and layers.contains("Pulse.phase(") and layers.contains("hops_of("), "the layers take their tempo from Pulse.wave and Pulse.phase at model.hops_of")
 	t.ok(not layers.contains("Pulse.wave(1") and not layers.contains("Pulse.wave(0") and not layers.contains("Pulse.wave(2"), "no literal hop counts")
 	t.ok(layers.contains("LineGlow.") or layers.contains("glow_arc("), "glows go through LineGlow")

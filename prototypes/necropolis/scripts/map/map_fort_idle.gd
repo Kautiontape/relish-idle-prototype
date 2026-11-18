@@ -15,6 +15,11 @@ extends MapNodeLayer
 ## Set pieces: a fort whose ring is re-inking (ctx.reink) gets its chip when the ring is done; the
 ## garrison cleared (ctx.chip_fx) replaces line two with her counter-garrison draining to 0 (or the
 ## cleared word), then flips it (squashed to nothing and open again) to the live margin word.
+## A chip that would sit over another fort's ring, name or tag, another chip or Relish's token
+## takes another place around its own fort (IdleLogic.chip_layout).
+
+var _layout_cache: Dictionary = {}
+var _layout_key: Array = []
 
 
 func _draw_static() -> void:
@@ -52,24 +57,48 @@ func chip_world_rect(f: Dictionary) -> Rect2:
 	return Rect2(base.position + _chip_shift(f, c), base.size)
 
 
-## How far the chip moves off its place under the name to clear Relish's token, in world px
-## (IdleLogic.chip_place); ZERO when she is not near it.
+## How far the chip moves off its place under the name, in world px: to clear Relish's token and
+## other forts' rings, labels and chips (IdleLogic.chip_layout). ZERO when its place is clear.
 func _chip_shift(f: Dictionary, c: Dictionary) -> Vector2:
-	if ctx.relish.is_empty():
+	var layout := _layout(c)
+	if not layout.has(f["id"]):
 		return Vector2.ZERO
 	var p := MapModel.to_vec(f["pos"])
-	var r := MapLogic.fort_radius(int(f["tier"]))
-	var second := not NodeLogic.name_tag(f).is_empty()
-	var ck := ctx.model.clock_of(str(f["id"]))
-	var w := _chip_width(f, ck, c)
-	var others: Array = []
+	var base := IdleLogic.chip_rect(p, MapLogic.fort_radius(int(f["tier"])), ctx.zoom, not NodeLogic.name_tag(f).is_empty(), _chip_width(f, ctx.model.clock_of(str(f["id"])), c))
+	return (layout[f["id"]] as Rect2).position - base.position
+
+
+## Every held fort's placed chip rect ({id: Rect2}, world px), IdleLogic.chip_layout over all the
+## forts, computed once per frame (the callouts and the drawing both ask).
+func _layout(c: Dictionary) -> Dictionary:
+	var key := [Engine.get_process_frames(), ctx.zoom, ctx.tier, ctx.relish_pos, ctx.relish.is_empty(), ctx.forts.size()]
+	if key == _layout_key:
+		return _layout_cache
+	var size := int(MapLogic.cfg()["font_label"])
+	var font := ThemeDB.fallback_font  # what MapNodeLayer.draw_label measures with
+	var items: Array = []
 	for g in ctx.forts:
-		if g["id"] != f["id"]:
-			others.append(MapModel.to_vec(g["pos"]))
-	var n := NodeLogic.ncfg()
-	var tr := float(NodeLogic.relish_radii(ctx.zoom)["halo"]) + ctx.px(float(n["relish_halo_max_px"]) * 0.5)
-	var base := IdleLogic.chip_rect(p, r, ctx.zoom, second, w)
-	return IdleLogic.chip_place(p, r, ctx.zoom, second, w, ctx.relish_pos, tr, others).position - base.position
+		var tag := NodeLogic.name_tag(g)
+		var tier := int(g["tier"])
+		var shown := NodeLogic.fort_label_shown(ctx.tier, tier)
+		var tag_w := -1.0
+		if shown and not tag.is_empty() and ctx.tier != "far":
+			tag_w = font.get_string_size(str(tag["text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, NodeLogic.tag_size()).x
+		var held := bool(g.get("held", false))
+		items.append({"id": g["id"], "pos": MapModel.to_vec(g["pos"]), "r": MapLogic.fort_radius(tier), "held": held, "second": not tag.is_empty(),
+			"w": _chip_width(g, ctx.model.clock_of(str(g["id"])), c) if held else 0.0,
+			"name_w": font.get_string_size(str(g["name"]), HORIZONTAL_ALIGNMENT_LEFT, -1, size).x if shown else -1.0, "tag_w": tag_w})
+	var tr := float(NodeLogic.relish_radii(ctx.zoom)["halo"]) + ctx.px(float(NodeLogic.ncfg()["relish_halo_max_px"]) * 0.5)
+	# Covington's glyph, name and stream labels and Vei's reach and name, measured as their layers do
+	var names := NodeLogic.node_names()
+	var text_w := {}
+	for k in names:
+		text_w[k] = font.get_string_size(names[k], HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+	var shares: Dictionary = ctx.valve_shares if not ctx.valve_shares.is_empty() else ctx.model.hud.get("valve_target", ctx.model.hud.get("valve", {}))  # as MapCovington._shares
+	var nodes := IdleLogic.node_obstacles(ctx.cov_pos, ctx.vei_pos, ctx.vei_radius, float(ctx.vei.get("backlog", 0.0)), shares, NodeLogic.fort_centroid(ctx.forts), ctx.zoom, ctx.tier != "far", text_w)
+	_layout_cache = IdleLogic.chip_layout(items, ctx.zoom, not ctx.relish.is_empty(), ctx.relish_pos, tr, nodes)
+	_layout_key = key
+	return _layout_cache
 
 
 ## The garrison counted out: GlyphLogic.garrison_fill of the chip's units over the fort's slots.

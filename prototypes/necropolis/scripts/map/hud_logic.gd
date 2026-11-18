@@ -87,6 +87,72 @@ static func objective_text(hud: Dictionary) -> String:
 	return str(cfg.get("objective_won_text", "")) if hud.get("won", false) else str(cfg.get("objective_text", ""))
 
 
+## Whether the run's goal and the valve's one-line explanation show: while no fort has been taken
+## (view_hud.highest_tier_flipped is 0: existing state, no save flag). After that the goal line is
+## gone and the valve's explanation stays as its hover tooltip.
+static func goal_shown(hud: Dictionary) -> bool:
+	return int(hud.get("highest_tier_flipped", 0)) == 0 and not bool(hud.get("won", false))
+
+
+## The run's goal under the objective strip: the config's lines, one per row.
+static func goal_text() -> String:
+	return "\n".join(PackedStringArray(MapLogic.cfg().get("clarity", {}).get("goal_lines", [])))
+
+
+## Whether the fort legend shows expanded: the player's click when there was one (`user`: 1 open,
+## 0 closed), else while no fort has been taken (goal_shown), collapsed to a button afterwards.
+static func legend_open(hud: Dictionary, user: int) -> bool:
+	return goal_shown(hud) if user < 0 else user == 1
+
+
+## Where the fort legend sits and how it shows, from the real rects. `chip` and `valve` are their
+## panels' rects; the legend is `w` wide at left edge `x`, bottom-aligned `gap` above the valve.
+## `h_full`, `h_compact` (rows closer together) and `h_closed` (the button) are its heights.
+## `want_open`: it would show expanded (the game's default or the player's click); `user_open`: the
+## player clicked it open. The Relish chip (when it overlaps the legend's columns) bounds the top:
+## the legend's top is at least the chip's bottom plus `gap`. A default-open legend that does not fit
+## at full height shows collapsed; one the player opened shows compact if that fits, else collapsed.
+## Returns {mode: "full"|"compact"|"closed", rect: Rect2}.
+static func legend_place(chip: Rect2, valve: Rect2, x: float, w: float, h_full: float, h_compact: float, h_closed: float,
+		want_open: bool, user_open: bool, gap: float) -> Dictionary:
+	var bottom := valve.position.y - gap
+	var floor_y := -INF
+	if chip.size.y > 0.0 and chip.position.x < x + w and chip.end.x > x:
+		floor_y = chip.end.y + gap
+	var avail := bottom - floor_y
+	var mode := "closed"
+	if want_open:
+		if h_full <= avail:
+			mode = "full"
+		elif user_open and h_compact <= avail:
+			mode = "compact"
+	var h := h_full if mode == "full" else (h_compact if mode == "compact" else h_closed)
+	return {"mode": mode, "rect": Rect2(x, bottom - h, w, h)}
+
+
+## The fort state a legend row draws: Vei's and retaken are both a fort of hers (a living square;
+## the map tells a retaken one by its danger tag), held draws safe (a diamond), overrun its hollow square.
+static func legend_glyph_state(id: String) -> String:
+	match id:
+		"held":
+			return IdleLogic.SAFE
+		"overrun":
+			return NodeLogic.OVERRUN
+	return NodeLogic.HERS
+
+
+## Where the card's top edge sits: `high` (near the screen's top, the whole height for the card)
+## when the HUD's plates (`plates_right`) end `gap` clear of the card's left edge, else `low` (under them).
+static func sidebar_top(viewport_w: float, card_w: float, plates_right: float, gap: float, low: float, high: float) -> float:
+	return high if plates_right + gap <= viewport_w - card_w else low
+
+
+## The hover line of a jargon word (the bar's MINT, ODDS, STRAIN, DRAIN; the valve's WORK, WAR,
+## FLOOD), from config; "" for a word with none.
+static func tip(id: String) -> String:
+	return str(MapLogic.cfg().get("clarity", {}).get("tips", {}).get(id, ""))
+
+
 ## A screen rect (the open card) in a world-anchored layer's frame, world x zoom (MapCallouts'):
 ## screen - viewport / 2 + camera position x zoom.
 static func screen_to_zoomed(r: Rect2, cam_pos: Vector2, zoom: float, viewport: Vector2) -> Rect2:
@@ -97,6 +163,68 @@ static func screen_to_zoomed(r: Rect2, cam_pos: Vector2, zoom: float, viewport: 
 
 static func node_name(id: String, names: Dictionary) -> String:
 	return str(names.get(id, id.capitalize()))
+
+
+## Vei's tithe telegraph from view_vei().tithe, as {text, fort_id}: the wave running, a warning
+## with its ETA, else the next pick with next_s; {"", ""} when there is nothing to say.
+static func tithe_line(vei_tithe: Dictionary, names: Dictionary) -> Dictionary:
+	var c: Dictionary = MapLogic.cfg()["tithe_line"]
+	var target := str(vei_tithe.get("target", ""))
+	if target != "":
+		if bool(vei_tithe.get("wave_active", false)):
+			return {"text": str(c["wave_fmt"]) % node_name(target, names), "fort_id": target}
+		var eta := float(vei_tithe.get("eta_s", -1.0))
+		if eta >= 0.0:
+			return {"text": str(c["warning_fmt"]) % [node_name(target, names), OpeningLogic.eta_text(eta)], "fort_id": target}
+	var nxt := str(vei_tithe.get("next_target", ""))
+	var next_s := float(vei_tithe.get("next_s", -1.0))
+	if nxt != "" and next_s >= 0.0:
+		return {"text": str(c["next_fmt"]) % [node_name(nxt, names), OpeningLogic.eta_text(next_s)], "fort_id": nxt}
+	return {"text": "", "fort_id": ""}
+
+
+## The player's words for a view `lever` ("raise_war" -> "Raise WAR"), from bone_line.levers; an
+## unknown lever reads as itself, "" as "".
+static func lever_text(lever: String) -> String:
+	return str(MapLogic.cfg()["bone_line"]["levers"].get(lever, lever))
+
+
+## The queue head that can never be afforded while the pits eat every body: {} when `head` (a
+## view_town().queue row, or {}) is not that.
+static func stalled_head(head: Dictionary) -> Dictionary:
+	if str(head.get("starved", "")) == "pits_first" and float(head.get("affordable_in_s", 0.0)) < 0.0:
+		return head
+	return {}
+
+
+## Whether the pits-first stall is live: the Bone Mill row ({starved, lever}) or the queue head says so.
+static func pits_stalled(mill: Dictionary, head: Dictionary) -> bool:
+	return str(mill.get("starved", "")) == "pits_first" or not stalled_head(head).is_empty()
+
+
+## The lever the stall names: the head's, else the mill's.
+static func stall_lever(mill: Dictionary, head: Dictionary) -> String:
+	var h := stalled_head(head)
+	return str(h.get("lever", "")) if not h.is_empty() else str(mill.get("lever", ""))
+
+
+## The BONE item's one-line warning, or "". A stalled queue head is named with its ETA as never
+## and what it is short of ("Inn: never, 7 bone short. The pits eat every body: raise WAR": never a
+## number of seconds); else the mill's own stall ("no bone: the pits eat every body. Raise WAR").
+## Only pits_first speaks: no_bodies has no lever and says nothing. `building_names` maps ids to
+## labels (buildings_view); an id without one is capitalised.
+static func bone_line(mill: Dictionary, head: Dictionary, building_names := {}) -> String:
+	var c: Dictionary = MapLogic.cfg()["bone_line"]
+	var lever := lever_text(stall_lever(mill, head))
+	var h := stalled_head(head)
+	if not h.is_empty():
+		var id := str(h.get("building_id", ""))
+		var short := MapLogic.fmt_mass(float(ceili(float(h.get("short", {}).get("bone", 0.0)))))
+		var low := lever.substr(0, 1).to_lower() + lever.substr(1)
+		return str(c["head_fmt"]) % [str(building_names.get(id, id.capitalize())), short, low]
+	if str(mill.get("starved", "")) == "pits_first":
+		return str(c["mill_fmt"]) % lever
+	return ""
 
 
 ## {head, rate, tail} for a lane row, or {} when its why is empty:

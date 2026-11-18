@@ -19,6 +19,7 @@ func run() -> int:
 	_percents_and_project(t)
 	_throttle(t)
 	_panel_text(t)
+	_bone_edge(t)
 	_payoff_cost(t)
 	_eta_and_chip(t)
 	_reasons(t)
@@ -130,6 +131,48 @@ func _panel_text(t: TestUtil) -> void:
 	t.ok(ValveLogic.supports_text({"war_supports": {"n": 0, "m": 0}}) == "", "and is hidden when none is held")
 
 
+## The valve marks where bone starts (view_hud.bone_war_share) and says so while the stall is live.
+func _bone_edge(t: TestUtil) -> void:
+	t.suite("map_controls-valve-bone-edge")
+	var seg := ValveLogic.bone_tick(0.54, SIDE)
+	t.ok(seg.size() == 2, "a share inside 0..1 has a tick")
+	var a: Vector2 = seg[0]
+	var b: Vector2 = seg[1]
+	t.ok(is_equal_approx(a.y, b.y) and is_equal_approx(a.y, ValveLogic.height(SIDE) * 0.46), "the tick is level, 0.54 of the way up to WAR: y = %.1f" % a.y)
+	t.ok(is_equal_approx(b.x - a.x, SIDE * 0.46), "its length is the triangle's width there (%.1f)" % (b.x - a.x))
+	t.ok(absf(float(ValveLogic.bary_of(a, SIDE)["war"]) - 0.54) < 1e-4 and absf(float(ValveLogic.bary_of(b, SIDE)["war"]) - 0.54) < 1e-4, "both ends sit at WAR share 0.54")
+	t.ok(ValveLogic.is_inside(a, SIDE) and ValveLogic.is_inside(b, SIDE), "and on the triangle's edges")
+	t.ok(ValveLogic.bone_tick(0.0, SIDE).is_empty() and ValveLogic.bone_tick(1.0, SIDE).is_empty() and ValveLogic.bone_tick(-0.2, SIDE).is_empty(), "no edge (0, 1 or none): no tick")
+	# the edge is a new game's: marked (tick, label, drag line) only while no fort has been taken
+	t.ok(is_equal_approx(ValveLogic.bone_edge({"bone_war_share": 0.54, "highest_tier_flipped": 0}), 0.54), "no fort taken: the edge is marked")
+	t.ok(ValveLogic.bone_edge({"bone_war_share": 0.54, "highest_tier_flipped": 1}) == 0.0, "a fort taken: the edge is stale, none marked")
+	var late := ValveLogic.bone_edge({"bone_war_share": 0.54, "highest_tier_flipped": 2})
+	t.ok(ValveLogic.bone_tick(late, SIDE).is_empty() and ValveLogic.bone_readout(false, "Raise WAR", true, 0.1, late) == "", "late: no tick and no below-edge line")
+	t.ok(ValveLogic.bone_readout(true, "Raise WAR", false, 0.8, late) == "Raise WAR: the pits eat every body", "but a live stall's lever line stays, whatever the tier")
+	var lever := "Raise WAR"
+	t.ok(ValveLogic.bone_readout(true, lever, false, 0.8, 0.54) == "Raise WAR: the pits eat every body", "a live stall carries the lever line")
+	t.ok(ValveLogic.bone_readout(true, lever, true, 0.3, 0.54) == "Raise WAR: the pits eat every body", "and keeps it while dragging (one line)")
+	t.ok(ValveLogic.bone_readout(false, lever, false, 0.2, 0.54) == "", "no stall, no drag: nothing, even below the edge")
+	t.ok(ValveLogic.bone_readout(false, lever, true, 0.3, 0.54) == "below the bone edge", "dragging under the edge says so")
+	t.ok(ValveLogic.bone_readout(false, lever, true, 0.54, 0.54) == "" and ValveLogic.bone_readout(false, lever, true, 0.7, 0.54) == "", "at or above the edge: nothing")
+	t.ok(ValveLogic.bone_readout(false, lever, true, 0.3, 0.0) == "", "no edge from the view: nothing")
+	var c: Dictionary = MapLogic.cfg()["controls"]
+	t.ok(str(c["valve_bone_label"]) == "bone", "the tick's tiny label")
+	var plate := Palette.c("ground").lightened(float(MapLogic.cfg()["panel_bg_lighten"]))
+	var pa := float(c["valve_plate_alpha"])
+	var bright := ""
+	for k in Palette.keys():
+		if bright == "" or MapLogic.luminance(Palette.c(k)) > MapLogic.luminance(Palette.c(bright)):
+			bright = k
+	var through := Palette.c("ground").lerp(Palette.c(bright), 1.0 - pa)
+	var under := plate.lerp(through, 1.0 - pa)
+	for key in [str(MapLogic.cfg()["bone_line"]["key"]), str(c["valve_bone_label_key"])]:
+		for g in [plate, under]:
+			var r := MapLogic.contrast_ratio(Palette.c(key), g)
+			t.ok(r >= 4.5, "valve text in %s reads 4.5:1 on the valve plate (%.1f)" % [key, r])
+	t.ok(float(c["valve_bone_tick_w_px"]) >= 1.0, "the tick is at least 1 px")
+
+
 func _payoff_cost(t: TestUtil) -> void:
 	t.suite("map_controls-payoff-cost")
 	var eps := 0.05
@@ -180,6 +223,11 @@ func _eta_and_chip(t: TestUtil) -> void:
 	t.ok(RelishLogic.fmt_eta(6.6) == "0:07" and RelishLogic.fmt_eta(-3.0) == "0:00", "rounds up, and never negative")
 	t.near(RelishLogic.eta_s(440.0, 220.0), 2.0, 1e-9, "distance / travel_speed")
 	t.near(RelishLogic.eta_s(440.0, 0.0), 0.0, 1e-9, "no speed: 0, no divide by zero")
+	var gw := {"greywall": "Greywall", "covington": "Covington"}
+	var ret := {"type": "relish_returned", "fort_id": "greywall", "cause": "retaken", "t": 90.0}
+	t.ok(RelishLogic.returned_toast(ret, gw) == "Vei retook Greywall. Relish is walking home.", "relish_returned toasts the retake in the glossary's words")
+	t.ok(RelishLogic.returned_toast({"type": "fort_retaken", "fort_id": "greywall"}, gw) == "", "another event type: no toast")
+	t.ok(RelishLogic.returned_toast({"type": "relish_returned", "fort_id": "nowhere", "cause": "retaken"}, gw) == "", "an unknown fort: no toast")
 	var names := {"covington": "Covington", "old-sluice": "Old Sluice", "ashgate": "Ashgate"}
 	t.ok(RelishLogic.chip_text({"state": "home", "at": "covington"}, names) == "Relish · home (Covington)", "chip: home")
 	t.ok(RelishLogic.chip_text({"state": "at_fort", "at": "old-sluice"}, names) == "Relish · at Old Sluice", "chip: at a fort")

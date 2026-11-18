@@ -34,6 +34,7 @@ func run() -> int:
 	_next(t)
 	_order(t)
 	_targets(t)
+	_places(t)
 	_weight(t)
 	_payoff(t)
 	_overflow(t)
@@ -378,7 +379,7 @@ func _raid(t: TestUtil) -> void:
 	var order: Array = _raid_ids(forts)
 	t.ok(order == ["c", "b", "a"], "refilled first, then the first dungeon, then the frontier (%s)" % str(order))
 	t.ok(NextLogic.ready_line(forts[2], "refilled") == {"text": "C refilled: raid it", "kind": "raid", "target": "c"}, "a refilled ready line, in view_away's shape")
-	t.ok(NextLogic.ready_line(forts[1], "first_clear")["text"] == "B: first clear holds a blueprint", "a first-clear ready line")
+	t.ok(NextLogic.ready_line(forts[1], "first_clear")["text"] == "B: take it for a guaranteed blueprint", "a first-clear ready line")
 	var s := GameState.new(TestUtil.configs())
 	s.debug_enabled = true
 	s.cmd_debug_load_fixture("day1")
@@ -556,7 +557,7 @@ func _raid_model(t: TestUtil) -> void:
 ## The strip's input; `raids` is the set the model would hand it (NextLogic.raid_set of the forts,
 ## no memory, no positions) unless the test gives one.
 func _inp(extra := {}) -> Dictionary:
-	var d := {"forts": [], "clocks": {}, "queue": null, "vei": {}, "readout": {"odds": 0.1}, "won": false, "opening": {}}
+	var d := {"forts": [], "clocks": {}, "queue": [{"building_id": "pit"}], "vei": {}, "readout": {"odds": 0.1}, "won": false, "opening": {}}  # a queued build: not the plan's rule
 	d.merge(extra, true)
 	if not extra.has("raids"):
 		d["raids"] = NextLogic.raid_set(d["forts"], [], Vector2.ZERO, {})
@@ -593,7 +594,7 @@ func _next(t: TestUtil) -> void:
 	var r2 := NextLogic.choose(_inp({"forts": [ash]}))
 	t.ok(r2["rule"] == "raid" and r2["text"] == "Ashgate refilled: raid it" and r2["action"] == {"kind": "fort", "id": "ashgate"}, "a refilled raid")
 	var sluice := {"id": "old-sluice", "name": "Old Sluice", "first_clear": true, "first_dungeon": true}
-	t.ok(NextLogic.choose(_inp({"forts": [sluice]}))["text"] == "Old Sluice: first clear holds a blueprint", "a first clear")
+	t.ok(NextLogic.choose(_inp({"forts": [sluice]}))["text"] == "Old Sluice: take it for a guaranteed blueprint", "a first clear")
 	var two := [{"id": "a", "name": "A", "first_clear": false, "clears_since_retaken": 1, "yield_mult": 1.0}, {"id": "b", "name": "B", "first_clear": false, "clears_since_retaken": 1, "yield_mult": 1.0}]
 	t.ok(NextLogic.choose(_inp({"forts": two}), {"rule": "raid", "target": "b"})["target"] == "b", "a kept raid target holds while it is still in the set")
 	var only_a := NextLogic.raid_set([two[0]], [], Vector2.ZERO, {})
@@ -610,7 +611,6 @@ func _next(t: TestUtil) -> void:
 	# 4. the plan: the empty queue, else the standing objective
 	t.ok(NextLogic.choose(_inp({"queue": []}))["rule"] == "queue", "an empty queue")
 	t.ok(NextLogic.choose(_inp({"queue": [{"building_id": "pit"}]}))["rule"] != "queue", "a queued build: not this rule")
-	t.ok(NextLogic.choose(_inp({"queue": null}))["rule"] != "queue", "no queue in the view: skipped")
 	t.ok(NextLogic.choose(_inp({"queue": []}))["text"] == str(c["queue_text"]), "queue line")
 	# the opening's override
 	var op := NextLogic.choose(_inp({"forts": [vespers], "clocks": {"vespers": {"fall_s": 60.0}}, "opening": {"text": "Drag the triangle", "target": "vespers"}}))
@@ -664,7 +664,7 @@ func _order(t: TestUtil) -> void:
 	all["forts"] = []
 	all["raids"] = []
 	t.ok(NextLogic.choose(all)["rule"] == "queue", "then the plan: the empty queue")
-	all["queue"] = null
+	all["queue"] = [{"building_id": "pit"}]
 	t.ok(NextLogic.choose(all)["rule"] == "default", "then the standing objective")
 	# Vei's hysteresis: enter at next_vei_odds, stay to next_vei_odds_exit
 	var enter := float(c["next_vei_odds"])
@@ -722,6 +722,56 @@ func _targets(t: TestUtil) -> void:
 	t.ok(wm.contains("hud.next_chosen.connect(") and wm.contains("func _act_on("), "world_map acts on the strip's clicks")
 
 
+# --- every strip line names a place ---------------------------------------------------------------
+
+## Each rule's line names where to go (a fort, Covington or Vei) and its click goes there. The two
+## exceptions have no place by design: the won line (the game is over) and the opening's valve ask
+## (its target is the valve panel, which pulses instead).
+func _places(t: TestUtil) -> void:
+	t.suite("map_next-places")
+	var vespers := _held("vespers", 1.0, 30.0, {"name": "Vespers"})
+	var ash := {"id": "ashgate", "name": "Ashgate", "first_clear": false, "clears_since_retaken": 1, "yield_mult": 1.0}
+	var sluice := {"id": "old-sluice", "name": "Old Sluice", "first_clear": true, "first_dungeon": true}
+	var fall := NextLogic.choose(_inp({"forts": [vespers], "clocks": {"vespers": {"fall_s": 600.0}}}))
+	t.ok(fall["rule"] == "fall" and str(fall["text"]).contains("Vespers") and fall["action"] == {"kind": "fort", "id": "vespers"}, "fall: names the fort, the click selects it")
+	var refilled := NextLogic.choose(_inp({"forts": [ash]}))
+	t.ok(refilled["rule"] == "raid" and str(refilled["text"]).contains("Ashgate") and refilled["action"] == {"kind": "fort", "id": "ashgate"}, "refilled raid: names the fort")
+	var blueprint := NextLogic.choose(_inp({"forts": [sluice]}))
+	t.ok(blueprint["rule"] == "raid" and str(blueprint["text"]).contains("Old Sluice") and blueprint["action"] == {"kind": "fort", "id": "old-sluice"}, "blueprint ask: names the fort")
+	var vei := NextLogic.choose(_inp({"vei": {"can_begin": true}}))
+	t.ok(vei["rule"] == "vei" and str(vei["text"]).contains("Vei") and vei["action"] == {"kind": "vei"}, "Vei in reach: names Vei, the click selects her")
+	var queue := NextLogic.choose(_inp({"queue": []}))
+	t.ok(queue["rule"] == "queue" and str(queue["text"]).contains("Covington") and queue["action"] == {"kind": "dive", "to": "covington"}, "empty queue: names Covington, the click goes in")
+	var op := NextLogic.choose(_inp({"forts": [sluice], "opening": {"text": "Send Relish to Old Sluice: x", "target": "old-sluice"}}))
+	t.ok(op["rule"] == "opening" and op["action"] == {"kind": "fort", "id": "old-sluice"}, "opening ask for a fort: the click selects it")
+	t.ok(str(MapLogic.cfg()["opening"]["send_fmt"]).begins_with("Send Relish to %s") and str(MapLogic.cfg()["opening"]["descend_fmt"]).begins_with("Descend into %s"), "the opening's fort asks name the fort")
+	# the standing objective: its words stay, and it names the nearest fort that is still Vei's
+	var stand := str(MapLogic.cfg()["objective_text"])
+	var a := {"id": "a", "name": "Ashgate", "tier": 1, "first_clear": false, "held": false}
+	var b := {"id": "b", "name": "Greywall", "tier": 1, "first_clear": false, "held": false}
+	var pos := {"a": Vector2(500, 0), "b": Vector2(100, 0)}
+	t.ok(NextLogic.next_place([a, b], Vector2.ZERO, pos) == "b", "the nearer fort that is Vei's")
+	t.ok(NextLogic.next_place([a, b], Vector2(600, 0), pos) == "a", "nearness is from Relish")
+	t.ok(NextLogic.next_place([a, b], Vector2.ZERO, {}) == "a", "no positions: world order")
+	var held_b := b.duplicate()
+	held_b["held"] = true
+	t.ok(NextLogic.next_place([a, held_b], Vector2.ZERO, pos) == "a", "a held fort is not Vei's: skipped")
+	t.ok(NextLogic.next_place([held_b], Vector2.ZERO, pos) == "" and NextLogic.next_place([], Vector2.ZERO, {}) == "", "every fort held: no place")
+	var t2 := {"id": "t2", "name": "Highmoor", "tier": 2, "first_clear": true, "held": false}
+	var a1 := {"id": "a1", "name": "Ashgate", "tier": 1, "first_clear": true, "held": false}
+	t.ok(NextLogic.next_place([t2, a1], Vector2.ZERO, {"t2": Vector2(10, 0), "a1": Vector2(900, 0)}) == "a1", "the frontier tier comes before a nearer fort of a higher tier")
+	var all_done := [{"id": "x", "tier": 3, "first_clear": false, "held": false}, {"id": "y", "tier": 2, "first_clear": false, "held": false}]
+	t.ok(NextLogic.next_place(all_done, Vector2.ZERO, {}) == "y", "no first clear left anywhere: the lowest tier that is still Vei's")
+	var d := NextLogic.choose(_inp({"forts": [a, b], "place": "b"}))
+	t.ok(d["rule"] == "default" and d["text"] == str(MapLogic.cfg()["next"]["default_next_fmt"]) % [stand, "Greywall"], "the standing line, then Next: the fort (%s)" % d["text"])
+	t.ok(str(d["text"]).begins_with(stand) and str(d["text"]).ends_with("Next: Greywall"), "the approved wording is kept whole")
+	t.ok(d["target"] == "b" and d["action"] == {"kind": "fort", "id": "b"}, "its click selects that fort")
+	var plain := NextLogic.choose(_inp({"forts": [held_b], "place": ""}))
+	t.ok(plain["text"] == stand and plain["action"]["kind"] == "none", "no place left: the standing line alone")
+	var hud_src := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
+	t.ok(hud_src.contains("\"place\": model.next_place"), "the HUD hands the model's next place to the strip")
+
+
 # --- ownership by weight ----------------------------------------------------------------------
 
 func _weight(t: TestUtil) -> void:
@@ -761,14 +811,14 @@ func _payoff(t: TestUtil) -> void:
 	# a drag onto the current valve: both sides identical
 	var vei := {"backlog": 18000.0, "diff_ema": 2.1}
 	var base := {"work": 8.0, "war": 9.0, "flood": 3.0}
-	var same := ValveLogic.payoff(vei, {"split": base, "backlog_diff": 2.1}, base, k)
+	var same := ValveLogic.payoff(vei, {"split": base, "backlog_diff": 2.1}, k)
 	t.ok(same["now"] == same["then"], "dragging onto the current valve changes nothing")
-	var flood := ValveLogic.payoff(vei, {"split": {"work": 4.0, "war": 9.0, "flood": 7.0}, "backlog_diff": 6.1}, base, k)
+	var flood := ValveLogic.payoff(vei, {"split": {"work": 4.0, "war": 9.0, "flood": 7.0}, "backlog_diff": 6.1}, k)
 	t.ok(float(flood["then"]["diff"]) > float(flood["now"]["diff"]) and float(flood["then"]["odds"]) > float(flood["now"]["odds"]), "more FLOOD: a higher differential and better odds")
 	var line := ValveLogic.payoff_line(flood, 0.05)
 	t.ok(line.begins_with("Vei ▲ +2.1/s → ▲ +"), "the line compares Vei's differential now and dragged (%s)" % line)
 	t.ok(line.contains(" · odds in ") and line.contains("% → "), "growing on both sides: then the odds after the window")
-	var falling := ValveLogic.payoff({"backlog": 1000.0, "diff_ema": -2.0}, {"split": {"work": 12.0, "war": 8.0, "flood": 0.0}, "backlog_diff": -6.0}, base, k)
+	var falling := ValveLogic.payoff({"backlog": 1000.0, "diff_ema": -2.0}, {"split": {"work": 12.0, "war": 8.0, "flood": 0.0}, "backlog_diff": -6.0}, k)
 	var fl := ValveLogic.payoff_line(falling, 0.05)
 	t.ok(fl.contains(" · drain ") and fl.contains("▼"), "a shrinking queue is ▼ and shows the drain (%s)" % fl)
 	t.ok(ValveLogic.payoff_shown(true, -1.0), "shown while dragging")
@@ -783,15 +833,13 @@ func _payoff(t: TestUtil) -> void:
 
 func _overflow(t: TestUtil) -> void:
 	t.suite("map_next-overflow")
-	var lane := {"id": "war:covington:vei", "kind": "war", "from": "covington", "to": "vei", "rate": 3.1}
-	var other := {"id": "war:covington:ashgate", "kind": "war", "from": "covington", "to": "ashgate", "rate": 9.0}
-	t.ok(ValveLogic.war_overflow({}, [other], {}, false) == 0.0, "no war:covington:vei lane: no overflow")
-	t.near(ValveLogic.war_overflow({}, [other, lane], {}, false), 3.1, 1e-9, "today: the war:covington:vei lane's rate")
-	t.near(ValveLogic.war_overflow({"war_overflow": 2.0}, [lane], {}, false), 2.0, 1e-9, "view_hud.war_overflow wins when present")
+	t.ok(ValveLogic.war_overflow({"war_overflow": 0.0}, {}, false) == 0.0, "no overflow: 0")
+	t.near(ValveLogic.war_overflow({"war_overflow": 2.0}, {}, false), 2.0, 1e-9, "committed: view_hud.war_overflow")
 	var proj := {"split": {"war_overflow": 5.0}}
-	t.near(ValveLogic.war_overflow({"war_overflow": 2.0}, [lane], proj, true), 5.0, 1e-9, "while dragging, the projection's split.war_overflow")
-	t.near(ValveLogic.war_overflow({"war_overflow": 2.0}, [lane], proj, false), 2.0, 1e-9, "not dragging, the committed one")
-	t.near(ValveLogic.war_overflow({}, [lane], {"split": {}}, true), 3.1, 1e-9, "a projection without the field keeps the committed source")
+	t.near(ValveLogic.war_overflow({"war_overflow": 2.0}, proj, true), 5.0, 1e-9, "while dragging, the projection's split.war_overflow")
+	t.near(ValveLogic.war_overflow({"war_overflow": 2.0}, proj, false), 2.0, 1e-9, "not dragging, the committed one")
+	var src := FileAccess.get_file_as_string("res://scripts/map/valve_logic.gd")
+	t.ok(not src.contains("TODO(api E2b)") and not src.contains("covington"), "no war lane scan or stand-in TODO left in the valve logic")
 	t.ok(ValveLogic.overflow_parts(0.0).is_empty(), "no overflow, no line")
 	var p := ValveLogic.overflow_parts(3.1)
 	t.ok(p["rate"] == "+3.1/s" and p["text"] == "overflows to Vei", "the line: a signed rate in the rate face, then words")
@@ -934,7 +982,7 @@ func _cards(t: TestUtil) -> void:
 	t.ok(CardLogic.held_chip(f)["key"] == "danger", "in the margin's colour")
 	var loot := TestUtil.load_json("res://configs/loot.json")
 	t.ok(CardLogic.loot_card_line({"yield_mult": 1.0}, loot) == RaidLoot.card_line({"yield_mult": 1.0}, loot), "the loot line is the dungeon's")
-	t.ok(CardLogic.first_clear_line({"first_clear": true}) == "first clear: guaranteed blueprint", "the first clear's reward")
+	t.ok(CardLogic.first_clear_line({"first_clear": true}) == "first taking: guaranteed blueprint", "the first clear's reward")
 	var pin := CardLogic.pinned_odds({"odds": 0.61, "sign": 1, "drain_s": -1.0, "backlog": 18000.0})
 	# the ▲ is the backlog's sign, labelled as the strain (E4 step 10, the step 9 review's item 4; was "61% ▲ gaining")
 	t.ok(pin == "Your odds 61% · strain ▲ rising · drains in ∞", "the pinned odds (%s)" % pin)

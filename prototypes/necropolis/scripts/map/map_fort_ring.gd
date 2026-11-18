@@ -132,7 +132,7 @@ func _static_fort(f: Dictionary) -> void:
 		text(at, str(f["name"]), size, Palette.c(NodeLogic.fort_label_key(ctx.tier), float(MapLogic.cfg()["node_label_dim_alpha"])), ALIGN_CENTER, size)
 		var tag := NodeLogic.name_tag(f)
 		if not tag.is_empty() and ctx.tier != "far":
-			text(at, str(tag["text"]), size, Palette.c(str(tag["key"])), ALIGN_CENTER, size + float(n["label_line_px"]))
+			text(at, str(tag["text"]), NodeLogic.tag_size(), Palette.c(str(tag["key"])), ALIGN_CENTER, size + float(n["label_line_px"]))
 
 
 ## The flip's re-ink: `total` segments of the outer ring from 12 o'clock clockwise, the first
@@ -177,7 +177,7 @@ func _draw_pulse() -> void:
 		var p := MapModel.to_vec(f["pos"])
 		var r := MapLogic.fort_radius(int(f["tier"]))
 		var mode := NodeLogic.tithe_mode(f)
-		if mode != "":
+		if mode == "wave" or mode == "warning":
 			_tithe(f, p, r + float(n["tithe_off_px"]), mode, w, hw, n)
 		if NodeLogic.first_dungeon_pulse(f):
 			var rr := r + float(n["first_reach_px"]) * ph
