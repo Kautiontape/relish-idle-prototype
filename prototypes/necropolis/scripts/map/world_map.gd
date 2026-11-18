@@ -202,6 +202,7 @@ func _build_ui() -> void:
 	setpieces.routes = routes_view
 	setpieces.hud = hud
 	setpieces.cam = cam
+	setpieces.callouts = callouts_view
 	setpieces.valve = valve
 	setpieces.layer = setpiece_layer
 	add_child(setpieces)

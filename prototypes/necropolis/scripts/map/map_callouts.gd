@@ -74,6 +74,15 @@ func _occupied(z: float) -> Array:
 	return out
 
 
+## The lane callouts' plates as drawn now, in this layer's frame (world x zoom). Read-only: the
+## set-piece line keeps clear of them (MapSetpieces).
+func drawn_rects() -> Array:
+	var out: Array = []
+	for s in _shown:
+		out.append(s["plate"])
+	return out
+
+
 ## Every fort's name label and tag line as drawn (MapFortRing: the plates NodeLogic.fort_label_rects
 ## gives), in this layer's frame: the fort's label anchor x zoom plus the plates' screen-px rects.
 func _label_rects(z: float) -> Array:

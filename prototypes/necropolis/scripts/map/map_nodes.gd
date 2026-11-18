@@ -67,6 +67,11 @@ func chip_world_rect(f: Dictionary) -> Rect2:
 	return _idle.chip_world_rect(f)
 
 
+## Covington's and Vei's discs and plates, in world px (IdleLogic.node_obstacles).
+func node_obstacles() -> Array:
+	return _idle.node_obstacles()
+
+
 ## Where Relish's token is drawn, in world px.
 func relish_drawn_pos() -> Vector2:
 	return ctx.relish_pos

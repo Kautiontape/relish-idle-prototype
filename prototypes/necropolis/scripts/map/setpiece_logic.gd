@@ -194,6 +194,19 @@ static func screen_bounds(viewport: Vector2, cam_pos: Vector2, zoom: float, top_
 	return HudLogic.screen_to_zoomed(r, cam_pos, zoom, viewport)
 
 
+## Covington's and Vei's obstacles (IdleLogic.node_obstacles, world px) in the zoomed frame: {circles:
+## [Vector3], rects: [Rect2]}, their discs and plates (Covington's glyph, name and stream labels; Vei's reach and name).
+static func node_hard(nodes: Array, zoom: float) -> Dictionary:
+	var circles: Array = []
+	var rects: Array = []
+	for n in nodes:
+		var p: Vector2 = n["pos"]
+		circles.append(Vector3(p.x * zoom, p.y * zoom, float(n["r"]) * zoom))
+		for r in n["rects"]:
+			rects.append(Rect2((r as Rect2).position * zoom, (r as Rect2).size * zoom))
+	return {"circles": circles, "rects": rects}
+
+
 ## The gap between two rects (0 when they touch or overlap).
 static func rect_gap(a: Rect2, b: Rect2) -> float:
 	var dx := maxf(maxf(a.position.x - b.end.x, b.position.x - a.end.x), 0.0)
@@ -209,12 +222,13 @@ static func circle_gap(r: Rect2, c: Vector3) -> float:
 
 ## The rects of a callout of lines `ws` (their text widths), centred on `cx`, the first line's
 ## baseline at `first_by`, each a label plate (NodeLogic.label_plate: pad, ascent and height).
-static func callout_rects(cx: float, first_by: float, ws: Array, size: int) -> Array:
+static func callout_rects(cx: float, first_by: float, ws: Array, size: int, line := -1.0) -> Array:
 	var out: Array = []
+	var step := _n("callout_line_px") if line < 0.0 else line
 	for i in ws.size():
 		var w := float(ws[i])
 		var r := NodeLogic.label_plate(-w * 0.5, w, size, 0.0)
-		out.append(Rect2(r.position + Vector2(cx, first_by + float(i) * _n("callout_line_px")), r.size))
+		out.append(Rect2(r.position + Vector2(cx, first_by + float(i) * step), r.size))
 	return out
 
 
@@ -261,7 +275,9 @@ static func _soft(rects: Array, soft: Array) -> float:
 ## one is taken. When nothing reads as the fort's, the least hard overlap wins, the nearer its own fort
 ## on a tie. `prev` ({form, place, slide} of the last choice): kept while still on screen, free of hard
 ## overlap and the fort's own, so a line up on screen never hops. Returns {form: "one"|"two", place:
-## "above"|"below", slide, pos (centre x, first baseline), rects, hard, soft}.
+## "above"|"below", slide, pos (centre x, first baseline), rects, size (the font of the form chosen),
+## line (its line step), hard, soft}. `widths.size_two` (optional): the font the two-line form is set in
+## (callout_font_two, measured into widths a and b), its line step scaled with it.
 static func callout_place(fort: Vector2, ring_r: float, base_y: float, size: int, widths: Dictionary, own: Array, obs: Dictionary, prev := {}) -> Dictionary:
 	var clear := _n("callout_clear_px")
 	var line := _n("callout_line_px")
@@ -276,9 +292,10 @@ static func callout_place(fort: Vector2, ring_r: float, base_y: float, size: int
 	for r in own:
 		below_top = maxf(below_top, (r as Rect2).end.y)
 	below_top += _n("callout_below_gap_px")
-	var forms: Array = [["one", [float(widths["one"])]]]
+	var forms: Array = [["one", [float(widths["one"])], size, line]]  # [form, line widths, font, line step]
 	if widths.has("a"):
-		forms.append(["two", [float(widths["a"]), float(widths["b"])]])
+		var size2 := int(widths.get("size_two", size))  # the two-line form may be set smaller (callout_font_two)
+		forms.append(["two", [float(widths["a"]), float(widths["b"])], size2, line * float(size2) / float(size)])
 	var slides: Array = [0.0]
 	for s in cfg()["callout_slides"]:
 		slides.append(float(s))
@@ -289,11 +306,13 @@ static func callout_place(fort: Vector2, ring_r: float, base_y: float, size: int
 			var span := 0.0
 			for w in ws:
 				span = maxf(span, float(w))
-			var first_by := base_y - float(ws.size() - 1) * line if place == "above" else below_top + float(size) * float(NodeLogic.ncfg()["plate_ascent"])
+			var fs: int = fm[2]
+			var step: float = fm[3]
+			var first_by := base_y - float(ws.size() - 1) * step if place == "above" else below_top + float(fs) * float(NodeLogic.ncfg()["plate_ascent"])
 			for s in slides:
 				var cx := fort.x + float(s) * span
-				var rects := callout_rects(cx, first_by, ws, size)
-				cands.append({"form": fm[0], "place": place, "slide": float(s), "pos": Vector2(cx, first_by), "rects": rects,
+				var rects := callout_rects(cx, first_by, ws, fs, step)
+				cands.append({"form": fm[0], "place": place, "slide": float(s), "pos": Vector2(cx, first_by), "rects": rects, "size": fs, "line": step,
 					"hard": _hard(rects, hard_obs, clear), "soft": _soft(rects, soft_obs), "side": false})
 	# last resort, where a crowded or cornered fort leaves no row above or under it: beside the fort's ring,
 	# on its middle, callout_side_gap_px off the ring (right, then left); these need not cover the fort's x
@@ -304,11 +323,13 @@ static func callout_place(fort: Vector2, ring_r: float, base_y: float, size: int
 			for w in ws:
 				span = maxf(span, float(w))
 			span += float(NodeLogic.ncfg()["plate_pad_px"]) * 2.0
-			var height := float(ws.size() - 1) * line + float(size) * float(NodeLogic.ncfg()["plate_height"])
-			var first_by := fort.y - height * 0.5 + float(size) * float(NodeLogic.ncfg()["plate_ascent"])
+			var fs: int = fm[2]
+			var step: float = fm[3]
+			var height := float(ws.size() - 1) * step + float(fs) * float(NodeLogic.ncfg()["plate_height"])
+			var first_by := fort.y - height * 0.5 + float(fs) * float(NodeLogic.ncfg()["plate_ascent"])
 			var cx := fort.x + (ring_r + _n("callout_side_gap_px") + span * 0.5) * (1.0 if place == "right" else -1.0)
-			var rects := callout_rects(cx, first_by, ws, size)
-			cands.append({"form": fm[0], "place": place, "slide": 0.0, "pos": Vector2(cx, first_by), "rects": rects,
+			var rects := callout_rects(cx, first_by, ws, fs, step)
+			cands.append({"form": fm[0], "place": place, "slide": 0.0, "pos": Vector2(cx, first_by), "rects": rects, "size": fs, "line": step,
 				"hard": _hard(rects, hard_obs, clear), "soft": _soft(rects, soft_obs), "side": true})
 	# the screen's bounds are hard: a place not wholly inside them is dropped first
 	var pool: Array = cands
@@ -336,9 +357,12 @@ static func callout_place(fort: Vector2, ring_r: float, base_y: float, size: int
 		cd["owns"] = own_gap["ok"]
 		if bool(own_gap["ok"]):
 			valid.append(cd)
-	if not prev.is_empty():  # a line that is up does not hop: its last place stays while it is still free
+	if not prev.is_empty():  # a line that is up does not hop: its last place stays while it is still free (a soft overlap moves it only to a fully clear place)
+		var clean := false
 		for cd in valid:
-			if str(cd["form"]) == str(prev.get("form")) and str(cd["place"]) == str(prev.get("place")) and is_equal_approx(float(cd["slide"]), float(prev.get("slide", 0.0))) and float(cd["hard"]) == 0.0:
+			clean = clean or (float(cd["hard"]) == 0.0 and float(cd["soft"]) == 0.0)
+		for cd in valid:
+			if str(cd["form"]) == str(prev.get("form")) and str(cd["place"]) == str(prev.get("place")) and is_equal_approx(float(cd["slide"]), float(prev.get("slide", 0.0))) and float(cd["hard"]) == 0.0 and (float(cd["soft"]) == 0.0 or not clean):
 				return cd
 	for cd in valid:
 		if float(cd["hard"]) == 0.0 and float(cd["soft"]) == 0.0:

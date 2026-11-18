@@ -10,7 +10,7 @@ extends Node
 ##                 the fort's beat. note_return: after a raid whose fort is held (event missed)
 ##                 it plays too.
 ##   retreat       the map mounts after a raid that left the fort Vei's (Relish alive): a callout
-##                 "<Fort> stays Vei's: you kept everything you found". No re-ink, no sound.
+##                 "<Fort> stays Vei's: you kept all you found". No re-ink, no sound.
 ##   tithe         tithe_warning: Synth "horn"; tithe_wave: an orange band sweeps from Vei along the
 ##                 living lane to the target fort over 2 beats.
 ##   garrison      counter_garrison_cleared: a green pulse along the fort's WAR lane from
@@ -43,6 +43,7 @@ var nodes: MapNodes
 var routes: MapRoutes
 var hud: MapHud
 var valve: MapValve
+var callouts: MapCallouts  # the lane callouts' drawn plates: soft obstacles to the set-piece line
 var cam: MapCamera  # its position and the visible screen place the callouts in the frame
 var _placed := {}  # "<fort>|<text>" -> {sig, lines, choice}: a callout's place, kept until its inputs change
 var layer: MapSetpieceLayer
@@ -313,9 +314,10 @@ func _redraw_fort_all(id: String) -> void:
 ## A fort's callout: one label item per line, where SetpieceLogic.callout_place puts it. Today's place
 ## (centred above the fort's rings, callout_gap_px clear, and above Relish's token when she stands
 ## there: back from its dungeon, she does) when nothing is in the way; else slid, split at ": " into
-## two lines, or under the fort's plates, so it never covers another fort. Hard: every other fort's
-## ring, every fort's name and tag plates, the held forts' chips, Relish's token. Soft: the open card
-## and the lane callouts, which this layer cannot read (they are MapCallouts' and the card's).
+## two lines (set in callout_font_two), under the fort's plates, or beside its ring, so it never covers
+## another fort. Hard: every other fort's ring, every fort's name and tag plates, the held forts' chips,
+## Relish's token, Covington's glyph and labels and Vei's (MapNodes.node_obstacles). Soft: the lane
+## callouts as drawn (MapCallouts.drawn_rects); the open card is not read here.
 func _callout(id: String, text: String, alpha: float, key := "undead") -> Array:
 	var ctx := nodes.ctx
 	var grid := float(MapLogic.cfg()["callouts"]["token_key_px"])
@@ -324,7 +326,7 @@ func _callout(id: String, text: String, alpha: float, key := "undead") -> Array:
 	# what the placement depends on (not the frame): the line, the zoom and camera, the viewport, her token on
 	# the callouts' grid, and the model's rev (the held set, the chips)
 	var sig := [text, roundi(ctx.zoom * 1000.0), roundi(cp.x), roundi(cp.y), get_viewport().get_visible_rect().size, ctx.tier,
-		model.rev, roundi(tok.x / grid), roundi(tok.y / grid)]
+		model.rev, roundi(tok.x / grid), roundi(tok.y / grid), HudLogic.rects_key(callouts.drawn_rects()) if callouts != null else []]
 	var ck := "%s|%s" % [id, text]
 	var hit: Dictionary = _placed.get(ck, {})
 	if hit.is_empty() or hit["sig"] != sig:
@@ -333,7 +335,7 @@ func _callout(id: String, text: String, alpha: float, key := "undead") -> Array:
 		_placed[ck] = hit
 	var out: Array = []
 	for l in hit["lines"]:
-		out.append({"kind": "label", "pos": l["pos"], "text": l["text"], "size": int(SetpieceLogic.cfg()["callout_font"]), "key": key, "alpha": alpha})
+		out.append({"kind": "label", "pos": l["pos"], "text": l["text"], "size": int(l["size"]), "key": key, "alpha": alpha})
 	return out
 
 
@@ -351,7 +353,9 @@ func _place_callout(id: String, text: String, prev: Dictionary) -> Dictionary:
 	var halo := float(NodeLogic.relish_radii(z)["halo"]) * z
 	var token := ctx.relish_pos * z
 	var own: Array = []
-	var obs := {"rings": [], "circles": [Vector3(token.x, token.y, halo)], "rects": [], "soft": []}
+	var node_hard := SetpieceLogic.node_hard(nodes.node_obstacles(), z)  # Covington's and Vei's discs and plates
+	var obs := {"rings": [], "circles": [Vector3(token.x, token.y, halo)] + (node_hard["circles"] as Array), "rects": (node_hard["rects"] as Array).duplicate(),
+		"soft": callouts.drawn_rects() if callouts != null else []}
 	if str(model.relish.get("at", "")) == id and str(model.relish.get("state", "")) != "travelling":
 		base_y = minf(base_y, token.y - halo - gap)
 		own.append(Rect2(token - Vector2(halo, halo), Vector2(halo, halo) * 2.0))
@@ -376,9 +380,11 @@ func _place_callout(id: String, text: String, prev: Dictionary) -> Dictionary:
 			bucket.append(Rect2(r.position * z, r.size * z))
 	var widths := {"one": MapNodeLayer.label_width(text, size)}
 	var split := SetpieceLogic.split_text(text)
+	var size_two := int(c.get("callout_font_two", size))
 	if not split.is_empty():
-		widths["a"] = MapNodeLayer.label_width(str(split[0]), size)
-		widths["b"] = MapNodeLayer.label_width(str(split[1]), size)
+		widths["a"] = MapNodeLayer.label_width(str(split[0]), size_two)
+		widths["b"] = MapNodeLayer.label_width(str(split[1]), size_two)
+		widths["size_two"] = size_two
 	if hud != null:  # the visible screen between the top bar and the bottom bars
 		var cp := cam.position if cam != null else Vector2.ZERO
 		obs["bounds"] = SetpieceLogic.screen_bounds(get_viewport().get_visible_rect().size, cp, z, hud.bar_bottom(), hud.bottom_top())
@@ -386,8 +392,8 @@ func _place_callout(id: String, text: String, prev: Dictionary) -> Dictionary:
 	var texts: Array = split if str(at["form"]) == "two" else [text]
 	var lines: Array = []
 	for i in texts.size():
-		var pos := (at["pos"] as Vector2) + Vector2(0.0, float(i) * float(c["callout_line_px"]))
-		lines.append({"pos": pos / z, "text": str(texts[i])})
+		var pos := (at["pos"] as Vector2) + Vector2(0.0, float(i) * float(at["line"]))
+		lines.append({"pos": pos / z, "text": str(texts[i]), "size": int(at["size"])})
 	return {"lines": lines, "choice": {"form": at["form"], "place": at["place"], "slide": at["slide"]}}
 
 
