@@ -34,6 +34,7 @@ var _hover := ""
 var _hover_key: Array = []
 var _ui_acc := 0.0
 var _setup_called := false
+var _arrive_toast := ""  # a one-off line from the router (a refused teleport's reason), shown once on arrival
 var _arrive_from := ""  # the node whose scene the player just left: the camera eases out from it
 var _ui_layer: CanvasLayer
 
@@ -41,6 +42,7 @@ var _ui_layer: CanvasLayer
 func setup(args: Dictionary) -> void:
 	_setup_called = true
 	_arrive_from = str(args.get("arrive_from", ""))
+	_arrive_toast = str(args.get("toast", ""))
 
 
 func demo_seed() -> Dictionary:
@@ -83,6 +85,8 @@ func _ready() -> void:
 		setpieces.go_live()
 	if returned == SetpieceLogic.TAKEN:
 		_show_taken(_arrive_from, ease_s)
+	if _arrive_toast != "":
+		hud.show_toast(_arrive_toast)
 	hud.inset_changed.connect(func(_inset: float) -> void: _refit())  # the bar's sizes settle a frame later
 	setpieces.note_mount(away.open_if_shown())  # builds finished while away from the map get their callout, unless the away report lists them
 	_replay_clicks()

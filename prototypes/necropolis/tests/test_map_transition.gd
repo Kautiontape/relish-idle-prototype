@@ -127,7 +127,7 @@ func _router_source(t: TestUtil) -> void:
 	t.ok(not swap.contains("await"), "_swap itself never awaits")
 	var apply := _body(src, "func _apply(")
 	t.ok(apply.contains("apply_result(") and not apply.contains("await"), "main.gd applies the result synchronously")
-	t.ok(apply.find("apply_result(") < apply.find("_open_map("), "the result applies before the map opens")
+	t.ok(apply.find("apply_result(") < apply.rfind("_open_map("), "the result applies before the map opens (a stale one opens it without applying)")
 	t.ok(src.contains("router_done"), "main.gd keeps the one-emit-per-scene guard")
 	t.ok(_body(src, "func _ready(").contains("Synth.retain()") and src.contains("PREDELETE and _holding_sounds") and src.contains("Synth.release()"), "the router holds the sound cache for the session and releases only the hold it took")
 	t.ok(swap.contains("_held_events = []") and swap.find("_held_events = []") < swap.find("_run_transition"), "_swap resets _held_events before a new swap starts holding")

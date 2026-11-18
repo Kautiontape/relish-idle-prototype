@@ -45,10 +45,13 @@ func _on_game_event(ev: Dictionary) -> void:
 
 
 ## `arrive_from` is the node whose scene was just left: the map starts zoomed in on it.
-func _open_map(arrive_from := "") -> void:
+## `toast` is a one-off line the map shows on arrival (a refused teleport's reason).
+func _open_map(arrive_from := "", toast := "") -> void:
 	var args := {"mode": "map"}
 	if arrive_from != "":
 		args["arrive_from"] = arrive_from
+	if toast != "":
+		args["toast"] = toast
 	_swap(MAP, args)
 
 
@@ -179,14 +182,14 @@ func _teleport(id: String, arrive_from := "", from_map := false) -> void:
 	elif id == "vei":
 		var r := s.cmd_begin_boss()
 		if not r["ok"]:
-			_open_map()
+			_open_map("", RelishLogic.reason_text(str(r["reason"])))
 			return
 		var args := {"mode": "boss", "run_id": r["run_id"], "seed_rev": r["seed_rev"]}
 		_swap(BOSS, args, id if from_map else "")
 	elif id != "" and not s.view_fort(id).is_empty():
 		var r := s.cmd_begin_dungeon(id)
 		if not r["ok"]:
-			_open_map()
+			_open_map("", RelishLogic.reason_text(str(r["reason"])))
 			return
 		var args := {"mode": "dungeon", "fort_id": id, "run_id": r["run_id"], "seed_rev": r["seed_rev"]}
 		_swap(RAID, args, id if from_map else "")
@@ -199,6 +202,9 @@ func _teleport(id: String, arrive_from := "", from_map := false) -> void:
 ## none stays open.
 func _apply(kind: String, result: Dictionary, seed: Dictionary, arrive_from: String) -> void:
 	var s := Game.state
+	if RouterLogic.result_stale(kind, s.view_relish()):
+		_open_map(arrive_from)  # the state already ended this run (a gap: run_ended); nothing to write back
+		return
 	var v2 := result if result.has("v") else Results.from_v1(kind, result, seed)
 	var out := s.apply_result(kind, v2)
 	if not out["ok"]:

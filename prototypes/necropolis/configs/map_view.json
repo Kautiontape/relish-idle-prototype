@@ -671,7 +671,8 @@
       "not_finite": "That valve setting isn't a number",
       "unknown_uid": "That undead isn't in the crypt",
       "not_in_party": "Only party members take a front",
-      "unknown_front": "That front doesn't exist"
+      "unknown_front": "That front doesn't exist",
+      "catching_up": "Still catching up on your time away. Try again soon."
     },
     "toast_plate_alpha": 0.92,
     "toast_pad_px": 6,
