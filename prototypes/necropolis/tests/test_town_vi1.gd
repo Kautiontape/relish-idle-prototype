@@ -204,6 +204,13 @@ func _burst() -> void:
 	t.ok(not b.is_empty() and absf(net + float(b["extra"])) < 0.05, "less the lump the cell shows the settled rate: %.3f/s" % (net + float(b.get("extra", 0.0))))
 	t.ok(not b.is_empty() and String(h["text"]["burst"]).format({"n": roundi(float(b["hands"]))}) == "2 over the idle cap mustered at once",
 		"its words: '%s'" % String(h["text"]["burst"]).format({"n": roundi(float(b.get("hands", 0.0)))}))
+	var town: Dictionary = s.view_town()
+	var steady := float(w["steady"])
+	var kept := HudModel.kept(town, s.view_hud())
+	var raw := HudModel.surplus_rate(town, steady, kept, h)
+	var shown := HudModel.surplus_rate(town, steady, kept, h, b)
+	t.ok(raw > 3.0 and absf(shown - float(w["muster_steady"])) < 0.01,
+		"the 'idle → FLOOD' row under it reads the settled rate too (%.2f/s, not %.2f/s), so the cell agrees with itself" % [shown, raw])
 	for i in 4:
 		s.tick(dt)
 	var w2: Dictionary = s.view_town()["workers"]
@@ -227,7 +234,8 @@ func _burst() -> void:
 	t.ok(HudModel.muster_burst({"muster": 0.36, "muster_steady": 0.35}, dt, h).is_empty(), "a settled muster is no lump")
 	t.ok(HudModel.muster_burst({"muster": 0.2, "muster_steady": 0.5}, dt, h).is_empty(), "a muster under its settled rate is no lump")
 	var hud := FileAccess.get_file_as_string("res://scripts/town/town_hud.gd")
-	t.ok(hud.contains("HudModel.muster_burst(") and hud.contains("net += float(burst[\"extra\"])"), "the workers cell reads HudModel.muster_burst")
+	t.ok(hud.contains("HudModel.muster_burst(") and hud.contains("net += float(burst[\"extra\"])")
+		and hud.contains("HudModel.surplus_rate(town, steady, kept, _hcfg, burst)"), "the workers cell reads HudModel.muster_burst, in its net, split and idle row")
 
 
 ## t-card-crypt / t-card-house: a click on a built lot opened the Lot card repeating the dock's inspector over the town.

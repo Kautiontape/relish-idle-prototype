@@ -268,7 +268,7 @@ func _bind_cell(id: String, c: Dictionary, town: Dictionary, hud: Dictionary, fl
 		c["stock"].text = "%d  %s %s%s" % [roundi(total), HudModel.steady_text(kept, _hcfg), HudModel.steady_arrow(total, kept, _hcfg),
 			"  (%s)" % why if why != "" else ""]
 		c["stock"].tooltip_text = c["stock"].text
-		var war := HudModel.surplus_rate(town, steady, kept, _hcfg)
+		var war := HudModel.surplus_rate(town, steady, kept, _hcfg, burst)  # (less a lump, as the net and split)
 		var idle := HudModel.idle_parts(views, _vcfg, _bview, _bcfg, _tab, true)  # the cell's short line
 		var whole := HudModel.parts_text(HudModel.idle_parts(views, _vcfg, _bview, _bcfg, _tab))  # the tooltip's
 		(c["war_row"] as Control).visible = war > 0.0 or not idle.is_empty()

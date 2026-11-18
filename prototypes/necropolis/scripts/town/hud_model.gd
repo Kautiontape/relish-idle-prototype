@@ -82,10 +82,15 @@ static func kept(town: Dictionary, hud: Dictionary) -> float:
 
 
 ## The surplus streaming to WAR (/s): the live muster whenever it runs; else `muster_steady` (only if
-## the view has it) when steady exceeds kept by more than the arrow's tolerance; 0 hides it.
-static func surplus_rate(town: Dictionary, steady: float, kept_n: float, hcfg: Dictionary) -> float:
+## the view has it) when steady exceeds kept by more than the arrow's tolerance; 0 hides it. With a muster lump
+## (`burst`, muster_burst's) the live muster less the lump, as the cell's net and split read it.
+static func surplus_rate(town: Dictionary, steady: float, kept_n: float, hcfg: Dictionary, burst: Dictionary = {}) -> float:
 	var w: Dictionary = town.get("workers", {})
 	var m := float(w.get("muster", 0.0))
+	if not burst.is_empty():  # a muster lump (muster_burst) is hands, not a flow: the row shows the settled rate
+		m = maxf(m - float(burst.get("extra", 0.0)), 0.0)
+		if m < float(hcfg.get("rate_eps", 0.005)):
+			m = 0.0
 	if m > 0.0:
 		return m
 	if steady - kept_n <= maxf(float(hcfg.get("tol_min", 0.5)), absf(steady) * float(hcfg.get("tol_frac", 0.02))):
