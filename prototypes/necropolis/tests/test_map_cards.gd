@@ -284,6 +284,7 @@ func _blocks(t: TestUtil) -> void:
 	t.ok(by["odds"]["value"] == "61%" and by["sign"]["value"] == "▲" and by["diff"]["value"] == "+6.1/s" and by["drain"]["value"] == "∞", "odds, sign, differential, drain (holding is ∞)")
 	t.ok(by["diff"]["vkind"] == "rate" and by["odds"]["vkind"] == "mass", "the differential is a rate, odds a mass")
 	t.ok(by.has("front_giants") and by["fronts_met"]["text"] == "fronts met 1 of 3 required", "front row and the met count")
+	t.ok(by["fronts_hint"]["text"] == "A front is one part of Vei's final test. Your big undead on it (pick them below) and, for some fronts, her clogged queue must add up to what it needs.", "the fronts hint names the units and the queue")
 	t.ok(by.has("party_empty") and by["party_empty"]["text"].contains("crypt slab"), "an empty party says where to raise them")
 	var party := [{"uid": "u1", "name": "Old Gristle", "kind": "hulk", "role": "brute", "front": "giants"}]
 	var vp := CardBlocksLogic.vei_card({"fronts": [{"id": "giants"}, {"id": "swarm"}, {"id": "carvers"}, {"id": "raw"}]}, "", party, {}, {})

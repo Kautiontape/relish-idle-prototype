@@ -815,7 +815,7 @@
     "vei_diff_label": "DIFFERENTIAL",
     "vei_drain_label": "DRAINS IN",
     "fronts_head": "FRONTS",
-    "fronts_hint": "A front is one part of Vei's final test. It is met when the big undead you assign to it (picker below) add up to what it needs.",
+    "fronts_hint": "A front is one part of Vei's final test. Your big undead on it (pick them below) and, for some fronts, her clogged queue must add up to what it needs.",
     "front_names": {
       "giants": "Giants",
       "swarm": "Swarm",
