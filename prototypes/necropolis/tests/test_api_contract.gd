@@ -353,8 +353,8 @@ func _exercise(s: GameState) -> void:
 	_cmd(s, "cmd_cancel_build", ["lot-99"], false)
 	_cmd(s, "cmd_build", ["house", "lot-05"], true)  # a house is on its way for the views below
 	# the build queue (T3.2): with no mill yet, the reliquary's bone is over the base cap (cost_exceeds_cap);
-	# then a level-2 Bone Mill (bone cap 1 225), since the Market is bought with bone (T7) and its level 3, which
-	# the queued upgrade builds, is over the base cap (and, from Phase I P3's depth, 890 bone, over a level-1 mill's
+	# then a level-2 Bone Mill (bone cap 700), since the Market is bought with bone (T7) and its level 3, which
+	# the queued upgrade builds, is over the base cap (and, from Phase I P3's depth, 510 bone, over a level-1 mill's
 	# 300): an upgrade of the market under construction waits (under_construction) and stays queued for the views
 	# below; a well starts on the next substep
 	_cmd(s, "cmd_queue_build", ["reliquary", "lot-23"], false)  # cost_exceeds_cap: its bone over the base cap

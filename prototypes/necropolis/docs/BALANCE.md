@@ -534,11 +534,12 @@ in §5; E4 tunes the numbers):**
   the Chapel of Vats its own, 2, 4, 6, 6, 6), with relic costs that never fall with level; the
   charnel house's `body_cap` table runs on to 8 entries (+50 a level, 350 at L8);
 - the bone cap grows with the ladder: the Bone Mill's `bone_cap` is a table per level, 100, 150, 350, 700,
-  1 250, 2 050, 3 400, 8 400 (caps 300 to 8 600). **Phase I P3's depth** (below) scales the dead's buildings' bone
-  from L3 by 3.5 and the cap (base plus table) from the mill's L2 by the same: 100, 1 025, 1 725, 2 950, 4 875,
-  7 675, 12 400, 29 900 (caps 300, then 1 225 to 30 100). The rule (§5, Store caps): each level's cap covers 1.2 ×
+  1 250, 2 050, 3 400, 8 400 (caps 300 to 8 600). **Phase I P3's depth** (below; the ramp, shipped after the step)
+  scales the dead's buildings' bone ×2.0 at L3, ×3.0 at L4 and ×4.6 from L5, and puts the mill's cap a level ahead:
+  100, 500, 1 450, 3 940, 6 470, 10 150, 16 360, 39 360 (caps 300, 700, 1 650, 4 140, 6 670, 10 350, 16 560,
+  39 560). The rule (§5, Store caps): each level's cap covers 1.2 ×
   the mill's and the Market's next level, rounded up to 50, and the top level's every bone cost (the
-  Forge's L8, 8 575); `tests/test_build_ladder.gd` checks that every price fits a cap reachable by its
+  Forge's L8, 39 445 under the ramp); `tests/test_build_ladder.gd` checks that every price fits a cap reachable by its
   building's tier. The Market's `gold_cap` stays 3 250 a level (32 500 at L8). G4 ran on town's branch
   before the store caps (8f73c36 has no gold or bone cap), so its 8 h says nothing about a capped
   ladder; with the linear 100 a level the climb stops at mill L4 (cap 600) and every price above it is
@@ -553,7 +554,9 @@ in §5; E4 tunes the numbers):**
 - Rent is dropped.
 
 **Phase I P3's depth (Q-b; the run's manager's ruling of 2026-11-18: the Grow stance, then one depth pass sized on
-pure_idle and town_only together for 48–72 h).** One multiplier, 3.5, on the **bone** price of every level from L3
+pure_idle and town_only together for 48–72 h).** Shipped from 7cb0899 to 7c4a8f8 as the step below; **the ramp
+replaced it** (the last paragraph of this section: the run's manager's ruling 1 on handoff 6). The step: one
+multiplier, 3.5, on the **bone** price of every level from L3
 of the dead's buildings (raising pit, charnel house, Market, Bone Mill, Forge, graveyard, Stables, Embalmer, Chapel of
 Vats, the Crypt), relic levels included so the curve never falls from L5 to L6, and on the Bone Mill's bone cap from
 its L2 (the cap at a level is (200 + table) × 3.5, so each still covers 1.2 × the mill's and the Market's next level and
@@ -577,8 +580,8 @@ pure_idle's 168 h close and of town_only's 8 days, both ending with every relic-
 
 The time is linear in the multiplier (about 14 h per unit), and town_only tracks pure_idle within half an hour: with
 Grow on, both are bone-bound on the same relic-free ceiling (12 buildings, every one at L5, the Stables at L3). Bone
-only on every L3+ level of every building gave the same 56.8 h / 56.4 h at 3.5. **As shipped** (the dead's bone only,
-the living's buildings left alone; measured with the same probe on this commit's configs, no overrides): pure_idle's
+only on every L3+ level of every building gave the same 56.8 h / 56.4 h at 3.5. **The step as shipped at 7cb0899** (the dead's bone only,
+the living's buildings left alone; measured with the same probe on 7cb0899's configs, no overrides): pure_idle's
 last build 52.8 h into its close (50 builds, 36 of them Grow's), town_only's at 54.2 h (day 2.26; 50 builds, 16
 Grow's); next-affordable gaps S1 median 28 / 20 min, S2 median 1.8 / 1.8 h. sessions (raiding) reaches the City tier
 with 123 builds in 8 days (27 Grow's, the last at 69.1 h), still building at the close; its S0 gaps are unchanged
@@ -587,7 +590,7 @@ measures every profile. The step from L2
 to L3 is now steep on the dead's buildings (the pit's 305 to 1 575 bone, ×5.2, against ×1.5 before), a side effect
 of leaving L2 alone.
 
-**The ramp, probed and not taken (for the V-I2 vision check).** The run's manager's ruling on handoff 4 (4): replace
+**The ×4.4 ramp, probed and not taken (for the V-I2 vision check).** The run's manager's ruling on handoff 4 (4): replace
 the step with a ramp over L3 to L5 if one re-probe keeps pure_idle and town_only in 48–72 h with the S0 gaps
 unchanged, else keep the step. The one candidate, fixed before the run so as not to lose depth: 65a4990's bone on the
 same buildings ×2.0 at L3, ×3.0 at L4 and ×4.4 from L5 (relic levels too; about the step's total over L3–L5 for
@@ -598,6 +601,32 @@ that `buildings.json` (`wip/tools-p3/ramp.py`; digests `qb-{pi,to,se}-ramp-7cb08
 (first30: 3 starts, median 96.5 s, max 1 449.5 s; sessions 700 / 1 300 s, both as the step), and the ramp evened the
 middle: town_only's S1 longest gap 2.1 h against the step's 3.6 h. A top a little steeper (about ×4.6) would likely pass;
 per the ruling it wasn't iterated. sessions reached the City with 122 builds either way.
+
+**The ramp, shipped (×2.0 L3, ×3.0 L4, ×4.6 from L5; the run's manager's ruling 1 on handoff 6, after the 08:17
+ruling).** The ×4.4 ramp above with its top at ×4.6: 65a4990's bone on the same buildings, relic levels too, and the
+mill's cap a level ahead (§5's ladder bullet: caps 300, 700, 1 650, 4 140, 6 670, 10 350, 16 560, 39 560, each
+covering 1.20–1.24 × the mill's and the Market's next level; the Forge's L8, 39 445, fits). The pit's ladder reads 305,
+900, 2 160, 5 290. Every L2, every gold price and the living's buildings are unchanged, as in the step. Built with
+`wip/tools-p3/ramp.py <scratchpad with b-old.json> <out> ramp 4.6` (`step` reproduces 7cb0899's file, a self-check).
+qb_probe, one seed, on 7c4a8f8's code with this file (digests `qb-{pi,to,se}-ramp46-7c4a8f8.txt`; pure_idle and
+town_only re-read line for line on this commit's tree), against the step on the same code (`qb-*-cfg-7c4a8f8.txt`):
+
+| reading | the step (×3.5, shipped to 7c4a8f8) | the ramp (shipped) |
+|---|---|---|
+| pure_idle last build | 52.84 h | **50.03 h** |
+| town_only last build | 54.24 h | **48.19 h** (0.19 h inside the band) |
+| S0, pure_idle / town_only (qb) | 1 start, 100 s | 1 start, 100 s |
+| S0, sessions (qb) | median 700 s, max 1 300 s | 700 / 1 300 s |
+| S0, first30 (autoplay_first30) | 3 starts, median 96.5 s, max 1 449.5 s (at 7cb0899) | 3, 96.5 s, 1 449.5 s |
+| town_only's longest S1 gap | 13 017 s (3.6 h) | 7 422 s (2.1 h) |
+| pure_idle's longest S1 gap | 8 206 s | 5 655 s |
+| sessions | 191.05 h, 127 builds, City | 188.94 h, 122 builds, City |
+
+Both profiles land in 48–72 h, S0 is unchanged, and the ramp evens town_only's middle. **town_only's 48.19 h sits only
+0.19 h inside the band**, so a later cost change can push it out. **The rule for that (the run's manager's ruling 1 on
+handoff 6):** if any later P3 change or the balance pass drops either profile below 48 h, raise the ramp's top step;
+don't go back to the ×5.2 step (the step's L2 → L3 cliff, the pit's 305 → 1 575 bone). These are probe readings on
+one seed; P3's batch measures every profile.
 
 ## 8. Balance stand-ins (E3-6a; `configs/balance_standins.json` v0)
 The autoplayer (E3-6b) can't run the dungeon headless. `tests/autoplay/standin_resolver.gd`

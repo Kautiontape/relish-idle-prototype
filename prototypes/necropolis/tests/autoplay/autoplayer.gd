@@ -142,6 +142,9 @@ var unpaid: Array = []
 var tiers: Array = []
 var clears: Array = []
 var closes: Array = []
+## Phase I P3 (R-b's sizing): the relics the idle trickle paid (GameState.trickle_paid, summed over every state a load
+## replaces) and the longest unbroken hold seen (a fort's held_for_s, at each close's save and load and at the summary)
+var trickle := {"paid": 0, "longest_hold_s": 0.0}
 var raids: Array = []
 var fronts_daily: Array = []
 var input_limited: Array = []
@@ -1419,7 +1422,10 @@ func close(gap: int, night := false) -> Dictionary:
 	var lr := n.cmd_load(SLOT)
 	if not bool(lr["ok"]) or int(lr["away_s"]) != gap:
 		notes.append("t %.1f: cmd_load %s, away %s of %d" % [t0, str(lr["reason"]), str(lr["away_s"]), gap])
+	_note_hold()
+	trickle["paid"] = int(trickle["paid"]) + s.trickle_paid
 	s = n
+	_note_hold()
 	for e in s.catchup_events():
 		_on_event(e, "away")
 	for e in s.drain_events():
@@ -1436,6 +1442,13 @@ func close(gap: int, night := false) -> Dictionary:
 	closes.append(rec)
 	_next_fine = s.t
 	return rec
+
+
+## The longest unbroken hold so far (R-b's sizing): the largest held_for_s of a held fort in `s` now.
+func _note_hold() -> void:
+	for f in s.realm.forts:
+		if RealmSim.is_held(f):
+			trickle["longest_hold_s"] = maxf(float(trickle["longest_hold_s"]), float(f.get("held_for_s", 0.0)))
 
 
 func _scan_away(ready: Array) -> void:
@@ -2140,6 +2153,10 @@ func summary() -> Dictionary:
 		"fronts_daily": fronts_daily, "raised": raised, "crafted": crafted,
 		"keep_churn": keep_churn, "crypt_up_h": _r(crypt_up_t / 3600.0) if crypt_up_t >= 0.0 else -1.0}
 	out["relics"] = _relics()
+	_note_hold()
+	out["trickle"] = {"paid": int(trickle["paid"]) + s.trickle_paid, "longest_hold_h": _r(float(trickle["longest_hold_s"]) / 3600.0),
+		"hold_h": _r(float(c["economy"]["relic_trickle"]["hold_s"]) / 3600.0), "period_h": _r(float(c["economy"]["relic_trickle"]["period_s"]) / 3600.0),
+		"basis": "paid: GameState.trickle_paid summed over the states each load replaces; longest_hold_h: a held fort's held_for_s at each close's save and load and at the end"}
 	out["first_t2_raid"] = first_raid.get("t2", {})
 	out["first_t3_raid"] = first_raid.get("t3", {})
 	out["backups"] = {"first_vat_t": first["vat"], "first_chapel_t": first["chapel"], "first_clone_seen_t": first["clone"],

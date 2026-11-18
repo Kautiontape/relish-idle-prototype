@@ -748,7 +748,11 @@ func _gap_events() -> void:
 ## values are printed, not asserted. The feed saws with the convoy's loads (fresh's mint 9.4 to 12.8 a cycle), so
 ## one instant compares two phases: fresh at 12 h read 36.2% apart on a minted total 0.0015% apart and 600 s means
 ## 0.05% apart, and before the claim it passed at 12 h on its phase (0.84%) and read 36% apart 600 s later.
-static func accuracy(c: Dictionary, js: String, seconds: float, tol: float, window_s := 0.0) -> Dictionary:
+## `windowed` (Phase I P3) is the list the window judges, WINDOWED unless a case passes its own: only the 12 h
+## pre_vei Grow-on case (catchup_accuracy._grow_on) adds bone_net, where Grow levels the Bone Mill and its
+## convoy-fed bone net saws. Every other start keeps WINDOWED, so its bone_net is still judged at the endpoint.
+## `window.saw` holds each windowed rate's saw ({cycle_s, cycle_s_cu, swing}; _window_means), for the window's premise.
+static func accuracy(c: Dictionary, js: String, seconds: float, tol: float, window_s := 0.0, windowed: Array = WINDOWED) -> Dictionary:
 	var dir := "user://test_catchup_acc_%d" % OS.get_process_id()
 	DirAccess.make_dir_recursive_absolute(dir)
 	var src := GameState.new(c)
@@ -771,34 +775,40 @@ static func accuracy(c: Dictionary, js: String, seconds: float, tol: float, wind
 	live.tick(seconds)
 	var cu_evs := cu.catchup_events()
 	var live_evs := live.drain_events()
-	var out := compare(cu, cu_evs, live, live_evs, tol, WINDOWED if window_s > 0.0 else [])
+	var out := compare(cu, cu_evs, live, live_evs, tol, windowed if window_s > 0.0 else [])
 	out["grow_started"] = [grow_starts(cu_evs), grow_starts(live_evs)]  # (Phase I P3) caught up, live
 	out["t0"] = src.t
 	out["grow_bound_s"] = grow_bound_s(cu)
 	if window_s > 0.0:
 		var conv = load("res://tests/slow/convergence.gd")
-		var ma := _window_means(cu, window_s)
-		var mb := _window_means(live, window_s)
+		var ma := _window_means(cu, window_s, windowed)
+		var mb := _window_means(live, window_s, windowed)
 		var rfl := 0.01 * maxf(1.0, float(mb["mint"]))
 		var w := 0.0
 		var wparts: Array = []
-		for k in WINDOWED:
+		var saw := {}
+		var sparts: Array = []
+		for k in windowed:
 			var e := absf(float(ma[k]) - float(mb[k])) / maxf(absf(float(mb[k])), rfl)
 			w = maxf(w, e)
 			wparts.append("%s %s" % [k, conv._pct(e)])
+			saw[k] = {"cycle_s": float(mb["_saw"][k][0]), "swing": float(mb["_saw"][k][1]), "cycle_s_cu": float(ma["_saw"][k][0])}
+			if k != "mint" and not WINDOWED.has(k):
+				sparts.append("; the live %s's saw %s, a cycle of %.1f s (caught up %.1f s)" % [k, conv._pct(float(saw[k]["swing"])),
+					float(saw[k]["cycle_s"]), float(saw[k]["cycle_s_cu"])])
 		out["window"] = {"s": window_s, "worst": w, "cycle_s": float(mb["_cycle_s"]), "swing": float(mb["_swing"]),
-			"cycle_s_cu": float(ma["_cycle_s"])}
+			"cycle_s_cu": float(ma["_cycle_s"]), "saw": saw}
 		out["worst"] = maxf(float(out["worst"]), w)
 		out["ok"] = bool(out["ok"]) and w <= tol
-		out["lines"] = str(out["lines"]) + "; %s over the next %.0f s live (asserted; the endpoint's are printed above): %s; the live mint's saw %s over the window, a cycle of %.1f s (caught up %.1f s)" % [
-			"/".join(PackedStringArray(WINDOWED)), window_s, ", ".join(PackedStringArray(wparts)), conv._pct(float(mb["_swing"])),
-			float(mb["_cycle_s"]), float(ma["_cycle_s"])]
+		out["lines"] = str(out["lines"]) + "; %s over the next %.0f s live (asserted; the endpoint's are printed above): %s; the live mint's saw %s over the window, a cycle of %.1f s (caught up %.1f s)%s" % [
+			"/".join(PackedStringArray(windowed)), window_s, ", ".join(PackedStringArray(wparts)), conv._pct(float(mb["_swing"])),
+			float(mb["_cycle_s"]), float(ma["_cycle_s"]), "".join(PackedStringArray(sparts))]
 	DirAccess.remove_absolute(dir + "/acc.json")
 	DirAccess.remove_absolute(dir)
 	return out
 
 
-## The rates the pits' feed drives (accuracy()'s window).
+## The rates the pits' feed drives (accuracy()'s window, unless a case passes its own list).
 const WINDOWED := ["mint", "war", "flood", "worker_in"]
 
 
@@ -879,43 +889,59 @@ static func grow_script(s: GameState) -> void:
 	s.cmd_debug_grant({"bone": s.town_sim.bone_cap() - s.town_sim.bone})
 
 
-## Each WINDOWED rate's mean over `window_s` more of live play at 0.5 s.
-static func _window_means(s: GameState, window_s: float) -> Dictionary:
+## Each rate in `keys` (accuracy()'s `windowed`; the mint is always sampled) has its mean over `window_s` more of live
+## play at 0.5 s; `_saw` holds each one's [cycle_s, swing] (_saw), `_cycle_s` and `_swing` the mint's.
+static func _window_means(s: GameState, window_s: float, keys: Array = WINDOWED) -> Dictionary:
 	var sum := {}
-	for k in WINDOWED:
+	var vals := {}
+	var ks: Array = keys.duplicate()
+	if not ks.has("mint"):
+		ks.append("mint")
+	for k in ks:
 		sum[k] = 0.0
+		vals[k] = []
 	var n := maxi(1, int(round(window_s / 0.5)))
-	var mint: Array[float] = []
 	for i in n:
 		s.tick(0.5)
 		var r := _rates(s)
-		mint.append(float(r["mint"]))
-		for k in WINDOWED:
+		for k in ks:
 			sum[k] = float(sum[k]) + float(r[k])
-	for k in WINDOWED:
+			(vals[k] as Array).append(float(r[k]))
+	var saw := {}
+	for k in ks:
 		sum[k] = float(sum[k]) / n
-	# the mint's saw over the window (E4 review item 4): `_cycle_s` the window over its upward crossings of the window's
-	# mean (a crossing counts once it has been under the mean by a quarter of the swing, so substep jitter doesn't),
-	# INF with none; `_swing` (max − min) ÷ the mean. A mean over the window is off by at most about swing × cycle ÷
-	# window of the mean, so the window must hold many cycles
-	var mu := float(sum["mint"])
+		saw[k] = _saw(vals[k], float(sum[k]), window_s)
+	sum["_saw"] = saw
+	sum["_cycle_s"] = float(saw["mint"][0])
+	sum["_swing"] = float(saw["mint"][1])
+	return sum
+
+
+## A rate's saw over the window (E4 review item 4; Phase I P3 for each windowed rate, not the mint alone), as
+## [cycle_s, swing]: cycle_s the window over its upward crossings of the window's mean `mu`, INF with none; swing
+## (max − min) ÷ the mean. A mean over the window is off by at most about swing × cycle ÷ window of the mean, so the
+## window must hold many cycles. A crossing is a Schmitt trigger's (so substep jitter doesn't count): armed under the
+## mean by a quarter of the low side (mu − min), counted over it by a quarter of the high side (max − mu). Phase I P3: a
+## pulse train sits at its floor with short spikes (the 12 h Grow-on pre_vei on the ramp: the mint 79.1 with spikes to
+## 118.4 around 88.8, bone_net 0 with pulses of 0.6 around 0.15, each 30 s bucket's mean flat), and its floor is above
+## the old arm line (the mean less a quarter of the whole swing), which counted none: INF.
+static func _saw(vals: Array, mu: float, window_s: float) -> Array:
 	var lo := INF
 	var hi := -INF
-	for v in mint:
-		lo = minf(lo, v)
-		hi = maxf(hi, v)
-	var band := 0.25 * (hi - lo)
+	for v in vals:
+		lo = minf(lo, float(v))
+		hi = maxf(hi, float(v))
+	var arm := mu - 0.25 * (mu - lo)
+	var fire := mu + 0.25 * (hi - mu)
 	var ups := 0
 	var armed := false
-	for v in mint:
-		if v < mu - band:
+	for v in vals:
+		if float(v) < arm:
 			armed = true
-		elif armed and v >= mu:
+		elif armed and float(v) > fire:
 			ups += 1
 			armed = false
-	sum["_cycle_s"] = window_s / ups if ups > 0 else INF
-	sum["_swing"] = (hi - lo) / maxf(absf(mu), 1e-9)
-	return sum
+	return [window_s / ups if ups > 0 else INF, (hi - lo) / maxf(absf(mu), 1e-9)]
 
 
 ## Two runs of the same span compared (accuracy(), the I1 helper; also returns `late`, the time-bound misses,

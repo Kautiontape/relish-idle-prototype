@@ -23,6 +23,11 @@ extends RefCounted
 
 const HOURS := 12.0
 const WINDOW_S := 600.0
+## The 12 h pre_vei Grow-on case's window (_grow_on): test_catchup.WINDOWED and bone_net, over GROW_WINDOW_S. bone_net
+## is a pulse train (0 with pulses of 0.6 around 0.15, a 6.7 s cycle at 7c4a8f8 with the ramp): its swing is 401% of its
+## mean, so 600 s bounds the means' phase error at about 4.5%, over tol; 1 800 s bounds it at about 1.5%.
+const GROW_WINDOWED := ["mint", "war", "flood", "worker_in", "bone_net"]
+const GROW_WINDOW_S := 1800.0
 
 var t := TestUtil.new()
 
@@ -72,8 +77,21 @@ func run() -> int:
 ## The new game's Grow starts run out once its bone is spent (no mill is built); pre_vei's run on through the 12 h.
 ## pre_vei runs at market.price ×2 (test_catchup.grow_price): its own gold net is negative, so Grow's upkeep test (the
 ## run's manager's ruling 1 on handoff 5) would pass over every pick until the town sheds.
+## pre_vei's bone_net is judged on the window means too (the run's manager's ruling 3 on handoff 6; GROW_WINDOWED): with
+## the doubled price Grow levels the Bone Mill, whose convoy-fed bone net saws, so its endpoint compares two phases (at
+## 7c4a8f8 47.5% apart, every stock within 0.37% and the same 24 starts). Every stock keeps its endpoint check, and the
+## other starts keep test_catchup.WINDOWED. The window's premise is asserted on the mint and bone_net as on the mint
+## above, over GROW_WINDOW_S, with the means' phase-error bound within tol too.
 func _grow_on(c: Dictionary, conv: Variant, cu: Variant, tol: float) -> void:
-	var r: Dictionary = cu.accuracy(cu.grow_price(c), cu.grow_on_json(conv.start_json("pre_vei")), HOURS * 3600.0, tol, WINDOW_S)
+	var r: Dictionary = cu.accuracy(cu.grow_price(c), cu.grow_on_json(conv.start_json("pre_vei")), HOURS * 3600.0, tol, GROW_WINDOW_S,
+		GROW_WINDOWED)
+	for k in ["mint", "bone_net"]:
+		var sw: Dictionary = r["window"]["saw"][k]
+		var cyc := float(sw["cycle_s"])
+		var bound := float(sw["swing"]) * cyc / GROW_WINDOW_S if is_finite(cyc) else 0.0
+		t.ok(((cyc <= 0.1 * GROW_WINDOW_S and float(sw["cycle_s_cu"]) <= 0.1 * GROW_WINDOW_S) and bound <= tol) or float(sw["swing"]) <= tol,
+			"pre_vei with Grow on: %s saws %s on a %.1f s cycle live (%.1f s caught up), well inside the %.0f s window: the means' phase error is at most about %s (within %s)" % [
+			k, conv._pct(float(sw["swing"])), cyc, float(sw["cycle_s_cu"]), GROW_WINDOW_S, conv._pct(bound), conv._pct(tol)])
 	var g: Array = r["grow_started"]
 	var gd: String = cu.grow_same(g[0], g[1], tol, float(r["t0"]), INF)
 	print("  [catchup_accuracy] pre_vei with Grow on, %.0f h caught up vs live: %s; Grow started %d caught up, %d live (%s; the worst %.3f s apart)" % [
