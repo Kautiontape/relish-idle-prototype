@@ -21,6 +21,7 @@ func run() -> int:
 	_foreman_menu()
 	_away_label()
 	_catchup()
+	_spread_refresh()
 	_p2_counts()
 	return t.failures
 
@@ -64,6 +65,51 @@ func _catchup() -> void:
 	for p in ["panel_build", "panel_crypt", "panel_backups"]:
 		var src := FileAccess.get_file_as_string("res://scripts/town/%s.gd" % p)
 		t.ok(src.contains("TownUI.refusal("), "%s words its refusals through TownUI.refusal" % p)
+
+
+## A function's body in `src`, from its `func name(` line to the next top-level func or doc comment ("" when absent).
+static func _body(src: String, name: String) -> String:
+	var at := src.find("func %s(" % name)
+	if at < 0:
+		return ""
+	var end := src.length()
+	for mark in ["\nfunc ", "\n## ", "\nstatic func "]:
+		var e := src.find(mark, at + 1)
+		if e > 0:
+			end = mini(end, e)
+	return src.substr(at, end - at)
+
+
+## The redraw after a build start (town-i M2, C-d's town half): every refresh but the setup's is spread, one piece a
+## frame. A command's drops the binds still pending (they hold the views from before it) and binds the tab on show
+## first; phase A keeps the views the Build tab reads together, phase B the stances and the fort digest. Source
+## only (the shell needs the Game autoload); the frame times are in the M2 report.
+func _spread_refresh() -> void:
+	var shell := FileAccess.get_file_as_string("res://scripts/town/covington.gd")
+	var proc := _body(shell, "_process")
+	var d := proc.find("if _dirty:")
+	var b := proc.find("_refresh_b()")
+	var l := proc.find("_later.pop_front()")
+	var r := proc.find("_refresh_a(false)")
+	t.ok(d > 0 and proc.find("_refresh_a(true)", d) > d and b > d and l > b and r > l,
+		"_process takes one piece a frame: a command's phase A, else phase B, else one bind, else a due refresh")
+	t.ok(not proc.contains("_fetch()"), "a command no longer fetches and binds everything in one frame")
+	var a := _body(shell, "_refresh_a")
+	t.ok(a.contains("_fetch_views_a()") and a.contains("if cmd:") and a.contains("_later = []"),
+		"a command's phase A drops the pending binds")
+	var rb := _body(shell, "_refresh_b")
+	t.ok(rb.contains("_fetch_views_b(_pending)") and rb.contains("now.push_front(tab)") and rb.contains("TownModel.merge_pending("),
+		"phase B binds the tab on show first after a command, and merges otherwise")
+	var va := _body(shell, "_fetch_views_a")
+	var vb := _body(shell, "_fetch_views_b")
+	t.ok(["view_town()", "view_catalog()", "view_hud()", "view_rates()"].all(func(v): return va.contains(v))
+		and not va.contains("view_realm") and not va.contains("view_stances"), "phase A: town, catalog, hud and rates together")
+	t.ok(vb.contains("view_stances()") and vb.contains("view_realm()") and vb.contains("tab_suggestion("),
+		"phase B: the stances, the fort digest and the shared suggestion")
+	t.ok(_body(shell, "_fetch").contains("_fetch_views()") and _body(shell, "_fetch_views").contains("_fetch_views_b(_fetch_views_a())"),
+		"the setup's fetch still binds everything at once, from both phases")
+	var take := _body(shell, "_take")
+	t.ok(take.contains("_update_goal(views)") and take.contains("_check_replay(views)"), "the goal and the replay read the full set")
 
 
 ## The foreman menu offers job buildings only (buildings.json jobs), a Chapel even while no vat is staffed.

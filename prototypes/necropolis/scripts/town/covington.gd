@@ -28,6 +28,8 @@ var _tab := 0  # the tab on show: its panel binds on every fetch, the others onc
 var _last_rev := -1
 var _since_fetch := 0.0
 var _dirty := false
+var _pending: Dictionary = {}  # a spread refresh's phase-A views, waiting for phase B next frame ({} = none)
+var _pending_cmd := false  # the pending refresh is a command's: its binds start with the tab on show
 var _refresh_s := 0.25
 ## Debug-only harness (`--town-demo=full|tierup`, ignored unless Game.state.debug_enabled):
 ## "full" binds the synthetic demo city instead of the fetched views; "tierup" fires a synthetic
@@ -414,38 +416,73 @@ func _process(delta: float) -> void:
 	_beat_i = int(beat["i"])
 	if bool(beat["fire"]):
 		_play("beat")
-	if not _later.is_empty():
-		(_later.pop_front() as Node).bind(_last_views)
 	if _replay_left >= 0.0:
 		_replay_step(delta)
 	_since_fetch += delta
+	# One piece of the refresh per frame, so no frame carries a whole one (a cold fetch is ~5 ms, the binds ~3 ms):
+	# a command's phase A (it drops what was pending), else a fetch's phase B, else one bind, else a due refresh.
 	if _dirty:
-		_fetch()
+		_refresh_a(true)
+	elif not _pending.is_empty():
+		_refresh_b()
+	elif not _later.is_empty():
+		(_later.pop_front() as Node).bind(_last_views)
 	elif Game.state.rev != _last_rev and _since_fetch >= _refresh_s:
-		_fetch(true)
+		_refresh_a(false)
 
 
-## Fetches the views and binds what is on screen. `spread` (the twice-a-second refresh) fetches in this frame
-## and binds one node in each frame after, so no frame carries the whole refresh; a command's refresh, the
-## setup and the debug drivers bind it all at once.
-func _fetch(spread := false) -> void:
+## Fetches the views and binds what is on screen, all in this frame: the setup and the debug drivers. Every other
+## refresh is spread over frames (_refresh_a, _refresh_b, then one bind a frame).
+func _fetch() -> void:
 	_last_rev = Game.state.rev
 	_since_fetch = 0.0
 	_dirty = false
+	_pending = {}
 	var views := _fetch_views()
+	_take(views)
+	_later = []
+	for n in _bound.filter(_binds_now):
+		n.bind(views)
+
+
+## A spread refresh's first frame: the views that must agree with each other (phase A, _fetch_views_a). A command's
+## (`cmd`) drops the binds still pending, which would show the views from before it, and binds the tab on show
+## first once phase B lands, so the panel clicked answers first.
+func _refresh_a(cmd: bool) -> void:
+	_last_rev = Game.state.rev
+	_since_fetch = 0.0
+	_dirty = false
+	_pending = _fetch_views_a()
+	_pending_cmd = cmd or _pending_cmd
+	if cmd:
+		_later = []
+
+
+## A spread refresh's second frame: the rest of the views (_fetch_views_b), the goal and the replay check, and the
+## binds queued one a frame after this one.
+func _refresh_b() -> void:
+	var views := _fetch_views_b(_pending)
+	_pending = {}
+	_take(views)
+	var now := _bound.filter(_binds_now)
+	if _pending_cmd:
+		_pending_cmd = false
+		var tab: Node = _panels[_tab]
+		now.erase(tab)
+		now.push_front(tab)
+		_later = now
+	else:
+		_later = TownModel.merge_pending(_later, now)  # merged: a fetch before the queue drains drops nothing
+
+
+## What every fetch does with its views before the binds: the tier, the last views, the goal, the replay check.
+func _take(views: Dictionary) -> void:
 	_tier = String(views["town"].get("tier", ""))
 	_last_views = views
 	_update_goal(views)
 	if _away_check:
 		_away_check = false
 		_check_replay(views)
-	var now := _bound.filter(_binds_now)
-	if spread:
-		_later = TownModel.merge_pending(_later, now)  # merged: a fetch before the queue drains drops nothing
-		return
-	_later = []
-	for n in now:
-		n.bind(views)
 
 
 ## Whether `n` binds on this fetch: the HUD and the town view always; the tab on show; and the Build tab even
@@ -468,13 +505,27 @@ func project_staffing(order: Array, extra := {}) -> Array:
 
 
 func _fetch_views() -> Dictionary:
+	return _fetch_views_b(_fetch_views_a())
+
+
+## Phase A of a fetch: the views the Build tab and the HUD read together (the queue, can_build, the stocks and
+## rates, from one rev), and the cheap ones. ~3 ms cold at midgame.
+func _fetch_views_a() -> Dictionary:
 	var s = Game.state
-	var views := {
+	return {
 		"town": s.view_town(), "hud": s.view_hud(), "rates": s.view_rates(), "catalog": s.view_catalog(),
-		"stances": s.view_stances(), "backups": s.view_backups(),
-		"inventory": s.view_inventory(), "big_undead": s.view_big_undead(), "party": s.view_party(),
-		"relish": s.view_relish(), "vei": s.view_vei(), "fort_names": _fort_names, "forts": _forts(s.view_realm()),
+		"backups": s.view_backups(), "inventory": s.view_inventory(), "big_undead": s.view_big_undead(),
+		"party": s.view_party(), "relish": s.view_relish(), "vei": s.view_vei(), "fort_names": _fort_names,
 	}
+
+
+## Phase B: the stances, the fort digest (view_realm), and what is computed from all of the views (the demo city,
+## the lot hops, the shared suggestion). A spread refresh runs it a frame after phase A; the views may then be a rev
+## apart, and the next refresh (rev moved) closes the gap.
+func _fetch_views_b(views: Dictionary) -> Dictionary:
+	var s = Game.state
+	views["stances"] = s.view_stances()
+	views["forts"] = _forts(s.view_realm())
 	if _demo == "full":
 		views = TownStandins.demo_views(views, ConfigDb.data.get("buildings", {}), ConfigDb.data.get("town", {}))
 	# the same lot hops the autoplayer breaks ties with, and the one suggestion the Build tab and the HUD show,
