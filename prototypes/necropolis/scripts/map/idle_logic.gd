@@ -189,11 +189,13 @@ static func chip_place(p: Vector2, r: float, zoom: float, second_line: bool, wid
 ## clear of the token), then above its ring (chip_ring_gap_px off it: clear of the tithe ring), right
 ## of it, left of it (chip_side_gap_px off it: clear of the tithe countdown and the raid word), then
 ## under the name slid sideways by each of chip_slide_fracs of its width (right, left), then the
-## same slides on the row above the ring, and takes the first that overlaps no other fort's ring, name or tag plate (the plates
-## NodeLogic.fort_label_rects gives, as MapCallouts._label_rects uses them), no chip placed before
-## it and not Relish's token, and whose centre is nearer its own fort than any other. When none is
-## clear it keeps the one overlapping least. `nodes` are the non-fort obstacles (`node_obstacles`:
-## Covington and Vei), each {pos, r (disc radius), rects (world-px plates)}, avoided the same way.
+## same slides on the row above the ring. A place that does not read as its own fort's is dropped
+## (`chip_attached`); of the rest it takes the first that overlaps no other fort's ring, name or tag
+## plate (the plates NodeLogic.fort_label_rects gives, as MapCallouts._label_rects uses them), no
+## chip placed before it and not Relish's token (hard), nor `nodes` (soft). `nodes` are the non-fort
+## obstacles (`node_obstacles`: Covington and Vei), each {pos, r (disc radius), rects (world-px
+## plates)}. When none is free it takes the least hard overlap, then the least soft; when none is
+## attached, the default.
 static func chip_layout(forts: Array, zoom: float, has_token: bool, token: Vector2, token_r: float, nodes := []) -> Dictionary:
 	var z := maxf(zoom, 0.001)
 	var c := cfg()
@@ -235,32 +237,59 @@ static func chip_layout(forts: Array, zoom: float, has_token: bool, token: Vecto
 			var up: Rect2 = cands[1]
 			cands.append(Rect2(up.position + Vector2(up.size.x * float(frac), 0.0), up.size))
 			cands.append(Rect2(up.position - Vector2(up.size.x * float(frac), 0.0), up.size))
-		var best: Rect2 = cands[0]
-		var best_cost := INF
-		for cand in cands:
-			var cost := _chip_cost(cand, f, forts, plates, out, tok, has_token, others, nodes)
-			if cost < best_cost:
-				best_cost = cost
-				best = cand
-			if cost <= 0.0:
+		# attachment is a hard filter: a place that fails it is dropped, never costed
+		var slack := _ring_gap(base, p, r) * z + float(c["chip_attach_px"])
+		var best := -1
+		var best_cost := Vector2(INF, INF)
+		for i in cands.size():
+			if not chip_attached(cands[i], f, forts, z, slack):
+				continue
+			var cost := _chip_cost(cands[i], f, forts, plates, out, tok, has_token, nodes)
+			if cost == Vector2.ZERO:
+				best = i
 				break
-		out[f["id"]] = best
+			if cost.x < best_cost.x or (cost.x == best_cost.x and cost.y < best_cost.y):
+				best_cost = cost
+				best = i
+		out[f["id"]] = cands[maxi(best, 0)]  # none attached: the default place
 	return out
 
 
-## How wrong a chip place is, in world px squared: the area it overlaps other forts' rings, name and
-## tag plates, the chips already placed (`placed`, {id: Rect2}) and the token's rect (`tok`), plus
-## its whole area when its centre is not nearer its own fort than every other. 0.0 is clear.
-static func _chip_cost(rect: Rect2, f: Dictionary, forts: Array, plates: Array, placed: Dictionary, tok: Rect2, has_token: bool, others: Array, nodes: Array) -> float:
+## Whether a chip place still reads as its own fort's on sight, in screen px: the gap from the rect
+## to its own ring's edge is at most `slack` (the default place's own gap plus chip_attach_px), and
+## every other fort's ring edge is at least own gap + chip_attach_margin_px from it.
+static func chip_attached(rect: Rect2, f: Dictionary, forts: Array, zoom: float, slack: float) -> bool:
+	var own := _ring_gap(rect, f["pos"], float(f["r"])) * zoom
+	if own > slack:
+		return false
+	var need := own + float(cfg()["chip_attach_margin_px"])
+	for g in forts:
+		if g["id"] != f["id"] and _ring_gap(rect, g["pos"], float(g["r"])) * zoom < need:
+			return false
+	return true
+
+
+## The gap in world px from `rect` to the edge of the ring at `c` (radius `r`); 0 when they touch.
+static func _ring_gap(rect: Rect2, c: Vector2, r: float) -> float:
+	var nearest := Vector2(clampf(c.x, rect.position.x, rect.end.x), clampf(c.y, rect.position.y, rect.end.y))
+	return maxf(nearest.distance_to(c) - r, 0.0)
+
+
+## How wrong a chip place is, as Vector2(hard, soft) in world px squared, compared hard first. Hard:
+## the area it overlaps other forts' rings, name and tag plates, the chips already placed (`placed`,
+## {id: Rect2}) and the token's rect (`tok`). Soft: the area over Covington's and Vei's discs and
+## plates (`nodes`), tolerated where nothing else is free. (0, 0) is clear.
+static func _chip_cost(rect: Rect2, f: Dictionary, forts: Array, plates: Array, placed: Dictionary, tok: Rect2, has_token: bool, nodes: Array) -> Vector2:
+	var soft := 0.0
 	var cost := 0.0
 	for nd in nodes:
 		var np: Vector2 = nd["pos"]
 		var nr := float(nd["r"])
 		if _disc_hits(rect, np, nr):
-			cost += maxf(rect.intersection(Rect2(np - Vector2(nr, nr), Vector2(nr, nr) * 2.0)).get_area(), 1.0)
+			soft += maxf(rect.intersection(Rect2(np - Vector2(nr, nr), Vector2(nr, nr) * 2.0)).get_area(), 1.0)
 		for pr in nd["rects"]:
 			if rect.intersects(pr):
-				cost += rect.intersection(pr).get_area()
+				soft += rect.intersection(pr).get_area()
 	if has_token and rect.intersects(tok):
 		cost += rect.intersection(tok).get_area()
 	for g in forts:
@@ -276,9 +305,7 @@ static func _chip_cost(rect: Rect2, f: Dictionary, forts: Array, plates: Array, 
 	for id in placed:
 		if rect.intersects(placed[id]):
 			cost += rect.intersection(placed[id]).get_area()
-	if not _nearest_own(rect, f["pos"], others):
-		cost += rect.get_area()
-	return cost
+	return Vector2(cost, soft)
 
 
 ## Covington's and Vei's obstacles for `chip_layout`, in world px, from the geometry the node layers

@@ -946,6 +946,8 @@
     "chip_token_pad_px": 4.0,
     "chip_ring_gap_px": 30.0,
     "chip_side_gap_px": 72.0,
+    "chip_attach_px": 14.0,
+    "chip_attach_margin_px": 18.0,
     "chip_slide_fracs": [0.1, 0.15, 0.2, 0.25, 0.3, 0.4, 0.5, 0.75]
   },
   "demo_away": {

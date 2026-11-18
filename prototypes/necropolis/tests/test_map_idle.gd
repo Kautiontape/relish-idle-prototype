@@ -85,6 +85,24 @@ func _chip_hits(rect: Rect2, f: Dictionary, items: Array, others: Dictionary, z:
 	return hits
 
 
+## Whether chip `rect` reads as fort `f`'s on sight, by the rule written out here (not chip_layout's code): the gap in
+## screen px from the rect to its own ring's edge is at most the default place's own gap plus chip_attach_px, and every
+## other fort's ring edge is at least that gap + chip_attach_margin_px away.
+func _reads_as_own(rect: Rect2, f: Dictionary, items: Array, z: float) -> bool:
+	var gap := func(r: Rect2, g: Dictionary) -> float:
+		var np := Vector2(clampf(g["pos"].x, r.position.x, r.end.x), clampf(g["pos"].y, r.position.y, r.end.y))
+		return maxf(np.distance_to(g["pos"]) - float(g["r"]), 0.0) * z
+	var cfg := IdleLogic.cfg()
+	var dflt := IdleLogic.chip_rect(f["pos"], float(f["r"]), z, bool(f["second"]), float(f["w"]))
+	var own: float = gap.call(rect, f)
+	if own > gap.call(dflt, f) + float(cfg["chip_attach_px"]):
+		return false
+	for g in items:
+		if g["id"] != f["id"] and float(gap.call(rect, g)) < own + float(cfg["chip_attach_margin_px"]):
+			return false
+	return true
+
+
 ## Held chips keep off other forts' rings, name and tag plates and chips, and stay clear of Relish's token.
 func _chips(t: TestUtil) -> void:
 	t.suite("map_idle-chip-layout")
@@ -119,6 +137,13 @@ func _chips(t: TestUtil) -> void:
 		var lay := IdleLogic.chip_layout(tagged, zoom, false, Vector2.ZERO, 0.0)
 		var hits := _chip_hits(lay["ashgate"], tagged[0], tagged, lay, zoom)
 		t.ok(hits.is_empty(), "zoom %.3f: Ashgate's chip, its neighbours tagged, touches nothing %s" % [zoom, str(hits)])
+	# the d99ea17 placement at zoom 0.57 (above Ashgate's ring slid left, beside Vespers) read as Vespers' chip
+	var drifted := Rect2(1352.28, 1022.526, 259.6491, 56.84211)
+	t.ok(not _reads_as_own(drifted, ash, items, 0.57), "the regression: a chip above the ring beside Vespers does not read as Ashgate's")
+	for zoom in [0.55, 0.57, 0.585, 0.7, 1.0]:
+		var lay := IdleLogic.chip_layout(items, zoom, false, Vector2.ZERO, 0.0)
+		for f in [ash, slu]:
+			t.ok(_reads_as_own(lay[f["id"]], f, items, zoom), "zoom %.3f: %s's chip reads as its own on sight" % [zoom, f["id"]])
 	# Covington and Vei are obstacles too: their discs, Covington's name and the valve's stream labels, Vei's name
 	var world := TestUtil.load_json("res://configs/world.json")
 	var cov := Vector2(float(world["covington"]["pos"][0]), float(world["covington"]["pos"][1]))
@@ -134,19 +159,14 @@ func _chips(t: TestUtil) -> void:
 		for f in [ash, slu]:
 			var r: Rect2 = lay[f["id"]]
 			var bad: Array = _chip_hits(r, f, items, lay, zoom)
-			for nd in nodes:
-				var np: Vector2 = nd["pos"]
-				var near := Vector2(clampf(np.x, r.position.x, r.end.x), clampf(np.y, r.position.y, r.end.y))
-				if near.distance_to(np) < float(nd["r"]):
-					bad.append("node disc at " + str(np))
-				for pr in nd["rects"]:
-					if r.intersects(pr):
-						bad.append("node plate " + str(pr))
-			t.ok(bad.is_empty(), "zoom %.3f: %s's chip hits no ring, node disc or plate %s" % [zoom, f["id"], str(bad)])
+			t.ok(bad.is_empty(), "zoom %.3f: %s's chip, with Covington and Vei in play, hits no fort ring, plate or chip %s" % [zoom, f["id"], str(bad)])
+			t.ok(_reads_as_own(r, f, items, zoom), "zoom %.3f: %s's chip, with Covington and Vei in play, reads as its own on sight" % [zoom, f["id"]])
+			# Covington and Vei are soft obstacles: where a chip touches one, it is the only thing it touches
+			t.ok(not (nodes[1]["rects"] as Array).any(func(pr): return r.intersects(pr)), "zoom %.3f: %s's chip is off Vei's name" % [zoom, f["id"]])
 	# a chip that is already clear does not move: Old Sluice alone, and Ashgate with nobody near
-	var alone := IdleLogic.chip_layout(_chip_items(["greywall"], w), 1.0, false, Vector2.ZERO, 0.0)
-	var gw: Dictionary = _chip_items(["greywall"], w)[2]
-	t.ok(alone["greywall"] == IdleLogic.chip_rect(gw["pos"], float(gw["r"]), 1.0, false, w), "a clear chip stays under its name")
+	var alone := IdleLogic.chip_layout(_chip_items(["sable-hold"], w), 1.0, false, Vector2.ZERO, 0.0)
+	var sh: Dictionary = _chip_items(["sable-hold"], w)[11]
+	t.ok(sh["id"] == "sable-hold" and alone["sable-hold"] == IdleLogic.chip_rect(sh["pos"], float(sh["r"]), 1.0, false, w), "a clear chip stays under its name")
 	# the token still has the chip move clear, and the chip stays clear of the forts too
 	var tok_r := 12.0
 	for f in [ash, slu]:
