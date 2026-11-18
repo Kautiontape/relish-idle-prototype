@@ -210,10 +210,27 @@ func _boss_won_tests(t: TestUtil) -> void:
 		"a 100 s gap: one run_ended for our run, read as won, and the game is won (%s)" % str(ended))
 	var plan := RaidLogic.gap_plan(true, "", true, RaidLogic.gap_outcome(ended[0]) == "won" if not ended.is_empty() else false)
 	t.ok(plan["leave"] and not plan["cut_end"], "the scene leaves the unravel or the win card up: no AWAY TOO LONG, no cut")
-	var away := q.filter(func(e): return e["type"] == "away_report")
-	t.ok(away.is_empty() or (RaidLogic.gap_ends_run(away[0], rid, int(s.view_relish().get("run_id", -1)))
-		and RaidLogic.gap_outcome(away[0], "") == "retreated" and RaidLogic.gap_plan(true, "", true, true)["leave"]),
-		"the backstop away_report says no outcome; the scene's own record (win_recorded) keeps the card")
+	# the backstop (the #22 review's should-fix 2: this check passed with no away_report, as a 100 s gap queues none):
+	# a 900 s gap (above idle.report_min_s) after a recorded win queues the away_report; the scene reads it as ending
+	# our run with no outcome (RaidEndings.gap_end(gap_outcome)), so only its own record (win_recorded) keeps the card
+	var g := _boss_state(t)
+	var gsd := g.view_boss_seed()
+	var gid := int(gsd.get("run_id", -1))
+	var recorded := bool(g.cmd_boss_won(gid, BossLogic.result_of({"seed": gsd, "p1": {}, "fronts_cleared": [], "phase1_s": 40.0, "deaths": 0,
+		"spent": {"phylactery": 0, "clones": 0}, "party_lost": [], "horde0": 100.0, "horde": 0.0}, true)).get("ok", false))
+	g.drain_events()
+	var gq: Array = []
+	g.tick(900.0, g.max_substeps_per_frame())
+	while g.catching_up():
+		gq.append_array(g.drain_events())
+		g.tick(1.0 / 60.0, g.max_substeps_per_frame())
+	gq.append_array(g.drain_events())
+	var away := gq.filter(func(e): return e["type"] == "away_report")
+	var away_out := RaidLogic.gap_outcome(away[0], "") if not away.is_empty() else ""
+	t.ok(recorded and away.size() == 1 and RaidLogic.gap_ends_run(away[0], gid, int(g.view_relish().get("run_id", -1))) and away_out == "retreated",
+		"a 900 s gap after a recorded win queues one away_report (%d), which ends our run with no outcome ('%s')" % [away.size(), away_out])
+	t.ok(RaidLogic.gap_plan(true, "", true, away_out == "won" or recorded)["leave"] and RaidLogic.gap_plan(true, "", true, away_out == "won" or false)["cut_end"],
+		"on that backstop the scene's own record keeps the card; without the record it would be cut")
 	var press := s.apply_result("boss", won)
 	t.ok(not bool(press.get("ok", true)) and str(press.get("reason", "")) == "duplicate_run" and RouterLogic.result_done("boss", press),
 		"the card's press of the same dict after the gap: duplicate_run, which the router takes as done (%s)" % str(press.get("reason", "")))
