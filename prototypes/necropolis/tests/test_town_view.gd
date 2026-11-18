@@ -1677,7 +1677,7 @@ func _build_reasons(day1: Dictionary) -> void:
 		t.ok(txt != "" and txt != r and not txt.contains("_") and not txt.contains("{"), "reason '%s' has human text: %s" % [r, txt])
 	for r in vcfg["reasons"]:
 		if r != "_unknown":
-			t.ok(r in ALL_REASONS or r in ["no_cost", "catching_up"], "view.reasons.%s is a documented reason id (no_cost is the town's own: past level_costs; catching_up is every command's, STATE-API §4)" % r)
+			t.ok(r in ALL_REASONS or r in ["no_cost", "catching_up", "wait_slot"], "view.reasons.%s is a documented reason id (no_cost is the town's own: past level_costs; catching_up is every command's, STATE-API §4; wait_slot is economy P3's queue reason, worded before it lands)" % r)
 	t.ok(BuildSort.reason_text("needs_tier", row, st, bv, vcfg) == "needs Village tier", "reason: needs_tier uses requires.tier")
 	t.ok(BuildSort.reason_text("needs_blueprint", row, st, bv, vcfg) == "needs the Embalmer blueprint: dungeon loot", "reason: needs_blueprint names the blueprint")
 	t.ok(BuildSort.reason_text("needs_building", row, st, bv, vcfg) == "needs a House first", "reason: needs_building names the building")
