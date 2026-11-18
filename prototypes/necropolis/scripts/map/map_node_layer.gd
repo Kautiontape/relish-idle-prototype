@@ -80,8 +80,8 @@ func big_glyph(p: Vector2, half: float, strokes: int) -> void:
 	var g := GlyphLogic.gcfg()
 	for h in GlyphLogic.nest_halves(half, strokes):
 		glow_poly(PackedVector2Array([p + Vector2(0, -h), p + Vector2(h, 0), p + Vector2(0, h), p + Vector2(-h, 0), p + Vector2(0, -h)]),
-			Palette.c("undead"), float(g["big_width_px"]), float(g["big_glow"]), float(g["big_halo_max_px"]))
-	draw_circle(p, float(g["big_core_r_px"]), Palette.c("undead_core"))
+			Palette.c("undead"), GlyphLogic.big_width(ctx.zoom), float(g["big_glow"]), float(g["big_halo_max_px"]))
+	draw_circle(p, GlyphLogic.big_core(ctx.zoom), Palette.c("undead_core"))
 
 
 # --- text -----------------------------------------------------------------------------

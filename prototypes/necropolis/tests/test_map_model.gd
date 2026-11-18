@@ -62,7 +62,65 @@ func run() -> int:
 	t.ok(not th.refresh(), "a rev change inside model_refresh_min_s is deferred")
 	OS.delay_msec(int(float(MapLogic.cfg()["model_refresh_min_s"]) * 1000.0) + 20)
 	t.ok(th.refresh(), "and read once the interval has passed")
+	_builds(t)
 	return t.failures
+
+
+## A finished build's projection reaches the model before the build finishes (the catalog read on the
+## slow cadence while one is pending, on the frame path where the sim refreshes it) and outlives it,
+## keyed by lot and level; the level snapshot survives a model swap and a new game clears it.
+func _builds(t: TestUtil) -> void:
+	t.suite("map_model-builds")
+	MapModel.reset_statics()
+	var s := GameState.new(TestUtil.configs())
+	s.debug_enabled = true
+	s.cmd_debug_load_fixture("midgame_2flips")
+	var m := MapModel.new(s)
+	m.refresh(true)
+	t.ok(m.mount_rises.is_empty() and MapModel.snap_set, "the first mount of a game announces nothing and takes the snapshot")
+	t.ok(MapModel.proj_store.is_empty() and m.built.has("lot-05"), "nothing pending, nothing read; the built lots are known")
+	var q := s.cmd_queue_build("house", "lot-08")
+	t.ok(bool(q["ok"]), "a house is queued (%s)" % q["reason"])
+	m.refresh(true)
+	m.read_projections(s.view_town(), true)  # the first read marks the catalog wanted: its rows come back cold
+	var warm := false
+	var done := {}
+	for f in 6000:
+		s.tick(1.0 / 60.0, 8)  # the frame path, where the projection refresh runs
+		for ev in s.drain_events():
+			if str(ev["type"]) == "building_done" and str(ev["lot_id"]) == "lot-08":
+				done = ev
+		if f % 240 == 239 and done.is_empty():
+			m.refresh(true)
+			m.read_projections(s.view_town(), true)
+			warm = warm or not SetpieceLogic.projection_for(MapModel.proj_store, "lot-08", "house", 1).is_empty()
+		if not done.is_empty():
+			break
+	t.ok(not done.is_empty(), "the house finishes (building_done lot-08, level %s)" % str(done.get("level", "-")))
+	t.ok(warm, "the model read a non-empty projection for lot-08:1 before it finished")
+	t.ok(not SetpieceLogic.projection_for(MapModel.proj_store, "lot-08", str(done["building_id"]), int(done["level"])).is_empty(), "and it is still there when building_done arrives, keyed by the event's lot and level")
+	m.refresh(true)
+	t.ok(m.built.get("lot-08", {}).get("level", 0) == 1 and m.mount_rises.is_empty(), "the refresh sees the new level; the diff is for a mount, not a refresh")
+	t.ok(not SetpieceLogic.projection_for(MapModel.proj_store, "lot-08", "house", 1).is_empty(), "the projection survives the level rising")
+	var text := SetpieceLogic.build_text([{"lot_id": "lot-08", "building_id": "house", "level": 1}], MapModel.proj_store, {"house": "House"})
+	t.ok(text.begins_with("House built"), "the callout reads %s" % text)
+	# a build that finished while the map was away is found by the next mount's diff
+	var s2 := GameState.new(TestUtil.configs())
+	s2.debug_enabled = true
+	s2.cmd_debug_load_fixture("midgame_2flips")
+	var snap_before := MapModel.level_snap.duplicate(true)
+	var back := MapModel.new(s)
+	back.refresh(true)
+	t.ok(back.mount_rises.is_empty(), "a remount with nothing new announces nothing")
+	MapModel.level_snap = snap_before
+	MapModel.level_snap.erase("lot-08")
+	var back2 := MapModel.new(s)
+	back2.refresh(true)
+	t.ok(back2.mount_rises == [{"lot_id": "lot-08", "building_id": "house", "level": 1}], "a lot that rose since the last mount is announced by the new model's first refresh")
+	var other := MapModel.new(s2)
+	other.refresh(true)
+	t.ok(MapModel.snap_game == str(other.hud.get("game_id", "")), "the snapshot belongs to the game being read")
+	MapModel.reset_statics()
 
 
 func _lane_ok(l: Dictionary) -> bool:

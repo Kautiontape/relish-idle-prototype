@@ -48,11 +48,14 @@ func _ready() -> void:
 	visible = false
 
 
-## Opens when the report says shown and this session hasn't closed it.
-func open_if_shown() -> void:
+## Opens when the report says shown and this session hasn't closed it. Returns whether it opened (the
+## builds' callout skips a mount whose report lists the builds that finished).
+func open_if_shown() -> bool:
 	var rep := _report()
 	if AwayLogic.should_open(model.state, demo, rep, _closed_rev):
 		_open(rep)
+		return true
+	return false
 
 
 ## The away_report event: a new report, shown even if the last one was closed.

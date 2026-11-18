@@ -26,6 +26,7 @@ func run() -> int:
 	_motion(t)
 	_fade(t)
 	_strokes(t)
+	_tiers(t)
 	_siege(t)
 	_party(t)
 	_garrison_count(t)
@@ -176,48 +177,93 @@ func _standing(fort: Vector2, tier: int, zoom: float) -> Vector2:
 	return fort - Vector2(0.0, up)
 
 
+## Every zoom the siege and the party draw at: the default fit's mid (0.55 is the lowest a fit
+## goes, 0.58 the fixtures' own), up through the tier edge and near.
+func _draw_zooms() -> Array:
+	return [0.55, 0.58, 1.0, 1.55] + _near_zooms()
+
+
+## The tiers' drawing: far is the macro read and draws neither layer, mid (where the default fit
+## lands) and near draw both; the glyphs never fall under their screen floors at any zoom.
+func _tiers(t: TestUtil) -> void:
+	t.suite("map_glyphs-tiers")
+	t.ok(not GlyphLogic.draws_at("far") and GlyphLogic.draws_at("mid") and GlyphLogic.draws_at("near"), "siege and party draw at mid and near, not far")
+	var g := GlyphLogic.gcfg()
+	var fit_tier := MapLogic.zoom_tier(0.58, "mid")
+	t.ok(fit_tier == "mid" and GlyphLogic.draws_at(fit_tier), "the default fit (0.55..0.58) is the mid tier, and it draws them")
+	var ok := true
+	for z in _draw_zooms():
+		ok = ok and GlyphLogic.big_half(z) * z >= float(g["big_min_screen_px"]) - 1e-6
+		ok = ok and GlyphLogic.party_half(z) * z >= float(g["party_min_screen_px"]) - 1e-6
+		ok = ok and GlyphLogic.big_width(z) * z >= float(g["big_min_width_px"]) - 1e-6
+		ok = ok and GlyphLogic.big_core(z) * z >= float(g["big_core_min_px"]) - 1e-6
+		ok = ok and GlyphLogic.big_half(z) >= float(g["big_half_px"]) and GlyphLogic.party_half(z) >= float(g["party_half_px"])
+	t.ok(ok, "at every zoom a big undead is at least its screen floor and never smaller than its world size")
+	t.ok(GlyphLogic.big_half(2.2) == float(g["big_half_px"]) and GlyphLogic.party_half(2.2) == float(g["party_half_px"]), "near keeps its world sizes")
+	t.ok(GlyphLogic.big_width(2.2) == float(g["big_width_px"]) and GlyphLogic.big_core(2.2) == float(g["big_core_r_px"]), "and its stroke and core")
+	t.ok(GlyphLogic.party_half(0.58) < GlyphLogic.big_half(0.58), "a party member stays smaller than a siege big undead at the fit")
+	var outer := GlyphLogic.nest_halves(GlyphLogic.party_half(0.58), 3)
+	t.ok((outer[0] - outer[2]) * 0.58 >= float(g["big_min_width_px"]) * 2.0, "three nested outlines at the fit still read apart on screen (%.1f px)" % ((outer[0] - outer[2]) * 0.58))
+	var nodes := FileAccess.get_file_as_string("%s/map_nodes.gd" % MAP_DIR)
+	var sync := nodes.substr(nodes.find("func _sync_camera"), 700)
+	t.ok(sync.contains("tier != ctx.tier") and sync.contains("ctx.tier = tier") and sync.contains("_dirty = true"), "a tier or zoom change marks every layer dirty, so the siege redraws without a static_sig term")
+	for f in ["map_siege.gd", "map_party.gd"]:
+		var src := FileAccess.get_file_as_string("%s/%s" % [MAP_DIR, f])
+		t.ok(src.contains("GlyphLogic.draws_at(ctx.tier)") and not src.contains("!= \"near\""), "%s gates on GlyphLogic.draws_at, not on near alone" % f)
+		t.ok(src.contains("ctx.zoom"), "%s sizes its glyphs by the zoom" % f)
+
+
 func _siege(t: TestUtil) -> void:
 	t.suite("map_glyphs-siege")
-	var ext := GlyphLogic.big_extent(float(GlyphLogic.gcfg()["big_half_px"]))
 	var c := MapLogic.cfg()
 	var fort := Vector2(500.0, 400.0)
 	var ok_ring := true
 	var ok_apart := true
 	var ok_relish := true
 	var worst := INF
-	for tier in [1, 2, 3, 4]:
-		var redirect_out := MapLogic.fort_radius(tier) + float(c["redirect_ring_pad_px"]) + float(c["halo_max_px"]) * 0.5
-		for n in [1, 2, 3]:
-			var at := GlyphLogic.siege_layout(fort, tier, n)
-			ok_ring = ok_ring and at.size() == n
-			for i in at.size():
-				ok_ring = ok_ring and at[i].distance_to(fort) - ext >= redirect_out
-				ok_ring = ok_ring and at[i].y < fort.y  # above the centre: clear of the name and the chip under it
-				for j in range(i + 1, at.size()):
-					ok_apart = ok_apart and at[i].distance_to(at[j]) >= ext * 2.0
-				for z in _near_zooms():
+	var ok_text := true
+	var text_half := float(NodeLogic.ncfg()["font_tithe"]) * (float(NodeLogic.ncfg()["plate_ascent"]) - float(NodeLogic.ncfg()["text_mid_ratio"]))  # the plate's top above the fort's centre line
+	for z in _draw_zooms():
+		var ext := GlyphLogic.big_extent(GlyphLogic.big_half(z))
+		for tier in [1, 2, 3, 4]:
+			var redirect_out := MapLogic.fort_radius(tier) + float(c["redirect_ring_pad_px"]) + float(c["halo_max_px"]) * 0.5
+			for n in [1, 2, 3]:
+				var at := GlyphLogic.siege_layout(fort, tier, n, z)
+				ok_ring = ok_ring and at.size() == n
+				for i in at.size():
+					ok_ring = ok_ring and at[i].distance_to(fort) - ext >= redirect_out
+					ok_ring = ok_ring and at[i].y < fort.y  # above the centre: clear of the name and the chip under it
+					# the tithe text runs right from the fort's ring at its own height: the diamond clears that band on screen
+					if n <= 2:  # a third diamond swings down to the text's height, at near zoom too (the arc's own, unchanged)
+						ok_text = ok_text and (fort.y - at[i].y - ext) * z >= text_half
+					for j in range(i + 1, at.size()):
+						ok_apart = ok_apart and at[i].distance_to(at[j]) >= ext * 2.0
 					var rp := _standing(fort, tier, z)
-					var d := at[i].distance_to(rp) - ext - GlyphLogic.relish_clear(z)
+					# near: clear of her whole token, beat ring included; mid (her marks are screen-px, so
+					# huge in world px): clear of the token's core, the rings and glow pulse over the diamond
+					var keep := GlyphLogic.relish_clear(z) if z >= float(c["zoom_near_above"]) - float(c["zoom_hysteresis"]) else float(NodeLogic.relish_radii(z)["core"])
+					var d := at[i].distance_to(rp) - ext - keep
 					worst = minf(worst, d)
 					ok_relish = ok_relish and d >= 0.0
 					var row := GlyphLogic.party_layout(rp, 0.0, false, 4, z)
-					var pext := GlyphLogic.big_extent(float(GlyphLogic.gcfg()["party_half_px"]))
+					var pext := GlyphLogic.big_extent(GlyphLogic.party_half(z))
 					for q in row:
 						ok_relish = ok_relish and at[i].distance_to(q) >= ext + pext
-	t.ok(ok_ring, "1..3 sieging big undead sit outside the redirect ring's halo, upper right of the fort")
+	t.ok(ok_ring, "1..3 sieging big undead sit outside the redirect ring's halo, upper right of the fort, at mid and near zooms")
 	t.ok(ok_apart, "and clear of each other")
-	t.ok(ok_relish, "and clear of Relish standing there and her party's row, at every near zoom (closest %.1f px)" % worst)
+	t.ok(ok_text, "and above the band the tithe text runs in (a screen-px line), at every drawing zoom")
+	t.ok(ok_relish, "and clear of Relish standing there (her whole token at near, its core at mid) and her party's row (closest %.1f px)" % worst)
 	t.ok(GlyphLogic.siege_layout(fort, 1, 0).is_empty(), "no siege, no glyphs")
 	t.ok(GlyphLogic.siege_alpha(1.0) > GlyphLogic.siege_alpha(0.0) and GlyphLogic.siege_alpha(1.0) <= 1.0, "the siege pulses brighter on the beat, alpha <= 1")
 
 
 func _party(t: TestUtil) -> void:
 	t.suite("map_glyphs-party")
-	var ext := GlyphLogic.big_extent(float(GlyphLogic.gcfg()["party_half_px"]))
 	var rp := Vector2(300.0, 300.0)
 	var ok := true
 	var behind := true
-	for z in _near_zooms():
+	for z in _draw_zooms():
+		var ext := GlyphLogic.big_extent(GlyphLogic.party_half(z))
 		for heading in [0.0, 1.2, -2.5]:
 			var at := GlyphLogic.party_layout(rp, heading, true, 3, z)
 			var dir := Vector2.from_angle(heading)
@@ -227,10 +273,11 @@ func _party(t: TestUtil) -> void:
 				if i > 0:
 					ok = ok and at[i].distance_to(at[i - 1]) >= ext * 2.0
 					behind = behind and at[i].distance_to(rp) > at[i - 1].distance_to(rp)
-	t.ok(ok, "travelling: the party clears her token and each other at every near zoom")
+	t.ok(ok, "travelling: the party clears her token and each other at every drawing zoom")
 	t.ok(behind, "travelling: in party order, trailing behind her along her heading")
 	var node_ok := true
-	for z in _near_zooms():
+	for z in _draw_zooms():
+		var ext := GlyphLogic.big_extent(GlyphLogic.party_half(z))
 		for tier in [1, 4]:
 			var fort := Vector2(600.0, 600.0)
 			var sp := _standing(fort, tier, z)

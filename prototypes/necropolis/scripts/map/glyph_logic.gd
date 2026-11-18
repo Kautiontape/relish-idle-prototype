@@ -6,7 +6,8 @@ extends RefCounted
 ##   living         a small arc with a hollow ring head;
 ##   big undead     a diamond outline with a core dot, nested outlines by filled remnant slots;
 ##   cart           map_carts.gd's U-box (haul lanes keep it).
-## Here: the glyph a lane kind carries and where its glyphs stand (one per dash period at the dash
+## The siege and the party draw at mid and near (draws_at), floored in screen px so they still
+## read at the default fit. Here: the glyph a lane kind carries and where its glyphs stand (one per dash period at the dash
 ## centres, so they ride the dashes' anchored phase); the near crossfade weight; the siege arc
 ## outside a fort's rings and Relish's party; the held forts' garrison slots inside the pip ring.
 ## Sizes are world px. Tuning: configs/map_view.json "glyphs" and glyph_fade.
@@ -115,20 +116,48 @@ static func big_extent(half: float) -> float:
 	return half + _g("big_halo_max_px") * 0.5
 
 
+## Whether the siege and the party draw at a camera tier: mid (where the default fit lands, about
+## 0.55..0.58 zoom) and near; far is the macro read and draws neither.
+static func draws_at(tier: String) -> bool:
+	return tier == "mid" or tier == "near"
+
+
+## A siege big undead's half size (world px) at `zoom`: its world size, but never under
+## big_min_screen_px on screen, so it still reads as a diamond at the default fit. Equal to
+## big_half_px from the zoom where that is already big enough (near and most of mid).
+static func big_half(zoom: float) -> float:
+	return maxf(_g("big_half_px"), _g("big_min_screen_px") / maxf(zoom, 0.001))
+
+
+## A party member's half size (world px) at `zoom`, with its own screen floor (party_min_screen_px).
+static func party_half(zoom: float) -> float:
+	return maxf(_g("party_half_px"), _g("party_min_screen_px") / maxf(zoom, 0.001))
+
+
+## A big undead outline's stroke width (world px) at `zoom`: never under big_min_width_px on screen.
+static func big_width(zoom: float) -> float:
+	return maxf(_g("big_width_px"), _g("big_min_width_px") / maxf(zoom, 0.001))
+
+
+## A big undead's core dot radius (world px) at `zoom`: never under big_core_min_px on screen.
+static func big_core(zoom: float) -> float:
+	return maxf(_g("big_core_r_px"), _g("big_core_min_px") / maxf(zoom, 0.001))
+
+
 ## The siege arc's radius round a fort of `tier`: past the REDIRECT lane ring (fort radius +
 ## redirect_ring_pad_px) and its widest capped halo, then siege_gap_px, then a diamond.
-static func siege_radius(tier: int) -> float:
+static func siege_radius(tier: int, zoom := 1.0) -> float:
 	return MapLogic.fort_radius(tier) + float(MapLogic.cfg().get("redirect_ring_pad_px", 0.0)) \
-		+ float(MapLogic.cfg().get("halo_max_px", 0.0)) * 0.5 + _g("siege_gap_px") + big_extent(_g("big_half_px"))
+		+ float(MapLogic.cfg().get("halo_max_px", 0.0)) * 0.5 + _g("siege_gap_px") + big_extent(big_half(zoom))
 
 
 ## Where `n` sieging big undead stand round the fort at `centre`: on siege_radius, centred on
 ## siege_arc_deg (upper right: clear of the idle chips on the left, the tithe text on the right,
 ## the name below and Relish's standing token above), siege_gap_px apart.
-static func siege_layout(centre: Vector2, tier: int, n: int) -> PackedVector2Array:
+static func siege_layout(centre: Vector2, tier: int, n: int, zoom := 1.0) -> PackedVector2Array:
 	var out := PackedVector2Array()
-	var r := siege_radius(tier)
-	var step := (big_extent(_g("big_half_px")) * 2.0 + _g("siege_gap_px")) / maxf(r, 1.0)
+	var r := siege_radius(tier, zoom)
+	var step := (big_extent(big_half(zoom)) * 2.0 + _g("siege_gap_px")) / maxf(r, 1.0)
 	var a0 := deg_to_rad(_g("siege_arc_deg")) - step * (n - 1) * 0.5
 	for i in maxi(n, 0):
 		out.append(centre + Vector2.from_angle(a0 + step * i) * r)
@@ -153,7 +182,7 @@ static func relish_clear(zoom: float) -> float:
 ## below her are the node's own rings. Small diamonds, party_gap_px apart, clear of her token.
 static func party_layout(rp: Vector2, heading: float, travelling: bool, n: int, zoom: float) -> PackedVector2Array:
 	var out := PackedVector2Array()
-	var ext := big_extent(_g("party_half_px"))
+	var ext := big_extent(party_half(zoom))
 	var dir := -Vector2.from_angle(heading) if travelling else Vector2(1.0 if _g("party_row_dir") > 0.0 else -1.0, 0.0)
 	var d0 := relish_clear(zoom) + _g("party_gap_px") + ext
 	for k in maxi(n, 0):

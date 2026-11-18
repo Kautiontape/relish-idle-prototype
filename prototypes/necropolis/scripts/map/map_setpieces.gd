@@ -14,6 +14,10 @@ extends Node
 ##                 0 and flipping to the margin word, a callout.
 ##   victory       vei_result won (or won at map open): every lane runs green toward Vei for 2
 ##                 beats, then every dash stops and the victory line shows.
+##   build         building_done (or a lot whose level rose while the map was not up, found at mount):
+##                 a plate above Covington, "Inn built · MINT +0.8/s", the sim's own projection for it
+##                 (MapModel.proj_store) named by its biggest rate; several builds read as one plate.
+##                 Not for a mount whose away panel opens: its report lists the builds.
 ## Garrison and victory play no sound of their own (VISUAL-LANGUAGE 2f names none).
 ## It hears events through Game.game_event (the router re-emits the ones it held while the map
 ## mounted). It drives the existing layers through small hooks: MapNodes' context
@@ -46,6 +50,9 @@ var _committed := {}  # the valve Covington's stems show at rest
 var _swing := {}  # {from, to, start_ms} while the valve swing runs
 var _valve_rev := -1  # the model.rev the idle valve target was last read at
 var _won := false  # victory has played (or is playing): once per map
+var _builds: Array = []  # the finished builds the callout at Covington names: [{lot_id, building_id, level}]
+var _build_runs: Array = []  # its line as runs (SetpieceLogic.build_spans)
+var _build_start_ms := -1.0  # when it started; -1 until the set pieces are live
 
 
 func _ready() -> void:
@@ -83,6 +90,16 @@ func on_event(ev: Dictionary) -> void:
 		"vei_result":
 			if bool(ev.get("won", false)):
 				_add(SetpieceLogic.VICTORY, "")
+		"building_done":
+			_note_build({"lot_id": str(ev.get("lot_id", "")), "building_id": str(ev.get("building_id", "")), "level": int(ev.get("level", 1))})
+
+
+## The map mounted: the builds that finished while it was not up (model.mount_rises, found by its first
+## refresh) get their callout, unless `away_opened` (the away panel opened for this return, and its report
+## already lists them). They take the same path as the live event, so one that is both is named once.
+func note_mount(away_opened: bool) -> void:
+	for b in SetpieceLogic.mount_builds(model.mount_rises, away_opened):
+		_note_build(b)
 
 
 ## The camera has settled on the map: queued set pieces start, a won realm plays victory, and the
@@ -96,6 +113,8 @@ func go_live() -> void:
 	for p in _queue:
 		_start(p)
 	_queue.clear()
+	if not _builds.is_empty():
+		_build_start_ms = Pulse.now_ms()
 	if _debug_kind != "":
 		get_tree().create_timer(float(SetpieceLogic.cfg()["debug_delay_s"])).timeout.connect(_fire_debug)
 
@@ -149,6 +168,7 @@ func _process(_delta: float) -> void:
 				done = _victory_tick(t, rm)
 		if done:
 			_active.erase(p)
+	_build_tick(items)
 	layer.set_items(items)
 
 
@@ -258,6 +278,54 @@ func _callout(id: String, text: String, alpha: float) -> Dictionary:
 	if str(model.relish.get("at", "")) == id and str(model.relish.get("state", "")) != "travelling":
 		y = minf(y, ctx.relish_pos.y - float(NodeLogic.relish_radii(ctx.zoom)["halo"]) - gap)
 	return {"kind": "label", "pos": Vector2(p.x, y), "text": text, "size": int(c["callout_font"]), "key": "undead", "alpha": alpha}
+
+
+# --- a finished build -------------------------------------------------------------------------
+
+## A build finished (the live event, or the mount's diff): it joins the callout at Covington, which
+## restarts its clock with the new line. Several at once read as one plate.
+func _note_build(b: Dictionary) -> void:
+	var next := SetpieceLogic.add_build(_builds, b)
+	if next.size() == _builds.size():
+		return
+	_builds = next
+	_build_runs = SetpieceLogic.build_spans(SetpieceLogic.build_text(_builds, MapModel.proj_store, _building_names()))
+	_build_start_ms = Pulse.now_ms() if _live else -1.0
+
+
+## building id -> its label (configs/buildings_view.json), as the HUD's bone line reads them.
+func _building_names() -> Dictionary:
+	var names := {}
+	var view: Dictionary = ConfigDb.data.get("buildings_view", {})
+	for id in view:
+		names[id] = str(view[id].get("label", str(id).capitalize()))
+	return names
+
+
+func _build_tick(items: Array) -> void:
+	if _builds.is_empty() or _build_start_ms < 0.0:
+		return
+	var t := SetpieceLogic.beats(_build_start_ms, Pulse.now_ms(), Pulse.tempo_ms, _slow)
+	if SetpieceLogic.build_done(t):
+		_builds = []
+		_build_start_ms = -1.0
+		return
+	var a := SetpieceLogic.build_alpha(t, Pulse.reduced_motion)
+	if a > 0.0:
+		items.append(_build_plate(a))
+
+
+## The plate's bottom centre sits build_gap_px above Covington's rings, and above Relish's token
+## when she stands there (home, she does).
+func _build_plate(alpha: float) -> Dictionary:
+	var c := SetpieceLogic.cfg()
+	var ctx := nodes.ctx
+	var p := model.node_pos(MapModel.COVINGTON)
+	var gap := ctx.px(float(c["build_gap_px"]))
+	var y := p.y - NodeLogic.outer_radius("covington", 0, 0.0) - gap
+	if str(model.relish.get("at", "")) == MapModel.COVINGTON and str(model.relish.get("state", "")) != "travelling":
+		y = minf(y, ctx.relish_pos.y - float(NodeLogic.relish_radii(ctx.zoom)["halo"]) - gap)
+	return {"kind": "runs", "pos": Vector2(p.x, y), "runs": _build_runs, "size": int(c["build_font"]), "alpha": alpha}
 
 
 # --- bands along a lane -----------------------------------------------------------------------

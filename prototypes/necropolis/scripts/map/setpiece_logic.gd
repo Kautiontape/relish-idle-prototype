@@ -246,6 +246,154 @@ static func garrison(t: float, n: int, reduced: bool) -> Dictionary:
 	return out
 
 
+# --- a finished build (the callout at Covington) ----------------------------------------------
+# The sim's own projection (view_catalog's `projected`, view_town's `upgrade_projected`) is the
+# honest number, but it moves on to the next level once a build is done, so the model keeps the
+# last real one it read per pending build in a store: {"lot:level": {building_id, rates}}.
+
+static func proj_key(lot_id: String, level: int) -> String:
+	return "%s:%d" % [lot_id, level]
+
+
+## Built lots from view_town().buildings: {lot_id: {building_id, level}}. A first build under way is
+## level 0 and an upgrade under way still reads its old level, so a level only rises on `done`.
+static func lot_levels(buildings: Array) -> Dictionary:
+	var out := {}
+	for b in buildings:
+		out[str(b["lot_id"])] = {"building_id": str(b["building_id"]), "level": int(b["level"])}
+	return out
+
+
+## The builds that finished between two snapshots of lot_levels: a lot whose level rose, or whose
+## building changed, [{lot_id, building_id, level}] by lot id. A level-0 lot has built nothing yet.
+static func rises(before: Dictionary, now: Dictionary) -> Array:
+	var out: Array = []
+	var ids := now.keys()
+	ids.sort()
+	for id in ids:
+		var n: Dictionary = now[id]
+		if int(n["level"]) < 1:
+			continue
+		var b: Dictionary = before.get(id, {})
+		if b.is_empty() or str(b["building_id"]) != str(n["building_id"]) or int(n["level"]) > int(b["level"]):
+			out.append({"lot_id": str(id), "building_id": str(n["building_id"]), "level": int(n["level"])})
+	return out
+
+
+## The mount's `rises` to announce: none when the away panel opens for this return (the away
+## report already lists the builds that finished, so a callout would say them twice).
+static func mount_builds(mount_rises: Array, away_opens: bool) -> Array:
+	return [] if away_opens else mount_rises
+
+
+## Whether a catalog read is worth its cost: a build is queued or under construction.
+static func has_pending(town: Dictionary) -> bool:
+	if not (town.get("queue", []) as Array).is_empty():
+		return true
+	for b in town.get("buildings", []):
+		if str(b.get("state", "")) == "constructing":
+			return true
+	return false
+
+
+## The new builds (not upgrades) waiting or under way, whose projection the catalog holds by
+## building id: queued rows, and a first build under construction. [{lot_id, building_id, level: 1}].
+static func pending_new(town: Dictionary) -> Array:
+	var out: Array = []
+	for q in town.get("queue", []):
+		if not bool(q.get("upgrade", false)) and str(q.get("lot_id", "")) != "":
+			out.append({"lot_id": str(q["lot_id"]), "building_id": str(q["building_id"]), "level": 1})
+	for b in town.get("buildings", []):
+		if str(b.get("state", "")) == "constructing" and int(b["level"]) == 0:
+			out.append({"lot_id": str(b["lot_id"]), "building_id": str(b["building_id"]), "level": 1})
+	return out
+
+
+## Stores each built lot's upgrade_projected at the lot's next level. An empty one (cold, or the lot
+## is constructing) never overwrites the last real value.
+static func note_upgrades(store: Dictionary, buildings: Array) -> void:
+	for b in buildings:
+		var p: Dictionary = b.get("upgrade_projected", {})
+		if not p.is_empty():
+			store[proj_key(str(b["lot_id"]), int(b["level"]) + 1)] = {"building_id": str(b["building_id"]), "rates": p.duplicate()}
+
+
+## Stores the catalog's `projected` for each pending new build (by building id) at its lot, level 1;
+## an empty row keeps what was stored.
+static func note_catalog(store: Dictionary, pending: Array, rows: Array) -> void:
+	for p in pending:
+		for r in rows:
+			if str(r.get("building_id", "")) == str(p["building_id"]):
+				var rates: Dictionary = r.get("projected", {})
+				if not rates.is_empty():
+					store[proj_key(str(p["lot_id"]), int(p["level"]))] = {"building_id": str(p["building_id"]), "rates": rates.duplicate()}
+				break
+
+
+## The stored rates of `building_id` on `lot_id` at `level`: {} when none (or another building's).
+static func projection_for(store: Dictionary, lot_id: String, building_id: String, level: int) -> Dictionary:
+	var e: Dictionary = store.get(proj_key(lot_id, level), {})
+	if e.is_empty() or str(e["building_id"]) != building_id:
+		return {}
+	return e["rates"]
+
+
+## `build` joins the callout's builds unless that lot and level is already in it (the router
+## re-emits a building_done it held while the map mounted, and the mount's diff found the same one).
+static func add_build(builds: Array, build: Dictionary) -> Array:
+	for b in builds:
+		if str(b["lot_id"]) == str(build["lot_id"]) and int(b["level"]) == int(build["level"]):
+			return builds
+	return builds + [build]
+
+
+## The stream with the biggest |change| among build_rate_ids (the HUD's own streams, so work, war
+## and flood, which are the mint again, and corpses and backlog, which have no label, never lead):
+## {id, delta}, or {} when none reaches build_eps. A tie goes to the earlier stream.
+static func biggest(rates: Dictionary) -> Dictionary:
+	var best := {}
+	for id in cfg()["build_rate_ids"]:
+		var d := float(rates.get(id, 0.0))
+		if absf(d) >= _n("build_eps") and (best.is_empty() or absf(d) > absf(float(best["delta"]))):
+			best = {"id": str(id), "delta": d}
+	return best
+
+
+## The callout's line: "Inn built · MINT +0.8/s"; several builds, rates summed: "2 builds: Inn ·
+## Bakery · MINT +1.1/s"; with no recorded projection (or every change under build_eps) the
+## builds alone. `names` maps a building id to its label (buildings_view.json).
+static func build_text(builds: Array, store: Dictionary, names: Dictionary) -> String:
+	var labels: Array = []
+	var sum := {}
+	for b in builds:
+		var id := str(b["building_id"])
+		labels.append(str(names.get(id, id.capitalize())))
+		var rates := projection_for(store, str(b["lot_id"]), id, int(b["level"]))
+		for k in rates:
+			sum[k] = float(sum.get(k, 0.0)) + float(rates[k])
+	var sep := _s("build_sep")
+	var head := _s("build_one_fmt") % labels[0] if labels.size() == 1 else _s("build_many_fmt") % [labels.size(), sep.join(labels)]
+	var big := biggest(sum)
+	if big.is_empty():
+		return head
+	return "%s%s%s %s" % [head, sep, str(HudLogic.LABELS.get(big["id"], str(big["id"]).to_upper())), MapLogic.fmt_rate(float(big["delta"]))]
+
+
+## The line's runs by font (AwayLogic.spans): the signed rate is the rate face, the rest labels.
+static func build_spans(text: String) -> Array:
+	return AwayLogic.spans(text)
+
+
+## The plate's alpha `t` beats in: full, fading over the last callout_fade_beats; under reduced
+## motion full until it is gone.
+static func build_alpha(t: float, reduced: bool) -> float:
+	return callout_alpha(t, _n("build_beats"), reduced)
+
+
+static func build_done(t: float) -> bool:
+	return t >= _n("build_beats")
+
+
 # --- victory --------------------------------------------------------------------------------
 
 ## RUN for victory_run_beats (every lane green, running toward Vei), then STOP (every dash frozen,

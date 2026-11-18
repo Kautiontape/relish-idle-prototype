@@ -38,8 +38,20 @@ var projection := {}  # the dragged valve's IdleLogic.projection while the valve
 var margin_sig := ""  # the margins and clocks now shown (projected or committed): the nodes redraw when it changes
 var raids: Array = []  # NextLogic.raid_set, once per refresh: [{fort, why}] ranked and capped; the ring's tag and the strip's raid rule
 
+var built := {}  # SetpieceLogic.lot_levels of view_town().buildings: lot id -> {building_id, level}
+var mount_rises: Array = []  # the builds that finished since the map was last up (a build done in town, or away): found by this model's first refresh; [] on a new game
+
 var _villages_by_id := {}
 var _last_read_s := -1.0e9
+var _proj_read_s := -1.0e9  # real seconds of the last view_catalog read for projections
+var _first_read := true
+# A finished build's callout (SetpieceLogic: a finished build): the last real projection read per pending
+# build, and the built levels as of the map's last refresh. Static, so they survive a scene swap to the
+# town and back (MapHud's _next is the pattern); the game id says whose they are.
+static var proj_store := {}  # "lot:level" -> {building_id, rates}
+static var level_snap := {}  # lot id -> {building_id, level}, as of the last refresh of any map model
+static var snap_game := ""
+static var snap_set := false
 static var _raid_why := {}  # fort id -> why, for raids (its keys are the last set's ids: raid_set's memory, kept across map mounts)
 static var _raid_t := -1.0  # the game time of the last set: time going backwards is a new game, which clears _raid_why
 
@@ -69,6 +81,7 @@ func refresh(force := false) -> bool:
 	for j in town.get("jobs", []):
 		job_slots += int(j.get("slots", 0))
 	town_queue = town["queue"]
+	_note_builds(town)
 	var stall := stall_from(town)
 	mill = stall["mill"]
 	queue_stall = stall["queue_stall"]
@@ -103,6 +116,47 @@ func refresh(force := false) -> bool:
 	_refresh_raids()
 	_update_margin_sig()
 	return true
+
+
+## Forgets the statics (a test's fresh start; a new game does this by its game id).
+static func reset_statics() -> void:
+	proj_store = {}
+	level_snap = {}
+	snap_game = ""
+	snap_set = false
+
+
+## The finished-build callout's inputs, once per refresh: the built levels against the last
+## snapshot (the mount's diff, taken at this model's first refresh), the upgrades' projections the
+## town view carries, and, on the slow cadence, the catalog's for the new builds pending.
+func _note_builds(town: Dictionary) -> void:
+	built = SetpieceLogic.lot_levels(town.get("buildings", []))
+	var gid := str(hud.get("game_id", ""))
+	var same := snap_set and snap_game == gid
+	if not same:
+		proj_store = {}  # another game's projections
+	if _first_read:
+		_first_read = false
+		mount_rises = SetpieceLogic.rises(level_snap, built) if same else []
+	level_snap = built.duplicate(true)
+	snap_game = gid
+	snap_set = true
+	SetpieceLogic.note_upgrades(proj_store, town.get("buildings", []))
+	read_projections(town)
+
+
+## Reads view_catalog() for the projections of the new builds pending (queued or under construction),
+## at most every projection_read_s of real time and only while one is pending: it is the costly read,
+## and the sim refreshes the projections only while the catalog is being read (STATE-API §5.10), so
+## the first read of a build comes back cold and the next one holds its value. `force` skips the clock.
+func read_projections(town: Dictionary, force := false) -> void:
+	if not SetpieceLogic.has_pending(town):
+		return
+	var now := Time.get_ticks_msec() / 1000.0
+	if not force and now - _proj_read_s < float(MapLogic.cfg().get("projection_read_s", 4.0)):
+		return
+	_proj_read_s = now
+	SetpieceLogic.note_catalog(proj_store, SetpieceLogic.pending_new(town), state.view_catalog().get("buildings", []))
 
 
 ## The store stalls view_town() reports: {mill: {starved, lever} of the Bone Mill row ("" each when it

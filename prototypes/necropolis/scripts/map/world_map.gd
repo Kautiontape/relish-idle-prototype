@@ -79,7 +79,7 @@ func _ready() -> void:
 	else:
 		setpieces.go_live()
 	hud.inset_changed.connect(func(_inset: float) -> void: _refit())  # the bar's sizes settle a frame later
-	away.open_if_shown()
+	setpieces.note_mount(away.open_if_shown())  # builds finished while away from the map get their callout, unless the away report lists them
 	_replay_clicks()
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--select="):
