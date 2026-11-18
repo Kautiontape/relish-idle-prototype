@@ -23,6 +23,7 @@ func run() -> int:
 	_catchup()
 	_spread_refresh()
 	_hud_idle_short()
+	_vat_costed()
 	_p2_counts()
 	return t.failures
 
@@ -133,6 +134,55 @@ func _hud_idle_short() -> void:
 	t.ok(short.length() <= 48, "short enough for the workers cell beside '+0.03/s → WAR' (%d ≤ 48)" % short.length())
 	var hud_src := FileAccess.get_file_as_string("res://scripts/town/town_hud.gd")
 	t.ok(hud_src.contains("_tab, true)") and hud_src.contains("tooltip_text = whole"), "the HUD binds the short line and tooltips the whole one")
+
+
+## Q-g, the vat toggle's preview against the real staffing, in the costed case: with no idle hands to cover it,
+## toggling a vat moves workers between jobs. The Backups tab's preview is the diff of two view_staffing_projection
+## calls (BackupsModel.staffing_costs); after the real cmd_staff_vat and a substep, each job's staffing is the
+## projection's. (The window check on pre_vei only saw "idle hands cover it", which can't tell a wrong preview.)
+func _vat_costed() -> void:
+	var s := GameState.new(cfg)
+	s.debug_enabled = true
+	t.ok(s.cmd_debug_load_fixture("pre_vei")["ok"], "(setup) pre_vei")
+	s.tick(s.substep_s())
+	var idle := float(s.view_town()["workers"]["idle"])
+	s.cmd_debug_grant({"workers": -(idle + 0.5)})  # no idle hands: a vat's tend job must take them from another job
+	s.tick(s.substep_s())
+	var vats: Array = s.view_backups().get("vats", [])
+	t.ok(not vats.is_empty() and float(s.view_town()["workers"]["idle"]) < 1.0,
+		"(setup) pre_vei has vats and no idle hand (%.2f idle)" % float(s.view_town()["workers"]["idle"]))
+	if vats.is_empty():
+		return
+	# tend first on the ladder: the ladder fills top-down, so a tend slot below every job would take no one (the
+	# preview then says "staffing takes no hand from a job", which is the rule); on top it takes from the lowest job
+	var ladder: Array = (s.view_town()["ladder"] as Array).duplicate()
+	ladder.erase("tend")
+	ladder.push_front("tend")
+	t.ok(s.cmd_set_job_priority(ladder)["ok"], "(setup) tend first on the ladder")
+	s.tick(s.substep_s())
+	var vat: Dictionary = vats[0]
+	for v in vats:  # a ready vat holds its clone and takes no tend slot: a growing one does
+		if not bool(v["ready"]):
+			vat = v
+			break
+	var slot := int(vat["slot"])
+	var on := not bool(vat["staffed"])
+	var order: Array = TownBehaviour.effective(s.view_town())
+	var before: Array = s.view_staffing_projection(order, {}).get("jobs", [])
+	var after: Array = s.view_staffing_projection(order, {slot: on}).get("jobs", [])
+	var diff := TownBehaviour.staffing_diff(before, after)
+	var preview := BackupsModel.staffing_cost_text(diff, vcfg.get("job_labels", {}), vcfg["backups"], not on, 0.0)
+	t.ok(not diff.is_empty(), "the costed case: toggling vat %d %s moves workers (%s); preview '%s'" % [slot, "on" if on else "off", str(diff), preview])
+	t.ok(s.cmd_staff_vat(slot, on)["ok"], "(setup) the real toggle")
+	s.tick(s.substep_s())
+	var real := {}
+	for j in s.view_town()["jobs"]:
+		real[String(j["id"])] = float(j["staffed"])
+	var off: Array = []
+	for j in after:
+		if absf(float(j["staffed"]) - float(real.get(String(j["id"]), 0.0))) > 0.51:
+			off.append("%s projected %.2f real %.2f" % [j["id"], float(j["staffed"]), float(real.get(String(j["id"]), 0.0))])
+	t.ok(off.is_empty(), "after the toggle each job's staffing is the projection's the preview was made from (%s)" % ("match" if off.is_empty() else ", ".join(off)))
 
 
 ## The foreman menu offers job buildings only (buildings.json jobs), a Chapel even while no vat is staffed.
