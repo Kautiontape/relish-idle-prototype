@@ -902,7 +902,7 @@ static func clear_card_rows(warden_name: String, loot: Dictionary) -> Array:
 ## label_px / foot_px: the dim label column and footer sizes; backdrop_a the world-dimming rect behind the card
 ## (deep enough that the card reads on its own, not as a panel under the fight), plate_a the card's own ground
 ## plate (the contrast test composites both over the brightest world colour).
-const DEATH_CARD := {"w": 560.0, "pad": 22.0, "label_w": 120.0, "value_px": 18, "label_px": 14, "foot_px": 14, "backdrop_a": 0.8, "plate_a": 0.96}
+const DEATH_CARD := {"w": 560.0, "pad": 22.0, "label_w": 120.0, "value_px": 18, "label_px": 14, "foot_px": 14, "sub_px": 20, "sub_h": 30.0, "backdrop_a": 0.8, "plate_a": 0.96}
 
 
 ## The death card's rows [{label, text, key}] (key: a Palette key): who killed her, the tell she missed when
@@ -980,8 +980,28 @@ static func spread_angle(want: float, taken: PackedFloat32Array, sep: float) -> 
 
 ## The antechamber's last-chance banner, with the loose essence lit there (D-b review SF-4). A mote only drifts
 ## to Relish within `drift_radius_px` and its lifetime still runs, so the tail says to walk close.
-static func last_chance_banner(lit: int) -> String:
-	return "LAST CHANCE before the warden · your trance is ready and this raise costs no cooldown" + ("" if lit <= 0 else " · %d loose essence here: walk close to pick it up" % lit)
+## `wc` is raid.json's `wardens` block (the words live there: last_chance, last_chance_loose). One " · " chunk per
+## banner line (RaidWardenRun breaks it), each no wider than BANNER_W at the banner's 20 px.
+static func last_chance_banner(lit: int, wc: Dictionary) -> String:
+	return str(wc.get("last_chance", "")) + ("" if lit <= 0 else str(wc.get("last_chance_loose", "")) % lit)
+
+
+## The banner label's width (raid_hud.gd centres it; each of its lines must fit it).
+const BANNER_W := 600.0
+const BANNER_RING_GAP := 6.0   # screen px between the sleeping warden's ring and a banner moved clear of it
+
+
+## The banner label's top (screen y) so its plate stays off the sleeping warden's ring. `top` is where it would
+## sit; `plate` the banner's plate rect there (screen px); `ring` the ring's screen rect (empty: no ring); `view`
+## the screen. Unchanged when the plate misses the ring; else just below the ring, or above it when below would
+## run off `view`. The result moves `top` by the same amount the plate moves.
+static func banner_clear_top(top: float, plate: Rect2, ring: Rect2, view: Rect2) -> float:
+	if not ring.has_area() or not plate.has_area() or not plate.intersects(ring):
+		return top
+	var below := ring.end.y + BANNER_RING_GAP
+	if below + plate.size.y <= view.end.y:
+		return top + (below - plate.position.y)
+	return top + (ring.position.y - BANNER_RING_GAP - plate.size.y - plate.position.y)
 
 
 ## T2: the words that say what the circle is for (never that it gathers essence).
@@ -1039,6 +1059,21 @@ static func exposed_level(phyl_left: int, hp_frac: float, cfg: Dictionary) -> fl
 static func exposed_tint(level: float, cfg: Dictionary) -> float:
 	var d: Dictionary = cfg.get("danger", {})
 	return clampf(inverse_lerp(float(d.get("exposed_min", 0.2)), float(d.get("exposed_max", 1.0)), level), 0.0, 1.0)
+
+
+## `lines` each wrapped (wrap_chunks, at " · " first) to `max_w` at `px`: the StatBlock's detail lines, whose row
+## count the plate's _fit must equal.
+static func wrap_each(lines: PackedStringArray, font: Font, px: int, max_w: float) -> PackedStringArray:
+	var out := PackedStringArray()
+	for l in lines:
+		for w in wrap_chunks(l, font, px, max_w):
+			out.append(w.trim_suffix(" ·"))   # a line that ends where a " · " was cut needs no hanging dot
+	return out
+
+
+## The LIVING row's value: how many enemies stand here (`words`: raid.json hud.stats enemy / enemies, "%d" in each).
+static func enemies_text(n: int, words: Dictionary) -> String:
+	return str(words.get("enemy" if n == 1 else "enemies", "%d")) % n
 
 
 ## The PHYLACT. row's words: "" while a charge is left; with none, what a death would mean (true

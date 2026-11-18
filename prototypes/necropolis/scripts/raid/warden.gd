@@ -28,6 +28,7 @@ var drop_t := -1.0             # >= 0 while a ring is dropping away after a phas
 var _breath_t := 0.0
 var _tell_cur := -1.0          # the current tell length in beats (see _tell); -1 until the first read
 var _pres := {}                # draw only: the sleeping picture's cached geometry (_build_presence)
+var _plates_rect := Rect2()    # screen rect the name plates covered when last drawn (presence_screen_rect)
 var _pres_z := -1.0            # the zoom it was built at
 var _pres_n := -1              # and the meter pips
 const PLATE_PAD := 4.0         # a name plate's margin around its text, in screen px
@@ -90,6 +91,11 @@ func configure(p_raid: Node2D, p_spec: Dictionary) -> void:
 	tg.z_as_relative = false
 	tg.z_index = 37   # above the trance dim (36), under Relish (38), as vei.gd does
 	add_child(tg)
+	var pl := PlateLayer.new()
+	pl.warden = self
+	pl.z_as_relative = false
+	pl.z_index = RaidArena.DIM_Z + 1   # the sleeping name plates stay above the trance dim (the glyph does not)
+	add_child(pl)
 
 
 func wcfg() -> Dictionary:
@@ -437,17 +443,35 @@ func _draw_presence() -> void:
 	draw_multiline(_pres["ticks"], vei_ring, lw)
 	for dash in _pres["dashes"]:
 		draw_polyline(dash, vei_ring, lw)
+
+
+## The sleeping name plates, drawn on `ci` (the PlateLayer, above the trance dim).
+func _draw_plates(ci: CanvasItem) -> void:
+	if _pres.is_empty():
+		return
+	var z := zoom()
 	var plates: Array = _pres["plates"]
 	var occ: Array = raid.hud.occluder_rects() if raid != null and raid.hud != null and raid.hud.has_method("occluder_rects") else []
 	if RaidLogic.plate_hidden(_plate_screen_rect(plates[0], true), occ):
-		# the name plate would sit under the HUD (checked each frame; the warden redraws every physics
-		# frame): all of it goes below the ring, slid sideways if a HUD block covers that spot too
+		# the name plate would sit under the HUD (checked each frame): all of it goes below the ring, slid
+		# sideways if a HUD block covers that spot too
 		var both: Dictionary = _pres["both"]
-		var dx := RaidLogic.plate_nudge_x(_plate_screen_rect(both, false), occ, PLATE_PAD * 2.0)
-		_draw_plate(both["lines"], (both["anchor"] as Vector2) + Vector2(dx / z, 0.0), false, _pres["plate_a"], both["size"])
+		var br := _plate_screen_rect(both, false)
+		var dx := RaidLogic.plate_nudge_x(br, occ, PLATE_PAD * 2.0)
+		_plates_rect = Rect2(br.position + Vector2(dx, 0.0), br.size)
+		_draw_plate(both["lines"], (both["anchor"] as Vector2) + Vector2(dx / z, 0.0), false, _pres["plate_a"], both["size"], ci)
 		return
+	_plates_rect = _plate_screen_rect(plates[0], true).merge(_plate_screen_rect(plates[1], false))
 	for pl in plates:
-		_draw_plate(pl["lines"], pl["anchor"], pl["above"], _pres["plate_a"], pl["size"])
+		_draw_plate(pl["lines"], pl["anchor"], pl["above"], _pres["plate_a"], pl["size"], ci)
+
+
+## The sleeping picture's screen rect: the ring (RaidLogic.warden_ring_rect) and the name plates as the last
+## frame drew them (_plates_rect, where a HUD block pushed them as well). The HUD keeps its banner off all of it.
+func presence_screen_rect() -> Rect2:
+	var xf := get_global_transform_with_canvas()
+	var r := RaidLogic.warden_ring_rect(xf.origin, xf.get_scale().x, radius, wcfg().get("presence", {}))
+	return r.merge(_plates_rect) if _plates_rect.has_area() else r
 
 
 ## The screen rect a plate (`pl`, as _draw_plate draws it, above or below its anchor) covers at the camera's spot.
@@ -498,7 +522,7 @@ func _build_presence(z: float) -> void:
 	var label_px := maxi(12, int(pc.get("label_px", 13)))
 	var clear := dr + float(pc.get("plate_gap_px", 6.0)) / z
 	var nm := str(spec.get("name", "")).to_upper()
-	var above: Array = [["WARDEN", label_px, Palette.c("vei", 0.85)], [nm, name_px, Palette.c("vei")]]
+	var above: Array = [["WARDEN", label_px, Palette.c("vei")], [nm, name_px, Palette.c("vei")]]
 	var below: Array = [["break it to take this fort", label_px, Palette.c("text")]]
 	_pres = {"vei_ring": vei_ring, "plinth": pts, "plinth_col": Palette.c("vei", float(pc.get("plinth_alpha", 0.55))),
 		"rr": rr, "ticks": ticks, "dashes": dashes, "plate_a": float(pc.get("plate_alpha", 0.8)),
@@ -523,21 +547,22 @@ func _plate_size(lines: Array) -> Vector2:
 ## Text lines (each [text, screen px, colour]) on a dark plate sized to them (`sz`, from _plate_size), centred
 ## on x = anchor.x, its bottom edge (above) or top edge (below) on the anchor. Drawn in screen px through a transform.
 ## `box` is the lines' measured size.
-func _draw_plate(lines: Array, anchor: Vector2, above: bool, plate_a: float, box: Vector2) -> void:
+func _draw_plate(lines: Array, anchor: Vector2, above: bool, plate_a: float, box: Vector2, on: CanvasItem = null) -> void:
+	var ci: CanvasItem = on if on != null else self
 	var font := ThemeDB.fallback_font
 	var pad := PLATE_PAD
 	var w := box.x
 	var h := box.y
 	var z := zoom()
 	var top := -(h + pad * 2.0) if above else 0.0
-	draw_set_transform(anchor, 0.0, Vector2(1.0 / z, 1.0 / z))
-	draw_rect(Rect2(-w * 0.5 - pad, top, w + pad * 2.0, h + pad * 2.0), Palette.c("ground", plate_a))
+	ci.draw_set_transform(anchor, 0.0, Vector2(1.0 / z, 1.0 / z))
+	ci.draw_rect(Rect2(-w * 0.5 - pad, top, w + pad * 2.0, h + pad * 2.0), Palette.c("ground", plate_a))
 	var y := top + pad
 	for ln in lines:
 		var sz := int(ln[1])
-		draw_string(font, Vector2(-w * 0.5, y + font.get_ascent(sz)), str(ln[0]), HORIZONTAL_ALIGNMENT_LEFT, w, sz, ln[2])
+		ci.draw_string(font, Vector2(-w * 0.5, y + font.get_ascent(sz)), str(ln[0]), HORIZONTAL_ALIGNMENT_LEFT, w, sz, ln[2])
 		y += font.get_height(sz)
-	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+	ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 ## The silhouette, centred on the warden. The base warden (an archetype with no attack yet) is one
@@ -602,6 +627,19 @@ func _draw_meter_row() -> void:
 		var box := Vector2(font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, lpx).x + 1.0, font.get_height(lpx))
 		_draw_plate([[label, lpx, Palette.c("text")]], Vector2(0.0, y + pr * 2.0 + float(wcfg().get("meter_label_gap_px", 4.0)) / z), false,
 			float(wcfg().get("presence", {}).get("plate_alpha", 0.8)), box)
+
+
+## The sleeping warden's name plates (z 37, above the trance dim at 36: the plates stay readable in a trance).
+class PlateLayer:
+	extends Node2D
+	var warden: RaidWarden = null
+
+	func _process(_d: float) -> void:
+		queue_redraw()
+
+	func _draw() -> void:
+		if warden != null and is_instance_valid(warden) and warden.alive and not warden.awake:
+			warden._draw_plates(self)
 
 
 ## Telegraph layer (z 37): draws whatever the subclass shows for the next attack.

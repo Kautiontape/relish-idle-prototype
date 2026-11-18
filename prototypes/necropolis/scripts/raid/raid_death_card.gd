@@ -16,6 +16,7 @@ var _t := 0.0
 var _skip_after := 0.8
 var _fade := 0.3
 var _skipped := false
+var _words: Dictionary = {}   # raid.json `death`: title, sub, foot
 
 
 ## Each row's height: 34 for a line that fits the value column, more only for a row that wraps (its text height
@@ -40,6 +41,7 @@ func setup(p_rows: Array) -> void:
 	var c: Dictionary = ConfigDb.data.get("raid", {}).get("death", {})
 	_skip_after = float(c.get("skip_after_s", 0.8))
 	_fade = float(c.get("fade_s", 0.3))
+	_words = c
 	mouse_filter = Control.MOUSE_FILTER_IGNORE   # a child of the HUD's CanvasLayer has no parent Control: it sizes itself (_draw reads the viewport)
 	set_process(true)
 	queue_redraw()
@@ -80,7 +82,7 @@ func _draw() -> void:
 	var vw := w - pad * 2.0 - lw
 	var vpx := int(dc["value_px"])
 	var heights := _heights
-	var h := pad * 2.0 + 44.0 + _total + 30.0
+	var h := pad * 2.0 + 44.0 + float(dc["sub_h"]) + _total + 30.0
 	var vs := get_viewport_rect().size
 	var o := (vs - Vector2(w, h)) * 0.5
 	draw_rect(Rect2(Vector2.ZERO, vs), Palette.c("ground", float(dc["backdrop_a"]) * a))
@@ -88,12 +90,15 @@ func _draw() -> void:
 	draw_rect(Rect2(o, Vector2(w, h)), Palette.c("danger", 0.8 * a), false, 2.0)
 	var x := o.x + pad
 	var y := o.y + pad + 22.0
-	draw_string(f, Vector2(x, y), "RELISH FALLS", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, Palette.c("danger", a))
-	y += 40.0
+	draw_string(f, Vector2(x, y), str(_words.get("title", "")), HORIZONTAL_ALIGNMENT_LEFT, -1, 24, Palette.c("danger", a))
+	y += 28.0
+	# the second-largest line, full text colour: a death ends the raid, not the game
+	draw_string(f, Vector2(x, y), str(_words.get("sub", "")), HORIZONTAL_ALIGNMENT_LEFT, w - pad * 2.0, int(dc["sub_px"]), Palette.c("text", a))
+	y += 12.0 + float(dc["sub_h"])   # the row baselines sit as far under the sub-line as they sat under the title
 	for i in rows.size():
 		var r: Dictionary = rows[i]
 		draw_string(f, Vector2(x, y), str(r["label"]), HORIZONTAL_ALIGNMENT_LEFT, lw - 8.0, int(dc["label_px"]), Palette.c("text_dim", a))
 		draw_multiline_string(f, Vector2(x + lw, y), str(r["text"]), HORIZONTAL_ALIGNMENT_LEFT, vw, vpx, -1, Palette.c(str(r["key"]), a))
 		y += float(heights[i])
-	var foot := "the raid ends here, not the game · click or SPACE to go on" if can_skip() else "the raid ends here, not the game"
-	draw_string(f, Vector2(x, y + 4.0), foot, HORIZONTAL_ALIGNMENT_LEFT, -1, int(dc["foot_px"]), Palette.c("text_dim", a))
+	if can_skip():
+		draw_string(f, Vector2(x, y + 4.0), str(_words.get("foot", "")), HORIZONTAL_ALIGNMENT_LEFT, -1, int(dc["foot_px"]), Palette.c("text_dim", a))

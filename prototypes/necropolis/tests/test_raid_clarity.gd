@@ -121,9 +121,51 @@ func _round2_tests(t: TestUtil) -> void:
 	# A4: PHYLACT. explanation and the loot uses
 	t.ok(RaidLogic.phylactery_meaning(0) == PackedStringArray(["revives Relish in place, at most once per dungeon.", "The Ossuary Tower crafts it from essence."]), "no charge: the Jargon line in two rows")
 	t.ok(RaidLogic.phylactery_meaning(2) == PackedStringArray(["a death here revives her in place, once"]), "charges: one row, what one does now")
+	var sw: Dictionary = TestUtil.load_json("res://configs/raid.json")["hud"]["stats"]
+	var dpx := int(sw["detail_px"])
+	var vcol := 420.0 - 92.0 - 8.0   # the StatBlock's value column (value_w)
+	t.ok(dpx >= 13, "the stat block's detail lines are 13 px or more")
 	for n in [0, 2]:
-		for m in RaidLogic.phylactery_meaning(n):
-			t.ok(ThemeDB.fallback_font.get_string_size(m, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x <= 320.0, "PHYLACT. meaning (%d) row fits the value column at 13 px: %s" % [n, m])
+		var wrapped := RaidLogic.wrap_each(RaidLogic.phylactery_meaning(n), ThemeDB.fallback_font, dpx, vcol)
+		t.ok(wrapped.size() >=RaidLogic.phylactery_meaning(n).size(), "PHYLACT. meaning (%d) keeps every row when wrapped" % n)
+		for m in wrapped:
+			t.ok(ThemeDB.fallback_font.get_string_size(m, HORIZONTAL_ALIGNMENT_LEFT, -1, dpx).x <= vcol, "PHYLACT. meaning (%d) row fits the value column at %d px: %s" % [n, dpx, m])
+	var ess := RaidLogic.wrap_each(PackedStringArray([RaidLogic.ESSENCE_MEANING]), ThemeDB.fallback_font, dpx, vcol)
+	t.ok(ess.size() >= 1 and ess.size() <= 2, "the ESSENCE meaning is %d line(s) at %d px" % [ess.size(), dpx])
+	t.ok(not ess[0].ends_with("·"), "a wrapped meaning keeps no hanging dot at a line's end (%s)" % str(ess))
+	for m in ess:
+		t.ok(ThemeDB.fallback_font.get_string_size(m, HORIZONTAL_ALIGNMENT_LEFT, -1, dpx).x <= vcol, "an ESSENCE meaning line fits the value column at %d px: %s" % [dpx, m])
+	# the NO REVIVE tail (drawn after the head, on the PHYLACT. row): the row's whole run stays on the 420 px plate
+	var pw := RaidLogic.phylactery_word(0)
+	var pcut := pw.find(" · ")
+	var fnt0 := ThemeDB.fallback_font
+	var prow := 92.0 + 4.0 + fnt0.get_string_size("0", HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x + 10.0 + fnt0.get_string_size(pw.substr(0, pcut), HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x + fnt0.get_string_size(pw.substr(pcut), HORIZONTAL_ALIGNMENT_LEFT, -1, dpx).x
+	t.ok(pcut > 0 and prow <= 420.0 - 6.0, "the PHYLACT. row's NO REVIVE run fits the plate (%d of 414 px)" % int(prow))
+	# the LIVING / YOUR UNDEAD words: each fits where it is drawn (label column 92 px; the value after the 1-pip ring)
+	var lab := int(TestUtil.load_json("res://configs/raid.json")["hud"]["label_px"])
+	t.ok(sw["ward_head"] == "YOUR UNDEAD" and sw["living_label"] == "LIVING", "the ward header and the living label")
+	var lv_w := fnt0.get_string_size(str(sw["living_label"]), HORIZONTAL_ALIGNMENT_LEFT, -1, lab).x
+	t.ok(lv_w <= 92.0, "the LIVING label fits the 92 px label column at %d px (%d px)" % [lab, int(lv_w)])
+	var wh_w := fnt0.get_string_size(str(sw["ward_head"]), HORIZONTAL_ALIGNMENT_LEFT, -1, lab).x   # a header: its row has no value, it may run on
+	t.ok(wh_w <= 420.0 - 12.0, "the YOUR UNDEAD header fits the plate at %d px (%d px)" % [lab, int(wh_w)])
+	t.ok(RaidLogic.enemies_text(22, sw) == "22 enemies" and RaidLogic.enemies_text(1, sw) == "1 enemy" and RaidLogic.enemies_text(0, sw) == "0 enemies", "the LIVING value counts enemies")
+	var ew := fnt0.get_string_size(RaidLogic.enemies_text(9999, sw), HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
+	t.ok(ew <= vcol, "the widest LIVING value fits the value column at 15 px (%d px)" % int(ew))
+	t.ok(float(sw["label_alpha"]) > 0.0 and float(sw["label_alpha"]) <= 1.0, "hud.stats.label_alpha is in (0, 1]")
+	# the death card's new second line: the card's text width at its size, and smaller than the title
+	var dthw: Dictionary = TestUtil.load_json("res://configs/raid.json")["death"]
+	var dcx: Dictionary = RaidLogic.DEATH_CARD
+	var sub_w := fnt0.get_string_size(str(dthw["sub"]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(dcx["sub_px"])).x
+	t.ok(sub_w <= float(dcx["w"]) - 2.0 * float(dcx["pad"]), "the death card's sub-line fits the card's text width at %d px (%d of %d px)" % [int(dcx["sub_px"]), int(sub_w), int(float(dcx["w"]) - 2.0 * float(dcx["pad"]))])
+	t.ok(int(dcx["sub_px"]) > int(dcx["value_px"]) and int(dcx["sub_px"]) < 24, "the sub-line is the card's second-largest (above the %d px rows, under the 24 px title)" % int(dcx["value_px"]))
+	var ttl_w := fnt0.get_string_size(str(dthw["title"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
+	t.ok(ttl_w <= float(dcx["w"]) - 2.0 * float(dcx["pad"]) and str(dthw["sub"]).to_lower().contains("the raid ends here") and not str(dthw["sub"]).to_lower().contains("run"), "the title fits; the sub-line says the raid ends, not the game")
+	var foot_w := fnt0.get_string_size(str(dthw["foot"]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(dcx["foot_px"])).x
+	t.ok(foot_w <= float(dcx["w"]) - 2.0 * float(dcx["pad"]) and str(dthw["foot"]).contains("SPACE"), "the footer fits and names SPACE")
+	# the stat block's label brightness holds 4.5:1 over its plate on the brightest world colour
+	var hud_cfg: Dictionary = TestUtil.load_json("res://configs/raid.json")["hud"]
+	var lab_w := _worst_over(func(world: Color) -> Color: return RaidLogic.over(Palette.c("ground"), float(hud_cfg["plate_alpha"]), world), "text", float(sw["label_alpha"]))
+	t.ok(float(lab_w[0]) >= TEXT_MIN, "stat block labels (text at %.2f alpha) are %.2f:1 over the plate on %s" % [float(sw["label_alpha"]), float(lab_w[0]), lab_w[1]])
 	# BANKED / UNBANKED wrap inside the StatBlock's value column (value_w() = 420 - 92 - 8), each "kind N" whole
 	var vpx := int(TestUtil.load_json("res://configs/raid.json").get("hud", {}).get("value_px", 15))
 	var widest := RaidLogic.loot_line({"relics": 999, "remnants": 999, "husks": 999, "blueprints": 999, "essence": 999})
@@ -353,8 +395,9 @@ func _hint_cue_tests(t: TestUtil) -> void:
 	t.ok(RaidLogic.hint_text(true, true) == RaidLogic.hint_text(true, false), "the trance case wins over the exit case")
 	var words: Array = [RaidLogic.hint_text(true, false), RaidLogic.hint_text(false, true), RaidLogic.hint_text(false, false),
 		RaidLogic.CUE_FIRST_MOTE, RaidLogic.CUE_UNDEAD, RaidLogic.ESSENCE_MEANING]
+	var lc_words: Dictionary = TestUtil.load_json("res://configs/raid.json")["wardens"]
 	for i in 4:
-		words.append(RaidLogic.last_chance_banner(i))
+		words.append(RaidLogic.last_chance_banner(i, lc_words))
 	var gather := false
 	for w in words:
 		gather = gather or str(w).to_lower().contains("gather")
@@ -366,7 +409,7 @@ func _hint_cue_tests(t: TestUtil) -> void:
 		for seg in str(cue).split(" · "):
 			longest = maxi(longest, seg.length())
 	t.ok(longest <= 36, "every cue line (split at ' · ') is short, so the cue's plate stays narrow over the world (longest %d chars)" % longest)
-	t.ok(RaidLogic.last_chance_banner(0).contains("no cooldown") and RaidLogic.last_chance_banner(3).ends_with("3 loose essence here: walk close to pick it up"), "last chance: bare at 0, the walk-close line with a count (a mote only drifts within drift_radius_px)")
+	t.ok(RaidLogic.last_chance_banner(0, lc_words).contains("no cooldown") and RaidLogic.last_chance_banner(3, lc_words).contains("trance is ready: hold Space") and RaidLogic.last_chance_banner(3, lc_words).ends_with("3 loose essence here: walk close to pick it up"), "last chance: bare at 0, the walk-close line with a count (a mote only drifts within drift_radius_px)")
 	t.ok(not RaidLogic.undead_cue_due(true, 3, 99.0, 5.0, 4), "the undead cue never repeats")
 	t.ok(not RaidLogic.undead_cue_due(false, 3, 99.0, 5.0, 0), "none without an undead standing")
 	t.ok(RaidLogic.undead_cue_due(false, 1, 0.0, 5.0, 1), "a kill makes it due")
@@ -497,7 +540,10 @@ func _warden_presence_tests(t: TestUtil) -> void:
 	t.ok(float(pc.get("ring_mult", 0.0)) > 1.5, "the boss ring stands well outside the body")
 	for k in ["ring_alpha", "plinth_alpha", "plate_alpha"]:
 		t.ok(float(pc.get(k, 0.0)) > 0.0 and float(pc.get(k, 0.0)) <= 1.0, k + " in (0, 1]")
-	t.ok(float(pc.get("name_px", 0)) >= 12.0 and float(pc.get("label_px", 0)) >= 12.0, "plate text at least 12 px")
+	t.ok(float(pc.get("name_px", 0)) >= 12.0 and float(pc.get("label_px", 0)) >= 13.0, "plate text at least 13 px")
+	t.ok(float(pc.get("plate_alpha", 0.0)) >= 0.9, "the name plate is near opaque (0.92)")
+	var plate_bg := func(world: Color) -> Color: return RaidLogic.over(Palette.c("ground"), float(pc.get("plate_alpha", 0.0)), world)
+	_check_plate(t, "warden name plate", plate_bg, ["vei", "text"], [])   # WARDEN and the name in full vei, the how-to in text
 	# the name plate never sits under the HUD's top blocks (Ashgate's warden room is at the arena's top-left)
 	var stats := Rect2(18, 14, 420, 290)
 	var goal := Rect2(460, 10, 680, 140)
@@ -513,7 +559,7 @@ func _warden_presence_tests(t: TestUtil) -> void:
 		"a plate over a block's left edge slides left past it")
 	t.ok(RaidLogic.plate_nudge_x(Rect2(1060, 200, 170, 40), [stats, goal], 8.0) == 0.0, "a clear plate stays put")
 	var wsrc := FileAccess.get_file_as_string("res://scripts/raid/warden.gd")
-	var dp := _func_src(wsrc, "func _draw_presence(")
+	var dp := _func_src(wsrc, "func _draw_plates(")
 	t.ok(dp.contains("occluder_rects()") and dp.contains("RaidLogic.plate_hidden(") and dp.contains("_pres[\"both\"]") and dp.contains("RaidLogic.plate_nudge_x("),
 		"the sleeping warden checks its name plate against the HUD's rects each draw, moves it below the ring and slides it clear")
 	t.ok(float(w.get("dormant_alpha", 0.0)) >= 0.6, "the sleeping glyph is not faint")

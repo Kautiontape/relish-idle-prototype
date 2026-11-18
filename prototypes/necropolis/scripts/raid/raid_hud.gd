@@ -115,8 +115,9 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	_banner.set_anchors_preset(Control.PRESET_CENTER_TOP)
 	_banner.anchor_left = 0.5
 	_banner.anchor_right = 0.5
-	_banner.offset_left = -300.0
-	_banner.offset_right = 300.0
+	_banner.offset_left = -RaidLogic.BANNER_W * 0.5
+	_banner.offset_right = RaidLogic.BANNER_W * 0.5
+	_banner.grow_horizontal = Control.GROW_DIRECTION_BOTH   # an over-wide line stays centred, and so does its plate
 	_banner.offset_top = 70.0
 	_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_banner.visible = false
@@ -268,6 +269,13 @@ func _process(_delta: float) -> void:
 		# the banner steps down under whichever top-centre block shows (the goal block's height, or the warden's)
 		var blk := top_block_rect()
 		var top := RaidLogic.banner_top(_banner_top, blk.size.y > 0.0, blk.size.y)
+		if _banner.visible:   # and off the sleeping warden's ring: below it, or above when below won't fit
+			var vr := get_viewport().get_visible_rect()
+			var pw := _banner_plate.offset_right - _banner_plate.offset_left
+			var plate := Rect2(vr.size.x * 0.5 + _banner_plate.offset_left, top - 3.0, pw, _banner_plate.offset_bottom - _banner_plate.offset_top)
+			var wd = raid.warden_run.warden if raid.warden_run != null else null
+			var pres := (wd as RaidWarden).presence_screen_rect() if _sleeping_ring_rect(wd).has_area() else Rect2()   # the ring and its name plates
+			top = RaidLogic.banner_clear_top(top, plate, pres, Rect2(Vector2.ZERO, vr.size))
 		if _banner.offset_top != top:
 			_banner.offset_top = top
 			_fit_banner_plate()
@@ -854,6 +862,10 @@ class StatBlock:
 	var _pip := 7.0
 	var _row_max := 24
 	var _col := 92.0
+	var words: Dictionary = {}              # raid.json hud.stats
+	var detail_px := 14                     # the detail lines' size, drawn in full `text`
+	var label_alpha := 0.85                 # the row labels' brightness (text at this alpha)
+	var essence_lines := PackedStringArray()   # RaidLogic.ESSENCE_MEANING wrapped to value_w() at detail_px (setup)
 	var plate_alpha := 0.96
 	var show_key := false
 	var door_lines := PackedStringArray()   # D-e task 6: the held door's DOOR row, wrapped (empty: no row)
@@ -867,8 +879,14 @@ class StatBlock:
 		_val = int(c.get("value_px", 15))
 		_row_max = int(c.get("pip_row_max", 24))
 		plate_alpha = float(c.get("plate_alpha", 0.96))
+		words = c.get("stats", {})
+		detail_px = int(words.get("detail_px", 14))
+		label_alpha = float(words.get("label_alpha", 0.85))
+		essence_lines = RaidLogic.wrap_each(PackedStringArray([RaidLogic.ESSENCE_MEANING]), ThemeDB.fallback_font, detail_px, value_w())
 		var rows := 3.0 if boss else 14.0   # living, essence, raised | + 4 ward rows, essence meaning, phylactery, its meaning, banked, unbanked, stakes
 		custom_minimum_size = Vector2(420.0, rows * _row + 8.0)
+		if not boss:
+			_fit()
 
 	## The floor-loot key (two rows under the stakes) shows while something lies on the floor.
 	func set_key(on: bool) -> void:
@@ -901,7 +919,7 @@ class StatBlock:
 		if n == phyl and not phyl_meaning.is_empty():
 			return   # called every frame: nothing to rebuild while the count holds
 		phyl = n
-		phyl_meaning = RaidLogic.phylactery_meaning(n)
+		phyl_meaning = RaidLogic.wrap_each(RaidLogic.phylactery_meaning(n), ThemeDB.fallback_font, detail_px, value_w())
 		var extra := phyl_meaning.size() - 1
 		if extra != phyl_extra:
 			phyl_extra = extra
@@ -909,7 +927,8 @@ class StatBlock:
 
 	func _fit() -> void:
 		var loot_extra := maxi(0, banked_lines.size() - 1) + maxi(0, unbanked_lines.size() - 1)
-		custom_minimum_size = Vector2(420.0, (14.0 + float(phyl_extra + loot_extra) + (2.0 if show_key else 0.0) + float(door_lines.size())) * _row + 8.0)
+		var ess_extra := maxi(0, essence_lines.size() - 1)
+		custom_minimum_size = Vector2(420.0, (14.0 + float(ess_extra + phyl_extra + loot_extra) +(2.0 if show_key else 0.0) + float(door_lines.size())) * _row + 8.0)
 
 	## A floor glyph as the pickups draw it (RaidLoot.floor_glyph shapes), small, at `p`.
 	func _key_glyph(p: Vector2, shape: String, col: Color) -> void:
@@ -934,8 +953,9 @@ class StatBlock:
 			x += 22.0 + f.get_string_size(str(k[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
 		draw_string(f, Vector2(6.0, y + _row), RaidLogic.KEY_PILE_LINE, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Palette.c("text_dim"))
 
-	func _label(y: float, text: String) -> void:
-		draw_string(ThemeDB.fallback_font, Vector2(6, y), text, HORIZONTAL_ALIGNMENT_LEFT, _col, _lab, Palette.c("text_dim"))
+	## A row label; `wide` lets it run past the label column (a header whose row has no value).
+	func _label(y: float, text: String, wide := false) -> void:
+		draw_string(ThemeDB.fallback_font, Vector2(6, y), text, HORIZONTAL_ALIGNMENT_LEFT, -1.0 if wide else _col, _lab, Palette.c("text", label_alpha))
 
 	func _value(x: float, y: float, text: String, col: Variant = null) -> float:
 		var f := ThemeDB.fallback_font
@@ -967,16 +987,16 @@ class StatBlock:
 		draw_rect(Rect2(Vector2.ZERO, size), Palette.c("ground", plate_alpha))
 		var y := _row - 5.0
 		var und := Palette.c("undead")
-		_label(y, "LIVING")
+		_label(y, str(words.get("living_label", "")))
 		var lx := _pips(_col, y - 5.0, 1, 0, Palette.c("living"), _pip * 0.6)   # hollow ring = the living
-		_value(lx + 4.0, y, str(living))
+		_value(lx + 4.0, y, RaidLogic.enemies_text(living, words))
 		y += _row
 		if boss:
 			_label(y, "ESSENCE")
 			_value(_col, y, str(loose))
 			y += _row
 		else:
-			_label(y, "WARD")
+			_label(y, str(words.get("ward_head", "")), true)
 			y += _row
 			for i in 4:
 				var n := int(ward[i])
@@ -993,8 +1013,9 @@ class StatBlock:
 			if loose > 0:
 				_value(ex + 6.0 + 60.0, y, "+%d loose" % loose)
 			y += _row
-			draw_string(ThemeDB.fallback_font, Vector2(_col, y), RaidLogic.ESSENCE_MEANING, HORIZONTAL_ALIGNMENT_LEFT, -1, _lab, Palette.c("text_dim"))
-			y += _row
+			for el in essence_lines:
+				draw_string(ThemeDB.fallback_font, Vector2(_col, y), el, HORIZONTAL_ALIGNMENT_LEFT, -1, detail_px, Palette.c("text"))
+				y += _row
 		_label(y, "RAISED")
 		_value(_col, y, raised_text)
 		y += _row
@@ -1008,11 +1029,11 @@ class StatBlock:
 				var head := phyl_word if cut < 0 else phyl_word.substr(0, cut)
 				var hx := _value(vx + 10.0, y, head, phyl_tone)
 				if cut >= 0:
-					draw_string(ThemeDB.fallback_font, Vector2(hx, y), phyl_word.substr(cut), HORIZONTAL_ALIGNMENT_LEFT, -1, _lab, Palette.c("text_dim"))
+					draw_string(ThemeDB.fallback_font, Vector2(hx, y), phyl_word.substr(cut), HORIZONTAL_ALIGNMENT_LEFT, -1, detail_px, Palette.c("text"))
 			y += _row
-			# what a phylactery charge is (RaidLogic.phylactery_meaning), dim, as the ESSENCE row's meaning line
+			# what a phylactery charge is (RaidLogic.phylactery_meaning, wrapped), in full text, as the ESSENCE row's meaning line
 			for ml in phyl_meaning:
-				draw_string(ThemeDB.fallback_font, Vector2(_col, y), ml, HORIZONTAL_ALIGNMENT_LEFT, -1, _lab, Palette.c("text_dim"))
+				draw_string(ThemeDB.fallback_font, Vector2(_col, y), ml, HORIZONTAL_ALIGNMENT_LEFT, -1, detail_px, Palette.c("text"))
 				y += _row
 			# zero kinds are hidden; nothing at all is one dim word; a long line wraps under itself (set_loot)
 			_label(y, "BANKED")
