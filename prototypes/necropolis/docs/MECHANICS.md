@@ -1713,6 +1713,11 @@ The Watchtower turns the bands into exact percentages and lists every tell.
     (never below 0), so the beats need not be consecutive, but a lapse costs about four good beats.
   - Uncleared fronts' guards fall back to the line after `vei.guards.life_s` (6 s) and drop no mote,
     so they never outnumber rate × uncleared fronts × life; the fight can't snowball into a guard pile.
+  - **A fuller pool presses harder** (Phase I P1): the break's guards come at `vei.guards.rate_per_uncleared` and
+    `cap` × `1 + vei.pressure.per_pool × max(0, living pool − pool_free)` (`VeiFronts.pressure_mult`). Below
+    `pool_free` (400) they come as listed; at her full pool of 600 the multiplier is 2.3. Her ferry already scales
+    with the pool, and so do the anchor motes that feed Relish's allies, which soak her lethal hits (the sacrifice
+    chain). Without this, a full pool made the break easier, not harder (BALANCE §5's fight-grade row).
   - Her weaves hunt Relish, telegraphed on the beat.
 - **Backups in the fight:** each Relish death spends a phylactery charge first, then a ready clone.
   None left means the fight is lost. Each spent backup is a cracked violet ring, and from E3-5 the writeback raises

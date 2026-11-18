@@ -228,6 +228,8 @@ func _build_ossuary() -> void:
 	_body.add_child(_simulacra)
 	_stock = _wrap("", 14)
 	_body.add_child(_stock)
+	# where essence comes from and what it pays for (view.guide; Shawn's checklist item 11): beside the count
+	_body.add_child(_wrap(String(ConfigDb.v("town", "view", {}).get("guide", {}).get("essence_line", "")), 14, "text_dim"))
 	_craft_box = VBoxContainer.new()
 	_craft_box.add_theme_constant_override("separation", 6)
 	_body.add_child(_craft_box)

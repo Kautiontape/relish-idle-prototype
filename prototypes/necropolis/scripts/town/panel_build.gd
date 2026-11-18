@@ -117,6 +117,7 @@ func _ready() -> void:
 	_build_inspector()
 	var h := TownUI.label("Catalog", 16)
 	_root.add_child(h)
+	_root.add_child(_wrap(String(_vcfg.get("guide", {}).get("paid_line", "")), 14, "text_dim"))  # what pays for buildings
 	_rows_box = VBoxContainer.new()
 	_rows_box.add_theme_constant_override("separation", 4)
 	_root.add_child(_rows_box)
@@ -304,6 +305,7 @@ func _make_row(bid: String) -> Dictionary:
 	var place := _btn("Place")
 	place.pressed.connect(_toggle_place.bind(bid))
 	top.add_child(place)
+	TownGuide.add_lines(v, bid, _bcfg, _vcfg.get("guide", {}))  # why build it, and how it's used: fixed per building
 	var ben := HBoxContainer.new()  # the live benefit, as the card draws it: rates oblique, words upright
 	ben.add_theme_constant_override("separation", 10)
 	v.add_child(ben)
@@ -532,10 +534,12 @@ func _make_inspector(style: StyleBox) -> Dictionary:
 	pc.add_child(v)
 	var w := {"node": pc}
 	w["title"] = TownUI.label("", 18)
+	w["purpose"] = _wrap("", 14, "text")  # why build it: what it does → the loop (TownGuide.why)
+	w["use"] = _wrap("", 14, "select")  # how it's used: by hand (and where), or on its own (TownGuide.how)
 	w["flavour"] = _wrap("", 14, "text_dim")
 	for k in ["level", "state", "staffing", "foreman"]:
 		w[k] = _wrap("", 14)
-	for k in ["title", "flavour", "level", "state", "staffing", "foreman"]:
+	for k in ["title", "purpose", "use", "flavour", "level", "state", "staffing", "foreman"]:
 		v.add_child(w[k])
 	var up := HBoxContainer.new()
 	var ul := TownUI.label("upkeep", 14, "text_dim")
@@ -612,6 +616,13 @@ func _update_inspector() -> void:
 func _fill_inspector(w: Dictionary, i: Dictionary) -> void:
 	w["node"].visible = true
 	w["title"].text = "%s  (%s)" % [i["label"], _lot_name(_selected_lot)]
+	w["purpose"].text = i["purpose"]
+	w["purpose"].visible = i["purpose"] != ""
+	w["use"].text = i["use"]
+	w["use"].visible = i["use"] != ""
+	if w.get("use_key", "") != i["use_key"]:
+		w["use_key"] = i["use_key"]
+		w["use"].add_theme_color_override("font_color", Palette.c(i["use_key"]))
 	w["flavour"].text = i["flavour"]
 	w["level"].text = String(i["level_text"])
 	w["state"].text = "State: " + String(i["state_text"])
@@ -632,7 +643,7 @@ func _fill_inspector(w: Dictionary, i: Dictionary) -> void:
 	w["proj"].text = "%s %s" % [String(_vcfg.get("benefit", {}).get("upgrade_now", "")), ", ".join(proj)]
 	var why := ""
 	if u["visible"] and not u["enabled"]:
-		why = _reason(String(u["reason"]), {"cost": u["cost"], "level": u["level"]})
+		why = BuildSort.upgrade_reason(u, _st, _bview, _vcfg)
 	w["why"].visible = why != ""
 	w["why"].text = why
 	var c: Dictionary = i["cancel"]
