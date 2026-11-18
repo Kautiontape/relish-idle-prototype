@@ -261,12 +261,12 @@ func _make_craft(item_id: String) -> Dictionary:
 	h.add_child(col)
 	var nm := TownUI.label("", 16)
 	var cost := _wrap("", 14)
-	var why := _wrap("", 14, "text_dim")
+	var why := _wrap("", TownUI.MIN_TEXT, "text_dim")  # half a dock wide: the reason fits one line at the smallest size
 	col.add_child(nm)
 	col.add_child(cost)
 	col.add_child(why)
 	var btn := TownUI.button(_t("craft_btn"))
-	btn.custom_minimum_size = Vector2(88, TownUI.MIN_TARGET)
+	btn.custom_minimum_size = Vector2(float(_tx.get("craft_btn_w_px", 72.0)), TownUI.MIN_TARGET)
 	btn.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	btn.pressed.connect(_on_craft.bind(item_id))
 	h.add_child(btn)

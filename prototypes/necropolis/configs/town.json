@@ -630,7 +630,7 @@
       "stock": "Essence {essence}   Relics {relics}",
       "craft_labels": {"simulacrum": "Simulacrum", "phylactery_charge": "Phylactery charge"},
       "cost_part": "{n} {what}", "relic": "relic", "relics": "relics", "essence": "essence", "cost_none": "free",
-      "craft_btn": "Craft",
+      "craft_btn": "Craft", "craft_btn_w_px": 72.0, "craft_columns": 2,
       "craft_reasons": {"needs_building": "needs the Ossuary Tower", "no_essence": "not enough essence", "no_relics": "not enough relics",
         "unknown_item": "no such item", "catching_up": "catching up on your time away: try again in a moment"},
       "craft_ok": "Crafted {label}.", "craft_refused": "Refused: {reason}.",
