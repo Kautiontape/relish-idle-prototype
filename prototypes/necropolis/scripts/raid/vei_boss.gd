@@ -73,6 +73,7 @@ var _p2_raises := 0
 var _seq_kind := ""             # "win" | "lose" while the closing set piece plays
 var _seq_t := 0.0
 var _emitted := false
+var _win_r := {}                # the win's result, frozen as Vei breaks (_record_win): recorded, then sent by the press
 var _card: VeiCard = null       # the win or loss card, once the closing set piece is done
 var _rcfg_cache := {}
 var _vw_cache := {}              # vwords(), read once per ConfigDb.data
@@ -709,7 +710,8 @@ func exit_hint_ready() -> bool:
 ## A window close mid-fight (RaidEndings.close_request; IDLE I5: no run survives a close): the fight
 ## ends now, emitted synchronously before the quit save. The backups spent so far stay spent. Once
 ## she broke (her unravel playing) it is the win; otherwise lost, with relish_deaths = the backups
-## spent, plus one if the final-death beat was playing (BossLogic.close_fields).
+## spent, plus one if the final-death beat was playing (BossLogic.close_fields). The win is the dict frozen
+## as she broke (_record_win), the one the state recorded.
 func close_result() -> Dictionary:
 	var f := BossLogic.close_fields(end_reason, backups_spent_total())
 	deaths = int(f["relish_deaths"])
@@ -718,7 +720,7 @@ func close_result() -> Dictionary:
 		phase = Phase.OVER
 	_emitted = true   # the closing set piece must not emit again
 	_seq_kind = ""
-	var r := _result(bool(f["won"]))
+	var r := _win_r if bool(f["won"]) and not _win_r.is_empty() else _result(bool(f["won"]))
 	for e in Results.validate("boss", r):
 		push_error("necropolis: boss close result invalid: " + e)
 	return r
@@ -746,10 +748,31 @@ func _win() -> void:
 		return
 	end_reason = "broken"
 	_end_common()
+	_record_win()
 	RaidSound.play("unravel")
 	vei.unravel_f = 0.0
 	_seq_kind = "win"
 	_seq_t = 0.0
+
+
+## Vei broke (P3b, api-request #22): the win's result is frozen now, the one dict the card's press, its self-press
+## and a window close send (_emit, close_result), and it is recorded with the open boss run (cmd_boss_won) and saved
+## at once (the autosave clock is 30 s of real time, as long as the card waits before pressing itself). From here a
+## gap, a quit or a crash resolves the run as this win, never a forfeit: a gap leaves the set piece and the card
+## running (RaidLogic.gap_plan), and the press then reads duplicate_run, which the router takes as done
+## (RouterLogic.result_done). Recorded at the break, not when the card appears, so the unravel's seconds are covered
+## too: nothing in the result moves once the fight is over (the physics step stops at _ended). The demo and the
+## standalone bot have no run to record.
+func _record_win() -> void:
+	_win_r = _result(true)
+	if not _from_run:
+		return
+	var r: Dictionary = Game.state.cmd_boss_won(int(seed_data.get("run_id", 0)), _win_r)
+	endings.win_recorded = bool(r.get("ok", false))
+	if not endings.win_recorded:
+		push_warning("necropolis: the boss win was not recorded: %s %s" % [str(r.get("reason", "")), str(r.get("errors", []))])
+		return
+	Game.autosave()
 
 
 ## The set piece is done: the board holds, dimmed, under the end card (VeiCard); its one button is
@@ -764,10 +787,8 @@ func _win_card() -> void:
 		info["clones_total"] = int(seed_data.get("clones_ready", 0))
 		_card = VeiCard.new()
 		hud.add_child(_card)
-		# the win card presses itself after gap_end.win_card_auto_s (BossLogic.card_auto_due): the win is written back
-		# on the press, and a sleep with the card up would forfeit the open run (RaidEndings.gap_end)
-		# TODO(api-request #22): record the win in the open boss run here, as the card appears, so a gap or a load
-		# before the press resolves as the win; the press (or its self-press) must not apply it twice.
+		# the win card presses itself after gap_end.win_card_auto_s (BossLogic.card_auto_due). The win was recorded
+		# as she broke (_record_win), so a sleep with the card up keeps it: the gap leaves the card up.
 		_card.setup(info, vcfg().get("card", {}), _emit.bind(true), vwords(), float(rcfg().get("gap_end", {}).get("win_card_auto_s", -1.0)))
 	if _bot != null and not (_bdev != null and _bdev.hold_card):
 		_emit(true)
@@ -818,8 +839,9 @@ func _cleared_now() -> Array:
 	return out
 
 
-## A gap (RaidEndings.gap_end) forfeits a boss fight in the state (no writeback), so a closing set piece
-## or card still up would contradict it: stop the set piece and take the card down.
+## A gap (RaidEndings.gap_end) forfeits a boss fight in the state (no writeback) unless its win was recorded
+## (_record_win; then the gap leaves the end running), so a closing set piece or card still up would contradict
+## it: stop the set piece and take the card down.
 func gap_cut_end() -> void:
 	_seq_kind = ""
 	if _card != null and is_instance_valid(_card):
@@ -888,7 +910,7 @@ func _emit(won: bool) -> void:
 		return
 	_emitted = true
 	_seq_kind = ""
-	var r := _result(won)
+	var r := _win_r if won and not _win_r.is_empty() else _result(won)  # the win: the dict recorded as she broke
 	for e in Results.validate("boss", r):
 		push_error("necropolis: boss result invalid: " + e)
 	if _card != null and _standalone:

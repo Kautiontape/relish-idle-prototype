@@ -306,10 +306,13 @@ static func gap_ends_run(ev: Dictionary, run_id: int, open_run_id: int) -> bool:
 
 
 ## The exit the state already recorded for the run a gap ended (run_ended.outcome); an away_report carries none,
-## and anything unknown, so a retreat.
+## and anything unknown, so a retreat. "won" is a boss run's recorded win, which the gap applied (P3b, api-request
+## #22: StateRuns.end_for_gap); a raid's run_ended never says it.
 static func gap_outcome(ev: Dictionary, pending_exit := "") -> String:
 	if str(ev.get("type", "")) == "away_report":
 		return checkpoint_outcome(pending_exit)   # the rule the checkpoint uses: never contradicts a recorded death or win
+	if str(ev.get("outcome", "")) == "won":
+		return "won"
 	return checkpoint_outcome(str(ev.get("outcome", "")))
 
 
@@ -321,18 +324,23 @@ static func gap_leaves_beat(ended: bool, pending_exit: String) -> bool:
 
 
 ## What RaidEndings.gap_end does for a gap: {leave, cut_end}. `leave`: a death or victory beat is running and matches
-## the state (gap_leaves_beat), so it keeps its card and its one finish. A boss fight never leaves its beat: the
-## state forfeits it on a gap (StateRuns.end_open writes nothing back for a boss) and the boss never sets
-## pending_exit, so a set piece or a card still up (`ended`) would contradict the state; `cut_end` takes the card
-## down and stops the set piece before the banner shows.
-static func gap_plan(ended: bool, pending_exit: String, boss: bool) -> Dictionary:
+## the state (gap_leaves_beat), so it keeps its card and its one finish. A boss fight leaves its end running only when
+## the state holds the win (`boss_won`: the run_ended said "won", or the scene recorded the win with cmd_boss_won;
+## P3b, api-request #22): the unravel or the win card stays, and its press is the one finish. Otherwise the state
+## forfeits it on a gap (StateRuns.end_open writes nothing back for a boss without a recorded win) and the boss never
+## sets pending_exit, so a set piece or a card still up (`ended`) would contradict the state; `cut_end` takes the card
+## down and stops the set piece before the banner shows. (A win is recorded only once the fight is over, so `boss_won`
+## without `ended` can't happen; it would run the stop.)
+static func gap_plan(ended: bool, pending_exit: String, boss: bool, boss_won := false) -> Dictionary:
 	if boss:
+		if boss_won and ended:
+			return {"leave": true, "cut_end": false}
 		return {"leave": false, "cut_end": ended}
 	return {"leave": gap_leaves_beat(ended, pending_exit), "cut_end": false}
 
 
 ## The banner a gap-ended run shows, from raid.json's `gap_end` block (the raid's words, or the Vei fight's: a boss
-## run has no checkpoint, the state forfeits it).
+## run has no checkpoint, and without a recorded win the state forfeits it).
 static func gap_banner(gap_cfg: Dictionary, boss := false) -> String:
 	return str(gap_cfg.get("banner_text_boss" if boss else "banner_text", ""))
 

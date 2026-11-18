@@ -12,6 +12,7 @@ func run() -> int:
 	_reread_tests(t)
 	_wrap_tests(t)
 	_wiring_tests(t)
+	_boss_won_tests(t)
 	return t.failures
 
 
@@ -67,7 +68,15 @@ func _end_tests(t: TestUtil) -> void:
 	gp = RaidLogic.gap_plan(true, "", true)
 	t.ok(not gp["leave"] and gp["cut_end"], "gap_plan boss, unravel or card up (ended, no pending_exit): cut the card and the set piece, then the banner")
 	gp = RaidLogic.gap_plan(true, "relish_died", true)
-	t.ok(not gp["leave"] and gp["cut_end"], "gap_plan boss never leaves a beat: the state forfeits the fight")
+	t.ok(not gp["leave"] and gp["cut_end"], "gap_plan boss without a recorded win never leaves a beat: the state forfeits the fight")
+	gp = RaidLogic.gap_plan(true, "", true, true)
+	t.ok(gp["leave"] and not gp["cut_end"], "gap_plan boss, unravel or win card up with the win the state holds (#22): leave it, cut nothing")
+	gp = RaidLogic.gap_plan(false, "", true, true)
+	t.ok(not gp["leave"] and not gp["cut_end"], "gap_plan boss_won mid-fight (can't happen: the win is recorded once the fight is over): the stop runs")
+	t.ok(RaidLogic.gap_outcome({"type": "run_ended", "kind": "boss", "outcome": "won", "cause": "gap"}) == "won",
+		"a boss run whose recorded win the gap applied: the outcome is won")
+	t.ok(RaidLogic.gap_outcome({"type": "run_ended", "kind": "boss", "outcome": "retreated", "cause": "gap"}) == "retreated"
+		and RaidLogic.gap_outcome({"type": "away_report"}, "") == "retreated", "a forfeited boss run and the backstop still read retreated")
 	var gcfg: Dictionary = TestUtil.load_json("res://configs/raid.json").get("gap_end", {})
 	var b := RaidLogic.gap_banner(gcfg)
 	t.ok(b.begins_with("AWAY TOO LONG") and b.contains("last checkpoint"), "the raid's banner (raid.json gap_end.banner_text) says it in the glossary's words: " + b)
@@ -156,7 +165,7 @@ func _wiring_tests(t: TestUtil) -> void:
 	t.ok(fg.contains("\tfinish(_raid.close_result())") and fg.contains("\t\tfinish(win_result)")
 		and fg.contains("finish(_raid._death_result() if plan[\"exit\"] == \"relish_died\" else build_result(plan[\"exit\"], plan[\"closing\"]))"), "the beat's end finishes (the one emit) with the result the state recorded: boss, win, death or retreat")
 	t.ok(ge.contains("if finished or _gap:\n\t\treturn\n\t_gap = true"), "it runs once: a second call, or one after the finish, returns before it sets _gap")
-	var lb := ge.find("RaidLogic.gap_plan(ended, pending_exit, _raid.is_boss())")
+	var lb := ge.find("RaidLogic.gap_plan(ended, pending_exit, _raid.is_boss(), outcome == \"won\" or win_recorded)")
 	t.ok(lb >= 0 and ge.substr(lb, 200).contains("return") and lb < ge.find("show_banner(") and lb < ge.find("create_timer("),
 		"gap_end returns early on a running ending, before the banner and timer")
 	t.ok(_func_src(end, "func _send_checkpoint(").contains("_post_checkpoint(") and _func_src(end, "func _post_checkpoint(").contains("checkpoint_pending_after("),
@@ -175,3 +184,75 @@ func _wiring_tests(t: TestUtil) -> void:
 	t.ok(cap.contains("\"assist\": RaidLogic.assist_on"), "the capture row records whether LONGER WARNINGS was on")
 	var cfg := TestUtil.load_json("res://configs/raid.json")
 	t.ok(float(cfg.get("gap_end", {}).get("beat_s", 0.0)) > 0.0 and str(cfg.get("gap_end", {}).get("_doc", "")) != "", "raid.json gap_end.beat_s with a _doc")
+
+
+## P3b (api-request #22), the scene's half (the state's is economy's test_boss_won): as Vei breaks the boss scene freezes
+## its win's result and records it with the open run (VeiBoss._record_win: cmd_boss_won, then a save), so a gap applies
+## it as the win. VeiBoss can't load headless, so its call site is pinned by source text, and the flow it drives runs
+## on a GameState: the result VeiBoss builds (BossLogic.result_of on a fight state, won) is accepted; a 100 s gap ends
+## the run with run_ended "won", which the scene's rules read as the win (gap_outcome, then gap_plan: the card stays);
+## the card's later press of the same dict reads duplicate_run, which the router takes as done (RouterLogic.result_done).
+## Without a record the gap still forfeits, and the card is cut (the control).
+func _boss_won_tests(t: TestUtil) -> void:
+	t.suite("raid_gap_boss_won")
+	var s := _boss_state(t)
+	var sd := s.view_boss_seed()
+	var rid := int(sd.get("run_id", -1))
+	var won := BossLogic.result_of({"seed": sd, "p1": {}, "fronts_cleared": [], "phase1_s": 40.0, "deaths": 0,
+		"spent": {"phylactery": 0, "clones": 0}, "party_lost": [], "horde0": 100.0, "horde": 0.0}, true)
+	var rec := s.cmd_boss_won(rid, won)
+	t.ok(bool(rec.get("ok", false)), "the scene's result, won, is recorded: %s %s" % [str(rec.get("reason", "")), str(rec.get("errors", []))])
+	s.drain_events()
+	s.tick(100.0, s.max_substeps_per_frame())
+	var q := s.drain_events()
+	var ended := q.filter(func(e): return e["type"] == "run_ended")
+	t.ok(ended.size() == 1 and RaidLogic.gap_ends_run(ended[0], rid, -1) and RaidLogic.gap_outcome(ended[0]) == "won" and s.won,
+		"a 100 s gap: one run_ended for our run, read as won, and the game is won (%s)" % str(ended))
+	var plan := RaidLogic.gap_plan(true, "", true, RaidLogic.gap_outcome(ended[0]) == "won" if not ended.is_empty() else false)
+	t.ok(plan["leave"] and not plan["cut_end"], "the scene leaves the unravel or the win card up: no AWAY TOO LONG, no cut")
+	var away := q.filter(func(e): return e["type"] == "away_report")
+	t.ok(away.is_empty() or (RaidLogic.gap_ends_run(away[0], rid, int(s.view_relish().get("run_id", -1)))
+		and RaidLogic.gap_outcome(away[0], "") == "retreated" and RaidLogic.gap_plan(true, "", true, true)["leave"]),
+		"the backstop away_report says no outcome; the scene's own record (win_recorded) keeps the card")
+	var press := s.apply_result("boss", won)
+	t.ok(not bool(press.get("ok", true)) and str(press.get("reason", "")) == "duplicate_run" and RouterLogic.result_done(press),
+		"the card's press of the same dict after the gap: duplicate_run, which the router takes as done (%s)" % str(press.get("reason", "")))
+	t.ok(RouterLogic.result_done({"ok": true, "reason": ""}) and not RouterLogic.result_done({"ok": false, "reason": "wrong_run"})
+		and not RouterLogic.result_done({}), "result_done: ok or duplicate_run only; a forfeited run's wrong_run is still a refusal")
+	t.ok(not RouterLogic.result_stale("boss", s.view_relish()), "a boss result is still never stale (the stale toast names a raid)")
+	# the control: no record, so the gap forfeits the fight and the card is cut
+	var f := _boss_state(t)
+	var fid := int(f.view_boss_seed().get("run_id", -1))
+	f.drain_events()
+	f.tick(100.0, f.max_substeps_per_frame())
+	var fe := f.drain_events().filter(func(e): return e["type"] == "run_ended")
+	var fo := RaidLogic.gap_outcome(fe[0]) if not fe.is_empty() else ""
+	var fp := RaidLogic.gap_plan(true, "", true, fo == "won")
+	t.ok(fo == "retreated" and not f.won and not fp["leave"] and fp["cut_end"] and str(f.apply_result("boss", BossLogic.result_of({"seed": f.view_boss_seed(),
+		"p1": {}, "fronts_cleared": [], "phase1_s": 40.0, "deaths": 0, "spent": {"phylactery": 0, "clones": 0}, "party_lost": [], "horde0": 100.0,
+		"horde": 0.0}, true)).get("reason", "")) != "duplicate_run", "without a record: the gap forfeits (run %d, %s), the card is cut, and a press is not taken as done" % [fid, fo])
+	# the call site (VeiBoss can't load headless)
+	var vb := _src("res://scripts/raid/vei_boss.gd")
+	var win := _func_src(vb, "func _win(")
+	var rw := _func_src(vb, "func _record_win(")
+	t.ok(win.find("_end_common()") >= 0 and win.find("_end_common()") < win.find("_record_win()") and win.find("_record_win()") < win.find("_seq_kind = \"win\""),
+		"Vei breaks: the fight ends, then the win is recorded, before the unravel starts")
+	t.ok(rw.contains("_win_r = _result(true)") and rw.contains("Game.state.cmd_boss_won(int(seed_data.get(\"run_id\", 0)), _win_r)")
+		and rw.contains("endings.win_recorded = bool(r.get(\"ok\", false))") and rw.contains("Game.autosave()")
+		and rw.find("_win_r = _result(true)") < rw.find("if not _from_run:") and rw.find("if not _from_run:") < rw.find("cmd_boss_won(")
+		and rw.find("cmd_boss_won(") < rw.find("Game.autosave()"), "_record_win freezes the result, records it for a real run only, keeps the answer and saves")
+	t.ok(_func_src(vb, "func _emit(").contains("var r := _win_r if won and not _win_r.is_empty() else _result(won)")
+		and _func_src(vb, "func close_result(").contains("var r := _win_r if bool(f[\"won\"]) and not _win_r.is_empty() else _result(bool(f[\"won\"]))"),
+		"the press, its self-press and a window close send the recorded dict")
+	t.ok(not vb.contains("TODO(api-request #22)") and _func_src(vb, "func _win_card(").contains("win_card_auto_s"), "the #22 TODO is gone; the card still presses itself")
+	t.ok(_func_src(_src("res://scripts/main.gd"), "func _apply(").contains("if not RouterLogic.result_done(out):"), "the router asks result_done before it warns and forfeits")
+	var gdoc := str(TestUtil.load_json("res://configs/raid.json").get("gap_end", {}).get("_doc", ""))
+	t.ok(gdoc.contains("the moment Vei breaks") and not gdoc.contains("Only the press keeps the win"), "gap_end._doc says the win is kept from the break")
+
+
+func _boss_state(t: TestUtil) -> GameState:
+	var s := GameState.new(TestUtil.configs())
+	s.debug_enabled = true
+	s.save_dir = "user://test_raid_gap_%d" % OS.get_process_id()
+	t.ok(bool(s.cmd_debug_load_fixture("pre_vei").get("ok", false)) and bool(s.cmd_begin_boss().get("ok", false)), "(setup) pre_vei, a boss run open")
+	return s
