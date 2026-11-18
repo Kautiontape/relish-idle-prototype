@@ -71,6 +71,7 @@ const WORDS := [
 	"hud.text.title_tier", "hud.text.raised_big", "hud.text.raised_ranks", "hud.text.checkpoint", "hud.text.trance_ready",
 	"hud.text.trance_focus", "hud.text.trance_cooldown", "hud.text.edge_exit", "hud.text.edge_warden", "hud.text.edge_loot",
 	"hud.text.exit_off", "hud.text.exit_retreat", "hud.text.exit_banks",
+	"ghost_ring.label",
 ]
 
 ## The death card's numbers (raid.json death, read by RaidDeathCard and the clear card): each must be a number above zero.
