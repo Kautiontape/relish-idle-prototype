@@ -44,7 +44,7 @@ func _stale(t: TestUtil) -> void:
 	t.ok(not RouterLogic.result_stale("boss", rv), "(iii) a boss result is not stale by this rule even with no run")
 	t.ok(RouterLogic.result_stale("raid", {}), "no run_id at all reads as -1: stale")
 	var refused := s.apply_result("raid", {"v": 2, "run_id": rid})
-	t.ok(not refused["ok"], "apply_result would have been refused (%s), so the router must not call it" % str(refused.get("reason", "")))
+	t.ok(not refused["ok"], "a raid result for the ended run is refused by apply_result (%s; the result here is a bare stand-in), so the router must not call it" % str(refused.get("reason", "")))
 	var frames := 0
 	while s.catching_up() and frames < 5000:
 		s.tick(1.0 / 60.0, s.max_substeps_per_frame())
@@ -55,7 +55,8 @@ func _stale(t: TestUtil) -> void:
 func _wait_line(t: TestUtil) -> void:
 	t.suite("map_router-wait")
 	var line := RelishLogic.reason_text("catching_up")
-	t.ok(line == str(MapLogic.cfg()["reasons"]["catching_up"]) and line != str(MapLogic.cfg()["reason_fallback"]) % "catching_up", "catching_up has its own line (%s)" % line)
+	var ctl: Dictionary = MapLogic.cfg()["controls"]
+	t.ok(line == str(ctl["reasons"]["catching_up"]) and line != str(ctl["reason_fallback"]) % "catching_up", "catching_up has its own line (%s)" % line)
 	t.ok(line.length() <= 60 and line.contains("catching up") and line.contains("Try again"), "it is short and says to try again")
 	t.ok(not line.contains("_"), "no raw reason code")
 	# every refusal path emits a plain toast (one neutral label): no caller styles a refusal
