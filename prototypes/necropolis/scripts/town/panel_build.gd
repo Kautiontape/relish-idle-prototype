@@ -502,7 +502,8 @@ func _report(r: Dictionary, ok_text: String, row := {}) -> void:
 	if bool(r.get("ok", false)):
 		_say(ok_text)
 	else:
-		_say("Refused: %s." % _reason(String(r.get("reason", "")), row))
+		var rs := String(r.get("reason", ""))
+		_say(TownUI.refusal(rs, _reason(rs, row), "Refused: %s." % _reason(rs, row)))
 	command_issued.emit()
 
 
@@ -889,7 +890,8 @@ func _queue_real(e: Dictionary, row: Dictionary) -> bool:
 	elif String(r.get("reason", "")) == "cost_exceeds_cap":
 		_show_cap_refusal(e, r)
 	else:
-		_say("Not queued: %s." % _reason(String(r.get("reason", "")), row))
+		var rs := String(r.get("reason", ""))
+		_say(TownUI.refusal(rs, _reason(rs, row), "Not queued: %s." % _reason(rs, row)))
 	command_issued.emit()
 	return bool(r.get("ok", false))
 

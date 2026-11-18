@@ -20,7 +20,30 @@ func run() -> int:
 	_hud_starved()
 	_foreman_menu()
 	_away_label()
+	_catchup()
 	return t.failures
+
+
+## C-c: away_report makes the shell re-read every view; a catching_up refusal reads as a wait in every reason map.
+func _catchup() -> void:
+	var shell := FileAccess.get_file_as_string("res://scripts/town/covington.gd")  # needs the Game autoload: source only
+	var at := shell.find("\"away_report\"")
+	t.ok(at > 0 and shell.find("_dirty = true", at) > at and shell.find("_dirty = true", at) - at < 400,
+		"the shell sets _dirty on away_report (a full re-read on the next frame)")
+	var maps := {"view.reasons": vcfg["reasons"], "behaviour.refusals": vcfg["behaviour"]["refusals"],
+		"crypt.reasons": vcfg["crypt"]["reasons"], "backups.craft_reasons": vcfg["backups"]["craft_reasons"],
+		"backups.staff_reasons": vcfg["backups"]["staff_reasons"]}
+	for k in maps:
+		var w := String((maps[k] as Dictionary).get("catching_up", ""))
+		t.ok(w.contains("catching up") and w.contains("moment"), "%s.catching_up says to wait: '%s'" % [k, w])
+	var txt := BuildSort.reason_text("catching_up", {}, {}, cfg["buildings_view"], vcfg)
+	t.ok(txt == String(vcfg["reasons"]["catching_up"]), "a build refused with catching_up reads the wait: '%s'" % txt)
+	var line := TownUI.refusal("catching_up", txt, "Refused: %s." % txt)
+	t.ok(line == "Catching up on your time away: try again in a moment." and TownUI.refusal("no_gold", "x", "Refused: x.") == "Refused: x.",
+		"a catching_up refusal is said as a wait, not 'Refused: …' ('%s'); other refusals keep their line" % line)
+	for p in ["panel_build", "panel_crypt", "panel_backups"]:
+		var src := FileAccess.get_file_as_string("res://scripts/town/%s.gd" % p)
+		t.ok(src.contains("TownUI.refusal("), "%s words its refusals through TownUI.refusal" % p)
 
 
 ## The foreman menu offers job buildings only (buildings.json jobs), a Chapel even while no vat is staffed.

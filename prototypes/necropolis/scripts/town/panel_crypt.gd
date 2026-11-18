@@ -564,7 +564,7 @@ func _on_keep() -> void:
 			_say(_prompt_why, why)
 			return
 		_close_prompt()
-		_say(_status, _tx("refused").format({"why": why}))
+		_say(_status, TownUI.refusal(String(r.get("reason", "")), why, _tx("refused").format({"why": why})))
 		_refresh_slab()
 		return
 	_close_prompt()
@@ -804,7 +804,8 @@ func _after_place(uid: String, r: Dictionary) -> void:
 		row.erase("sig")  # the views may not move (the creature was placed there already): restyle the row anyway
 		_bind_sig = 0
 	else:
-		_say(row["status"], _tx("refused").format({"why": _reason(String(r.get("reason", "")))}))
+		var why := _reason(String(r.get("reason", "")))
+		_say(row["status"], TownUI.refusal(String(r.get("reason", "")), why, _tx("refused").format({"why": why})))
 
 
 func _on_rename(uid: String) -> void:
@@ -818,7 +819,8 @@ func _on_rename(uid: String) -> void:
 		(row["edit_row"] as Control).visible = false
 		(row["edit"] as LineEdit).release_focus()
 	else:
-		_say(row["status"], _tx("refused").format({"why": _reason(String(r.get("reason", "")))}))
+		var why := _reason(String(r.get("reason", "")))
+		_say(row["status"], TownUI.refusal(String(r.get("reason", "")), why, _tx("refused").format({"why": why})))
 
 
 func on_game_event(_ev_in: Dictionary) -> void:

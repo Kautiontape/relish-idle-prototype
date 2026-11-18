@@ -411,6 +411,7 @@
     "needs": {
       "order": ["tithe", "front", "warden", "starved_bone", "starved_gold", "tier", "idle_hands", "gold", "bodies", "housing", "morale"],
       "bodies_frac": 0.3,
+      "front_sight_tier": 3,
       "idle_hands_min": 3,
       "morale_below": 0.5,
       "serves": {

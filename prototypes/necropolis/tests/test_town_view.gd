@@ -1532,6 +1532,13 @@ func _build_needs(day1: Dictionary) -> void:
 	v = _need_views(day1)
 	v["vei"]["fronts"] = [{"id": "raw", "need": 0.0, "have": 0.0}, {"id": "giants", "need": 24.0, "have": 26.5},
 		{"id": "swarm", "need": 30.0, "have": 12.0}]
+	# V-e: no front chip until Vei is in sight (a fort of front_sight_tier taken, or Relish at her gate)
+	v["hud"]["highest_tier_flipped"] = int(vcfg["needs"]["front_sight_tier"]) - 1
+	t.ok(_need_ids(v).is_empty(), "build needs: a short front is no chip while Vei is out of sight (highest tier taken %d)" % v["hud"]["highest_tier_flipped"])
+	v["relish"]["state"] = "at_vei"
+	t.ok(_need_ids(v).has("front"), "build needs: Relish at Vei's gate brings Vei in sight")
+	v["relish"]["state"] = "idle"
+	v["hud"]["highest_tier_flipped"] = int(vcfg["needs"]["front_sight_tier"])
 	n = BuildSort.needs(v, FORTS, vcfg)
 	t.ok(_need_ids(v) == ["front"] and n[0]["chip"].contains("swarm") and n[0]["chip"].contains("12 of 30"),
 		"build needs: the first short front (need > 0, have < need) is named: %s" % n[0]["chip"])

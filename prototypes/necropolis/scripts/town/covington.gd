@@ -507,6 +507,10 @@ func _forts(realm: Dictionary) -> Array:
 
 
 func _on_game_event(ev: Dictionary) -> void:
+	if String(ev.get("type", "")) == "away_report":
+		# a catch-up's events went to the away report, not to the scenes: away_report is the cue to re-read every
+		# view (the catch-up ruling, STATE-API §6), so the next frame fetches and binds everything at once
+		_dirty = true
 	for n in _bound:
 		if n.has_method("on_game_event"):
 			n.on_game_event(ev)

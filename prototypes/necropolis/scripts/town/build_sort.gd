@@ -195,6 +195,8 @@ static func _chip(id: String, views: Dictionary, names: Dictionary, ncfg: Dictio
 				return String(chips.get("tithe_unknown", ""))
 			return fmt(String(chips.get("tithe", "")), {"fort": names.get(target, target)})
 		"front":
+			if not vei_in_sight(views, ncfg):
+				return ""
 			for f in views.get("vei", {}).get("fronts", []):
 				var need := float(f.get("need", 0.0))
 				if need > 0.0 and float(f.get("have", 0.0)) < need:
@@ -225,6 +227,15 @@ static func _chip(id: String, views: Dictionary, names: Dictionary, ncfg: Dictio
 				return String(chips.get("morale", ""))
 			return ""
 	return ""
+
+
+## Whether Vei is in sight, so her fronts are a need worth a chip (V-e): a fort of needs.front_sight_tier or
+## above has been taken (view_hud.highest_tier_flipped), or Relish stands at Vei's gate. Before that a day-1
+## town would read "the giants front is short (5 of 26)" about a fight a new player can't reach for days.
+static func vei_in_sight(views: Dictionary, ncfg: Dictionary) -> bool:
+	if String((views.get("relish", {}) as Dictionary).get("state", "")) == "at_vei":
+		return true
+	return int((views.get("hud", {}) as Dictionary).get("highest_tier_flipped", 0)) >= int(ncfg.get("front_sight_tier", 1))
 
 
 ## A starved stream (`resource` = a `shortage_fix` key): its net rate is <= 0 and its producer is not
