@@ -707,7 +707,17 @@ corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
   `held_for_s` still count), and no forecast: `train_probe` sees no wave and every fort's `hold` reads zeros (need 0,
   margin 0, `fall_s` −1, `margin_cause` `""`). FLOOD's share and the muster go to WAR (`GameState._split_of` with
   `war_share`/`flood_share`, §3.2's split), so `split.flood` is 0 and `muster_to` `"war"`. Still running: the player's
-  WAR, the garrisons (their drain into her queue too), the hold timers, the town.
+  WAR, the garrisons, the hold timers, the town.
+  - **No drain once won** (P9, ruling 36; reversible; replaces P3b's ruling 25, which kept it): `set_won` sets the
+    fort drain `r_drain` to 0 (every reader at once: the fort paths, the loads, WAR's fill limits) and back to
+    `realm.json`'s on a new game or a non-won load. Why: the P9 brief's check, pre_vei won over 2 h of live play,
+    emptied every fort's garrison inside 20 min (Ashgate 71 undead to 0, 9 pips to 0) while the WAR share ran, and
+    the won map hides every lane with Vei at an end, so the WAR looked as if it leaked away. Now a fort keeps its
+    undead (pre_vei's 2 h: the same 71, 72, 87, …). Two things follow, recorded, not changed: a held fort's garrison
+    has no bound once won (WAR is staged there with no limit, and the drain was its only bound: midgame_2flips' Ashgate
+    holds 10 233 against its cap 80 at 1 h; its ring reads full, no text prints the mass, and a raid takes at most
+    12 units in); and WAR with no target (no held fort and no living anywhere: pre_vei once its forts' living are
+    killed) still falls through to her queue (`war_route` `"vei"`, §3.2), which the won map doesn't draw.
 
 ### 3.5 Readouts
 - **Differential:** `diff = inflow − digestion` each substep, where inflow is fort drain + FLOOD +

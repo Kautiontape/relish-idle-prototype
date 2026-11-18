@@ -29,6 +29,7 @@ func run() -> int:
 	_reason()
 	_half_hour()
 	_no_retake()
+	_keeps_garrisons()
 	_save()
 	_cleanup()
 	return t.failures
@@ -88,6 +89,7 @@ func _half_hour() -> void:
 		var dead_out := 0.0
 		var war_held := 0.0
 		var surge := 0.0
+		var drained := 0.0
 		for i in int(SPAN_S / TICK):
 			s.tick(TICK)
 			evs.append_array(s.drain_events())
@@ -95,13 +97,16 @@ func _half_hour() -> void:
 			for f in s.realm.forts:
 				dead_out += float(f["r_dead_out"])
 				surge += float(f["r_surge"])
+				drained += float(f["r_drain"])
 				if held0.has(f["id"]):
 					war_held += float(f["r_in"])
 		var n := [_of(evs, "tithe_warning").size(), _of(evs, "tithe_wave").size(), _of(evs, "fort_retaken").size()]
 		tally[won] = n
 		if not won:
 			t.ok(n[0] > 0 and n[1] > 0, "(control) not won, 30 min: %d warnings, %d waves, %d retakes" % n)
+			t.ok(drained > 0.0, "(control) not won: the garrisons drain on to her queue (%.1f mass/s summed)" % drained)
 			continue
+		t.ok(drained == 0.0, "won (P9, ruling 36): no garrison drains on to her queue (%.3f mass/s summed)" % drained)
 		t.ok(n == [0, 0, 0] and not bool(s.realm.tithe["started"]) and s.view_vei()["tithe"]["next_target"] == ""
 			and float(s.view_vei()["tithe"]["next_s"]) < 0.0,
 			"won, 30 min: no warning, wave or retake (%s, against %s unbeaten); the tithe idles, no next target" % [str(n), str(tally[false])])
@@ -162,6 +167,46 @@ func _no_retake() -> void:
 		out[won] = [ret, RealmSim.is_held(f), float(f["zero_s"])]
 	t.ok(out[false][0] == 1 and out[true][0] == 0 and out[true][1] and out[true][2] == 0.0,
 		"a held fort with nothing coming, 10 min: retaken unbeaten (%s), held won (%s)" % [str(out[false]), str(out[true])])
+
+
+## P9 (ruling 36, the brief's check: pre_vei won emptied every fort's garrison in 20 min while WAR ran, and the won map
+## hides every lane with Vei at an end): beaten, the garrisons stop draining on to her queue. RealmSim alone, every
+## fort's living cleared and nothing sent (no WAR or FLOOD), 10 min of 10 s steps: beaten, every fort's undead are the
+## same bits and nothing enters her undead queue; unbeaten, they drain (and her shipping arrives). Unbeaten again
+## (set_won false), r_drain is the config's. Revert proof: set_won without its _r_drain line, 2 FAIL (here and
+## _half_hour's sum).
+func _keeps_garrisons() -> void:
+	var out := {}
+	for won in [false, true]:
+		var s := _mk(false)
+		var r := s.realm
+		r.set_won(won)
+		var u0 := 0.0
+		var u: Array = []
+		for f in r.forts:
+			f["living"] = 0.0
+			u.append(float(f["undead"]))
+			u0 += float(f["undead"])
+		var q_in := 0.0
+		for i in 60:
+			r.step(10.0, {"war": 0.0, "flood": 0.0, "digest_q": 1.0})
+			q_in += float(r.vei["r_in_undead"])
+		var same := true
+		var u1 := 0.0
+		for i in r.forts.size():
+			same = same and float(r.forts[i]["undead"]) == float(u[i])
+			u1 += float(r.forts[i]["undead"])
+		out[won] = [same, u0, u1, q_in]
+		if won:
+			r.set_won(false)
+			t.ok(r._r_drain == float(TestUtil.configs()["realm"]["r_drain"]), "unbeaten again: r_drain is the config's (%f)" % r._r_drain)
+	t.ok(_garrisons_ok(out), "garrisons, 10 min with nothing sent: unbeaten they drain (%.1f -> %.1f, %.1f mass/s into her queue summed); beaten each fort keeps the same bits (%s, %.1f -> %.1f, %.3f)" % [
+		float(out[false][1]), float(out[false][2]), float(out[false][3]), str(out[true][0]), float(out[true][1]), float(out[true][2]), float(out[true][3])])
+
+
+static func _garrisons_ok(out: Dictionary) -> bool:
+	return float(out[false][1]) > 0.0 and float(out[false][2]) < float(out[false][1]) and float(out[false][3]) > 0.0 \
+		and bool(out[true][0]) and float(out[true][3]) == 0.0
 
 
 ## A save written mid-warning, then won: loaded (1 h away), it is won with the tithe idle, and the hour brings no
