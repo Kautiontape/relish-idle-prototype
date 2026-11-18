@@ -125,6 +125,7 @@ static func vei_card(vei: Dictionary, desc: String, party: Array, names: Diction
 	blocks.append(_row("diff", str(c.get("vei_diff_label", "")), MapLogic.fmt_rate(float(vei.get("diff_ema", 0.0))), "rate"))
 	blocks.append(_row("drain", str(c.get("vei_drain_label", "")), str(st["drain_text"]), "mass"))
 	blocks.append(_head("fronts_head", str(c.get("fronts_head", ""))))
+	blocks.append(_para("fronts_hint", str(c.get("fronts_hint", "")), "text_dim"))
 	for r in CardLogic.front_rows(vei.get("fronts", []), names):
 		blocks.append({"kind": "front", "id": "front_%s" % r["id"], "name": r["name"], "count": "%s / %s" % [r["have"], r["need"]],
 			"mark": r["mark"], "cleared": r["cleared"], "assigned": r["assigned"]})

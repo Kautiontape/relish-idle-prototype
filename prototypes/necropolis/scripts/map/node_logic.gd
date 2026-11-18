@@ -281,17 +281,24 @@ static func first_dungeon_pulse(f: Dictionary) -> bool:
 ## The one line under a fort's name, {text, key} (key: a Palette key), or {} for none:
 ##   the first dungeon (its first clear still pays a blueprint): relish;
 ##   retaken (not held, flipped before: Vei took it back): danger;
-##   overrun (not held, your undead inside, never taken): text_dim.
+##   overrun (not held, your undead inside, never taken): `label_tag_keys.overrun` (text).
+## Drawn at tag_size() px, at least the name's.
 static func name_tag(f: Dictionary) -> Dictionary:
 	var n := ncfg()
+	var keys: Dictionary = n["label_tag_keys"]
 	if first_dungeon_pulse(f):
-		return {"text": str(n["label_first_dungeon"]), "key": "relish"}
+		return {"text": str(n["label_first_dungeon"]), "key": str(keys["first"])}
 	if not bool(f.get("held", false)):
 		if int(f.get("flipped_count", 0)) > 0:
-			return {"text": str(n["label_retaken"]), "key": "danger"}
+			return {"text": str(n["label_retaken"]), "key": str(keys["retaken"])}
 		if fort_state(f, "") == OVERRUN:
-			return {"text": str(n["label_overrun"]), "key": "text_dim"}
+			return {"text": str(n["label_overrun"]), "key": str(keys["overrun"])}
 	return {}
+
+
+## The tag line's font size in screen px (the name's is font_label).
+static func tag_size() -> int:
+	return int(_n("label_tag_px"))
 
 
 ## A label's plate in screen px around its anchor, as MapNodeLayer.draw_label draws it: the text of
@@ -307,7 +314,7 @@ static func label_plate(x: float, w: float, size: int, dy: float) -> Rect2:
 static func fort_label_rects(name_w: float, tag_w: float, size: int) -> Array:
 	var out: Array = [label_plate(-name_w * 0.5, name_w, size, float(size))]
 	if tag_w >= 0.0:
-		out.append(label_plate(-tag_w * 0.5, tag_w, size, float(size) + _n("label_line_px")))
+		out.append(label_plate(-tag_w * 0.5, tag_w, tag_size(), float(size) + _n("label_line_px")))
 	return out
 
 

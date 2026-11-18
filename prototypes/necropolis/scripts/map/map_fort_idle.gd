@@ -83,7 +83,7 @@ func _layout(c: Dictionary) -> Dictionary:
 		var shown := NodeLogic.fort_label_shown(ctx.tier, tier)
 		var tag_w := -1.0
 		if shown and not tag.is_empty() and ctx.tier != "far":
-			tag_w = font.get_string_size(str(tag["text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+			tag_w = font.get_string_size(str(tag["text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, NodeLogic.tag_size()).x
 		var held := bool(g.get("held", false))
 		items.append({"id": g["id"], "pos": MapModel.to_vec(g["pos"]), "r": MapLogic.fort_radius(tier), "held": held, "second": not tag.is_empty(),
 			"w": _chip_width(g, ctx.model.clock_of(str(g["id"])), c) if held else 0.0,

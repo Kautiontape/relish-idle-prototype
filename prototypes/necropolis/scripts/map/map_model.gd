@@ -10,7 +10,8 @@ var state: GameState
 var demo := false  # --lanes=demo: synthetic lanes instead of the view's (debug only)
 var nodes_demo := false  # --nodes=demo: E2-only node states overlaid on the views (debug only)
 var flip_cfg := {}  # realm.json "flip", for the held grace total (set by world_map)
-var realm_cfg := {}  # realm.json: K (odds), readout.sign_eps, relish.travel_speed (set by world_map)
+var slab_cfg := {}  # town.json slab: names a big undead that still carries the mint default (set by world_map)
+var realm_cfg := {} # realm.json: K (odds), readout.sign_eps, relish.travel_speed (set by world_map)
 var idle_cap := 0.0  # economy.json worker.idle_cap: the workforce cap's idle part (set by world_map)
 var rev := -1
 var realm := {}
@@ -90,8 +91,13 @@ func refresh(force := false) -> bool:
 	party = state.view_party()
 	unit_names.clear()
 	big_undead.clear()
-	for b in state.view_big_undead().get("big_undead", []):
-		unit_names[str(b["uid"])] = str(b["name"])
+	var bigs: Array = state.view_big_undead().get("big_undead", [])
+	if slab_cfg.is_empty():
+		for b in bigs:
+			unit_names[str(b["uid"])] = str(b["name"])
+	else:  # the slab's name while a unit still carries the mint default "Big u1"
+		unit_names = CryptLogic.display_names(bigs, slab_cfg)
+	for b in bigs:
 		big_undead[str(b["uid"])] = b
 	villages = state.view_villages().get("villages", [])
 	forts = realm.get("forts", [])

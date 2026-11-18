@@ -5,6 +5,7 @@ extends Control
 ## Reads views through the model and sends commands through GameState; nothing else.
 ## Debug flags (harness sessions only, i.e. any --fixture): --valve=w,war,f  --select=<id>
 ## --teleport=<id>  --map-clicks=...  --lanes=demo  --nodes=demo  --away=demo  --lanes-report
+## --hover=x,y (rest the cursor at screen px x,y so a tooltip opens; give --frames enough to cover the tooltip delay).
 ## --skip-time=S (once at boot: cmd_debug_skip_time(S) seconds of sim, e.g. past a tithe wave).
 
 signal finished(result: Dictionary)
@@ -56,6 +57,7 @@ func _ready() -> void:
 	model.nodes_demo = Game.state.debug_enabled and OS.get_cmdline_user_args().has("--nodes=demo")
 	model.flip_cfg = ConfigDb.data.get("realm", {}).get("flip", {})
 	model.realm_cfg = ConfigDb.data.get("realm", {})
+	model.slab_cfg = ConfigDb.data.get("town", {}).get("slab", {})
 	model.idle_cap = float(ConfigDb.data.get("economy", {}).get("worker", {}).get("idle_cap", 0.0))
 	_apply_valve_arg()
 	_apply_skip_arg()
@@ -84,6 +86,7 @@ func _ready() -> void:
 	hud.inset_changed.connect(func(_inset: float) -> void: _refit())  # the bar's sizes settle a frame later
 	setpieces.note_mount(away.open_if_shown())  # builds finished while away from the map get their callout, unless the away report lists them
 	_replay_clicks()
+	_hover_arg()
 	for arg in OS.get_cmdline_user_args():
 		if arg.begins_with("--select="):
 			_select(arg.trim_prefix("--select="))
@@ -407,6 +410,28 @@ func _replay_clicks() -> void:
 				if not bool(st.get("hold", false)):
 					_inject_click(to, false)
 				await _frames(gap)
+
+
+## Debug only: `--hover=x,y` rests the real cursor at screen px x,y (so a control's tooltip opens):
+## warps the mouse there after map_hover_wait_frames, then sends a plain motion event so the GUI sees it.
+func _hover_arg() -> void:
+	if not Game.state.debug_enabled:
+		return
+	for arg in OS.get_cmdline_user_args():
+		if arg.begins_with("--hover="):
+			var p := arg.trim_prefix("--hover=").split(",")
+			if p.size() != 2:
+				return
+			var pos := Vector2(float(p[0]), float(p[1]))
+			await _frames(int(MapLogic.cfg()["map_hover_wait_frames"]))
+			if not is_inside_tree():
+				return
+			Input.warp_mouse(pos)
+			var e := InputEventMouseMotion.new()
+			e.position = pos
+			e.global_position = pos
+			Input.parse_input_event(e)
+			return
 
 
 func _frames(n: int) -> void:

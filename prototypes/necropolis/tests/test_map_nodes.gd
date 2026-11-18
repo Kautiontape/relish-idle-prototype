@@ -122,7 +122,7 @@ func _countdowns(t: TestUtil) -> void:
 	var n := NodeLogic.ncfg()
 	var over := _fort(100.0, 0.0, 60.0, 0.0)
 	var tag := NodeLogic.name_tag(over)
-	t.ok(NodeLogic.fort_state(over, "") == NodeLogic.OVERRUN and tag.get("text", "") == n["label_overrun"] and tag.get("key", "") == "text_dim", "overrun, never taken: Vei's tag in text_dim")
+	t.ok(NodeLogic.fort_state(over, "") == NodeLogic.OVERRUN and tag.get("text", "") == n["label_overrun"] and tag.get("key", "") == "text", "overrun, never taken: Vei's tag in full text (it read dim at the whole-map zoom)")
 	var first := _fort(100.0, 0.0, 60.0, 0.0)
 	first["first_dungeon"] = true
 	first["first_clear"] = true
@@ -454,6 +454,20 @@ func _contrast(t: TestUtil) -> void:
 	t.ok(float(MapLogic.cfg()["node_label_dim_alpha"]) == 1.0 and MapLogic.contrast_ratio(Palette.c("text"), ground) >= MapLogic.contrast_ratio(Palette.c("text_dim"), ground), "the far name is at least as bright as the dim one")
 	for k in ["undead", "living", "relish", "danger", "text"]:
 		t.ok(MapLogic.contrast_ratio(Palette.c(k), ground) >= 4.5, "%s text reads 4.5:1" % k)
+	# the fort tags (first dungeon, retaken, overrun) under the names: no smaller than the name, 4.5:1 on the label plate
+	t.ok(NodeLogic.tag_size() >= int(MapLogic.cfg()["font_label"]), "the tag line is %d px, no smaller than the fort name's %d" % [NodeLogic.tag_size(), int(MapLogic.cfg()["font_label"])])
+	var bright := ""  # the plate is the ground at label_plate_alpha; the brightest palette key may show through the rest
+	for k in Palette.keys():
+		if bright == "" or MapLogic.luminance(Palette.c(k)) > MapLogic.luminance(Palette.c(bright)):
+			bright = k
+	var plate_bg := Palette.c("ground").lerp(Palette.c(bright), 1.0 - float(n["label_plate_alpha"]))
+	for tk in n["label_tag_keys"]:
+		var key := str(n["label_tag_keys"][tk])
+		var tr_ := MapLogic.contrast_ratio(Palette.c(key), plate_bg)
+		t.ok(tr_ >= 4.5, "the %s tag (%s) reads 4.5:1 on the ground (%.2f)" % [tk, key, tr_])
+	var tag_plate: Rect2 = NodeLogic.fort_label_rects(60.0, 100.0, int(MapLogic.cfg()["font_label"]))[1]
+	var name_plate: Rect2 = NodeLogic.fort_label_rects(60.0, 100.0, int(MapLogic.cfg()["font_label"]))[0]
+	t.ok(tag_plate.position.y >= name_plate.end.y - 0.5, "the bigger tag plate starts at or below the name plate's bottom (%.1f vs %.1f)" % [tag_plate.position.y, name_plate.end.y])
 	t.ok(int(MapLogic.cfg()["font_label"]) >= 12 and int(n["font_tithe"]) >= 12 and int(n["font_odds_sub"]) >= 12 and int(n["font_odds"]) >= 12, "no text under 12 px")
 	t.ok(MapLogic.cfg()["redirect_ring_pad_px"] > float(n["tithe_off_px"]) + float(n["tithe_halo_max_px"]) * 0.5, "the tithe ring sits inside the REDIRECT ring")
 

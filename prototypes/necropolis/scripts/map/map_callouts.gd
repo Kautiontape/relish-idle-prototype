@@ -86,7 +86,7 @@ func _label_rects(z: float) -> Array:
 		var tag := NodeLogic.name_tag(f)
 		var tag_w := -1.0
 		if not tag.is_empty() and _tier != "far":
-			tag_w = font.get_string_size(str(tag["text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+			tag_w = font.get_string_size(str(tag["text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, NodeLogic.tag_size()).x
 		var name_w := font.get_string_size(str(f["name"]), HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
 		var at := (MapModel.to_vec(f["pos"]) + Vector2(0.0, MapLogic.fort_radius(tier) + off)) * z
 		for r in NodeLogic.fort_label_rects(name_w, tag_w, size):
