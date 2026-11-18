@@ -2154,6 +2154,16 @@ static func hit_word_rect(size: Vector2, home: Rect2, hub: Vector2, hub_r: float
 	return out
 
 
+## HUD plates given in screen px (RaidHud.panel_rects) as world rects for hit_word_rect's `avoid`, through the
+## inverse of the canvas transform; a plate that is not showing (an empty rect) is dropped.
+static func screen_rects_to_world(rects: Array, canvas_inv: Transform2D) -> Array:
+	var out: Array = []
+	for r in rects:
+		if (r as Rect2).has_area():
+			out.append(canvas_inv * (r as Rect2))
+	return out
+
+
 static func _hit_word_clear(r: Rect2, hub: Vector2, hub_r: float, avoid: Array, bounds: Rect2) -> bool:
 	if not bounds.encloses(r) or rect_hits_circle(r, hub, hub_r):
 		return false

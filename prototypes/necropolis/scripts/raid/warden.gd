@@ -413,7 +413,10 @@ func _hit_word(ci: CanvasItem, p: Vector2, text: String, px: int, col: Color) ->
 		var rc: Dictionary = raid.rcfg().get("relish", {})
 		var rad: float = raid.relish.radius
 		var avoid: Array = [meter_row_rect(), Rect2(global_position - Vector2(radius, radius), Vector2(radius, radius) * 2.0)]
-		var bounds: Rect2 = raid.get_canvas_transform().affine_inverse() * raid.get_viewport_rect().grow(-float(rc.get("hit_word_margin_px", 8.0)))
+		var inv: Transform2D = raid.get_canvas_transform().affine_inverse()
+		var bounds: Rect2 = inv * raid.get_viewport_rect().grow(-float(rc.get("hit_word_margin_px", 8.0)))
+		if raid.get("hud") != null and raid.hud.has_method("panel_rects"):
+			avoid.append_array(RaidLogic.screen_rects_to_world(raid.hud.panel_rects(), inv))   # off the control legend and the hint plate
 		r = RaidLogic.hit_word_rect(size, home, raid.relish.global_position, maxf(rad * 1.8, rad + float(rc.get("hit_word_halo_px", 20.0))),
 			float(rc.get("hit_word_gap_px", 6.0)) / z, avoid, bounds)
 	var q := r.position - global_position

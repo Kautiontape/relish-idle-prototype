@@ -63,6 +63,27 @@ func _readout_place_tests(t: TestUtil) -> void:
 	r = RaidLogic.live_plate_rect(psz, Vector2(700, 700), 26.0, view, m, [hint])
 	t.ok(not r.intersects(hint) and RaidLogic.rect_inside_view(r, view, m), "live, tip over the hint plate: the plate keeps off it (%s)" % r)
 	t.ok(RaidLogic.live_plate_rect(psz, Vector2(700, 700), 26.0, view, m, [Rect2()]).position.is_equal_approx(Vector2(726, 726)), "an empty avoid rect (a hidden hint plate) is ignored")
+	# the control legend (bottom-left; the loop readout touched it in dungeon-loop-draw.png): the plate keeps off it too
+	var legend := Rect2(Vector2(18, 654), Vector2(380, 192))
+	var tip_lg := Vector2(354, 680)
+	t.ok(RaidLogic.live_plate_rect(psz, tip_lg, 26.0, view, m, [hint]).intersects(legend), "the test bites: without the legend in avoid the readout lands on it")
+	r = RaidLogic.live_plate_rect(psz, tip_lg, 26.0, view, m, [hint, legend])
+	t.ok(not r.intersects(legend) and not r.intersects(hint) and RaidLogic.rect_inside_view(r, view, m), "live, pen beside the legend: the readout keeps off the legend and the hint (%s)" % r)
+	for tip in [Vector2(440, 700), Vector2(354, 640), Vector2(60, 630), Vector2(500, 780), Vector2(410, 660)]:   # pen outside the legend, near it
+		var rr := RaidLogic.live_plate_rect(psz, tip, 26.0, view, m, [hint, legend])
+		t.ok(not rr.intersects(legend) and RaidLogic.rect_inside_view(rr, view, m), "live, pen at %s: the readout keeps off the legend (%s)" % [str(tip), rr])
+	# HUD plates in screen px become world avoid rects through the canvas transform; a hidden plate (empty rect) drops out
+	var xf := Transform2D(0.0, Vector2(2.0, 2.0), 0.0, Vector2(-100.0, 50.0))   # world -> screen
+	var wl := RaidLogic.screen_rects_to_world([Rect2(), legend, hint], xf.affine_inverse())
+	t.ok(wl.size() == 2 and (xf * (wl[0] as Rect2)).is_equal_approx(legend), "screen_rects_to_world: empties dropped, the rest map back (%s)" % str(wl))
+	# a hit word whose home sits on the legend moves off it, on screen and off her (the dungeon-backup-save.png case)
+	var hb := Rect2(0, 0, 1600, 900).grow(-8.0)
+	var hrel := Vector2(415, 700)   # at the legend's right edge: her word's usual spot above her is half on it
+	var hsize := Vector2(64.0, 18.75)
+	var hhome := Rect2(hrel + Vector2(-hsize.x * 0.5, -13.0 - 22.0 - 9.0 - 14.0), hsize)
+	t.ok(hhome.intersects(legend), "the test bites: the hit word's home is on the legend")
+	var hw := RaidLogic.hit_word_rect(hsize, hhome, hrel, 23.4, 6.0, RaidLogic.screen_rects_to_world([legend], Transform2D.IDENTITY), hb)
+	t.ok(not hw.intersects(legend) and hb.encloses(hw) and not RaidLogic.rect_hits_circle(hw, hrel, 23.4), "a hit word keeps off the legend (%s)" % hw)
 	# a plate that cannot be both on screen and off the hint is kept on screen
 	var wide := Rect2(Vector2(0, 0), Vector2(1600, 900))
 	r = RaidLogic.live_plate_rect(psz, Vector2(700, 400), 26.0, view, m, [wide])

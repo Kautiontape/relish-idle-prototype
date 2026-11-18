@@ -281,6 +281,19 @@ func hint_plate_rect() -> Rect2:
 	return Rect2(_hint_plate.global_position, _hint_plate.size)
 
 
+## The control legend's screen rect (empty while it is hidden or absent).
+func legend_rect() -> Rect2:
+	if _legend == null or not _legend.visible:
+		return Rect2()
+	return Rect2(_legend.global_position, _legend.size)
+
+
+## The HUD plates the floating words (the loop readout and its tail, the hit words) keep off, in screen px:
+## the hint plate and the control legend. An empty rect means that plate is not showing.
+func panel_rects() -> Array:
+	return [hint_plate_rect(), legend_rect()]
+
+
 func _mk_label(parent: Node, size: int, color: Color) -> Label:
 	var l := Label.new()
 	l.add_theme_font_size_override("font_size", size)

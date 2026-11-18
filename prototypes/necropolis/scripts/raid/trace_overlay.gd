@@ -68,8 +68,8 @@ func _live_px(i: int) -> float:
 
 
 func _avoid() -> Array:
-	if hud != null and is_instance_valid(hud) and hud.has_method("hint_plate_rect"):
-		return [hud.hint_plate_rect()]
+	if hud != null and is_instance_valid(hud) and hud.has_method("panel_rects"):
+		return hud.panel_rects()   # the hint plate and the control legend
 	return []
 
 
