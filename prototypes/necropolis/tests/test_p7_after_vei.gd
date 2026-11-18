@@ -46,10 +46,20 @@ func _won_town_words() -> void:
 	var won_pit := TownGuide.why("raising_pit", gcfg, true)
 	t.ok(won_pit != "" and not won_pit.contains("FLOOD") and not won_pit.contains("Vei") and TownGuide.why("raising_pit", gcfg).contains("FLOOD to Vei"),
 		"the Raising Pit's line once won: '%s' (before: '%s')" % [won_pit, TownGuide.why("raising_pit", gcfg)])
+	# a won town's why lines and jargon tooltips, as a won game resolves them, name neither FLOOD nor Vei's queue
+	var hits: Array = []
 	for bid in (gcfg["why"] as Dictionary):
 		var w := TownGuide.why(String(bid), gcfg, true)
-		if w.contains("FLOOD"):
-			t.ok(false, "a won why line names FLOOD: %s '%s'" % [bid, w])
+		if w.contains("FLOOD") or w.contains("Vei's queue"):
+			hits.append("why.%s '%s'" % [bid, w])
+	for word in (gcfg["jargon"] as Dictionary):
+		var j := TownUI.jargon_tip(String(word), vcfg, true)
+		if j.contains("FLOOD") or j.contains("Vei's queue"):
+			hits.append("jargon.%s '%s'" % [word, j])
+	t.ok(hits.is_empty() and (gcfg["jargon"] as Dictionary).size() >= 3, "won: no why line or jargon tooltip names FLOOD or Vei's queue (%d jargon words): %s" % [
+		(gcfg["jargon"] as Dictionary).size(), str(hits)])
+	t.ok(String(gcfg["jargon"]["mint"]).contains("FLOOD (Vei's queue)"), "(the control) the plain mint line names FLOOD (Vei's queue), as the scan would catch")
+	t.ok(not HudLogic.tip("mint", {"won": true}).contains("FLOOD") and not HudLogic.tip("mint", {"won": true}).contains("Vei's queue"), "the map's mint tip once won names no FLOOD either")
 	t.ok(TownGuide.why("market", gcfg, true) == TownGuide.why("market", gcfg), "a line with no won variant stays as it is")
 	var s := _won_state()
 	var st := BuildSort.stocks(_views(s))

@@ -224,9 +224,14 @@ static func sidebar_top(viewport_w: float, card_w: float, plates_right: float, g
 
 
 ## The hover line of a jargon word (the bar's MINT, ODDS, STRAIN, DRAIN; the valve's WORK, WAR,
-## FLOOD), from config; "" for a word with none.
-static func tip(id: String) -> String:
-	return str(MapLogic.cfg().get("clarity", {}).get("tips", {}).get(id, ""))
+## FLOOD), from config; "" for a word with none. Once `hud` says the game is won (view_hud.won), clarity.tips_won's
+## line where it has one (the mint's: no FLOOD then).
+static func tip(id: String, hud := {}) -> String:
+	var c: Dictionary = MapLogic.cfg().get("clarity", {})
+	var tw: Dictionary = c.get("tips_won", {})
+	if bool(hud.get("won", false)) and tw.has(id):
+		return str(tw[id])
+	return str(c.get("tips", {}).get(id, ""))
 
 
 ## Which ODDS tip the bar shows: "odds_backups" once view_hud reports backups (economy P3; `backups` is
@@ -235,10 +240,10 @@ static func odds_tip_id(backups: int) -> String:
 	return "odds_backups" if backups >= 0 else "odds"
 
 
-## The hover line `id` on a Label or Button: its tooltip is tip(id) and it passes the mouse on (a Control
+## The hover line `id` on a Label or Button: its tooltip is tip(id, hud) and it passes the mouse on (a Control
 ## that ignores the mouse shows no tooltip). A word with no line is left as it was.
-static func apply_tip(c: Control, id: String) -> void:
-	var text := tip(id)
+static func apply_tip(c: Control, id: String, hud := {}) -> void:
+	var text := tip(id, hud)
 	if text != "":
 		c.tooltip_text = text
 		c.mouse_filter = Control.MOUSE_FILTER_PASS

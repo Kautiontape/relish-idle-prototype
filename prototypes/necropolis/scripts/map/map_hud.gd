@@ -84,6 +84,7 @@ var _items: Array = []  # [{box, name, rate, stock, cap}] per stream, built on t
 var _odds: Label
 var _odds_name: Label  # the ODDS word, whose tip follows whether the game reports backups
 var _odds_tip := ""  # the tip id on _odds_name now, so a refresh re-applies only on a change
+var _tips_won := false  # the won the stream words' tips were set for (HudLogic.tip: MINT's won line), re-applied on a flip
 var _sign: Label
 var _drain: Label
 var _vei_group: Array = []  # YOUR ODDS / STRAIN / DRAIN's six labels
@@ -490,9 +491,13 @@ func refresh(force := false) -> void:
 	var items := HudLogic.rate_items(hud)
 	if _items.is_empty():
 		_build_bar(items)
+	var retip := bool(hud.get("won", false)) != _tips_won  # built with the plain tips; a won game's MINT reads its won line
+	_tips_won = bool(hud.get("won", false))
 	for i in mini(items.size(), _items.size()):
 		var it: Dictionary = items[i]
 		var w: Dictionary = _items[i]
+		if retip:
+			HudLogic.apply_tip(w["name"], str(it["id"]), hud)
 		(w["name"] as Label).text = it["label"]
 		(w["rate"] as Label).text = it["rate_text"]
 		(w["stock"] as Label).text = it["stock_text"]

@@ -582,6 +582,10 @@
       "war": "WAR sends undead to your forts, spread by distance, with Relish's fort drawing 3× its share. FLOOD sends them into Vei's queue, which raises your odds against her.",
       "flood": "WAR sends undead to your forts, spread by distance, with Relish's fort drawing 3× its share. FLOOD sends them into Vei's queue, which raises your odds against her."
     },
+    "tips_won": {
+      "_doc": "Once Vei is beaten (view_hud.won), a word's hover line here instead of tips', where it has one (HudLogic.tip with the hud): the top bar's MINT and the valve's tooltip.",
+      "mint": "Mint: the undead your Raising Pits make each second. Once Vei is beaten, the map's valve splits it between WORK (your town's jobs) and WAR (your forts)."
+    },
     "legend": {
       "open_text": "Legend −",
       "closed_text": "Legend +",

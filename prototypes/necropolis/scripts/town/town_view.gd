@@ -311,7 +311,7 @@ func open_card(lot_id: String) -> void:
 func _card_status() -> void:
 	if card == null or model == null or _card_lot == "":
 		return
-	card.set_status(model.lot(_card_lot).get("building", {}).get("status_parts", []))
+	card.set_status(model.lot(_card_lot).get("building", {}).get("status_parts", []), model.won)
 
 
 func close_card() -> void:

@@ -47,6 +47,8 @@ var next_tier: Dictionary = {}
 var tiers: Array = []
 ## STANDIN(E2): true while every building's output is the E1 stub ({}).
 var staffing_standin := false
+## Whether the game is won (view_hud.won): the inspector's jargon tooltips read their won lines (TownUI.jargon_tip).
+var won := false
 var rect := Rect2()
 var scale := 1.0
 
@@ -96,6 +98,7 @@ func update(views: Dictionary, r: Rect2) -> void:
 	if not _laid_out or r != rect:
 		_layout(r)
 	var town: Dictionary = views.get("town", {})
+	won = bool((views.get("hud", {}) as Dictionary).get("won", false))
 	tier = String(town.get("tier", tiers[0] if not tiers.is_empty() else ""))
 	next_tier = (town.get("next_tier", {}) as Dictionary).duplicate(true)
 	var view_lots := {}

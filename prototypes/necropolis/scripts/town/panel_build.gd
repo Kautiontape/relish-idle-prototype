@@ -400,7 +400,7 @@ func _update_row(it: Dictionary, w: Dictionary) -> void:
 		for k in 3:
 			w["rates"][k].visible = k < ben["rates"].size()
 			w["rates"][k].text = String(ben["rates"][k]) if k < ben["rates"].size() else ""
-			TownUI.set_jargon_tip(w["rates"][k], w["rates"][k].text, _vcfg)  # "+9.60/s mint now": what mint is
+			TownUI.set_jargon_tip(w["rates"][k], w["rates"][k].text, _vcfg, bool(_st.get("won", false)))  # "+9.60/s mint now": what mint is
 		w["plain"].text = "  ".join(ben["plain"])
 		w["plain"].visible = not ben["plain"].is_empty()
 		w["chip"].visible = it["chip"] != ""
@@ -683,7 +683,7 @@ func _fill_inspector(w: Dictionary, i: Dictionary) -> void:
 	var proj: Array = BuildSort.rate_texts(i["upgrade_projected"], _vcfg) if i["upgrade_projected"] is Dictionary else []
 	w["proj"].visible = u["visible"] and u["enabled"] and not proj.is_empty()
 	w["proj"].text = "%s %s" % [String(_vcfg.get("benefit", {}).get("upgrade_now", "")), ", ".join(proj)]
-	TownUI.set_jargon_tip(w["proj"], w["proj"].text, _vcfg)
+	TownUI.set_jargon_tip(w["proj"], w["proj"].text, _vcfg, bool(_st.get("won", false)))
 	var why := ""
 	if u["visible"] and not u["enabled"]:
 		why = BuildSort.upgrade_reason(u, _st, _bview, _vcfg)

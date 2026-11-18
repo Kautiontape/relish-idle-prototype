@@ -22,19 +22,23 @@ static func refusal(reason: String, why: String, refused: String) -> String:
 
 ## The glossary's line for each jargon word `text` uses (`vcfg` is town.json's view; its guide.jargon: mint,
 ## husk, phylactery; case ignored), one per line; "" when it uses none. A label's tooltip, wherever the word shows.
-static func jargon_tip(text: String, vcfg: Dictionary) -> String:
-	var j: Dictionary = vcfg.get("guide", {}).get("jargon", {})
+## Once the game is `won` (view_hud.won), a word's guide.jargon_won line where it has one (the mint: no FLOOD then).
+## The words matched are always guide.jargon's.
+static func jargon_tip(text: String, vcfg: Dictionary, won := false) -> String:
+	var g: Dictionary = vcfg.get("guide", {})
+	var j: Dictionary = g.get("jargon", {})
+	var jw: Dictionary = g.get("jargon_won", {}) if won else {}
 	var out := PackedStringArray()
 	for w in j:
 		if text.findn(String(w)) >= 0:
-			out.append(String(j[w]))
+			out.append(String(jw.get(w, j[w])))
 	return "\n".join(out)
 
 
-## Sets `c`'s tooltip to jargon_tip(`text`, `vcfg`); a Label (which ignores the mouse by default) takes the
+## Sets `c`'s tooltip to jargon_tip(`text`, `vcfg`, `won`); a Label (which ignores the mouse by default) takes the
 ## mouse while it has one.
-static func set_jargon_tip(c: Control, text: String, vcfg: Dictionary) -> void:
-	var tip := jargon_tip(text, vcfg)
+static func set_jargon_tip(c: Control, text: String, vcfg: Dictionary, won := false) -> void:
+	var tip := jargon_tip(text, vcfg, won)
 	if c.tooltip_text != tip:
 		c.tooltip_text = tip
 		c.mouse_filter = Control.MOUSE_FILTER_STOP if tip != "" or not (c is Label) else Control.MOUSE_FILTER_IGNORE
