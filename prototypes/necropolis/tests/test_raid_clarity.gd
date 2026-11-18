@@ -23,6 +23,9 @@ func _clear_card_tests(t: TestUtil) -> void:
 	var found := {"relics": 2, "husks": [{"kind": "skeleton"}], "essence": 3}
 	var won := RaidLogic.loot_counts(RaidLogic.result_loot("warden_beaten", false, found, 4, {}))
 	t.ok(int(won["relics"]) == 2 and int(won["husks"]) == 1 and int(won["essence"]) == 4, "the win pays everything found plus the carried essence")
+	var ca := _func_src(FileAccess.get_file_as_string("res://scripts/raid/raid.gd"), "func carry_add(")
+	t.ok(ca.contains("not endings.win_result.is_empty()") and ca.find("win_result") < ca.find("carried.append("),
+		"no mote joins the slots once the win is frozen at the chest (the ring shows what the card pays)")
 	var rows := RaidLogic.clear_card_rows("The Bellringer", won)
 	var labels: Array = []
 	var no_contradiction := true
@@ -180,6 +183,11 @@ func _hint_cue_tests(t: TestUtil) -> void:
 	t.ok(not gather, "no hint, cue, essence meaning or last-chance banner says 'gather'")
 	t.ok(RaidLogic.CUE_FIRST_MOTE.contains("RAISE") and RaidLogic.CUE_FIRST_MOTE.contains("BANK")
 		and RaidLogic.ESSENCE_MEANING.contains("RAISE") and RaidLogic.ESSENCE_MEANING.contains("BANK"), "the first-mote cue and the essence meaning name RAISE and BANK")
+	var longest := 0
+	for cue in [RaidLogic.CUE_FIRST_MOTE, RaidLogic.CUE_UNDEAD]:
+		for seg in str(cue).split(" · "):
+			longest = maxi(longest, seg.length())
+	t.ok(longest <= 36, "every cue line (split at ' · ') is short, so the cue's plate stays narrow over the world (longest %d chars)" % longest)
 	t.ok(RaidLogic.last_chance_banner(0) == "LAST CHANCE · a free trance" and RaidLogic.last_chance_banner(3).ends_with("3 loose essence here: walk close and it drifts to you"), "last chance: bare at 0, the drift line with a count")
 	t.ok(not RaidLogic.undead_cue_due(true, 3, 99.0, 5.0, 4), "the undead cue never repeats")
 	t.ok(not RaidLogic.undead_cue_due(false, 3, 99.0, 5.0, 0), "none without an undead standing")
@@ -282,6 +290,24 @@ func _warden_presence_tests(t: TestUtil) -> void:
 	for k in ["ring_alpha", "plinth_alpha", "plate_alpha"]:
 		t.ok(float(pc.get(k, 0.0)) > 0.0 and float(pc.get(k, 0.0)) <= 1.0, k + " in (0, 1]")
 	t.ok(float(pc.get("name_px", 0)) >= 12.0 and float(pc.get("label_px", 0)) >= 12.0, "plate text at least 12 px")
+	# the name plate never sits under the HUD's top blocks (Ashgate's warden room is at the arena's top-left)
+	var stats := Rect2(18, 14, 420, 290)
+	var goal := Rect2(460, 10, 680, 140)
+	t.ok(RaidLogic.plate_hidden(Rect2(420, 60, 160, 40), [stats, goal]), "a plate under the goal block is hidden")
+	t.ok(RaidLogic.plate_hidden(Rect2(300, 200, 160, 40), [stats, Rect2()]), "a plate under the fort's StatBlock is hidden")
+	t.ok(not RaidLogic.plate_hidden(Rect2(1060, 200, 170, 40), [stats, goal]), "a plate in the open is not")
+	t.ok(not RaidLogic.plate_hidden(Rect2(420, 60, 160, 40), [Rect2()]), "an empty rect (no block showing) hides nothing")
+	t.ok(is_equal_approx(RaidLogic.plate_nudge_x(Rect2(420, 265, 160, 60), [stats, goal], 8.0), 438.0 + 8.0 - 420.0),
+		"a plate under the StatBlock's right edge slides right past it")
+	t.ok(is_equal_approx(RaidLogic.plate_nudge_x(Rect2(1100, 60, 160, 40), [goal], 8.0), 1140.0 + 8.0 - 1100.0),
+		"a plate over a block's right edge slides right past it")
+	t.ok(is_equal_approx(RaidLogic.plate_nudge_x(Rect2(400, 60, 120, 40), [goal], 8.0), -(520.0 - 460.0 + 8.0)),
+		"a plate over a block's left edge slides left past it")
+	t.ok(RaidLogic.plate_nudge_x(Rect2(1060, 200, 170, 40), [stats, goal], 8.0) == 0.0, "a clear plate stays put")
+	var wsrc := FileAccess.get_file_as_string("res://scripts/raid/warden.gd")
+	var dp := _func_src(wsrc, "func _draw_presence(")
+	t.ok(dp.contains("occluder_rects()") and dp.contains("RaidLogic.plate_hidden(") and dp.contains("_pres[\"both\"]") and dp.contains("RaidLogic.plate_nudge_x("),
+		"the sleeping warden checks its name plate against the HUD's rects each draw, moves it below the ring and slides it clear")
 	t.ok(float(w.get("dormant_alpha", 0.0)) >= 0.6, "the sleeping glyph is not faint")
 	var src := FileAccess.get_file_as_string("res://scripts/raid/warden.gd")
 	t.ok(RegEx.create_from_string("if not awake:\\s*_draw_presence\\(\\)").search(src) != null, "_draw calls _draw_presence only while asleep")

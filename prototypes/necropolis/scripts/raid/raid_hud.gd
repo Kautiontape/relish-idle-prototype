@@ -410,6 +410,18 @@ func _tick_goal(dt: float) -> void:
 	_goal_block.visible = _goal_block.height > 0.0
 
 
+## The HUD's screen rects that cover the world's top: the fort's title and StatBlock (top-left) and the
+## top-centre block. A sleeping warden's name plate under one of them moves below its ring.
+func occluder_rects() -> Array:
+	var out: Array = []
+	if _stats != null and _stats.is_visible_in_tree():
+		out.append((_stats.get_parent() as Control).get_global_rect())
+	var tb := top_block_rect()
+	if tb.has_area():
+		out.append(tb)
+	return out
+
+
 ## The screen rect of the top-centre block that shows (the goal block, else the warden's): empty when neither
 ## does. The banner steps down under it and the edge chevrons stay clear of it (RaidLogic.edge_clear_of).
 func top_block_rect() -> Rect2:

@@ -485,6 +485,28 @@ const EDGE_INSET := 34.0
 const EDGE_BELOW := 18.0   # the chevron's point stands 12 px ahead of `p`: p sits this far under the block
 
 
+## True when an in-world plate's screen rect `plate` runs under any of the HUD's screen rects `occluders`
+## (RaidHud.occluder_rects): the sleeping warden then moves its name plate below its ring.
+static func plate_hidden(plate: Rect2, occluders: Array) -> bool:
+	for r in occluders:
+		if (r as Rect2).has_area() and (r as Rect2).intersects(plate):
+			return true
+	return false
+
+
+## The sideways shift (screen px) that takes plate rect `plate` clear of the first HUD rect it runs under:
+## right past a rect whose centre is left of the plate's, else left past it, `gap` px beyond its edge. 0 when clear.
+static func plate_nudge_x(plate: Rect2, occluders: Array, gap: float) -> float:
+	for r in occluders:
+		var o := r as Rect2
+		if not o.has_area() or not o.intersects(plate):
+			continue
+		if o.get_center().x < plate.get_center().x:
+			return o.end.x + gap - plate.position.x
+		return -(plate.end.x - o.position.x + gap)
+	return 0.0
+
+
 static func edge_clear_of(p: Vector2, label_rect: Rect2, block_rect: Rect2, view: Vector2) -> Vector2:
 	if block_rect.size.x <= 0.0 or block_rect.size.y <= 0.0:
 		return p
@@ -682,7 +704,7 @@ static func last_chance_banner(lit: int) -> String:
 const HINT_TRANCE := "DRAG A LOOP AROUND ESSENCE · each mote inside becomes one undead"
 const HINT_EXIT := "AT EXIT · RETREAT banks your loot"
 const HINT_IDLE := "HOLD SPACE · circle essence to RAISE undead"
-const CUE_FIRST_MOTE := "ESSENCE IN YOUR SLOTS · circle it to RAISE undead, or carry it out an exit to BANK it"
+const CUE_FIRST_MOTE := "ESSENCE IN YOUR SLOTS · circle it to RAISE undead · or carry it out an exit to BANK it"
 const CUE_UNDEAD := "YOUR UNDEAD FIGHT ON THEIR OWN · keep Relish safe and raise more"
 const ESSENCE_MEANING := "circle it: RAISE undead · leave by an exit: BANK it"
 

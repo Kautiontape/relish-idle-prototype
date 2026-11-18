@@ -29,6 +29,7 @@ var _breath_t := 0.0
 var _pres := {}                # draw only: the sleeping picture's cached geometry (_build_presence)
 var _pres_z := -1.0            # the zoom it was built at
 var _pres_n := -1              # and the meter pips
+const PLATE_PAD := 4.0         # a name plate's margin around its text, in screen px
 
 # break meter (pips; see WardenLogic.meter_bands)
 var meter_bands: Array[float] = []
@@ -421,8 +422,24 @@ func _draw_presence() -> void:
 	for dash in _pres["dashes"]:
 		draw_polyline(dash, vei_ring, lw)
 	var plates: Array = _pres["plates"]
+	var occ: Array = raid.hud.occluder_rects() if raid != null and raid.hud != null and raid.hud.has_method("occluder_rects") else []
+	if RaidLogic.plate_hidden(_plate_screen_rect(plates[0], true), occ):
+		# the name plate would sit under the HUD (checked each frame; the warden redraws every physics
+		# frame): all of it goes below the ring, slid sideways if a HUD block covers that spot too
+		var both: Dictionary = _pres["both"]
+		var dx := RaidLogic.plate_nudge_x(_plate_screen_rect(both, false), occ, PLATE_PAD * 2.0)
+		_draw_plate(both["lines"], (both["anchor"] as Vector2) + Vector2(dx / z, 0.0), false, _pres["plate_a"], both["size"])
+		return
 	for pl in plates:
 		_draw_plate(pl["lines"], pl["anchor"], pl["above"], _pres["plate_a"], pl["size"])
+
+
+## The screen rect a plate (`pl`, as _draw_plate draws it, above or below its anchor) covers at the camera's spot.
+func _plate_screen_rect(pl: Dictionary, above: bool) -> Rect2:
+	var sz: Vector2 = pl["size"]
+	var a := get_global_transform_with_canvas() * (pl["anchor"] as Vector2)
+	var h := sz.y + PLATE_PAD * 2.0
+	return Rect2(a.x - sz.x * 0.5 - PLATE_PAD, a.y - h if above else a.y, sz.x + PLATE_PAD * 2.0, h)
 
 
 ## The sleeping picture's geometry at zoom `z`: the plinth's points, the ring's ticks and the dashed ring's
@@ -472,7 +489,8 @@ func _build_presence(z: float) -> void:
 		"plates": [
 			{"lines": above, "anchor": Vector2(0.0, -clear), "above": true, "size": _plate_size(above)},
 			{"lines": below, "anchor": Vector2(0.0, clear), "above": false, "size": _plate_size(below)},
-		]}
+		],
+		"both": {"lines": above + below, "anchor": Vector2(0.0, clear), "size": _plate_size(above + below)}}
 
 
 ## A plate's text block size (the widest line, the lines' heights summed), in screen px.
@@ -491,7 +509,7 @@ func _plate_size(lines: Array) -> Vector2:
 ## `box` is the lines' measured size.
 func _draw_plate(lines: Array, anchor: Vector2, above: bool, plate_a: float, box: Vector2) -> void:
 	var font := ThemeDB.fallback_font
-	var pad := 4.0
+	var pad := PLATE_PAD
 	var w := box.x
 	var h := box.y
 	var z := zoom()

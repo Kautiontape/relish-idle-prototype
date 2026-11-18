@@ -613,6 +613,8 @@ func carry_room() -> int:
 func carry_add(o: RaidEssence) -> bool:
 	if carry_room() <= 0 or o.carried:
 		return false
+	if endings != null and not endings.win_result.is_empty():
+		return false   # the win is frozen at the chest: no mote joins after it, so the ring shows what the clear card pays
 	var used := {}
 	for c in carried:
 		used[c.carry_slot] = true
