@@ -28,6 +28,7 @@ var drop_t := -1.0             # >= 0 while a ring is dropping away after a phas
 var _breath_t := 0.0
 var _tell_cur := -1.0          # the current tell length in beats (see _tell); -1 until the first read
 var _pres := {}                # draw only: the sleeping picture's cached geometry (_build_presence)
+var _plates_rect := Rect2()    # screen rect the name plates covered when last drawn (presence_screen_rect)
 var _pres_z := -1.0            # the zoom it was built at
 var _pres_n := -1              # and the meter pips
 const PLATE_PAD := 4.0         # a name plate's margin around its text, in screen px
@@ -455,22 +456,22 @@ func _draw_plates(ci: CanvasItem) -> void:
 		# the name plate would sit under the HUD (checked each frame): all of it goes below the ring, slid
 		# sideways if a HUD block covers that spot too
 		var both: Dictionary = _pres["both"]
-		var dx := RaidLogic.plate_nudge_x(_plate_screen_rect(both, false), occ, PLATE_PAD * 2.0)
+		var br := _plate_screen_rect(both, false)
+		var dx := RaidLogic.plate_nudge_x(br, occ, PLATE_PAD * 2.0)
+		_plates_rect = Rect2(br.position + Vector2(dx, 0.0), br.size)
 		_draw_plate(both["lines"], (both["anchor"] as Vector2) + Vector2(dx / z, 0.0), false, _pres["plate_a"], both["size"], ci)
 		return
+	_plates_rect = _plate_screen_rect(plates[0], true).merge(_plate_screen_rect(plates[1], false))
 	for pl in plates:
 		_draw_plate(pl["lines"], pl["anchor"], pl["above"], _pres["plate_a"], pl["size"], ci)
 
 
-## The sleeping picture's screen rect: the ring and both name plates (RaidLogic.warden_ring_rect, grown by the
-## plates' own rects once they are measured). The HUD keeps its banner off all of it.
+## The sleeping picture's screen rect: the ring (RaidLogic.warden_ring_rect) and the name plates as the last
+## frame drew them (_plates_rect, where a HUD block pushed them as well). The HUD keeps its banner off all of it.
 func presence_screen_rect() -> Rect2:
 	var xf := get_global_transform_with_canvas()
 	var r := RaidLogic.warden_ring_rect(xf.origin, xf.get_scale().x, radius, wcfg().get("presence", {}))
-	if _pres.has("plates"):
-		var plates: Array = _pres["plates"]
-		r = r.merge(_plate_screen_rect(plates[0], true)).merge(_plate_screen_rect(plates[1], false))
-	return r
+	return r.merge(_plates_rect) if _plates_rect.has_area() else r
 
 
 ## The screen rect a plate (`pl`, as _draw_plate draws it, above or below its anchor) covers at the camera's spot.
