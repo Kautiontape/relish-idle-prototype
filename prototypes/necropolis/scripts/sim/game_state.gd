@@ -36,7 +36,8 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	"economy.town.projection_refresh_s", "economy.town.projection_rows_per_call", "economy.town.projection_rows_per_frame",
 	"economy.town.projection_phase", "economy.town.projection_starve_frames", "economy.town.projection_tol.rel",
 	"economy.town.projection_tol.abs", "realm.flip.hold_s", "realm.flip.tier_mult", "economy.morale.death_shock", "vei.loss_backlog_keep",
-	"realm.relish.tide_bias", "economy.queue.max_len", "economy.queue.list_mult", "economy.relic_trickle.period_s",
+	"realm.relish.tide_bias", "economy.queue.max_len", "economy.queue.list_mult", "economy.save.level_sanity_mult",
+	"economy.relic_trickle.period_s",
 	"realm.hold.mint_ref", "realm.hold.mint_alpha",  # (E4 step 5, B1: hold_mult)
 	"realm.odds.time_weight", "realm.odds.time_s", "realm.odds.backlog_cap",  # (E4 step 9, option B: win_odds)
 	# T3.4a: the economy and realm tunables that had inline numeric fallbacks (the realm `field` block aside)
@@ -104,7 +105,10 @@ const REPORT_KEYS := ["streams", "stream_labels", "stream_fmt", "backlog_fmt", "
 	"afford_starved_fmt", "afford_starved_last_fmt",
 	# E4 step 10 (review-t7r1r2 §5, the Market side): never on gold while the living buy less than the stalls can sell
 	# (TownSim.trade_starved living_first), with and without the move down; and the upkeep line's form for that state
-	"afford_living_fmt", "afford_living_last_fmt", "afford_upkeep_living_fmt"]
+	"afford_living_fmt", "afford_living_last_fmt", "afford_upkeep_living_fmt",
+	# Phase I P2 (Q-d): the income test's unpaid line in that state (housing or an Inn, not a Market), and the never-on-gold
+	# line for a head whose gold covers it now but falls under it by the time its bone comes (no "0 gold short")
+	"unpaid_upkeep_living_fmt", "afford_living_falling_fmt", "afford_living_falling_last_fmt"]
 ## The reasons a queued build's waited_on can hold (STATE-API §6 queue_started): idle.report.waited_on words each.
 const REPORT_WAITED_ON := ["needs_tier", "lot_locked", "needs_blueprint", "needs_building", "no_relics", "no_gold",
 	"no_bone", "lot_taken", "empty_lot", "under_construction", "unpaid", "cost_exceeds_cap", "upkeep"]

@@ -134,12 +134,14 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
 - First-order quantities (worker rot, `q`, the EMAs) use the exact update
   `x += (x_ss − x)(1 − e^(−dt/τ))`. The EMA uses `α = 1 − e^(−dt/readout.ema_s)`.
 - **The vats** (E3-2, MECHANICS §7) grow linearly, `min(1, grow + vats.grow_per_s · hands · dt)` on the step's tend
-  hands, which is exact at any step. **Catch-up doesn't clip at a vat's fill:** it raises no event, and though
-  `view_backups().death` reads it (a clone ready), nothing inside a catch-up does (no run is open during one: every
-  run ends before it starts), so a step that contains the fill ends at exactly 1, as live play's would. A tended
-  pre_vei vat fills 310 s into a 12 h catch-up at its 10 s steps against 300.5 s live, within one step
-  (`test_backups`). Since 4f8b493 a ready vat gives its tend hand back at the end of that step, so caught up the hand
-  returns up to one step late (§8's known gap, with its bound). With no vat tended a 12 h catch-up from each fixture is bit-identical to 646f288's (state, events,
+  hands, which is exact at any step. The fill raises no event, and though `view_backups().death` reads it (a clone
+  ready), nothing inside a catch-up does (no run is open during one: every run ends before it starts). Since 4f8b493
+  a ready vat gives its tend hand back at the end of the step it fills in, so **from Phase I P2 catch-up clips at a
+  tended vat's fill** (`Catchup.vat_fill_s`, the run's manager's ruling 4, Q-c): the step that contains it ends on it,
+  at exactly 1 (a projection whose float product falls short of 1 is moved 1e-9 s later), and the hand is back at the
+  moment it fills. A tended pre_vei vat fills 300.03 s into a 12 h catch-up at its 10 s steps against 300.5 s live,
+  and its hand is back at 300.03 s against live's 300.5 s, within live's 0.5 s substep (`test_backups`
+  `_catchup_hand`; before the clip the fill read 310 s and the hand came back up to one step late, §8). With no vat tended a 12 h catch-up from each fixture is bit-identical to 646f288's (state, events,
   away report; `test_backups`).
 - **The foremen** (E3-3, MECHANICS §4.2) can't change inside a catch-up: they move only by command
   (`cmd_place_big_undead`, `cmd_set_party`, a demolish or a cancelled build sending one home), and every command
@@ -757,8 +759,13 @@ a **"While you were away"** panel. It is ordered **gains, then ready actions, th
       (`TownSim.trade_bound()` at the report, beside the `gold_income()` the gate reads), not the last step's flag: the
       living and the staffing move after the stalls inside a step, so a catch-up's last step can start under the bind
       and end over it (the E4 final review's item 7; test_trade_starved (h)). The income test's "Still stopped … Build a
-      Market" (`unpaid_upkeep_fmt`) is unchanged: in a new game the shed reaches the Market and its stalls first, so
-      no test reaches it with the living binding (a Phase I item if a larger town shows it).
+      Market" (`unpaid_upkeep_fmt`) picks its lever the same way from Phase I P2 (Q-d): in that state it reads "…: House.
+      The living buy less than the stalls can sell: build housing or an Inn" (`unpaid_upkeep_living_fmt`;
+      test_trade_starved (i), set by hand, since in a new game the shed reaches the Market and its stalls first).
+    - A head never on gold that waits on bone, whose gold covers it now but falls under it by the time its bone comes
+      (`_afford_at`'s falling-net check), is short 0 gold. Under the living's bind it reads the living's lever without
+      the count (Phase I P2, Q-d; `afford_living_falling_fmt` and `_last_fmt`; test_trade_starved (j)), not "0 gold
+      short". The bone line has no such corner: no building has bone upkeep, so bone's net never falls.
   - **Stores full, queue empty: raid** (R2; the run's manager, from Shawn's "needs relics: raid a fort",
     the review's question 2). When the absence ends with every capped store full (gold and bone, each within
     `idle.report.full_tol` of its cap: 1%) and the queue empty, the plateau is the wall Shawn asked for, and
@@ -1044,6 +1051,11 @@ The profiles:
         mid-step.
       - catchup_accuracy checks the steady case: 30 h with every t1 fort held, the same 2 relics and carried
         seconds.
+    - **A ready vat's hand, open against closed: closed in Phase I P2** (the run's manager's ruling 4 of 2026-11-17
+      22:40, Q-c). `Catchup.next_event_s` now clips at a tended vat's fill (`Catchup.vat_fill_s`, §4's vats), so the
+      hand comes back at the fill caught up as live, within live's 0.5 s substep (`test_backups` `_catchup_hand`: 300.03
+      s against 300.5 s; with the clip taken out, 9.5 s late). The bound below was the gap until then. It moves closed
+      trajectories with a tended vat (the batch's numbers are from the P2 tip). What was recorded:
     - **A ready vat's hand, open against closed: a known catch-up gap** (the E4 final review's item 2; recorded,
       not fixed, per the run's manager's ruling of 2026-11-17 20:20). Since 4f8b493 a staffed vat holding a ready
       clone gives its tend hand back to the ladder at the end of the step it fills in (`GameState._sync_tend`, after

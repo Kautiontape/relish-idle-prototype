@@ -255,8 +255,9 @@ func _husk_policy(c: Dictionary) -> void:
 ## levels at its head, crypt level 2 needs a relic (no_relics) and level 3 waits behind it. The fill leaves no entry
 ## gated on anything but its own lot's construction, except one parked no_relics entry (park_relics), and still fills
 ## queue_max. A skipped item issues no command (the fill reads the walk first), so the I1 replay's log is only what stays.
-## Revert proof: with cac5a17's _fill (every entry counted, nothing unqueued) the Chapel and the Walls stay in the queue
-## on needs_tier, and the fill stops at 8 entries with 2 of them gated: the first, third and fourth asserts fail.
+## Revert proof (at fee92d6, the fill's pre-walk taken out and every entry counted, as cac5a17's _fill): crypt levels 2
+## and 3 both stay on no_relics and take two of the eight, so 6 count, and a 9th command is refused queue_full: the
+## second, third and fourth asserts fail, with and without park_relics (6 FAIL).
 func _fill_skips_gated(c: Dictionary) -> void:
 	for park in [true, false]:
 		var b := Autoplayer._bot("keep_test_fill", c, {"print_rows": false})

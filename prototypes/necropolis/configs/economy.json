@@ -23,6 +23,7 @@
   "body_store": { "cap": 200.0 },
   "gold": { "cap": 6500.0 },
   "bone": { "cap": 200.0 },
+  "save": { "_doc": "Phase I P2 (Q-d): the level sanity cap on load (SaveIO._town_problem; STATE-API 9.1). A building's level or build_level above level_sanity_mult x the highest max_level any building has in buildings.json (2 x 8 = 16 today) makes the save corrupt; at or under it, a level above its own building's max_level is clamped (the level cut rule, SaveIO.clamp_levels). The bound follows the ladder: no config has written a level past its own highest max_level, so 2x leaves room for a cut to half the ladder's top and refuses a level no ladder this size could have written (the review's 1e9). Read REQUIRED.", "level_sanity_mult": 2 },
   "queue": { "_doc": "The build queue (IDLE 5, STATE-API 4.3; Phase I P2, the run's manager's ruling 1 of 2026-11-17 22:40). max_len: the entries that hold a slot. A gated entry (skipped_gate, any reason) holds no resources and no slot, so it never keeps a relic-free build out; it stays in the list (the player's intent, and its chip is the visible wall). The whole list, gated entries and all, caps at max_len x list_mult. Both read REQUIRED.", "max_len": 8, "list_mult": 2 },
   "relic_trickle": {"_doc": "E4 step 9, the run's manager's rulings on step 9 (3) (2026-11-17 12:45 and 14:24; MECHANICS 2, the relics row): one relic per period_s of game time while no raidable fort remains, read as every fort at or below the highest tier ever flipped being held (GameState.relic_trickle_paying), paid into the relic store (lost at its cap). For a player walled at a tier. Read REQUIRED by GameState.", "period_s": 43200.0},
   "idle": {
@@ -64,6 +65,9 @@
       "afford_relics_last_fmt": "{name} needs relics: raid a fort",
       "afford_upkeep_fmt": "{name} waits: the current income of {rate} gold can't pay its upkeep: build a Market",
       "unpaid_upkeep_fmt": "Still stopped, the current income of {rate} gold can't pay their upkeep: {names}. Build a Market",
+      "unpaid_upkeep_living_fmt": "Still stopped, the current income of {rate} gold can't pay their upkeep: {names}. The living buy less than the stalls can sell: build housing or an Inn",
+      "afford_living_falling_fmt": "{name} can't be afforded at the current income of {rate} gold: the living buy less than the stalls can sell. Build housing or an Inn, or move it down",
+      "afford_living_falling_last_fmt": "{name} can't be afforded at the current income of {rate} gold: the living buy less than the stalls can sell. Build housing or an Inn",
       "afford_stores": { "gold": "gold", "bone": "bone", "relics": "relics" },
       "afford_raise": { "gold": "build a Market", "bone": "build a Bone Mill" },
       "afford_producer": { "gold": "market", "bone": "bone_mill" },

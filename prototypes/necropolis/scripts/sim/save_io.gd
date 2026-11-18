@@ -309,7 +309,8 @@ static func problem(m: Dictionary, cfgs: Dictionary) -> String:
 ## distinct lots, of known ids, in a known state, at a level from 0 (`build_level` from 1); the ladder a
 ## permutation of JOB_IDS; the haul target, its current fort and at most one convoy naming known
 ## forts; TownSim's optional keys of the right type. A level above the building's max_level is not a
-## defect: apply clamps it (clamp_levels, the level cut rule).
+## defect: apply clamps it (clamp_levels, the level cut rule), up to the sanity cap (level_sanity_cap: Phase I P2,
+## Q-d). A level or build_level past that cap is corrupt ("building"), never loaded silently at max_level.
 static func _town_problem(tn: Dictionary, cfgs: Dictionary, fort_ids: Dictionary) -> String:
 	if not GameState.TIERS.has(tn["tier"]):
 		return "tier"
@@ -320,12 +321,15 @@ static func _town_problem(tn: Dictionary, cfgs: Dictionary, fort_ids: Dictionary
 	var lot_ids := {}
 	for l in (lots_cfg if lots_cfg is Array else []):
 		lot_ids[str(l.get("id", ""))] = true
+	var sane := level_sanity_cap(bcfg, cfgs)
 	var seen := {}
 	for b in tn["buildings"]:
 		if not lot_ids.has(b["lot_id"]) or seen.has(b["lot_id"]) or not bcfg.has(b["building_id"]):
 			return "lot"
 		seen[b["lot_id"]] = true
 		if not _BUILDING_STATES.has(b["state"]) or int(b["level"]) < 0 or int(b["build_level"]) < 1:
+			return "building"
+		if float(b["level"]) > sane or float(b["build_level"]) > sane:
 			return "building"
 	var jobs := {}
 	for j in tn["ladder"]:
@@ -351,6 +355,21 @@ static func _town_problem(tn: Dictionary, cfgs: Dictionary, fort_ids: Dictionary
 	if tn.has("rates"):
 		return _rates_problem(tn["rates"])
 	return ""
+
+
+## The level sanity cap (Phase I P2, Q-d; STATE-API 9.1): economy.json save.level_sanity_mult × the highest max_level
+## any building has in `bcfg` (buildings.json; at least 1): 16 today. A save level above it is corrupt, not clamped:
+## no config has written a level past its own ladder's top, so the cap leaves a cut room to halve the ladder and
+## refuses what no ladder this size could have written (the E4 close-out review's 1e9). The level is compared as a
+## float, so a level past int's range can't wrap under it. A missing multiplier reads 2 (GameState.REQUIRED has it).
+static func level_sanity_cap(bcfg: Variant, cfgs: Dictionary) -> float:
+	var top := 1
+	if bcfg is Dictionary:
+		for bid in bcfg:
+			if bcfg[bid] is Dictionary:
+				top = maxi(top, int((bcfg[bid] as Dictionary).get("max_level", 1)))
+	var mult := float(((cfgs.get("economy", {}) as Dictionary).get("save", {}) as Dictionary).get("level_sanity_mult", 2.0))
+	return float(top) * mult
 
 
 ## The level cut rule (STATE-API 9.1; the E4 final review's must-fix): a config that lowers a building's

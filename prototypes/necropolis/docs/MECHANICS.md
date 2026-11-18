@@ -1239,7 +1239,8 @@ mass; bodies, rot return, WORK and muster are mass.
       could start. With it a town whose income can't pay everything keeps the rest unpaid and saves the
       surplus (pre_vei: +0.01 g/s, past the Market's next level in about 20 min). A building held by the
       test reads `upkeep` as an upgrade's queue reason and `waited_on` (not `unpaid`), and the away report
-      lists such buildings with the income and "Build a Market" (`idle.report.unpaid_upkeep_fmt`). The
+      lists such buildings with the income and "Build a Market" (`idle.report.unpaid_upkeep_fmt`), or, while the
+      living buy less than the stalls can sell, "build housing or an Inn" (`unpaid_upkeep_living_fmt`, Phase I P2). The
       Thrift stance's resume of the buildings it idled is unchanged; no command resumes an unpaid one.
       Thrift's resume runs no income test (`TownSim.thrift_resume` sets them active), so when it stops acting
       with the income still short, the shed order sheds them again at the next gold floor and the income
@@ -1791,8 +1792,10 @@ free stock.
   before E3 whose Chapel was demolished kept its stub clones. From E3-2 a demolished Chapel's ready clones become
   spare clones at the next core step, and a Chapel built again starts empty. The save writes `clones_ready` as the
   total, so its shape is unchanged.
-- **Catch-up** doesn't clip at a vat's fill (IDLE §4): the growth is linear and clamps at 1, so each step's update is
-  exact at any length, the fill raises no event, and nothing inside a catch-up reads it (no run is open during one).
+- **Catch-up**: the growth is linear and clamps at 1, so each step's update is exact at any length, the fill raises no
+  event, and nothing inside a catch-up reads it (no run is open during one). From Phase I P2 catch-up clips at a tended
+  vat's fill (IDLE §4, `Catchup.vat_fill_s`), so a ready clone's tend hand goes back to the ladder at the fill, as
+  live (below), not up to one catch-up step late.
 
 `view_backups` always shows what a death would cost right now.
 

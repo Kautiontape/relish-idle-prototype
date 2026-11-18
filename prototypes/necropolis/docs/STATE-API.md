@@ -425,6 +425,13 @@ from `BALANCE.md` §0.
     that would hold one only while `queue_slots` is at `queue_max`, and any entry once the list is at
     `queue_list_max` (§4.3). Before v13 every entry counted toward `queue.max_len`, so eight gated entries kept every
     relic-free build out. A save's queue loads up to `queue_list_max` entries (§9.1; before, `queue.max_len`).
+  - **Q-d's hygiene** (no shape change: new values in existing String keys, and a load refusal): §5.19's unpaid
+    line names housing or an Inn while the living buy less than the stalls can sell (`idle.report.unpaid_upkeep_living_fmt`,
+    picked by `TownSim.trade_bound()` as the upkeep gate's line is); a never-on-gold head short 0 gold reads the living's
+    lever with no count (`afford_living_falling_fmt`, `_last_fmt`); and a save level past the sanity cap is `corrupt`
+    (§9.1).
+  - **The catch-up clips at a tended vat's fill** (ruling 4, Q-c; `Catchup.vat_fill_s`, IDLE §4): no API change; it
+    moves closed trajectories with a tended vat.
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -2840,6 +2847,11 @@ take the router's legacy path (§2.3).
   top level with progress 1, and its pending `building_started` is dropped. A queued upgrade past the top is
   dropped with a warning (`queue`, above). Nothing is refunded, because the cut levels buy nothing. A save
   within every `max_level` loads unchanged. `SAVE_VERSION` stays 2.
+  **The level sanity cap** (Phase I P2, Q-d; `SaveIO.level_sanity_cap`): a `level` or `build_level` above
+  `economy.json` `save.level_sanity_mult` (2) × the highest `max_level` any building has in `buildings.json` (8), so
+  above 16 today, is `corrupt` ("building"), not clamped: a level of 1e9 no longer loads silently at the top. The
+  bound follows the ladder. No config has written a level past its own ladder's top, so 2× leaves a cut room to halve
+  the ladder and refuses what no ladder of this size could have written.
 - `stances`: `on` (oldest first) and `hold` (E3 timers: from E3-1, stance id → the seconds left of its hold,
   for each stance held; a key that isn't a stance, or a hold at 0, is dropped on load). From v8 (E3-1) the
   optional `state`: `{stance_id: {active: bool, fired_beat_id: int}}` for each stance whose condition has
