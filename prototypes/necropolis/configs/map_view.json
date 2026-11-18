@@ -582,7 +582,7 @@
       "glyph_px": 34.0,
       "glyph_gap_px": 10.0,
       "ring_r_px": 14.0,
-      "gap_above_valve_px": 10.0,
+      "gap_above_valve_px": 6.0,
       "plate_alpha": 0.96,
       "held_tag_fmt": "Its tag: %s holds, %s is close (send Relish), %s means Vei is set to retake it.",
       "rows": [
