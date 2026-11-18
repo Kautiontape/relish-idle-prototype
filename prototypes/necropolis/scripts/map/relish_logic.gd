@@ -163,7 +163,8 @@ static func fort_actions(fort: Dictionary, relish: Dictionary, haul: Dictionary,
 static func vei_actions(vei: Dictionary, relish: Dictionary) -> Array:
 	var out := move_items(relish, "vei", "Relish is at Vei's gates")
 	if bool(vei.get("won", false)):
-		# TODO(api-request #21): economy's _boss_reason will refuse with "won"; reason_text then gives the same words.
+		# kept after #21: view_vei.reason reads "won" then, but the path below would still add the fronts line and a
+		# disabled BEGIN; a beaten Vei offers only her reason
 		out.append(_line(reason_text("won")))
 		return out
 	var can := bool(vei.get("can_begin", false))

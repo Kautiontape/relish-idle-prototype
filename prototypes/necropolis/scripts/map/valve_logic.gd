@@ -124,8 +124,7 @@ static func percents(valve: Dictionary) -> Dictionary:
 ## once the game is won (HudLogic.flood_shown false), so WORK and WAR add to 100, the handle stays on the WORK–WAR
 ## edge and a drag toward the hidden FLOOD corner lands on WAR (a won drag sends FLOOD 0). `valve` as it is before
 ## the win. The panel, its handle and ghost ring, and Covington's stems all read it.
-## TODO(api-request #21): once won, economy sends FLOOD's share to WAR. The fold stays right after #21 (it shows where
-## the mint goes); what #21 closes is a valve left untouched since the win showing WAR the sim still sends to Vei.
+## Since #21 the sim sends FLOOD's share to WAR once won (view_hud.split.flood 0), so the fold shows what it does.
 static func won_valve(valve: Dictionary, hud: Dictionary) -> Dictionary:
 	if HudLogic.flood_shown(hud):
 		return valve

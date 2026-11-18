@@ -89,16 +89,14 @@ static func objective_text(hud: Dictionary) -> String:
 
 ## Whether Vei's odds / strain / drain show (her node's readout and the top bar's group): not once the game
 ## is won. The tithe line and its telegraph are not keyed on this: they follow view data.
-## TODO(api-request #21): keyed on `won` while the sim still runs her odds after a win; permanent design (a beaten
-## Vei has no odds to read), so it stays after #21.
+## A beaten Vei has no odds to read (P7's design, kept after #21).
 static func vei_readout_shown(hud: Dictionary) -> bool:
 	return not bool(hud.get("won", false))
 
 
 ## Whether the valve panel shows its FLOOD row and corner button: not once the game is won. The panel, its
 ## drag and Covington's stems then show FLOOD's share as WAR's (ValveLogic.won_valve).
-## TODO(api-request #21): a stand-in until economy reroutes FLOOD's share to WAR after a win; hiding FLOOD once
-## won stays the design after #21.
+## Since #21 the sim sends FLOOD's share to WAR once won, so the fold is what it does.
 static func flood_shown(hud: Dictionary) -> bool:
 	return not bool(hud.get("won", false))
 

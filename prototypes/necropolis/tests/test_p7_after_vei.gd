@@ -3,8 +3,7 @@ extends RefCounted
 ## `won` itself round-trips in save_io; these checks pin what P7 reads from it after a load: the town's won head,
 ## step and next: line (TownGuide), and the map's end state at mount (the victory settles, the Vei card offers no
 ## BEGIN). A not-won save of the same game is the control: it loads into the realm's usual step.
-## (Once economy's api-request #21 lands, view_vei().can_begin is false with reason "won" after the win; the card
-## check below holds either way.)
+## (With economy's #21 merged, view_vei().can_begin is false with reason "won" after the win: _after_21.)
 
 var t: TestUtil
 var cfg: Dictionary
@@ -25,6 +24,7 @@ func run() -> int:
 	_save_after_win()
 	_won_town_words()
 	_catalog_rows_refresh()
+	_after_21()
 	_clean()
 	return t.failures
 
@@ -106,6 +106,33 @@ func _catalog_rows_refresh() -> void:
 	t.ok(FileAccess.get_file_as_string("res://scripts/town/panel_build.gd").contains("var shape := BuildSort.rows_shape(rows, bool(_st.get(\"won\", false)))")
 		and FileAccess.get_file_as_string("res://scripts/town/panel_build.gd").find("_st = BuildSort.stocks(") < FileAccess.get_file_as_string("res://scripts/town/panel_build.gd").find("BuildSort.rows_shape("),
 		"panel_build's bind keys its rows on rows_shape, with the stocks read first")
+
+
+## With economy's #21 merged (P3b): what the P7 stand-ins were kept for, on the real won sim (pre_vei, won, 10 min on).
+## - The muster: view_hud.split.muster_to reads "war" by itself, so the town's words name WAR.
+## - BEGIN: view_vei refuses with "won", and the card's won branch gives only that reason (the generic path would
+##   add the fronts line and a disabled BEGIN, so the branch stays).
+## - Vei's lanes: once won some lanes into her queue still carry a rate (the forts' FLOOD drain, WAR with no target),
+##   so LaneStyle.without_vei still hides real flow on a won map; it is not the identity.
+func _after_21() -> void:
+	var s := _won_state()
+	for i in 10:
+		s.tick(60.0, s.max_substeps_per_frame())
+	s.drain_events()
+	var v := _views(s)
+	t.ok(str(v["hud"].get("split", {}).get("muster_to", "")) == "war" and HudModel.muster_word(v, hcfg) == "idle → WAR"
+		and HudModel.muster_tip(v, hcfg).begins_with("Vei is beaten"), "won (#21): the muster goes to WAR, and the town says so: '%s', '%s'" % [
+		HudModel.muster_word(v, hcfg), HudModel.muster_tip(v, hcfg)])
+	t.ok(float(v["hud"].get("split", {}).get("flood", -1.0)) == 0.0, "won (#21): FLOOD's share is 0, as the valve's fold shows")
+	var vv := s.view_vei()
+	var acts := RelishLogic.vei_actions(vv, s.view_relish())
+	t.ok(not bool(vv.get("can_begin", true)) and str(vv.get("reason", "")) == "won" and acts.filter(func(a): return str(a.get("act", "")) == "begin").is_empty()
+		and acts.any(func(a): return str(a.get("text", "")) == RelishLogic.reason_text("won")), "won (#21): BEGIN refused with 'won'; the card shows that reason and no BEGIN (%s)" % str(acts.map(func(a): return a.get("text", ""))))
+	var rows: Array = s.view_lanes().get("lanes", [])
+	var at_vei: Array = rows.filter(func(r): return LaneStyle.touches_vei(r) and float(r.get("rate", 0.0)) > 0.0)
+	t.ok(not at_vei.is_empty() and LaneStyle.without_vei(rows, true).filter(func(r): return LaneStyle.touches_vei(r)).is_empty(),
+		"won (#21): %d lanes into Vei's queue still carry a rate (%s), and the END map hides them (without_vei)" % [at_vei.size(),
+		str(at_vei.map(func(r): return "%s %s" % [r.get("kind", ""), r.get("from", "")]).slice(0, 4))])
 
 
 ## The texts of every Label in building `bid`'s row of a TownCard's catalog.

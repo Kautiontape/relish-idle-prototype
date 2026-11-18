@@ -202,8 +202,8 @@ static func muster_word(views: Dictionary, hcfg: Dictionary) -> String:
 	return String(((hcfg.get("text", {}) as Dictionary).get("muster_word", {}) as Dictionary).get(to, "→ " + to.to_upper()))
 
 
-## P7: once won, a WAR muster is the win's (economy's #21 sends the muster to WAR), not the Muster stance's, so
-## it reads `war_won`. TODO(api-request #21): until #21 a won view still says flood, and the flood tip is the truth.
+## P7: once won, a WAR muster is the win's (economy's #21 sends the muster to WAR: view_hud.split.muster_to reads
+## "war"), not the Muster stance's, so it reads `war_won`.
 static func muster_tip(views: Dictionary, hcfg: Dictionary) -> String:
 	var tips: Dictionary = (hcfg.get("text", {}) as Dictionary).get("muster_tip", {})
 	var to := muster_to(views)

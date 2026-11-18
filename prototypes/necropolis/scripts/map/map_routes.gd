@@ -183,8 +183,10 @@ func set_victory(phase: String) -> void:
 
 ## Victory's END (MapSetpieces): every lane with Vei at either end is hidden from now on, with its
 ## carts, whatever its flow (LaneStyle.without_vei).
-## TODO(api-request #21): a stand-in. Once #21 stops her lanes they carry no rate and view_lanes omits them, so this
-## hides nothing; it can go then (with MapCallouts.set_vei_hidden and LaneStyle.without_vei).
+## Kept after #21 (a beaten Vei draws no lanes): once won her own lanes carry nothing, but two into her queue still
+## do, the forts' FLOOD drain (fort -> vei) and WAR with no target left (covington -> vei); a won pre_vei run for 1 h
+## carries up to 17/s and 59/s on them. So this still hides real flow (with MapCallouts.set_vei_hidden and
+## LaneStyle.without_vei).
 func set_vei_hidden(on: bool) -> void:
 	if on == _vei_hidden:
 		return
