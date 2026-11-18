@@ -53,6 +53,11 @@ var _door_text := ""             # the DOOR row's text as last wrapped
 # boss extras
 var _boss_block: Control = null
 var boss_info: Dictionary = {}   # the boss's hud_info(), built once a frame in refresh() (BossBlock reads it)
+# refresh() runs every frame: the config word blocks are read once in build, each string is rebuilt only when its inputs change
+var _hint_words: Dictionary = {}   # raid.json hud.hint
+var _title_key := ""               # the fort name and tier the title was last built from
+var _title_tier := -1
+var _raised_key := [-1, -1, -1]    # the RAISED row's inputs as last built
 
 
 ## raid.json hud.text: the HUD's own words (title, RAISED rows, checkpoint banner, trance meter, edge chevrons, exit plate).
@@ -67,6 +72,7 @@ static func hud_fmt(key: String, args: Array) -> String:
 
 func build(p_raid: Node, boss_mode: bool) -> void:
 	raid = p_raid
+	_hint_words = raid.rcfg().get("hud", {}).get("hint", {})
 	layer = 10
 
 	var box := VBoxContainer.new()
@@ -319,7 +325,12 @@ func _process(_delta: float) -> void:
 
 
 func refresh() -> void:
-	_title.text = raid.fort_name().to_upper() if raid.is_boss() else hud_fmt("title_tier", [raid.fort_name().to_upper(), raid.fort_tier()])
+	var fort: String = raid.fort_name()
+	var tier: int = 0 if raid.is_boss() else raid.fort_tier()
+	if fort != _title_key or tier != _title_tier:
+		_title_key = fort
+		_title_tier = tier
+		_title.text = fort.to_upper() if raid.is_boss() else hud_fmt("title_tier", [fort.to_upper(), tier])
 	var st := _stats
 	st.living = raid.enemies.size()
 	var motes: int = raid.get_tree().get_node_count_in_group("raid_essence")   # a count, no array
@@ -334,7 +345,9 @@ func refresh() -> void:
 					party += 1
 				else:
 					raised += 1
-		st.raised_text = hud_fmt("raised_big", [raised, party])
+		if raised != _raised_key[0] or party != _raised_key[1]:
+			_raised_key = [raised, party, 0]
+			st.raised_text = hud_fmt("raised_big", [raised, party])
 		boss_info = raid.hud_info()   # once a frame; the boss block reads this copy
 		var info: Dictionary = boss_info
 		_hint.text = str(info["hint"])
@@ -352,7 +365,9 @@ func refresh() -> void:
 		st.ward[2] = int(w["elite"])
 		st.ward[3] = int(w["big"])
 		var rc: Dictionary = raid.ledger_v2.raised_counts()
-		st.raised_text = hud_fmt("raised_ranks", [rc["chaff"], rc["soldier"], rc["elite"]])
+		if rc["chaff"] != _raised_key[0] or rc["soldier"] != _raised_key[1] or rc["elite"] != _raised_key[2]:
+			_raised_key = [rc["chaff"], rc["soldier"], rc["elite"]]
+			st.raised_text = hud_fmt("raised_ranks", [rc["chaff"], rc["soldier"], rc["elite"]])
 	_hint.visible = not raid.first_raise_done and not raid._ended
 	if _legend != null:
 		_legend.visible = not raid._ended
@@ -405,7 +420,7 @@ func refresh() -> void:
 			_push_t = 0.0
 			_update_push()
 		var at_exit: bool = raid.exit_hint_ready()
-		var hint_words: Dictionary = raid.rcfg().get("hud", {}).get("hint", {})
+		var hint_words: Dictionary = _hint_words   # cached in build
 		_hint.text = RaidLogic.hint_text(hint_words, raid.trance_active, at_exit)
 		if at_exit:
 			_hint.visible = true
@@ -862,7 +877,7 @@ func show_result(result: Dictionary, telemetry := "") -> void:
 ## position, not hue. Everything is drawn from cached ints; nothing is allocated per frame.
 class StatBlock:
 	extends Control
-	const RANKS := ["chaff", "soldier", "elite", "big"]
+	const RANK_KEYS := ["rank_chaff", "rank_soldier", "rank_elite", "rank_big"]   # the hud.stats keys of the four rank labels
 	var boss := false
 	var living := 0
 	var carried := 0
@@ -1036,7 +1051,7 @@ class StatBlock:
 			y += _row
 			for i in 4:
 				var n := int(ward[i])
-				_label(y, _word("rank_" + RANKS[i]))
+				_label(y, _word(RANK_KEYS[i]))
 				var r := _pip * (0.5 + 0.12 * i)
 				var shown := mini(n, _row_max)
 				var x := _pips(_col, y - 5.0, shown, shown, und, r, i == 3)
@@ -1110,6 +1125,10 @@ class StatBlock:
 class TranceMeter:
 	extends Control
 	var raid: Node = null
+	var _w_ready := ""        # the three state words, formatted once on the first draw (raid.json hud.text)
+	var _w_focus := ""
+	var _w_cool := ""
+	var _words_set := false
 
 	func _process(_d: float) -> void:
 		queue_redraw()
@@ -1128,19 +1147,24 @@ class TranceMeter:
 		if raid == null or raid.trance == null or raid._ended:
 			return
 		var tr = raid.trance
+		if not _words_set:
+			_words_set = true
+			_w_ready = RaidHud.hud_fmt("trance_ready", [])
+			_w_focus = RaidHud.hud_fmt("trance_focus", [])
+			_w_cool = RaidHud.hud_fmt("trance_cooldown", [])
 		var r := Rect2(0, 12, 150, 12)
 		var violet := Palette.c("relish")
 		draw_rect(r.grow(2.0), Palette.c("ground", 0.8))
 		var word := ""
 		var col := violet
 		if tr.state == RaidTrance.State.READY:
-			word = RaidHud.hud_fmt("trance_ready", [])
+			word = _w_ready
 			draw_rect(r, Palette.c("relish", 0.85))
 		elif tr.state == RaidTrance.State.ACTIVE:
-			word = RaidHud.hud_fmt("trance_focus", [])
+			word = _w_focus
 			draw_rect(Rect2(r.position, Vector2(r.size.x * tr.focus_frac(), r.size.y)), violet)
 		elif tr.state == RaidTrance.State.COOLDOWN:
-			word = RaidHud.hud_fmt("trance_cooldown", [])
+			word = _w_cool
 			col = Palette.c("cooldown")
 			_segmented(r, tr.cooldown_frac(), tr.cooldown_total, Palette.c("cooldown", 0.9))
 		elif tr.state == RaidTrance.State.LOCKOUT:
@@ -1179,6 +1203,12 @@ class WardenBlock:
 	var break_rows: Array = []   # T4: the break / takes / counter lines (RaidHud.break_rows), drawn under the existing rows
 	var break_lines := PackedStringArray()   # those rows wrapped to the plate (RaidLogic.wrap_break_rows): what is drawn and counted in extra_h
 	var _wrap_w := -1.0
+	var _row_step := -1.0   # hud.break_row_step, read once on first use (the _process and the draw both use it)
+
+	func _step() -> float:
+		if _row_step < 0.0:
+			_row_step = float(raid.rcfg().get("hud", {}).get("break_row_step", 22.0))
+		return _row_step
 
 	func _warden() -> RaidWarden:
 		if raid == null or raid.warden_run == null:
@@ -1211,7 +1241,7 @@ class WardenBlock:
 					RaidLogic.break_wrap_width(size.x, RaidLogic.WARDEN_BLOCK_INSET, float(raid.rcfg().get("hud", {}).get("break_wrap_min_px", 120.0))))
 				_key = -1
 		var eh := (20.0 if w is RaidHuntsman else 0.0) + (20.0 if w.spec.has("pack") else 0.0) \
-			+ (float(raid.rcfg().get("hud", {}).get("break_row_step", 22.0)) * break_lines.size() + 6.0 if not break_lines.is_empty() else 0.0)
+			+ (_step() * break_lines.size() + 6.0 if not break_lines.is_empty() else 0.0)
 		if eh != extra_h:
 			extra_h = eh
 			offset_bottom = offset_top + RaidLogic.TOP_BLOCK_BASE_H + eh
@@ -1397,7 +1427,7 @@ class WardenBlock:
 		# the new rows sit under the last of the existing ones (the Huntsman's catch row, a pack's row)
 		var ry := y + 22.0 * ((1.0 if hw != null else 0.0) + (1.0 if w.spec.has("pack") else 0.0))
 		for line in break_lines:
-			ry += float(raid.rcfg().get("hud", {}).get("break_row_step", 22.0))
+			ry += _step()
 			_text(x0, ry, str(line), int(raid.rcfg().get("hud", {}).get("break_row_px", 15)), RaidLogic.BREAK_ROW_KEY)
 
 

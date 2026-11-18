@@ -75,6 +75,9 @@ var _seq_t := 0.0
 var _emitted := false
 var _card: VeiCard = null       # the win or loss card, once the closing set piece is done
 var _rcfg_cache := {}
+var _vw_cache := {}              # vwords(), read once
+var _tag_p := -1.0               # the pressure _tag_text was built for (hud_info runs every frame)
+var _tag_text := ""
 var _bdev: BossDev = null
 var _bot: BossAutopilot = null
 
@@ -85,7 +88,9 @@ func vcfg() -> Dictionary:
 
 ## raid.json `vei_fight`: the fight's banners, hints, HUD words and end-card words.
 func vwords() -> Dictionary:
-	return ConfigDb.data.get("raid", {}).get("vei_fight", {})
+	if _vw_cache.is_empty():   # the walk once (the HUD reads this every frame); the Dictionary itself stays ConfigDb's
+		_vw_cache = ConfigDb.data.get("raid", {}).get("vei_fight", {})
+	return _vw_cache
 
 
 ## The boss scene's own warm list (vei.json `sound.warm`): unravel and the param kinds, no warden kinds.
@@ -883,6 +888,15 @@ func _emit(won: bool) -> void:
 
 
 # --------------------------------------------------------------------- HUD ---
+## The guards tag (BossLogic.pressure_tag), rebuilt only when `pressure` changes: it is set once, in `_begin_break`
+## (the pool it comes from is the seed's and never moves), so the per-frame HUD read costs one compare.
+func _pressure_tag() -> String:
+	if pressure != _tag_p:
+		_tag_p = pressure
+		_tag_text = BossLogic.pressure_tag(pressure, rcfg().get("vei_loss", {}))
+	return _tag_text
+
+
 ## What the boss HUD block shows, read each frame (raid_hud.gd BossBlock).
 func hud_info() -> Dictionary:
 	var vc := vcfg()
@@ -903,7 +917,7 @@ func hud_info() -> Dictionary:
 	return {"phase": phase, "break_began": phase1_s >= 0.0, "eta": eta, "rule_on": rule_on,
 		"rule": BossLogic.phase2_hint(int(vc.get("break_beats", 8)), int(vc.get("lapse_cost", -1)), vwords()) if rule_on else "", "met": met, "required": VeiFronts.required(vc),
 		"t": float(p1.get("t", 0.0)), "max_t": float(vc.get("phase1_max_s", 90.0)),
-		"pressure": pressure, "pressure_tag": BossLogic.pressure_tag(pressure, rcfg().get("vei_loss", {})),
+		"pressure": pressure, "pressure_tag": _pressure_tag(),
 		"horde": horde, "ferry": ferry, "streak": int(brk.get("streak", 0)), "break_beats": int(vc.get("break_beats", 8)),
 		"winning": float(brk.get("ema", 0.0)) > ferry_beat, "phyl_left": phylactery_left(), "clones_left": clones_left(),
 		"spent_phyl": int(spent["phylactery"]), "spent_clones": int(spent["clones"]), "hint": hint,

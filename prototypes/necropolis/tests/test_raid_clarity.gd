@@ -1271,7 +1271,10 @@ func _contrast_tests(t: TestUtil) -> void:
 	var living_src := _func_src(us, "func _draw_living(")
 	var undead_src := _func_src(us, "func _draw_undead(")
 	undead_src = undead_src.substr(0, undead_src.find("\nconst "))   # up to the living's constants that follow it
-	t.ok(living_src.contains("RaidLogic.living_bow_spans(") and living_src.contains("LIVING_DASHES") and living_src.contains("LineGlow.layers(") and living_src.contains("draw_arc(") and living_src.contains("LineGlow.ring("), "the living's bow is dashed LineGlow arcs, the hollow ring head kept")
+	var bow_src := _func_src(us, "static func _bow_spans(")
+	t.ok(bow_src.contains("RaidLogic.living_bow_spans(0.0, n, _bow_solid, LIVING_DASHES, LIVING_DASH_SWEEP, LIVING_GAP_SWEEP)") and bow_src.contains("_bow_cache"), "the bow's spans are RaidLogic.living_bow_spans at angle 0, cached per layer count")
+	t.ok(living_src.contains("_bow_spans(layers.size())") and living_src.contains("a0 + s.x, a0 + s.y") and not living_src.contains("ConfigDb"), "_draw_living draws the cached living_bow_spans output shifted by a0, with no config walk")
+	t.ok(living_src.contains("LineGlow.layers(") and living_src.contains("draw_arc(") and living_src.contains("LineGlow.ring("), "the living's bow is dashed LineGlow arcs, the hollow ring head kept")
 	t.ok(not undead_src.contains("LIVING_DASHES") and undead_src.contains("draw_line("), "the undead's strokes stay solid")
 	var sweep := 3.0 * 0.56 + 2.0 * 0.36
 	t.ok(us.contains("const LIVING_DASHES := 3") and us.contains("const LIVING_DASH_SWEEP := 0.56") and us.contains("const LIVING_GAP_SWEEP := 0.36") and sweep <= 2.45, "three dashes and their gaps span the bow's 2.4 rad")
