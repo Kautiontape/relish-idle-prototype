@@ -14,6 +14,8 @@ var _gen := 0  # one per swap: a transition from an older swap stops when it see
 var _closing := false  # the window is closing: swaps mount directly, with no transition
 var _held_events: Array = []  # game events drained while the swapped-in scene was not mounted yet
 var _holding_sounds := false  # this router took a hold on Synth's render cache in _ready
+var _catchup: MapCatchup  # the catch-up progress screen; the last child, so its _input hears events first
+var _catchup_demo := false  # --catchup=demo: the screen is held at the demo progress
 
 
 func _ready() -> void:
@@ -21,7 +23,27 @@ func _ready() -> void:
 	Synth.retain()  # hold the shared sound cache across scene swaps; released when the router goes
 	_holding_sounds = true
 	Game.game_event.connect(_on_game_event)
+	_catchup = MapCatchup.new()
+	_catchup_demo = Game.state.debug_enabled and OS.get_cmdline_user_args().has("--catchup=demo")
+	add_child(_catchup)
+	_update_catchup(0.0)  # a load's catch-up is already active: input is swallowed from the first frame
 	_open_map()
+
+
+## The catch-up screen follows view_catchup() (a small dict) once a frame.
+func _process(delta: float) -> void:
+	_update_catchup(delta)
+
+
+## --catchup=demo (debug only) holds the screen at the configured demo progress.
+func _update_catchup(dt: float) -> void:
+	var view: Dictionary
+	if _catchup_demo:
+		var c := RouterLogic.catchup_cfg()
+		view = {"active": true, "done_s": float(c["demo_done_s"]), "total_s": float(c["demo_total_s"])}
+	else:
+		view = Game.state.view_catchup()
+	_catchup.update(view, dt, Pulse.reduced_motion)
 
 
 ## main is notified before its children: a close request mid-transition must not start another
@@ -145,6 +167,7 @@ func _mount(node: Node, args: Dictionary) -> void:
 		node.queue_free()
 		return
 	add_child(node)
+	move_child(_catchup, -1)  # last in the tree: its _input runs before the new scene's
 	if node.has_method("setup"):
 		node.setup(args)
 	var held := _held_events

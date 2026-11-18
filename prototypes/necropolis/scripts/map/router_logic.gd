@@ -9,3 +9,46 @@ extends RefCounted
 ## there is nothing to write back; applying it would be refused. A boss result is never stale by this rule.
 static func result_stale(kind: String, relish_view: Dictionary) -> bool:
 	return kind == "raid" and int(relish_view.get("run_id", -1)) == -1
+
+
+# --- the catch-up progress screen (configs/map_view.json "catchup") ---------------------------
+
+static func catchup_cfg() -> Dictionary:
+	return MapLogic.cfg().get("catchup", {})
+
+
+## done_s / total_s of a view_catchup() dict, clamped 0..1; a total of 0 reads 0.
+static func catchup_fraction(view: Dictionary) -> float:
+	var total := float(view.get("total_s", 0.0))
+	if total <= 0.0:
+		return 0.0
+	return clampf(float(view.get("done_s", 0.0)) / total, 0.0, 1.0)
+
+
+## "3h 20m of 9h 05m": done_s of total_s as durations (MapLogic.fmt_drain), done never past total.
+static func catchup_line(view: Dictionary, c := {}) -> String:
+	if c.is_empty():
+		c = catchup_cfg()
+	var total := maxf(float(view.get("total_s", 0.0)), 0.0)
+	var done := clampf(float(view.get("done_s", 0.0)), 0.0, total)
+	return str(c["line_fmt"]) % [MapLogic.fmt_drain(done), MapLogic.fmt_drain(total)]
+
+
+## Input is swallowed exactly while the catch-up runs (not during the fade-out).
+static func catchup_swallows(active: bool) -> bool:
+	return active
+
+
+## The overlay's alpha factor (0..1) after `dt`: full while active; then it fades over `fade_s`, or goes at
+## once under reduced motion (or a fade of 0).
+static func catchup_alpha(alpha: float, active: bool, dt: float, fade_s: float, reduced: bool) -> float:
+	if active:
+		return 1.0
+	if reduced or fade_s <= 0.0:
+		return 0.0
+	return maxf(alpha - dt / fade_s, 0.0)
+
+
+## Visible while any alpha is left.
+static func catchup_shown(alpha: float) -> bool:
+	return alpha > 0.0

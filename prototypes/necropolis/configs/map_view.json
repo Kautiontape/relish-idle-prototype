@@ -1083,6 +1083,21 @@
     "hud_fade_s": 0.12,
     "settle_frames": 2
   },
+  "catchup": {
+    "layer": 110,
+    "plate_alpha": 0.97,
+    "fade_s": 0.3,
+    "title": "Catching up on your time away",
+    "line_fmt": "%s of %s",
+    "line_px": 16,
+    "bar_w_px": 360,
+    "bar_h_px": 8,
+    "gap_px": 14,
+    "track_alpha": 0.9,
+    "fill_key": "relish",
+    "demo_total_s": 32400.0,
+    "demo_done_s": 12960.0
+  },
   "setpieces": {
     "valve_beats": 1.0,
     "valve_ease_power": 3.0,
