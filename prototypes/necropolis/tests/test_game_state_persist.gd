@@ -871,7 +871,8 @@ func _level_cut() -> void:
 		t.ok(GameState.new(_cfgs()).from_dict(x) == {"ok": false, "reason": "corrupt"}, "level cut: a %s of %d is still corrupt" % bad)
 	# Phase I P2 (Q-d): the sanity cap, save.level_sanity_mult (2) × the highest max_level (8) = 16. At 16 the cut rule
 	# clamps; past it (17, the review's 1e9, a build_level of 1e9) the save is corrupt, never loaded silently at the top.
-	# Revert proof: with fee92d6's save_io.gd all three load ok with the Ossuary at L1, and those three asserts fail
+	# Revert proof: with the cap check taken out of SaveIO._town_problem, all three load ok with the Ossuary at L1, and
+	# those three asserts fail
 	t.ok(SaveIO.level_sanity_cap(TestUtil.configs()["buildings"], TestUtil.configs()) == 16.0, "level cut: the sanity cap is 2 × 8 = 16")
 	var at16 := d.duplicate(true)
 	(oss.call(at16) as Dictionary).merge({"level": 16, "build_level": 16}, true)

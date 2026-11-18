@@ -679,6 +679,9 @@ same profile with the game closed.
   - The whole list caps at `queue.max_len` × `queue.list_mult` (2 × 8 = 16).
   - Before P2 every entry counted, so eight gated entries refused every relic-free build (`queue_full`):
     town_only's bot jammed at 8.0 h at c15f874 (vision-e4-final item 3).
+  - How long a full queue lasts while closed (ruling 3) is measured in BALANCE §5's P2 re-measure (88e18a6):
+    pure_idle's 8 finish 1.96 h into its close, and past 16 entries `max_len` isn't the limit. `queue.max_len` stays
+    8 (the run's manager, 2026-11-18).
 - **Processing**, every core step, right after the tier check:
   - The queue is processed in order.
   - An entry blocked by an **unmet gate** (blueprint, tier, a building, a locked lot, relics) is flagged
@@ -853,8 +856,8 @@ dismissed) and the `away_report` event.
 | Vei-ready under the sessions profile | about 5–8 days (about 4–10 h of active play in all) |
 | share of backlog growth that happens while away, under sessions | ≥ 70%. At c15f874 (BALANCE §5's calibration list): 96.3%, and 79.4% of the build value |
 | dead air: active minutes in which nothing has positive projected value | < 10% |
-| continuous play (open all day, always acting), in calendar time to Vei-ready | **10–30% sooner** than sessions. Being present is never pointless, and idle still wins. The throttles are loot recovery and the relic cap. At 69542f2 (E4 step 9, the win odds, mostly time-based with the backlog term capped; BALANCE §5's `odds` row), unchanged through 553a66f, 4384a17 and b475eb3: continuous day 4.8291 against sessions' 6.0001, **19.5% sooner** (was 44.9% with the odds the strain), and no profile's odds reach 0.6 before day 4.24. At c15f874, after 4f8b493's ready-vat hand moved the sim (BALANCE §5's calibration list): continuous 4.8358 against 6.0001, **19.4% sooner**. Two trees, so two numbers. |
-| pure idle from a fresh start (never raids) | never Vei-ready (relics gate the endgame), but a full queue and a supported setup keep growing for about 2–3 days. **Missed at c15f874** (BALANCE §5's calibration list): pure_idle's one queue runs dry 1.9 h into its close, and town_only's bot jams its queue on gated entries at 8.0 h; with a fill that skips them, town_only's relic-free content lasts to day 1.46 |
+| continuous play (open all day, always acting), in calendar time to Vei-ready | **10–30% sooner** than sessions. Being present is never pointless, and idle still wins. The throttles are loot recovery and the relic cap. At 69542f2 (E4 step 9, the win odds, mostly time-based with the backlog term capped; BALANCE §5's `odds` row), unchanged through 553a66f, 4384a17 and b475eb3: continuous day 4.8291 against sessions' 6.0001, **19.5% sooner** (was 44.9% with the odds the strain), and no profile's odds reach 0.6 before day 4.24. At c15f874, after 4f8b493's ready-vat hand moved the sim (BALANCE §5's calibration list): continuous 4.8358 against 6.0001, **19.4% sooner**. Two trees, so two numbers. At 88e18a6 (Phase I P2's queue rule and fill; BALANCE §5's P2 re-measure) sessions reads day 6.1667, one session later, and a player who parks gated builds reads 5.1667; continuous isn't re-run until P3's batch, so there is no "sooner" at 88e18a6 |
+| pure idle from a fresh start (never raids) | never Vei-ready (relics gate the endgame), but a full queue and a supported setup keep growing for about 2–3 days. **Missed at c15f874** (BALANCE §5's calibration list): pure_idle's one queue runs dry 1.9 h into its close, and town_only's bot jams its queue on gated entries at 8.0 h; with a fill that skips them, town_only's relic-free content lasts to day 1.46. **Still missed at 88e18a6**, after P2's queue rule and fill (BALANCE §5's P2 re-measure): pure_idle's 8 builds finish 1.96 h into its close (3.11 h if it parks gated builds; 3.86 h at `max_len` 16), and town_only's jam is gone but its last relic-free build is at day 1.41. The limit is relic-free content depth, not `max_len` (ruled 2026-11-18: 8 stays; depth is P3's) |
 | after an 8 h night away with a sensible setup | the report shows backlog ▲ and at least one thing to do. From E4 step 3 the backlog line ends with Vei's odds before and after ("· odds 0.02 → 0.11" on sessions' first night), and one night never takes them near 1. Since E4 step 9 they are the win odds (MECHANICS §3.5): sessions' first night reads 0.06 at its close and 0.16 on its load, its sixth 0.57 → 0.61 |
 | away 24 h with the default setup | at least half the held forts lost |
 | away 24 h with a prepared setup (WAR support, siege on the likely targets, weak forts raided before leaving) | at most a quarter lost; Covington never |
@@ -1194,7 +1197,10 @@ The policies (the run's manager's, for Shawn):
     passes over an item that would be `skipped_gate`, except an upgrade waiting on its own lot's construction
     (`under_construction`, which the shipped fill queued and still counts toward `queue_max`) and one `no_relics` entry
     while the queue holds no other (`park_relics`: the build a player parks behind the relics, so the wall's chip
-    shows; it counts toward nothing). Before P2 the fill counted every entry, so gated ones filled `queue_max` and
+    shows; it counts toward nothing). It parks only a `no_relics` entry, so a queue set at Hamlet (pure_idle's one
+    setup, where the Chapel and the Walls read `lot_locked`) holds none, and pure_idle's wall is the away report's
+    `full_raid` line instead. A player can park any gated build for free under §5's rule; the bot doesn't, and at
+    88e18a6 that costs sessions a day against a parking player (BALANCE §5's P2 re-measure). Before P2 the fill counted every entry, so gated ones filled `queue_max` and
     jammed it (town_only at 8.0 h at c15f874). `cost_exceeds_cap` is a gate on the walk, so such an item is now passed
     over without a command, and the `queue:cost_exceeds_cap` refusal count drops.
   - The list (`BUILD_LIST`): Market level 2, a Raising Pit, the Bone Mill, a House (the Village gate), mill level 2, pit

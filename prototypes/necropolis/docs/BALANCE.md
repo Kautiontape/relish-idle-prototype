@@ -384,13 +384,65 @@ bot with its queue logged at each session end; `QW_SKIP=1` swaps in a fill that 
 | **lots and stores** (lots full with `no_lot` not before day 2; no store above 2× its value 24 h earlier; bone at least 60% spent) | sessions: lots full at day 5 (120 h); gold at most 1.34× and bone 1.64× its value a day earlier; 96.2% of the bone spent | **Met** under sessions (continuous fills its lots at 30 h) |
 | **carvers by tier** | ablation_keep isn't in the batch | Not measured at c15f874 |
 
-**The queue jam (an autoplayer defect found here; not fixed in E4).** The bot's fill (`Autoplayer._fill`) queues a
-lot's next level once the level below is built, building or queued, so it counts a gated entry as that lot's level and
-chains more levels onto it. A gated entry keeps its slot (`skipped_gate`), so 8 of them stop the queue while relic-free
-levels wait. It jams town_only from 8.0 h and sessions on days 2.4–4.0, which is sessions' 39 h without a finished
-building and its S2 gap. The game accepts the same queue from a player (a gated entry is queued and holds its slot), so
-it is a Phase I pair: the fill's rule, and whether a gated entry should hold a queue slot at all. A fix moves every
-profile's rows, so it needs the batch re-run.
+**The queue jam (an autoplayer defect found here; fixed in Phase I P2 at fee92d6, below).** The bot's fill
+(`Autoplayer._fill`) queued a lot's next level once the level below was built, building or queued, so it counted a
+gated entry as that lot's level and chained more levels onto it. A gated entry kept its slot (`skipped_gate`), so 8 of
+them stopped the queue while relic-free levels waited. It jammed town_only from 8.0 h and sessions on days 2.4–4.0,
+which is sessions' 39 h without a finished building and its S2 gap. The game accepted the same queue from a player. P2
+answered both halves: a gated entry holds no slot (IDLE §5's queue rule), and the fill passes over gated items (IDLE
+§8's policies).
+
+**Phase I P2's re-measure, at 88e18a6** (the queue rule and fill at fee92d6, the vat clip at 88e18a6; one seed). Only
+pure_idle, town_only and sessions were re-run; the other 11 rows above stay c15f874's until P3's full batch. The digest
+is `reports/economy/wip/tools-p2/batch-88e18a6.jsonl` (`summarize.py`, as above). The queue hours come from
+`wip/tools-p2/qh_probe.gd` with `qh_bot.gd` (each close's queue starts and the last start and finish inside it;
+`QH_PARK=1` adds a player who also parks gated builds in the list's spare room, which the queue rule lets cost nothing);
+the Vei-ready backups from `wip/tools22/ve_probe.gd`; the day-2 town from `wip/tools-p2/bs_probe.gd`. catchup_accuracy
+11 PASS / 0 FAIL; sessions_open fails only its known 3 (I1 days 1 and 2, and the first command answered otherwise,
+old-sluice at 14 569 s).
+
+| profile | measured at 88e18a6 (c15f874 in brackets) | verdict |
+|---|---|---|
+| **pure_idle** (a build or level per 6 h for 48–72 h, then a plateau with the chip) | 8 builds in its 7-day close (6), the last finished 1.96 h after the close (1.9 h), then none for 166 h; gold and bone at their caps (13 000, 350) from then. Its wall is the away report's `full_raid` line ("Your stores are full and the queue is empty: raid a fort for relics") at the load, 168.33 h; the queue holds nothing, so no relics chip (both read 168.33 h at c15f874) | **Missed, structural** (below). The Chapel and the Walls no longer hold 2 of the 8 slots, and the fill doesn't park them: at the Hamlet setup they are `lot_locked`, and `park_relics` parks only a `no_relics` entry |
+| **town_only** (a plateau at 2–3 days, then "needs relics") | its last relic-free build at 33.9 h (day 1.41; 8.0 h, jammed); 50 builds (15); 12 buildings and 54 levels at day 8 (19 levels); stores full from day 2 (22 750 gold, 1 450 bone); the relics wall in the report from 8.0 h and as the queue's chip from 4.05 h. The parking player also ends at day 1.41 | **Missed: the relic-free content lasts about 1.4 days**, short of 2–3. The jam is gone; this is content depth, P3's question |
+| **sessions** | Vei-ready **day 6.1667** (6.0001), one session later; backups at Vei-ready **1 + 6** (1 + 8), her pool 600 (600). The first Chapel at 7.52 h (3.73 h), the first clone at 8.09 h (4.09 h). 12 deaths: 4 phylactery, 7 clone, 1 unmade (14: 8, 6, 0). Next affordable: S1 median 29 min (max 1.5 h, 17 starts); S2 median 25 min (max **51.7 h**, 49 starts). Growth away: backlog 96.3%, build value 89.1% (96.3%, 79.4%). Relics 93 in 8 days (87). Lots full at 128 h (120 h). Bone at most 7.07× its value a day earlier (1.64×): the day-3 → day-4 recovery from the stall below | **Moved by P2's fill** (ruling 2), not by the vat clip: ve_probe reads 6.1667 and 1 + 6 at fee92d6 as at 88e18a6, and 6.0001 and 1 + 8 at 8b1e808 as at cac5a17. **The stock row is now missed** (bone above 2×) |
+
+- **sessions' bone stall, days 1.01–3.18** (the S2 max). At day 2 the town has 21.75 workers for 31 slots. Staffing
+  fills the haulers (6), the pits (10) and the stalls (5.75 of 6), and leaves the Bone Mill (0 of 6), the Forge and the
+  Chapel's tend unstaffed. So bone income is 0, and bone sits at 77.8 of 550 for two days. The queue's head is the
+  Embalmer (330 bone, 1 relic; `waiting_funds`, `no_bone`, `affordable_in_s` −1). It holds the queue (IDLE §5's
+  processing rule) with 13 entries behind it, three new Raising Pits and three pit levels among them, which would add
+  the workers. Gold sits at its cap. At 8b1e808 the same day-2 town has 6 Raising Pits at L2 (24 pit slots), every
+  slot staffed, the mill running and the Embalmer built, and its queue still parks gated builds (the lot-21/22 pits,
+  `lot_locked`; the Chapel's L2, `no_relics`). The old fill queued a gated build ahead, and it started when its gate
+  cleared while away: the Chapel at 3.73 h, against 7.52 h now. The P2 fill issues no command for it until a look finds
+  it ungated, and by then other builds are queued ahead. (This reading compares the two queues and towns; the runs
+  weren't traced build by build.)
+- **The parking player** (`QH_PARK=1`, at 88e18a6). Sessions reaches Vei-ready at **day 5.1667**, with **1 + 10**
+  backups (10 vats), and has no stall: every close but day 6's night starts a build. town_only's last build doesn't
+  move (day 1.41). So the shipped fill is slower than a player who uses the queue rule, and P3's batch has to pick its
+  fill (the milestone report has the question). Continuous wasn't re-run, so IDLE §8's "10–30% sooner" has no reading
+  at 88e18a6. At c15f874 it was 4.8358.
+- **How long a full queue lasts** (ruling 3; the 168 h close after one 20 min setup; hours after the close):
+
+  | pure_idle's queue | entries at the close | last start | last done |
+  |---|---|---|---|
+  | `max_len` 8 (shipped) | 8 | 1.94 h | 1.96 h |
+  | `max_len` 16 | 16 | 3.81 h | 3.86 h |
+  | `max_len` 24 | 17 (all it can reach) | 4.19 h | 4.24 h |
+  | 8, parking (list 16) | 8, plus 8 parked | 3.09 h | 3.11 h |
+  | 16, parking (list 32) | 14, plus 18 parked | 4.13 h | 4.16 h |
+
+  - In the parking runs the tier reaches Village during the close, and a few parked Village builds start.
+  - The rest wait on relics (the Chapel, the Walls) or on the Town tier (the Ossuary).
+  - From a Hamlet setup, the relic-free content is 17–21 builds, and income finishes them in about 4.5 h. So past 16,
+    `max_len` isn't the limit.
+  - **A real player's queue at `max_len` 8** (sessions' 15.7 h nights; hours after the close, last start). With the
+    shipped fill: 2.04, 0, 0, 1.23, 5.23, 3.14, 9.16 and 4.41 h. The two 0s are the bone stall. With parking: 1.45,
+    1.63, 3.36, 1.11, 1.18, 2.73, 0 and 1.27 h. In the 3.67 h day closes the last start is 1.82–3.61 h in with the
+    shipped fill (none in the stall), and 0.95–3.55 h with parking.
+  - **Ruled** (the run's manager, 2026-11-18): `max_len` stays 8; 16 would buy about 2 h. The 48–72 h pure_idle target
+    is a relic-free content-depth question, and it goes to P3 with these numbers. P2 adds no depth.
 
 ## 6. Known balance risks
 - **The knife edge** (systems review S5). Odds of 0.6 need a backlog of about 18,000 raw. Vei's undead
