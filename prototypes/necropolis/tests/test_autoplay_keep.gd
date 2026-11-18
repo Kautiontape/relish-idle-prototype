@@ -250,6 +250,46 @@ func _husk_policy(c: Dictionary) -> void:
 	vw.cleanup()
 
 
+## Phase I P2 (the run's manager's ruling 2): the fill skips gated entries. On a new game (a hamlet with no relics) the
+## priority list reaches the Chapel of Vats and the Walls (village and town buildings: needs_tier); with the crypt's
+## levels at its head, crypt level 2 needs a relic (no_relics) and level 3 waits behind it. The fill leaves no entry
+## gated on anything but its own lot's construction, except one parked no_relics entry (park_relics), and still fills
+## queue_max. A skipped item issues no command (the fill reads the walk first), so the I1 replay's log is only what stays.
+## Revert proof (at fee92d6, the fill's pre-walk taken out and every entry counted, as cac5a17's _fill): crypt levels 2
+## and 3 both stay on no_relics and take two of the eight, so 6 count, and a 9th command is refused queue_full: the
+## second, third and fourth asserts fail, with and without park_relics (6 FAIL).
+func _fill_skips_gated(c: Dictionary) -> void:
+	for park in [true, false]:
+		var b := Autoplayer._bot("keep_test_fill", c, {"print_rows": false})
+		b.record = true
+		b.park_relics = park
+		b.new_game()
+		b._crypt_up = true
+		b._fill()
+		var tn := b.s.view_town()
+		var rows: Array = tn["queue"]
+		var bad: Array = []
+		var relic: Array = []
+		var counted := 0
+		for r in rows:
+			var key := "%s/%s/%d:%s" % [r["building_id"], r["lot_id"], int(r["level"]), r["reason"]]
+			if str(r["status"]) != "skipped_gate" or str(r["reason"]) == "under_construction":
+				counted += 1
+			elif str(r["reason"]) == "no_relics":
+				relic.append(key)
+			else:
+				bad.append(key)
+		var queued: Array = (b.cmd_log as Array).filter(func(e): return str(e["op"]) == "queue")
+		t.ok(bad.is_empty(), "park %s: the fill leaves no entry gated on a tier or another lasting gate: %s" % [str(park), str(bad)])
+		t.ok(relic == (["crypt/lot-01/2:no_relics"] if park else []),
+			"park %s: %s no_relics entry: %s" % [str(park), "one parked" if park else "no", str(relic)])
+		t.ok(counted == int(tn["queue_max"]) and int(tn["queue_slots"]) <= counted, "park %s: the fill still fills queue_max (%d counted, %d slots)" % [
+			str(park), counted, int(tn["queue_slots"])])
+		t.ok(queued.size() == rows.size() and queued.all(func(e): return bool(e["ok"])),
+			"park %s: a skipped item issues no command (it is read off the walk): %d queue commands, all kept" % [str(park), queued.size()])
+		b.cleanup()
+
+
 static func _queued(gs: GameState, lot: String) -> bool:
 	for e in gs.view_town()["queue"]:
 		if str(e["lot_id"]) == lot:
@@ -332,6 +372,7 @@ func run() -> int:
 
 	_two_fronts(c)
 	_crypt_levels(c)
+	_fill_skips_gated(c)
 	_husk_policy(c)
 
 	# the fill: a skeleton (two nerve slots: wits or speed) with two big speed remnants and two small wits ones

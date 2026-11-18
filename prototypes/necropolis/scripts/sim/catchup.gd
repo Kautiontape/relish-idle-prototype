@@ -181,7 +181,9 @@ func _finish(gs: GameState) -> void:
 ## - gold or bone reaching its floor (stock / −net, while the stock is above 1 and the net negative);
 ## - the tithe: its warning (next_s − tithe.warning_s), a wave starting (next_s) and a wave ending
 ##   (its s_left);
-## - a simulacrum running out of charges (E3-4: simulacrum_out_s, guarded).
+## - a simulacrum running out of charges (E3-4: simulacrum_out_s, guarded);
+## - a tended vat filling (Phase I P2, the run's manager's ruling 4, Q-c: vat_fill_s), so a ready clone gives its tend
+##   hand back at the moment it fills, as live play's 0.5 s substeps do, not up to one catch-up step late (IDLE §8).
 ## A grace ending, a garrison reaching 0 and a break are solved inside RealmSim's step, and the store
 ## caps inside TownSim's, so they aren't clipped. tests/slow/convergence.gd's harness clips with this.
 static func next_event_s(gs: GameState) -> float:
@@ -221,6 +223,34 @@ static func next_event_s(gs: GameState) -> float:
 			e = minf(e, float(wv["s_left"]))
 	if not r.simulacra.is_empty():
 		e = minf(e, simulacrum_out_s(gs))
+	if not gs.vats_staffed.is_empty():
+		e = minf(e, vat_fill_s(gs))
+	return e
+
+
+## The seconds until the first tended vat fills (Phase I P2, ruling 4; MECHANICS §7), INF when none is tended. A vat
+## grows linearly at vats.grow_per_s × its hands (TownSim.vat_hands: the staffing the next core step grows it on), so
+## it fills at (1 − grow) / (grow_per_s × hands). The step that ends there must reach 1 exactly (GameState._grow_vats
+## clamps at 1), or the vat sits a hair under it, keeps its hand, and fills inside the next step, a whole step late
+## again: so a projection whose product falls short of 1 in floats is moved 1e-9 s later (grow_per_s × hands × 1e-9 is
+## far above one ulp of 1, and the step then overshoots the fill by a nanosecond).
+static func vat_fill_s(gs: GameState) -> float:
+	var hands := gs.town_sim.vat_hands()
+	var e := INF
+	for i in hands.size():
+		var h := float(hands[i])
+		if h <= 0.0:
+			continue
+		var g := float(gs.vats_grow[i]) if i < gs.vats_grow.size() else 0.0
+		if g >= 1.0:
+			continue
+		var p := gs._grow_per_s * h
+		if not (p > 0.0):
+			continue
+		var at := (1.0 - g) / p
+		if g + p * at < 1.0:
+			at += 1e-9
+		e = minf(e, at)
 	return e
 
 
