@@ -1649,7 +1649,9 @@ func _build_sort(day1: Dictionary) -> void:
 	t.ok(real.size() == cat.size() - built_unique, "build sort: the day1 catalog keeps all %d rows but the %d built unique" % [cat.size(), built_unique])
 	t.ok(BuildSort.can_queue(_row("house", true, "", ["lot-05"]), vcfg), "build sort: a buildable row can be queued")
 	t.ok(BuildSort.can_queue(_row("house", false, "no_gold", ["lot-05"]), vcfg), "build sort: an unaffordable row can be queued")
-	t.ok(not BuildSort.can_queue(_row("inn", false, "needs_tier", ["lot-05"]), vcfg), "build sort: a gated row cannot be queued")
+	t.ok(BuildSort.can_queue(_row("inn", false, "needs_tier", ["lot-05"]), vcfg), "build sort: a gated row can be queued (it waits for its tier)")
+	t.ok(not BuildSort.can_queue(_row("inn", false, "needs_tier", []), vcfg), "build sort: a row with no free lot can't be queued")
+	t.ok(not BuildSort.can_queue(_row("crypt", false, "unique", ["lot-05"]), vcfg), "build sort: a built unique building can't be queued")
 	t.ok(not BuildSort.can_queue(_row("house", false, "no_lot", []), vcfg), "build sort: a row with no free lot cannot be queued")
 
 
@@ -1668,7 +1670,7 @@ func _build_reasons(day1: Dictionary) -> void:
 		t.ok(txt != "" and txt != r and not txt.contains("_") and not txt.contains("{"), "reason '%s' has human text: %s" % [r, txt])
 	for r in vcfg["reasons"]:
 		if r != "_unknown":
-			t.ok(r in ALL_REASONS or r in ["no_cost"], "view.reasons.%s is a documented reason id (no_cost is the town's own: past level_costs)" % r)
+			t.ok(r in ALL_REASONS or r in ["no_cost", "catching_up"], "view.reasons.%s is a documented reason id (no_cost is the town's own: past level_costs; catching_up is every command's, STATE-API §4)" % r)
 	t.ok(BuildSort.reason_text("needs_tier", row, st, bv, vcfg) == "needs Village tier", "reason: needs_tier uses requires.tier")
 	t.ok(BuildSort.reason_text("needs_blueprint", row, st, bv, vcfg) == "needs the Embalmer blueprint: dungeon loot", "reason: needs_blueprint names the blueprint")
 	t.ok(BuildSort.reason_text("needs_building", row, st, bv, vcfg) == "needs a House first", "reason: needs_building names the building")
@@ -1740,7 +1742,10 @@ func _build_queue(day1: Dictionary) -> void:
 	var real_q: Array = [{"building_id": "inn", "lot_id": "lot-06"}]
 	t.ok(TownStandins.queue_entries({"queue": real_q}, local) == real_q and TownStandins.queue_entries({"queue": []}, local).is_empty(),
 		"queue: with a real `queue` key (even empty) the view's entries are shown, never the local ones")
-	t.ok(String(vcfg["queue_text"].get("no_commands", "")) == "queue commands: coming", "queue: the add path says queue commands are coming once the view has a queue")
+	var pb := FileAccess.get_file_as_string("res://scripts/town/panel_build.gd")  # panel_build needs the Game autoload: read its source
+	t.ok(pb.contains("Game.state.cmd_queue_build(") and pb.contains("Game.state.cmd_unqueue(") and pb.contains("Game.state.cmd_reorder_queue(")
+		and not vcfg["queue_text"].has("no_commands"),
+		"queue: with the view's queue the Build tab calls cmd_queue_build, cmd_unqueue and cmd_reorder_queue (no 'coming' text)")
 	var q := TownStandins.BuildQueue.new(3, vcfg["cap_buildings"])
 	var ctx := _qctx()
 	var r := q.add(_entry("house", "lot-05"), ctx)
@@ -2015,9 +2020,9 @@ func _build_ghosts(day1: Dictionary) -> void:
 	t.ok(g.size() == 3, "ghosts: one per queue entry")
 	t.ok(g.map(func(x): return x["number"]) == [1, 2, 3] and g.map(func(x): return x["lot_id"]) == ["lot-05", "lot-06", "lot-07"],
 		"ghosts: numbers are the queue positions, on the entry's lot")
-	t.ok(g.map(func(x): return x["shape"]) == ["hold", "struck", "plain"] and g.map(func(x): return x["status"]) == ["waiting_funds", "skipped_gate", "queued"],
-		"ghosts: a waiting head holds, a gated entry is struck, the rest are plain (%s)" % str(g.map(func(x): return x["shape"])))
-	t.ok((g[0]["text"].begins_with("needs ") or g[0]["text"].contains("isn't flowing")) and g[1]["text"].begins_with("needs Village tier"),
+	t.ok(g.map(func(x): return x["shape"]) == ["hold", "plain", "plain"] and g.map(func(x): return x["status"]) == ["waiting_funds", "skipped_gate", "queued"],
+		"ghosts: a waiting head holds; a gated entry waits in its place, plain; the rest are plain (%s)" % str(g.map(func(x): return x["shape"])))
+	t.ok((g[0]["text"].begins_with("needs ") or g[0]["text"].contains("isn't flowing")) and g[1]["text"] == "queued: waits for Village",
 		"ghosts: hover text is the shortage (%s) and the gate (%s)" % [g[0]["text"], g[1]["text"]])
 	t.ok(g[2]["text"] == "", "ghosts: a plain queued entry has no hover text")
 	q.entries = [_entry("well", "lot-07")]

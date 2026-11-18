@@ -332,10 +332,16 @@ static func stuck_line(id: String, fix: String, views: Dictionary, hcfg: Diction
 		if net < 0.0 and not is_flat(net, hcfg):
 			return BuildSort.fmt(String(tx.get("upkeep", "")), vars)
 		var staffed := 0.0
+		var cause := ""  # the producer's own reason (view_town buildings[].starved, STATE-API §5.9)
 		for b in views.get("town", {}).get("buildings", []):
 			if String(b.get("building_id", "")) == fix:
 				staffed += float(b.get("staffed", 0.0))
-		if staffed > 0.0:  # it has hands but nothing to work on: name the input it lacks
+				if String(b.get("starved", "")) != "":
+					cause = String(b["starved"])
+		if staffed > 0.0:  # it has hands but nothing to work on: the sim's cause when it gives one, else the input it lacks
+			var sw: Dictionary = tx.get("starved_why", {})
+			if sw.has(cause):
+				return BuildSort.fmt(String(sw[cause]), vars)
 			vars["input"] = String((hcfg.get("producer_input", {}) as Dictionary).get(fix, ""))
 			return BuildSort.fmt(String(tx.get("starved", "")), vars)
 		return BuildSort.fmt(String(tx.get("unstaffed", "")), vars)

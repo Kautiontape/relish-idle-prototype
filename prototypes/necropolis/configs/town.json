@@ -226,6 +226,11 @@
         "building": "{id}: {rate}, {label} still building",
         "unstaffed": "{id}: {rate}, {label} has no staff",
         "starved": "{id}: {rate}, {label} is starved: no {input}",
+        "starved_why": {
+          "_doc": "The producer's own reason (view_town().buildings[].starved), used in place of `starved` when it gives one.",
+          "pits_first": "{id}: {rate}, the pits take every body before the {label}: raise WAR on the map",
+          "no_bodies": "{id}: {rate}, {label} is starved: no bodies coming in"
+        },
         "upkeep": "{id}: {rate}, upkeep beats {source}",
         "short_slots": "workers: {n} short of slots",
         "idle_build": "{n} idle: build a {label} ({gain}) or let them muster",
@@ -362,7 +367,8 @@
         "unknown_job": "no such job", "duplicate_job": "a job is listed twice", "missing_job": "a job is missing from the order",
         "unknown_lot": "no such lot", "empty_lot": "nothing is built there", "no_jobs": "that building has no job slots",
         "bad_cap": "that cap isn't valid", "unknown_stance": "no such stance",
-        "no_slot": "no free stance slot: turn one off", "_unknown": "can't do that right now"
+        "no_slot": "no free stance slot: turn one off", "_unknown": "can't do that right now",
+        "catching_up": "catching up on your time away: try again in a moment"
       },
       "changed_eps": 0.05,
       "arm_binds": 12
@@ -370,6 +376,7 @@
     "flash": {"w_px": 2.0, "grow_px": 18.0, "alpha": 0.9, "text": "construction started"},
     "reasons": {
       "_unknown": "can't do that right now",
+      "catching_up": "catching up on your time away: try again in a moment",
       "unknown_building": "no such building",
       "unknown_lot": "no such lot",
       "lot_locked": "that lot isn't open at this tier",
@@ -483,14 +490,36 @@
       "join": " · ", "button": "To the realm"
     },
     "queue_text": {
-      "title": "Queue (not saved yet)",
+      "_doc": "The Build tab's queue (view_town().queue and its commands). A gated entry waits in its place (IDLE §5): gate_wait words its gate, `skipped` any other skip (lot_taken and the like). affordable_in_s (R2) sets the start: 0 now, > 0 a wait, -1 never at today's income (with the row's starved/lever, starved_why). queued_ok reports a queued entry's own affordable_in_s.",
+      "title": "Queue: builds start on their own, in order, while you're away too",
+      "gate_wait": {
+        "needs_tier": "queued: waits for {tier}",
+        "lot_locked": "queued: waits for its lot to open at a higher tier",
+        "needs_blueprint": "queued: waits for the {label} blueprint (dungeon loot)",
+        "needs_building": "queued: waits for a {building}",
+        "no_relics": "queued: waits for {n} {unit}: raid a fort"
+      },
+      "skipped": "skipped: {why}",
+      "afford_in": "affordable in ~{t}",
+      "afford_never": "can't be afforded at today's {store} income",
+      "eta_behind": "starts once the build ahead of it can",
+      "starved_why": {
+        "pits_first": "the pits take every body before the Bone Mill: raise WAR on the map",
+        "no_bodies": "no bodies come in for the Bone Mill",
+        "living_first": "too few living buy at the Market: more housing or an Inn"
+      },
+      "queued_ok": "Queued {label} on {lot}: {when}.",
+      "queued_now": "it starts now",
+      "queued_never": "it can't be afforded at today's income yet (see the queue)",
+      "unqueued": "Removed from the queue.",
+      "cap_refusal_up": "{cost} is over the {store} cap of {cap}: upgrade the {label} to L{level} first",
+      "cap_refusal_never": "{cost} is over every {store} cap the {label} can reach",
       "next": "next: building now",
       "waiting_funds": "saving: {why}",
       "skipped_gate": "skipped: {why}",
       "queued": "queued",
       "cap_refusal": "{cost} is over the {store} cap of {cap}: build {label} first",
       "cap_refusal_none": "{cost} is over the {store} cap of {cap}",
-      "no_commands": "queue commands: coming",
       "eta_now": "starts now",
       "eta_head": "starts in ~{t}",
       "eta_later": "starts in ≈ {t}",
@@ -550,9 +579,9 @@
       "cost_part": "{n} {what}", "relic": "relic", "relics": "relics", "essence": "essence", "cost_none": "free",
       "craft_btn": "Craft",
       "craft_reasons": {"needs_building": "needs the Ossuary Tower", "no_essence": "not enough essence", "no_relics": "not enough relics",
-        "unknown_item": "no such item"},
+        "unknown_item": "no such item", "catching_up": "catching up on your time away: try again in a moment"},
       "craft_ok": "Crafted {label}.", "craft_refused": "Refused: {reason}.",
-      "staff_refused": "Refused: {reason}.", "staff_reasons": {"unknown_slot": "no such vat"},
+      "staff_refused": "Refused: {reason}.", "staff_reasons": {"unknown_slot": "no such vat", "catching_up": "catching up on your time away: try again in a moment"},
       "fig_w_px": 56, "fig_h_px": 96, "fig_w": 1.5, "fig_glow": 0.9, "fig_glow_ready": 1.0, "fig_alpha_growing": 0.75,
       "fig_ghost": 0.8, "fig_ready_w_mul": 1.4,
       "card_h_px": 112,
@@ -612,7 +641,7 @@
       "taken": "{label} · foreman {name}",
       "no_lots": "No built lot with jobs yet.",
       "no_forts": "No forts.",
-      "reasons": {"_unknown": "the crypt can't do that now", "not_home": "Relish isn't home",
+      "reasons": {"_unknown": "the crypt can't do that now", "not_home": "Relish isn't home", "catching_up": "catching up on your time away: try again in a moment",
         "unknown_husk": "that husk is gone", "unknown_remnant": "a remnant is gone",
         "duplicate_remnant": "a remnant is slotted twice", "invalid_recipe": "the slab rejects that recipe",
         "at_cap": "the crypt is at its big-undead cap", "bad_name": "a name is 1 to 24 characters",

@@ -856,9 +856,7 @@ func _on_queue_upgrade() -> void:
 
 func _add_queue(e: Dictionary, row: Dictionary) -> bool:
 	if not TownStandins.queue_is_standin(_views.get("town", {})):
-		# TODO(api-request #3): call cmd_queue_build here once E2b ships it; the local queue is off meanwhile
-		_say(String(_vcfg.get("queue_text", {}).get("no_commands", "")))
-		return false
+		return _queue_real(e, row)
 	var r := _q.add(e, _ctx)
 	if r["ok"]:
 		_cap_box.visible = false
@@ -871,14 +869,47 @@ func _add_queue(e: Dictionary, row: Dictionary) -> bool:
 	return bool(r["ok"])
 
 
-## "<cost> is over the <gold> cap: build <label> first", with a button that selects that building.
+## The real queue (STATE-API §4.3): cmd_queue_build for a new build or an upgrade (the building on its own lot).
+## Says when it starts from the entry's own `affordable_in_s` (R2); a cap refusal names the real `cap_building`
+## and `cap_level`; `catching_up` reads as a wait (its reason text), like every refusal.
+func _queue_real(e: Dictionary, row: Dictionary) -> bool:
+	var tt: Dictionary = _vcfg.get("queue_text", {})
+	var r: Dictionary = Game.state.cmd_queue_build(String(e["building_id"]), String(e["lot_id"]))
+	if bool(r.get("ok", false)):
+		_cap_box.visible = false
+		var a := float(r.get("affordable_in_s", -1.0))
+		var gate := {"status": "skipped_gate", "reason": String(row.get("reason", "")), "building_id": e["building_id"],
+			"cost": e.get("cost", {})}  # a gated row queues and waits out its gate in its place
+		var when := String(tt.get("queued_now", "")) if a == 0.0 else (
+			BuildSort.fmt(String(tt.get("afford_in", "")), {"t": BuildSort.fmt_eta(a, _vcfg)}) if a > 0.0
+			else (BuildSort.skip_text(gate, _ctx.get("catalog", {}), _st, _bview, _vcfg) if BuildSort.is_gate_wait(gate, _vcfg)
+			else String(tt.get("queued_never", ""))))
+		_say(BuildSort.fmt(String(tt.get("queued_ok", "")), {"label": _label(e["building_id"]), "lot": _lot_name(String(e["lot_id"])),
+			"when": when}))
+	elif String(r.get("reason", "")) == "cost_exceeds_cap":
+		_show_cap_refusal(e, r)
+	else:
+		_say("Not queued: %s." % _reason(String(r.get("reason", "")), row))
+	command_issued.emit()
+	return bool(r.get("ok", false))
+
+
+## "<cost> is over the <gold> cap: build <label> first" (or "upgrade the <label> to L<n> first" when it stands, from the
+## result's `cap_level`), with a button that selects that building.
 func _show_cap_refusal(e: Dictionary, r: Dictionary) -> void:
 	var store := String(r["store"])
 	var tt: Dictionary = _vcfg.get("queue_text", {})
 	_cap_building = String(r["cap_building"])
+	var cap := int(_ctx.get(store + "_cap", -1.0))
+	if not TownStandins.queue_is_standin(_views.get("town", {})):
+		cap = int(float(_views.get("town", {}).get(store + "_cap", cap)))
 	var vars := {"cost": "%d %s" % [int(ceil(float(e["cost"].get(store, 0.0)))), store], "store": store,
-		"cap": int(_ctx.get(store + "_cap", -1.0)), "label": _label(_cap_building)}
-	_cap_label.text = BuildSort.fmt(String(tt.get("cap_refusal" if _cap_building != "" else "cap_refusal_none", "")), vars)
+		"cap": cap, "label": _label(_cap_building), "level": int(r.get("cap_level", -1))}
+	var key := "cap_refusal" if _cap_building != "" else "cap_refusal_none"
+	if _cap_building != "" and r.has("cap_level"):
+		var built := int((_st.get("count", {}) as Dictionary).get(_cap_building, 0)) > 0
+		key = "cap_refusal_never" if int(r["cap_level"]) < 0 else ("cap_refusal_up" if built and int(r["cap_level"]) > 1 else "cap_refusal")
+	_cap_label.text = BuildSort.fmt(String(tt.get(key, "")), vars)
 	_cap_btn.visible = _cap_building != ""
 	_cap_btn.text = "Show " + _label(_cap_building)
 	_cap_box.visible = true
@@ -889,7 +920,11 @@ func _queue_entries() -> Array:
 	return TownStandins.queue_entries(_views.get("town", {}), _q.entries)
 
 
+## Only the stand-in counts its own length; the real queue's count rule is economy's (gated entries may not count,
+## P2), so its Queue buttons stay on and a full queue answers with its `queue_full` refusal.
 func _queue_full() -> bool:
+	if not TownStandins.queue_is_standin(_views.get("town", {})):
+		return false
 	return _queue_entries().size() >= _q.max_len
 
 
@@ -909,11 +944,14 @@ func _update_queue() -> void:
 		var what := ("Upgrade %s to Lv %d" % [_label(e["building_id"]), e["level"]]) if e["upgrade"] else _label(e["building_id"])
 		var status := String(e["status"])
 		var why := BuildSort.entry_reason(e, _ctx.get("catalog", {}), _st, _bview, _vcfg)
-		var glyph: String = {"next": ">", "waiting_funds": "||", "skipped_gate": "x", "queued": "-"}.get(status, "-")
+		var waits := BuildSort.is_gate_wait(e, _vcfg)  # a gate waited out in its place: queued, not struck
+		var glyph: String = ".." if waits else {"next": ">", "waiting_funds": "||", "skipped_gate": "x", "queued": "-"}.get(status, "-")
 		var title := "%d. %s on %s" % [i + 1, what, _lot_name(String(e["lot_id"]))]
-		w["title"].text = "[s]%s[/s]" % title if status == "skipped_gate" else title
-		w["detail"].text = "%s %s" % [glyph, BuildSort.fmt(String(tt.get(status, "")), {"why": why})]
-		w["detail"].add_theme_color_override("font_color", Palette.c(
+		w["title"].text = "[s]%s[/s]" % title if status == "skipped_gate" and not waits else title
+		var line := BuildSort.skip_text(e, _ctx.get("catalog", {}), _st, _bview, _vcfg) if status == "skipped_gate" \
+			else BuildSort.fmt(String(tt.get(status, "")), {"why": why})
+		w["detail"].text = "%s %s" % [glyph, line]
+		w["detail"].add_theme_color_override("font_color", Palette.c("text_dim" if waits else
 			{"next": "text", "waiting_funds": "select", "skipped_gate": "danger", "queued": "text_dim"}.get(status, "text_dim")))
 		w["eta"].text = String(etas[i])
 		w["eta"].visible = String(etas[i]) != ""  # a gate-skipped entry says why instead
@@ -925,11 +963,16 @@ func _update_queue() -> void:
 		queue_changed.emit(ghosts)
 
 
-## Reorder (delta ±1) or remove (0) a stand-in entry. TODO(api-request #3): cmd_reorder_queue /
-## cmd_unqueue once the view has a queue; until then those arrive with E2b.
+## Reorder (delta ±1) or remove (0) an entry: cmd_reorder_queue / cmd_unqueue on the real queue (the stand-in's
+## own when the view has none).
 func _move_queue(index: int, delta: int) -> void:
 	if not TownStandins.queue_is_standin(_views.get("town", {})):
-		_say(String(_vcfg.get("queue_text", {}).get("no_commands", "")))
+		var r: Dictionary
+		if delta == 0:
+			r = Game.state.cmd_unqueue(index)
+		else:
+			r = Game.state.cmd_reorder_queue(BuildSort.swap_order(_queue_entries().size(), index, delta))
+		_report(r, String(_vcfg.get("queue_text", {}).get("unqueued", "")) if delta == 0 else "")
 		return
 	if delta == 0:
 		_q.unqueue(index)
