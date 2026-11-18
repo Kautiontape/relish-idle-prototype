@@ -272,9 +272,20 @@ static func front_rows(fronts: Array, names: Dictionary, vei_cfg: Dictionary = {
 	return out
 
 
-## "fronts met 3 of 3 required".
+## "fronts met 1 · any 3 of the 4 are needed": the fight counts any `fronts_required` cleared fronts
+## (VeiFronts.required, vei.json), so with more fronts than that the line says "any N of the M"; when
+## every front is needed (or the view lists none) it reads "fronts met 1 of the 3 needed".
 static func fronts_met_text(vei: Dictionary) -> String:
-	return str(_c().get("fronts_met_fmt", "%d %d")) % [int(vei.get("fronts_met", 0)), int(vei.get("fronts_required", 0))]
+	return _fronts_fmt(vei, "fronts_met_fmt", "fronts_met_all_fmt")
+
+
+static func _fronts_fmt(vei: Dictionary, any_key: String, all_key: String) -> String:
+	var met := int(vei.get("fronts_met", 0))
+	var need := int(vei.get("fronts_required", 0))
+	var n := (vei.get("fronts", []) as Array).size()
+	if n > need:
+		return str(_c().get(any_key, "%d %d %d")) % [met, need, n]
+	return str(_c().get(all_key, "%d %d")) % [met, need]
 
 
 ## The BEGIN dialog's text: repeats the odds, the sign and the drain time ("∞" when holding,
@@ -290,12 +301,13 @@ static func confirm_text(readout: Dictionary, vei: Dictionary = {}) -> String:
 	return text + "\n" + short if short != "" else text
 
 
-## "Fronts met 1 of 3 required: Vei will likely win. Assign big undead to the open fronts." while the
-## fronts met are fewer than required, else "".
+## "Fronts met 1; any 3 of the 4 are needed, or Vei will likely win. Assign big undead to the open
+## fronts." while the fronts met are fewer than required, else "" (the "of the N needed" form as
+## fronts_met_text picks it).
 static func fronts_short_text(vei: Dictionary) -> String:
-	var met := int(vei.get("fronts_met", 0))
-	var need := int(vei.get("fronts_required", 0))
-	return str(_c().get("fronts_short_fmt", "%d %d")) % [met, need] if met < need else ""
+	if int(vei.get("fronts_met", 0)) >= int(vei.get("fronts_required", 0)):
+		return ""
+	return _fronts_fmt(vei, "fronts_short_fmt", "fronts_short_all_fmt")
 
 
 # --- who comes into a raid ---------------------------------------------------------------
@@ -309,7 +321,8 @@ static func comes_in(fort: Dictionary, party: Dictionary, raid_cfg: Dictionary, 
 	var garrison := clampi(int(float(fort.get("undead", 0.0)) / float(mass.get("garrison_mass_div", 10.0))), 0, int(mass.get("garrison_max", 12)))
 	var starter := int(econ_cfg.get("opening", {}).get("starter_party", 0)) if bool(fort.get("first_dungeon", false)) else 0
 	var bigs := (party.get("party", []) as Array).size()
-	return {"garrison": garrison, "starter": starter, "bigs": bigs, "total": garrison + starter + bigs}
+	return {"garrison": garrison, "starter": starter, "bigs": bigs, "total": garrison + starter + bigs,
+		"war_here": maxf(float(fort.get("undead", 0.0)), 0.0), "garrison_max": int(mass.get("garrison_max", 12))}
 
 
 ## The standard party of tier `tier` (clamped 1..4): {undead, bigs}, from raid autopilot.party_profiles.
@@ -359,9 +372,38 @@ static func comes_plain_text(ci: Dictionary) -> String:
 	return s
 
 
-## "from: garrison 2 (WAR) · starter 8 · big undead 1" (the plain line above it has the count).
+## Who they are, in one plain sentence (the glossary's "Who comes into a raid"; the plain line above
+## has the count): each source that sends any, then what you raise inside. The fort's WAR undead come
+## in one per 10 (at most garrison_max), the rule comes_in counts by, so the sentence names the fort's
+## own number as its HELD chip shows it ("2 from the 22 WAR undead here (one per 10)"), and says when
+## they are too few to send one. Day 1: "They're your 8 starter undead, plus any you raise inside; none
+## come from your WAR stream yet."
 static func comes_in_text(ci: Dictionary) -> String:
-	return str(_c().get("comes_in_fmt", "%d %d %d")) % [ci["garrison"], ci["starter"], ci["bigs"]]
+	var c := _c()
+	var g := int(ci.get("garrison", 0))
+	var s := int(ci.get("starter", 0))
+	var b := int(ci.get("bigs", 0))
+	var here := roundf(float(ci.get("war_here", 0.0)))
+	var here_s := MapLogic.fmt_mass(here)
+	var one := is_equal_approx(here, 1.0)  # "the 1 WAR undead here is", "the 4 ... are"
+	var war_note := ""
+	if g == 0:
+		war_note = str(c.get("comes_who_few_one_fmt" if one else "comes_who_few_fmt", "%s")) % here_s if here > 0.0 else str(c.get("comes_who_no_war", ""))
+	if g + s + b == 0:
+		return (str(c.get("comes_who_none_few_one_fmt" if one else "comes_who_none_few_fmt", "%s")) % here_s) if here > 0.0 else str(c.get("comes_who_none", ""))
+	var parts: Array = []
+	if g > 0:
+		var capped := g >= int(ci.get("garrison_max", 12)) and here >= float(g + 1) * 10.0
+		parts.append((str(c.get("comes_who_garrison_cap_fmt", "%d %s %d")) % [g, here_s, int(ci.get("garrison_max", 12))]) if capped
+			else (str(c.get("comes_who_garrison_fmt", "%d %s")) % [g, here_s]))
+	if s > 0:
+		parts.append(str(c.get("comes_who_starter_fmt", "%d")) % s)
+	if b > 0:
+		parts.append(str(c.get("comes_who_bigs_fmt", "%d")) % b)
+	var who := str(parts[0])
+	for i in range(1, parts.size()):
+		who += str(c.get("comes_who_and" if i == parts.size() - 1 else "comes_who_sep", ", ")) + str(parts[i])
+	return str(c.get("comes_who_fmt", "%s%s")) % [who, war_note]
 
 
 ## The tide bias as the card says it: 3.0 reads "3", 2.5 reads "2.5".

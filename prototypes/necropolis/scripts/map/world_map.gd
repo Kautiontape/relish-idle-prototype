@@ -202,6 +202,7 @@ func _build_ui() -> void:
 	layer.add_child(tithe_explain)
 	away = MapAway.new()  # last: it opens over everything
 	away.model = model
+	away.hud = hud  # it opens under the top bar's plate
 	away.demo = Game.state.debug_enabled and OS.get_cmdline_user_args().has("--away=demo")
 	away.acted.connect(_act_on)
 	layer.add_child(away)

@@ -324,11 +324,26 @@ static func name_tag(f: Dictionary) -> Dictionary:
 	if first_dungeon_pulse(f):
 		return {"text": str(n["label_first_dungeon"]), "key": str(keys["first"])}
 	if not bool(f.get("held", false)):
-		if int(f.get("flipped_count", 0)) > 0:
+		if retaken(f):
 			return {"text": str(n["label_retaken"]), "key": str(keys["retaken"])}
 		if fort_state(f, "") == OVERRUN:
 			return {"text": str(n["label_overrun"]), "key": str(keys["overrun"])}
 	return {}
+
+
+## A fort Vei took back: not held, and taken before (flipped_count > 0). Its name tag reads
+## "retaken" and its glyph is cracked (MapFortGlyph.draw_retaken), which the legend's RETAKEN row
+## draws too, so it never looks like a fort that was always hers.
+static func retaken(f: Dictionary) -> bool:
+	return not bool(f.get("held", false)) and int(f.get("flipped_count", 0)) > 0
+
+
+## The retaken mark: a crack corner to corner across a glyph `h` from `p` to its edge, `ext` times its
+## half-diagonal reach so it cuts clean through the square's corners ([from, to]). A cut, not a colour,
+## so VEI'S and RETAKEN differ in greyscale too.
+static func crack(p: Vector2, h: float, ext: float) -> PackedVector2Array:
+	var d := Vector2(h, h) * ext
+	return PackedVector2Array([p - Vector2(d.x, -d.y), p + Vector2(d.x, -d.y)])
 
 
 ## The tag line's font size in screen px (the name's is font_label).

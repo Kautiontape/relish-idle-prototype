@@ -158,6 +158,8 @@ func _countdowns(t: TestUtil) -> void:
 	var over := _fort(100.0, 0.0, 60.0, 0.0)
 	var tag := NodeLogic.name_tag(over)
 	t.ok(NodeLogic.fort_state(over, "") == NodeLogic.OVERRUN and tag.get("text", "") == n["label_overrun"] and tag.get("key", "") == "text", "overrun, never taken: Vei's tag in full text (it read dim at the whole-map zoom)")
+	# V-I1 item 4: the tag still says it's hers, and is no wider than a short fort name (the long one hit its neighbours' names)
+	t.ok(str(n["label_overrun"]).contains("Vei's") and MapNodeLayer.label_width(str(n["label_overrun"]), NodeLogic.tag_size()) <= MapNodeLayer.label_width("Lantern Keep", int(MapLogic.cfg()["font_label"])), "the overrun tag is short: " + str(n["label_overrun"]))
 	var first := _fort(100.0, 0.0, 60.0, 0.0)
 	first["first_dungeon"] = true
 	first["first_clear"] = true
@@ -167,6 +169,12 @@ func _countdowns(t: TestUtil) -> void:
 	back["flipped_count"] = 1
 	tag = NodeLogic.name_tag(back)
 	t.ok(tag.get("text", "") == n["label_retaken"] and tag.get("key", "") == "danger", "retaken (flipped before, not held): danger tag")
+	# V-I1 item 3 (cr-3 #5): a retaken fort is cracked; the tag and the crack share one predicate
+	t.ok(NodeLogic.retaken({"held": false, "flipped_count": 1}) and not NodeLogic.retaken({"held": true, "flipped_count": 1}) \
+		and not NodeLogic.retaken({"held": false, "flipped_count": 0}) and not NodeLogic.retaken({}), "retaken: not held and taken before")
+	var ck := NodeLogic.crack(Vector2(10, 20), 7.0, 1.2)
+	t.ok(ck.size() == 2 and ck[0].is_equal_approx(Vector2(10 - 8.4, 20 + 8.4)) and ck[1].is_equal_approx(Vector2(10 + 8.4, 20 - 8.4)), "the crack runs corner to corner through the glyph and past it: " + str(ck))
+	t.ok(str(n["retaken_crack_key"]) == "ground" and float(n["retaken_crack_ext"]) >= 1.0 and float(n["retaken_crack_px"]) >= 2.0, "a ground-coloured cut, at least 2 px, clean through the corners (a shape, so greyscale tells it from VEI'S)")
 	t.ok(NodeLogic.name_tag(_fort(100.0, 40.0, 0.0, 0.0)).is_empty(), "a plain hers fort has no tag")
 	var held := _fort(100.0, 0.0, 60.0, 0.0)
 	held["held"] = true

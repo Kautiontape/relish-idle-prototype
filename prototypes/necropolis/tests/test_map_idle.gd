@@ -42,6 +42,7 @@ func run() -> int:
 	_away(t)
 	_away_api(t)
 	_spans(t)
+	_panel_fit(t)
 	_demo(t)
 	_contrast(t)
 	_model(t)
@@ -462,6 +463,20 @@ func _away(t: TestUtil) -> void:
 	t.ok(lost.size() == (rep["losses"] as Array).size() + 1 and lost[0]["text"] == AwayLogic.losses_count(rep["losses"]) and lost[1]["text"] != "Nothing lost.", "losses are listed, led by their count")
 
 
+func _panel_fit(t: TestUtil) -> void:
+	# V-I1 item 7: the away panel opens under the top bar's plate, never across its rows
+	var f := AwayLogic.panel_fit(900.0, 92.0, 600.0, 22.0, 8.0)
+	t.ok(is_equal_approx(float(f["top"]), 100.0) and is_equal_approx(float(f["bottom"]), 8.0) and is_equal_approx(float(f["body_h"]), 600.0) and not bool(f["scroll"]), "room enough: under the bar, the body at its own height (%s)" % str(f))
+	var tall := AwayLogic.panel_fit(900.0, 92.0, 810.0, 22.0, 8.0)
+	t.ok(is_equal_approx(float(tall["body_h"]), 900.0 - 8.0 - 100.0 - 44.0) and bool(tall["scroll"]), "too tall for the room: it scrolls, its plate ending margin px above the bottom (%s)" % str(tall))
+	t.ok(float(tall["top"]) + float(tall["body_h"]) + 44.0 <= 900.0 - 8.0 + 0.001, "the plate fits between the bar and the bottom")
+	t.ok(float(AwayLogic.panel_fit(400.0, 500.0, 300.0, 22.0, 8.0)["body_h"]) == 0.0, "no room at all: zero, never negative")
+	t.ok(int(AwayLogic.cfg()["top_gap_px"]) > 0, "a gap under the bar")
+	var src := FileAccess.get_file_as_string("res://scripts/map/map_away.gd")
+	t.ok(src.contains("AwayLogic.panel_fit(vp.y, bar, body_h") and src.contains("_centre.offset_top = float(f[\"top\"])") and src.contains("_scroll.custom_minimum_size.y = float(f[\"body_h\"])"), "the panel sizes itself from panel_fit")
+	t.ok(FileAccess.get_file_as_string("res://scripts/map/world_map.gd").contains("away.hud = hud"), "the map hands the panel its HUD")
+
+
 func _spans(t: TestUtil) -> void:
 	var s := AwayLogic.spans("backlog ▲ +2.1/s · +69,500")
 	var kinds := []
@@ -469,6 +484,13 @@ func _spans(t: TestUtil) -> void:
 		kinds.append(x["kind"])
 	t.ok(kinds == ["label", "rate", "label", "mass"], "stream line: label, rate, label, mass (%s)" % str(kinds))
 	t.ok(s[1]["text"] == "+2.1/s" and s[3]["text"] == "+69,500", "rate and total are their own runs")
+	# V-I1 item 8: the stand-in's queue line in the glossary's words (economy's real label is theirs to change)
+	var demo_gain := str(MapLogic.cfg()["demo_away"]["gains"][0]["text"])
+	t.ok(demo_gain.begins_with("Vei's queue ▲") and not demo_gain.contains("backlog") and demo_gain.ends_with("your odds 5% → 8%"), "the demo's queue line says Vei's queue, odds in percent: " + demo_gain)
+	var dk := []
+	for x in AwayLogic.spans(demo_gain):
+		dk.append(x["kind"])
+	t.ok(dk == ["label", "rate", "label", "mass", "label"], "its rate and total still stand out (%s)" % str(dk))
 	var b := AwayLogic.spans("2 builds finished")
 	t.ok(b[0]["kind"] == "mass" and b[1]["kind"] == "label" and b[1]["text"] == "builds finished", "a count is a mass, the words merge")
 	t.ok(AwayLogic.spans("Nothing lost.").size() == 1, "plain words are one run")

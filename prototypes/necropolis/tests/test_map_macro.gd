@@ -429,7 +429,7 @@ func _plates(t: TestUtil) -> void:
 		"your first dungeon / INSIDE": Palette.c("relish"),
 		"HELD N undead": Palette.c("text"),
 		"retaken: raid it back": Palette.c("danger"),
-		"Vei's: raid it to take it": Palette.c("text_dim"),
+		"still Vei's (the overrun tag)": Palette.c("text_dim"),
 	}
 	for k in labels:
 		var r := MapLogic.contrast_ratio(labels[k], under)
