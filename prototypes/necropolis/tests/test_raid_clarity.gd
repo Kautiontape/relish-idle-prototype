@@ -10,7 +10,60 @@ func run() -> int:
 	_retreat_line_tests(t)
 	_warden_presence_tests(t)
 	_legend_tests(t)
+	_hint_cue_tests(t)
 	return t.failures
+
+
+## T2: the hint line's words, the two onboarding cues and the ESSENCE row's meaning. Words and rules live in
+## RaidLogic; raid.gd / raid_hud.gd name Game/ConfigDb, so their wiring is checked by source text.
+func _hint_cue_tests(t: TestUtil) -> void:
+	t.suite("raid_hints")
+	t.ok(RaidLogic.hint_text(true, false) == "DRAG A LOOP AROUND ESSENCE · each mote inside becomes one undead", "trance: the loop instruction")
+	t.ok(RaidLogic.hint_text(false, true) == "AT EXIT · RETREAT banks your loot", "at the exit: the retreat line, word for word")
+	t.ok(RaidLogic.hint_text(false, false) == "HOLD SPACE · circle essence to RAISE undead", "idle: hold Space to raise")
+	t.ok(RaidLogic.hint_text(true, true) == RaidLogic.hint_text(true, false), "the trance case wins over the exit case")
+	var words: Array = [RaidLogic.hint_text(true, false), RaidLogic.hint_text(false, true), RaidLogic.hint_text(false, false),
+		RaidLogic.CUE_FIRST_MOTE, RaidLogic.CUE_UNDEAD, RaidLogic.ESSENCE_MEANING]
+	for i in 4:
+		words.append(RaidLogic.last_chance_banner(i))
+	var gather := false
+	for w in words:
+		gather = gather or str(w).to_lower().contains("gather")
+	t.ok(not gather, "no hint, cue, essence meaning or last-chance banner says 'gather'")
+	t.ok(RaidLogic.CUE_FIRST_MOTE.contains("RAISE") and RaidLogic.CUE_FIRST_MOTE.contains("BANK")
+		and RaidLogic.ESSENCE_MEANING.contains("RAISE") and RaidLogic.ESSENCE_MEANING.contains("BANK"), "the first-mote cue and the essence meaning name RAISE and BANK")
+	t.ok(RaidLogic.last_chance_banner(0) == "LAST CHANCE · a free trance" and RaidLogic.last_chance_banner(3).ends_with("3 loose essence here: walk close and it drifts to you"), "last chance: bare at 0, the drift line with a count")
+	t.ok(not RaidLogic.undead_cue_due(true, 3, 99.0, 5.0, 4), "the undead cue never repeats")
+	t.ok(not RaidLogic.undead_cue_due(false, 3, 99.0, 5.0, 0), "none without an undead standing")
+	t.ok(RaidLogic.undead_cue_due(false, 1, 0.0, 5.0, 1), "a kill makes it due")
+	t.ok(RaidLogic.undead_cue_due(false, 0, 5.0, 5.0, 1), "scene_s == delay_s makes it due with no kill")
+	t.ok(not RaidLogic.undead_cue_due(false, 0, 4.9, 5.0, 1), "not before the delay with no kill")
+	var cues: Dictionary = TestUtil.load_json("res://configs/raid.json").get("hud", {}).get("cues", {})
+	var ok := cues.has("_doc")
+	for k in ["max_wait_s", "first_mote_s", "undead_s", "undead_delay_s"]:
+		ok = ok and (cues.get(k) is float or cues.get(k) is int) and float(cues[k]) > 0.0
+	t.ok(ok, "hud.cues is documented, with max_wait_s, first_mote_s, undead_s, undead_delay_s all > 0")
+	var raid_src := FileAccess.get_file_as_string("res://scripts/raid/raid.gd")
+	t.ok(RegEx.create_from_string("if not is_boss\\(\\) and hud != null:\\s*hud\\.on_first_carry\\(\\)").search(raid_src) != null,
+		"carry_add calls the HUD's first-carry path under a not-boss guard")
+	var died := _func_src(raid_src, "func on_unit_died(")
+	var enemy_branch := died.substr(0, died.find("\telse:"))
+	t.ok(enemy_branch.contains("kills += 1") and enemy_branch.contains("faction == \"enemy\""), "on_unit_died counts the kill in the enemy branch")
+	var hud_src := FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd")
+	t.ok(hud_src.contains("RaidLogic.hint_text(") and hud_src.contains("RaidLogic.undead_cue_due(") and hud_src.contains("RaidLogic.ESSENCE_MEANING"),
+		"the HUD takes its hint, undead cue and essence meaning from RaidLogic")
+	var cue_src := _func_src(hud_src, "func show_cue(")
+	t.ok(RegEx.create_from_string("if _banner_t < 0\\.0:\\s*show_banner\\(").search(cue_src) != null and cue_src.count("show_banner(") == 1
+		and cue_src.find("_cue_queue.append") > cue_src.find("show_banner("), "show_cue calls show_banner only when no banner is showing; otherwise it queues")
+
+
+## A function's source text: from its `func` line to the next top-level func (or the file's end).
+func _func_src(src: String, head: String) -> String:
+	var i := src.find(head)
+	if i < 0:
+		return ""
+	var j := src.find("\nfunc ", i + 10)
+	return src.substr(i, (j if j >= 0 else src.length()) - i)
 
 
 ## T1: the control legend. Open until a fort is taken, then a chip; only a left press on its header or

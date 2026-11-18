@@ -23,6 +23,10 @@ var _banner_t := -1.0
 var _banner_plate: ColorRect = null   # a dark plate fitted to the banner's lines (walls run under it)
 var _banner_live := Callable()        # recomputes the banner's text while it shows (the last chance)
 var _banner_live_t := 0.0
+var _scene_s := 0.0                  # scene seconds since the HUD was built (slows with the trance)
+var _undead_cue_shown := false       # T2: the undead cue shows once per run
+var _first_mote_cue_shown := false   # T2: the first-mote cue shows once per run
+var _cue_queue: Array = []           # T2: cues waiting behind a banner: [text, secs, color_key, waited_real_s]
 var _warden_block: Control = null   # dungeon only: the awake warden's break meter
 var _pointers: Node2D = null        # dungeon only: the pointer to the nearest floor loot
 var _push: PushLine = null          # dungeon only: the push-or-retreat line under the RETREAT button
@@ -106,13 +110,13 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	_banner.visible = false
 
 	_hint = _mk_label(self, 19, Palette.c("text"))
-	_hint.text = "HOLD SPACE — TRACE A CIRCLE"
+	_hint.text = RaidLogic.HINT_IDLE
 	_hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	_hint.anchor_top = 1.0
 	_hint.offset_top = -52.0
 	_hint.offset_bottom = -24.0
-	_hint.offset_left = -260.0
-	_hint.offset_right = 260.0
+	_hint.offset_left = -380.0
+	_hint.offset_right = 380.0
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 
 	_meter = TranceMeter.new()
@@ -211,7 +215,9 @@ func _mk_label(parent: Node, size: int, color: Color) -> Label:
 func _process(_delta: float) -> void:
 	if raid == null:
 		return
+	_scene_s += _delta
 	refresh()
+	_tick_cues()
 	if _warden_block != null:
 		# the banner steps down under the warden's block while it shows
 		var top := _banner_top + ((14.0 + (_warden_block as WardenBlock).extra_h) if _warden_block.visible else 0.0)
@@ -322,11 +328,20 @@ func refresh() -> void:
 		if _push != null and _push_t >= 0.25:
 			_push_t = 0.0
 			_update_push()
-		if raid.exit_hint_ready():
-			_hint.text = "AT EXIT · RETREAT banks your loot"
+		var at_exit: bool = raid.exit_hint_ready()
+		_hint.text = RaidLogic.hint_text(raid.trance_active, at_exit)
+		if at_exit:
 			_hint.visible = true
-		else:
-			_hint.text = "HOLD SPACE — TRACE A CIRCLE"
+		# the "your undead fight on their own" cue (once per run)
+		if not _undead_cue_shown:
+			var alive := 0
+			for a in raid.allies:
+				if is_instance_valid(a) and a.alive:
+					alive += 1
+			var cues: Dictionary = raid.rcfg().get("hud", {}).get("cues", {})
+			if RaidLogic.undead_cue_due(_undead_cue_shown, raid.kills, _scene_s, float(cues.get("undead_delay_s", 5.0)), alive):
+				_undead_cue_shown = true
+				show_cue(RaidLogic.CUE_UNDEAD, float(cues.get("undead_s", 3.5)), "undead")
 	st.queue_redraw()
 
 
@@ -419,6 +434,39 @@ func show_banner(text: String, secs: float, color_key := "relish") -> void:
 	_banner.visible = true
 	_banner_t = secs
 	_fit_banner_plate()
+
+
+## An onboarding cue (T2): shown at once when no banner is up; otherwise it waits in a small queue and
+## shows when the banner hides, and is dropped after hud.cues.max_wait_s real seconds. A cue never
+## replaces a visible banner. Long cues break at their " · " so they fit the banner's width.
+func show_cue(text: String, secs: float, color_key: String) -> void:
+	if _banner_t < 0.0:
+		show_banner(text.replace(" · ", "\n"), secs, color_key)
+		return
+	_cue_queue.append([text, secs, color_key, 0.0])
+
+
+func _tick_cues() -> void:
+	if _cue_queue.is_empty():
+		return
+	if _banner_t < 0.0:
+		var c: Array = _cue_queue.pop_front()
+		show_banner(str(c[0]).replace(" · ", "\n"), float(c[1]), str(c[2]))
+		return
+	var max_wait := float(raid.rcfg().get("hud", {}).get("cues", {}).get("max_wait_s", 6.0))
+	var dt := _delta_real()
+	for i in range(_cue_queue.size() - 1, -1, -1):
+		_cue_queue[i][3] = float(_cue_queue[i][3]) + dt
+		if float(_cue_queue[i][3]) >= max_wait:
+			_cue_queue.remove_at(i)
+
+
+## The first essence mote to join Relish's slots (the raid calls this from carry_add): the cue, once.
+func on_first_carry() -> void:
+	if _first_mote_cue_shown:
+		return
+	_first_mote_cue_shown = true
+	show_cue(RaidLogic.CUE_FIRST_MOTE, float(raid.rcfg().get("hud", {}).get("cues", {}).get("first_mote_s", 4.0)), "essence")
 
 
 ## A banner whose text `provider` recomputes 4 times a second while it shows (the last chance's
@@ -550,7 +598,7 @@ class StatBlock:
 		_val = int(c.get("value_px", 15))
 		_row_max = int(c.get("pip_row_max", 24))
 		plate_alpha = float(c.get("plate_alpha", 0.86))
-		var rows := 3.0 if boss else 12.0   # living, essence, raised | + 4 ward rows, phylactery, banked, unbanked, stakes
+		var rows := 3.0 if boss else 13.0   # living, essence, raised | + 4 ward rows, essence meaning, phylactery, banked, unbanked, stakes
 		custom_minimum_size = Vector2(420.0, rows * _row + 8.0)
 
 	## The floor-loot key (two rows under the stakes) shows while something lies on the floor.
@@ -571,7 +619,7 @@ class StatBlock:
 		return 420.0 - _col - 8.0
 
 	func _fit() -> void:
-		custom_minimum_size = Vector2(420.0, (12.0 + (2.0 if show_key else 0.0) + float(door_lines.size())) * _row + 8.0)
+		custom_minimum_size = Vector2(420.0, (13.0 + (2.0 if show_key else 0.0) + float(door_lines.size())) * _row + 8.0)
 
 	## A floor glyph as the pickups draw it (RaidLoot.floor_glyph shapes), small, at `p`.
 	func _key_glyph(p: Vector2, shape: String, col: Color) -> void:
@@ -654,6 +702,8 @@ class StatBlock:
 			_value(ex + 6.0, y, "%d/%d" % [carried, carry_max])
 			if loose > 0:
 				_value(ex + 6.0 + 60.0, y, "+%d loose" % loose)
+			y += _row
+			draw_string(ThemeDB.fallback_font, Vector2(_col, y), RaidLogic.ESSENCE_MEANING, HORIZONTAL_ALIGNMENT_LEFT, -1, _lab, Palette.c("text_dim"))
 			y += _row
 		_label(y, "RAISED")
 		_value(_col, y, raised_text)

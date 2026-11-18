@@ -26,6 +26,7 @@ var allies: Array = []
 var ally_engage_px := 620.0
 var trance_active := false
 var first_raise_done := false
+var kills := 0                   # living enemies killed this run (the HUD's undead cue reads it; never saved)
 var carried: Array = []          # essence motes in Relish's carried cluster (dungeon only)
 var moves := 0                   # RAID_TELEMETRY: Relish move clicks
 var raises := 0                  # RAID_TELEMETRY: successful raises (count > 0)
@@ -391,6 +392,7 @@ func spawn_ally_v2(role: String, tier: String, mult: float, mass: float, uid: St
 func on_unit_died(u: RaidUnit, sacrificed: bool) -> void:
 	if u.faction == "enemy":
 		enemies.erase(u)
+		kills += 1
 		ledger_v2.on_kill(u.mass)
 		if not u.warden_pack:   # a warden's own pack drops nothing (WardenLogic.pack_spec)
 			# kills drop essence at the corpse, carrying the enemy's mass
@@ -620,6 +622,8 @@ func carry_add(o: RaidEssence) -> bool:
 	o.carry_slot = slot
 	o.carried = true
 	carried.append(o)
+	if not is_boss() and hud != null:
+		hud.on_first_carry()   # the first mote in her slots: the HUD's one-time cue
 	return true
 
 

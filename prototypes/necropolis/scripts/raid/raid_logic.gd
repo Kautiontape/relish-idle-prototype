@@ -558,7 +558,31 @@ static func spread_angle(want: float, taken: PackedFloat32Array, sep: float) -> 
 
 ## The antechamber's last-chance banner, with the loose essence lit there (D-b review SF-4).
 static func last_chance_banner(lit: int) -> String:
-	return "LAST CHANCE · a free trance" + ("" if lit <= 0 else " · %d loose essence to gather" % lit)
+	return "LAST CHANCE · a free trance" + ("" if lit <= 0 else " · %d loose essence here: walk close and it drifts to you" % lit)
+
+
+## T2: the words that say what the circle is for (never that it gathers essence).
+const HINT_TRANCE := "DRAG A LOOP AROUND ESSENCE · each mote inside becomes one undead"
+const HINT_EXIT := "AT EXIT · RETREAT banks your loot"
+const HINT_IDLE := "HOLD SPACE · circle essence to RAISE undead"
+const CUE_FIRST_MOTE := "ESSENCE IN YOUR SLOTS · circle it to RAISE undead, or carry it out an exit to BANK it"
+const CUE_UNDEAD := "YOUR UNDEAD FIGHT ON THEIR OWN · keep Relish safe and raise more"
+const ESSENCE_MEANING := "circle it: RAISE undead · leave by an exit: BANK it"
+
+
+## The dungeon's bottom-centre hint: the trance's instruction wins, then the exit's, then the idle one.
+static func hint_text(trance_active: bool, at_exit: bool) -> String:
+	if trance_active:
+		return HINT_TRANCE
+	if at_exit:
+		return HINT_EXIT
+	return HINT_IDLE
+
+
+## The "your undead fight on their own" cue is due once: an undead stands and (a living has died or
+## `delay_s` scene seconds have passed).
+static func undead_cue_due(shown: bool, kills: int, scene_s: float, delay_s: float, allies_alive: int) -> bool:
+	return not shown and allies_alive > 0 and (kills > 0 or scene_s >= delay_s)
 
 
 ## The held-fort clear's effect on the map (D-b review SF-5): the counter-garrison mass this run
