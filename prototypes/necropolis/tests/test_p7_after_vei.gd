@@ -241,10 +241,17 @@ func _catalog_rows_refresh() -> void:
 	card.setup(vcfg, bview, cfg["buildings"])
 	card.show_catalog("lot-05", 9, items, st, "", true)
 	var before := _row_texts(card, "raising_pit")
+	var hovers: Array = []
+	card.connect("hover_building", func(bid): hovers.append(bid))
+	card.call("_set_hover", "raising_pit")  # the pointer on the Raising Pit's row (its mouse_entered)
 	var wst := st.duplicate(true)
 	wst["won"] = true
 	card.show_catalog("lot-05", 9, items, wst, "", true)
 	var after := _row_texts(card, "raising_pit")
+	# the #22 review's should-fix 3: the flip frees the hovered row (no mouse_exited), so the hover is cleared with it
+	t.ok(String(card.get("_hover")) == "" and hovers == ["raising_pit", ""], "the flip's rebuild clears the hover and says so (%s)" % str(hovers))
+	card.call("_set_hover", "raising_pit")
+	t.ok(hovers == ["raising_pit", "", "raising_pit"], "the rebuilt row's hover is sent again for the same building")
 	var unwon := TownGuide.why("raising_pit", gcfg)
 	var won_l := TownGuide.why("raising_pit", gcfg, true)
 	t.ok(before.has(unwon) and not before.has(won_l), "the lot card before the win: the Raising Pit's row reads '%s'" % unwon)
