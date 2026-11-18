@@ -102,6 +102,15 @@ func _gap() -> void:
 	var p := s.apply_result("boss", _won(sd))
 	t.ok(not p["ok"] and p["reason"] == "duplicate_run" and _of(s.drain_events(), "vei_result").is_empty(),
 		"the card's press after it: duplicate_run, applied once (%s)" % str(p.get("reason", "")))
+	# the normal path: the press comes first (the card, or its 30 s self-press), then a gap: applied once, by the press
+	var f := _boss()
+	var fd: Dictionary = f.get_meta("seed")
+	t.ok(f.cmd_boss_won(int(fd["run_id"]), _won(fd))["ok"] and f.apply_result("boss", _won(fd))["ok"], "(setup) recorded, then pressed")
+	var fq := f.drain_events()
+	f.tick(100.0, f.max_substeps_per_frame())
+	fq.append_array(f.drain_events())
+	t.ok(f.won and f.run.is_empty() and _of(fq, "vei_result").size() == 1 and _of(fq, "run_ended").is_empty(),
+		"the press first, then a 100 s gap: vei_result once (the press's), no run_ended, nothing re-applied")
 
 
 func _load() -> void:

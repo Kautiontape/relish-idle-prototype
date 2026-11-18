@@ -11,8 +11,10 @@ extends RefCounted
 ## #21's measurement is the setup, cut to 30 min (about four tithe periods; 6 h of midgame costs ~14 min a run):
 ## midgame_2flips in 60 s ticks; #21 read 59 warnings, 59 waves and a retake in 6 h, identical with `won` set before P3b.
 ## Revert proofs (each run once, then restored): _boss_reason without the won line, 2 FAIL (_reason); set_won not
-## idling the tithe and start_tithe without its guard, 3 FAIL (_half_hour's tithe counts, _save's in-flight warning);
-## step 9 without the won skip, 1 FAIL (_no_retake); _split_of with to_war only, 1 FAIL (_half_hour's split).
+## idling the tithe, 5 FAIL (_half_hour's tithe counts and its shipping and surge, start_tithe, _save's two in-flight
+## warnings); start_tithe without its guard, 1 FAIL; step 9 without the won skip, 1 FAIL (_no_retake); _split_of
+## routing the muster by to_war only, 1 FAIL; flood_share without won, 1 FAIL (_half_hour's split). Not proven one by
+## one (asserted only): per_cap's and _reship_at's zero, the dead lane's keep, fort_hold's zeros, train_probe.
 
 var t := TestUtil.new()
 var _dir := "user://test_won_%d" % OS.get_process_id()
