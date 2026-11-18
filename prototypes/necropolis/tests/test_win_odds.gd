@@ -159,6 +159,11 @@ func _strain_label() -> void:
 		"Vei's node: the line under the odds (%s)" % NodeLogic.strain_line(1, 18000.0, 520.0))
 	var vei_src := FileAccess.get_file_as_string("res://scripts/map/map_vei.gd")
 	t.ok(vei_src.contains("NodeLogic.strain_line(") and not vei_src.contains("MapLogic.sign_glyph("), "Vei's node draws the odds alone and the glyph on the strain line")
+	# A source-order check, accepted as is (the E4 final review's item 4; the run's manager's 2026-11-17 20:20 ruling 9): it
+	# fails if the order is edited, and would pass a label built but never added, or hidden. Building the real bar
+	# headless was tried (MapHud.new() then _build_bar([]), which needs no tree): map_hud.gd doesn't compile under the
+	# --script runner ("Identifier not found: Game", the autoload its _ready connects to), so the suite can't load it.
+	# The bar's screenshots (reports/economy/e4-strain-label-*.png) are the visual check
 	var hud_src := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
 	var at_odds := hud_src.find("_odds = _bar_label(")
 	var at_label := hud_src.find("cfg[\"strain_label\"]")
