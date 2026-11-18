@@ -227,7 +227,7 @@ func _process(_delta: float) -> void:
 			SetpieceLogic.GARRISON:
 				done = _garrison_tick(p, t, rm, items)
 			SetpieceLogic.VICTORY:
-				done = _victory_tick(t, rm or bool(p.get("settle", false)))
+				done = _victory_tick(t, rm, bool(p.get("settle", false)))
 			SetpieceLogic.RETREAT:
 				done = _retreat_tick(p, t, rm, items)
 		if done:
@@ -648,12 +648,18 @@ func _garrison_tick(p: Dictionary, t: float, rm: bool, items: Array) -> bool:
 
 # --- victory ----------------------------------------------------------------------------------
 
-func _victory_tick(t: float, rm: bool) -> bool:
-	var ph := SetpieceLogic.victory_phase(t, rm)
+## RUN, then STOP with the headline up, then END: the headline goes, the routes leave victory styling
+## and drop every lane at Vei (MapRoutes.set_vei_hidden). A settle is END at once.
+func _victory_tick(t: float, rm: bool, settle := false) -> bool:
+	var ph := SetpieceLogic.victory_phase(t, rm, settle)
+	if ph == SetpieceLogic.END:
+		hud.hide_victory()
+		routes.set_victory("")
+		routes.set_vei_hidden(true)
+		return true
 	routes.set_victory(ph)
 	if ph == SetpieceLogic.STOP:
 		hud.show_victory()
-		return true
 	return false
 
 

@@ -25,7 +25,8 @@ var _grab := Rect2()  # the triangle's bounding box grown by valve_pad_px: where
 var _dragging := false
 var _last_sent := -1.0
 var _override := {}  # the valve the player set, held until the model echoes it
-var _rows := {}  # key -> {name, pct, rate, feed}
+var _rows := {}  # key -> {box, name, pct, rate, feed}
+var _corner_btns := {}  # key -> the corner's Button
 var _workers: Label
 var _supports: Label
 var _bone: Label  # the bone line: the pits-first stall's lever, or "below the bone edge" while dragging under it
@@ -118,6 +119,7 @@ func _corner_buttons(btn: Array, cgap: float, tri_h: float) -> void:
 		b.pressed.connect(_snap.bind(k))
 		b.tooltip_text = HudLogic.tip(k)
 		add_child(b)
+		_corner_btns[k] = b
 
 
 func _build_rows(c: Dictionary, x: float, inner: float) -> VBoxContainer:
@@ -138,7 +140,7 @@ func _build_rows(c: Dictionary, x: float, inner: float) -> VBoxContainer:
 		top.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		top.add_theme_constant_override("separation", int(c["valve_row_hsep_px"]))
 		box.add_child(top)
-		var parts := {"name": _label(top, "text_dim"), "pct": Label.new(), "rate": Label.new(), "feed": null}
+		var parts := {"box": box, "name": _label(top, "text_dim"), "pct": Label.new(), "rate": Label.new(), "feed": null}
 		(parts["name"] as Label).custom_minimum_size.x = float(c["valve_name_w_px"])
 		HudLogic.apply_tip(parts["name"], k)  # the stream's word, in the glossary's meaning (and the hover passes through)
 		MapType.style_mass(parts["pct"])
@@ -209,7 +211,8 @@ func refresh(force := false) -> void:
 	var over := ValveLogic.overflow_parts(ValveLogic.war_overflow(model.hud, proj, _dragging))
 	var bone := _bone_text(shown)
 	var explain_on := HudLogic.valve_explain_shown(model.hud) and pay_parts.is_empty()
-	var sig := "%s|%s|%s|%s|%s|%s|%s|%s" % [str(ValveLogic.percents(shown)), str(proj["split"]), str(proj["workers_steady"]), str(proj["war_supports"]), str(payoff), str(over), bone, str(explain_on)]
+	var flood_on := HudLogic.flood_shown(model.hud)
+	var sig := "%s|%s|%s|%s|%s|%s|%s|%s|%s" % [str(ValveLogic.percents(shown)), str(proj["split"]), str(proj["workers_steady"]), str(proj["war_supports"]), str(payoff), str(over), bone, str(explain_on), str(flood_on)]
 	var cur_sig := str(model.hud.get("valve", {})) + (str(model.rev) if payoff != "" else "")
 	if not force and sig + cur_sig == _sig:
 		return
@@ -229,6 +232,8 @@ func refresh(force := false) -> void:
 	_supports.visible = sup != ""
 	_bone.text = bone
 	_explain.visible = explain_on
+	(_rows["flood"]["box"] as Control).visible = flood_on  # won: the FLOOD row and its corner go
+	(_corner_btns["flood"] as Control).visible = flood_on
 	_payoff_rows(pay_parts)
 	queue_redraw()
 

@@ -86,6 +86,7 @@ var _odds_name: Label  # the ODDS word, whose tip follows whether the game repor
 var _odds_tip := ""  # the tip id on _odds_name now, so a refresh re-applies only on a change
 var _sign: Label
 var _drain: Label
+var _vei_group: Array = []  # YOUR ODDS / STRAIN / DRAIN's six labels
 var _tithe: Label
 var _speed_tag: Label
 var _cue: Label  # the bar's last cell: the key to its words on first view, then the hover cue (HudLogic.bar_cue)
@@ -369,6 +370,7 @@ func _build_bar(items: Array) -> void:
 	HudLogic.apply_tip(drain_name, "drain")
 	_drain = _bar_label(status)
 	MapType.style_mass(_drain)
+	_vei_group = [odds_name, _odds, strain_name, _sign, drain_name, _drain]  # hidden once won (HudLogic.vei_readout_shown)
 	_tithe = _bar_label(status)  # Vei's tithe telegraph; hidden while it has nothing to say
 	MapType.style_label(_tithe)
 	_tithe.visible = false
@@ -511,6 +513,9 @@ func refresh(force := false) -> void:
 	_sign.text = st["sign_text"]
 	_sign.add_theme_color_override("font_color", Palette.c(_sign_key(int(st["sign"]))))
 	_drain.text = st["drain_text"]
+	var vei_on := HudLogic.vei_readout_shown(hud)
+	for l in _vei_group:
+		(l as Control).visible = vei_on
 	var tl := HudLogic.tithe_line(model.vei.get("tithe", {}), _fort_names())
 	if _tithe.text != tl["text"]:  # the ETA ticks with the model's rev; set only on a change
 		_tithe.text = tl["text"]
@@ -676,5 +681,10 @@ func _on_event(ev: Dictionary) -> void:
 
 ## The victory line: the victory set piece shows it when every lane in the realm has stopped.
 func show_victory() -> void:
-	_victory.text = "VEI HAS DROWNED IN THE DEAD\nThe realm is quiet. The factory hums on."
+	_victory.text = str(MapLogic.cfg().get("victory_text", ""))
 	_victory.visible = true
+
+
+## The victory line goes when the set piece ends (its END phase).
+func hide_victory() -> void:
+	_victory.visible = false

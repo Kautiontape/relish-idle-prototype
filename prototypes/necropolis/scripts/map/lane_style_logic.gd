@@ -189,6 +189,19 @@ static func plan_rows(rows: Array) -> Array:
 	return out
 
 
+## Whether a row has Vei at either end (her living lanes out, the dead lanes in, the FLOOD lane):
+## the lanes a won map no longer draws.
+static func touches_vei(row: Dictionary) -> bool:
+	return str(row.get("from", "")) == VEI or str(row.get("to", "")) == VEI
+
+
+## `rows` without the lanes at Vei when `hide_vei` (the victory's END state), else `rows` as they are.
+static func without_vei(rows: Array, hide_vei: bool) -> Array:
+	if not hide_vei:
+		return rows
+	return rows.filter(func(r): return not touches_vei(r))
+
+
 # --- what a lane draws ----------------------------------------------------------------
 
 ## "lit" when the lane is on; "phantom" when it is off but hosts a dead gutter that is on (the

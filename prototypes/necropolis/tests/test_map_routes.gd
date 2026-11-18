@@ -332,6 +332,14 @@ func _phantom(t: TestUtil) -> void:
 	var with_host := LaneStyle.plan_rows([_row("dead", "ashgate", "vei", 2.0), _row("flood", "ashgate", "vei", 1.0)])
 	t.ok(with_host.size() == 2, "an existing host is not duplicated")
 	t.ok(LaneStyle.plan_rows([_row("mystery", "a", "b")]).is_empty(), "unknown kinds are not drawn")
+	# a won map's END: no lane with Vei at either end
+	t.ok(LaneStyle.touches_vei(_row("flood", "ashgate", "vei")) and LaneStyle.touches_vei(_row("war", "vei", "ashgate")) and LaneStyle.touches_vei(_row("dead", "ashgate", "vei", 2.0)), "Vei's lanes: in, out and the dead gutter")
+	t.ok(not LaneStyle.touches_vei(_row("war", "covington", "ashgate")) and not LaneStyle.touches_vei(_row("haul", "ashgate", "covington")), "the realm's own lanes are not hers")
+	var mix := [_row("flood", "ashgate", "vei"), _row("war", "covington", "ashgate"), _row("war", "vei", "ashgate", 0.0), _row("dead", "ashgate", "vei", 2.0)]
+	t.ok(LaneStyle.without_vei(mix, true).size() == 1 and LaneStyle.without_vei(mix, true)[0]["kind"] == "war" and LaneStyle.without_vei(mix, true)[0]["from"] == "covington", "END keeps only the realm's lanes, whatever Vei's flow")
+	t.ok(LaneStyle.without_vei(mix, false).size() == 4, "before END every row stays")
+	var rsrc := FileAccess.get_file_as_string("res://scripts/map/map_routes.gd")
+	t.ok(rsrc.contains("LaneStyle.without_vei(LaneStyle.plan_rows(model.lanes), _vei_hidden)"), "the routes drop Vei's lanes from the plan once hidden")
 
 
 func _curves(t: TestUtil) -> void:

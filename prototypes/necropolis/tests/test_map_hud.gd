@@ -553,6 +553,18 @@ func _status(t: TestUtil) -> void:
 	t.ok(HudLogic.objective_text(_hud([])) == cfg["objective_text"], "the objective line")
 	t.ok(HudLogic.objective_text(_hud([], {"won": true})) == cfg["objective_won_text"], "the victory line when won")
 	t.ok(cfg["objective_text"] != cfg["objective_won_text"], "the two differ")
+	t.ok(str(cfg["objective_won_text"]) == "You beat Vei: the game is won. Your town and forts are still yours: keep playing, or stop here." and not str(cfg["objective_won_text"]).contains("factory"), "the epilogue's words")
+	# it is drawn on one line in the strip (a Button at objective_size_px, left of the ground meter's reserve): measure it
+	var ep_w: float = ThemeDB.fallback_font.get_string_size(str(cfg["objective_won_text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(cfg["objective_size_px"])).x
+	var ep_room := 1600.0 - float(cfg["meter_reserve_px"]) - float(cfg["topbar_plate_pad_px"]) * 2.0 - 40.0
+	t.ok(ep_w <= ep_room and ep_w <= float(cfg["topbar_max_w_px"]), "the epilogue (%.0f px) fits the strip on one line at 1600 (room %.0f, the bar's max %.0f)" % [ep_w, ep_room, float(cfg["topbar_max_w_px"])])
+	t.ok(not HudLogic.vei_readout_shown({"won": true}) and HudLogic.vei_readout_shown({"won": false}) and HudLogic.vei_readout_shown({}), "Vei's odds / strain / drain hide once won")
+	t.ok(not HudLogic.flood_shown({"won": true}) and HudLogic.flood_shown({}), "the valve's FLOOD row and corner hide once won")
+	var vsrc := FileAccess.get_file_as_string("res://scripts/map/map_valve.gd")
+	t.ok(vsrc.contains("HudLogic.flood_shown(model.hud)") and vsrc.contains("_corner_btns[\"flood\"]"), "the valve panel applies flood_shown to its row and corner")
+	var hsrc2 := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
+	t.ok(hsrc2.contains("HudLogic.vei_readout_shown(hud)") and hsrc2.contains("_vei_group = [odds_name, _odds, strain_name, _sign, drain_name, _drain]"),"the bar applies it to the odds group, and the tithe line is untouched")
+	t.ok(FileAccess.get_file_as_string("res://scripts/map/map_vei.gd").contains("_readout_shown()"), "Vei's node applies it to her readout")
 
 
 func _callout_text(t: TestUtil) -> void:

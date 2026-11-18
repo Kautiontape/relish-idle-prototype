@@ -401,6 +401,12 @@ func _relish(t: TestUtil) -> void:
 	var r0 := NodeLogic.relish_radii(0.61)
 	t.ok(r0["halo"] * 0.61 > float(n["state_glyph_px"]) and r0["core"] * 0.61 * 2.0 > float(n["state_glyph_px"]) * 0.5,
 		"at the default zoom her mark is bigger than any fort's state glyph")
+	var gap := float(n["relish_gap_px"])
+	var reach := 120.0
+	t.near(NodeLogic.relish_stand_dy("vei", reach, gap, r0["halo"]), reach + gap + r0["halo"], 1e-9, "at Vei her mark stands below her ring (+y), the same gap")
+	t.near(NodeLogic.relish_stand_dy("ashgate", reach, gap, r0["halo"]), -(reach + gap + r0["halo"]), 1e-9, "at a fort it stays above (-y)")
+	t.ok(NodeLogic.relish_stand_dy("covington", reach, gap, r0["halo"]) < 0.0, "and at Covington")
+	t.ok(FileAccess.get_file_as_string("res://scripts/map/map_nodes.gd").contains("ctx.relish_pos.y += NodeLogic.relish_stand_dy(at,"), "MapNodes places her by relish_stand_dy")
 
 
 func _plates(t: TestUtil) -> void:

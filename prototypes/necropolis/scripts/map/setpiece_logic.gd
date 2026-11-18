@@ -18,6 +18,7 @@ const KINDS := [VALVE, FLIP, FIRST_FLIP, TITHE, GARRISON, VICTORY, RETREAT]
 const TAKEN := "taken"  # return_kind: the raid took the fort (its set piece is FLIP or FIRST_FLIP)
 const RUN := "run"    # victory: every lane green, running toward Vei
 const STOP := "stop"  # victory: every dash frozen, the victory line up
+const END := "end"    # victory's end state: the line gone, Vei's lanes gone, the realm's lanes live
 const VICTORY_PLAY := "play"      # victory_start: first time in this game: mark it seen and run it
 const VICTORY_SETTLE := "settle"  # victory_start: seen in this game: straight to the end state (STOP)
 const NONE := Vector2(-1.0, -1.0)  # no band this frame
@@ -822,10 +823,17 @@ static func build_done(t: float) -> bool:
 
 # --- victory --------------------------------------------------------------------------------
 
-## RUN for victory_run_beats (every lane green, running toward Vei), then STOP (every dash frozen,
-## the victory line up). Reduced motion: STOP at once.
-static func victory_phase(t: float, reduced: bool) -> String:
-	return STOP if reduced or t >= _n("victory_run_beats") else RUN
+## RUN for victory_run_beats (every lane green, running toward Vei), then STOP for victory_hold_beats
+## (every dash frozen, the victory line up), then END (the line gone, Vei's lanes gone, the realm's
+## own lanes live: the set piece is done). Reduced motion: STOP at once, END after the hold. A
+## `settle` (a victory already seen) is END at once: no freeze, no headline.
+static func victory_phase(t: float, reduced: bool, settle := false) -> String:
+	if settle:
+		return END
+	var run := 0.0 if reduced else _n("victory_run_beats")
+	if t < run:
+		return RUN
+	return STOP if t < run + _n("victory_hold_beats") else END
 
 
 ## The u a lane draws at in victory: its own, floored at victory_u_floor, so a dark lane lights.
