@@ -123,6 +123,12 @@ static func draw_label(ci: CanvasItem, zoom: float, anchor: Vector2, s: String, 
 	ci.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
+## The width of `s` in screen px as draw_label sets it (bold or plain).
+static func label_width(s: String, size: int, bold := true) -> float:
+	var font: Font = _bold_font() if bold else ThemeDB.fallback_font
+	return font.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+
+
 ## A label plate in the caller's current transform (screen px): `fill` with label_plate_radius_px
 ## corners, and a `border_w` px edge in `border` when given.
 static func plate(ci: CanvasItem, rect: Rect2, fill: Color, border := LineGlow.NO_CORE, border_w := 0.0) -> void:

@@ -162,6 +162,165 @@ static func return_text(kind: String, fort_name: String) -> String:
 	return ""
 
 
+# --- where a callout sits ---------------------------------------------------------------------
+# Everything below is in one frame: world px x zoom (the layer's screen px, origin at the world
+# origin), so a ring's radius, a label plate (screen px around its anchor) and a chip share a unit.
+
+## `text` split at its first callout_split (": ") into its two lines, the colon kept on line one
+## ("Old Sluice stays Vei's:" / "you kept everything you found"); [] when it has none to split at.
+static func split_text(text: String) -> Array:
+	var sep := _s("callout_split")
+	var i := text.find(sep)
+	if i <= 0 or i + sep.length() >= text.length():
+		return []
+	return [text.substr(0, i) + sep.rstrip(" "), text.substr(i + sep.length())]
+
+
+## A fort's name and tag plates in the frame (`zoom` x world): NodeLogic.fort_label_rects at the label
+## anchor MapFortRing draws them from. `tag_w` < 0: no tag line. The same plates the lane callouts keep clear of.
+static func fort_plates(pos: Vector2, tier: int, name_w: float, tag_w: float, zoom: float) -> Array:
+	var at := (pos + Vector2(0.0, MapLogic.fort_radius(tier) + float(NodeLogic.ncfg()["label_off_px"]))) * zoom
+	var out: Array = []
+	for r in NodeLogic.fort_label_rects(name_w, tag_w, int(MapLogic.cfg()["font_label"])):
+		out.append(Rect2(at + (r as Rect2).position, (r as Rect2).size))
+	return out
+
+
+## The gap between two rects (0 when they touch or overlap).
+static func rect_gap(a: Rect2, b: Rect2) -> float:
+	var dx := maxf(maxf(a.position.x - b.end.x, b.position.x - a.end.x), 0.0)
+	var dy := maxf(maxf(a.position.y - b.end.y, b.position.y - a.end.y), 0.0)
+	return Vector2(dx, dy).length()
+
+
+## The gap between a rect and a circle `c` (x, y, radius); negative once the rect reaches in.
+static func circle_gap(r: Rect2, c: Vector3) -> float:
+	var near := Vector2(clampf(c.x, r.position.x, r.end.x), clampf(c.y, r.position.y, r.end.y))
+	return near.distance_to(Vector2(c.x, c.y)) - c.z
+
+
+## The rects of a callout of lines `ws` (their text widths), centred on `cx`, the first line's
+## baseline at `first_by`, each a label plate (NodeLogic.label_plate: pad, ascent and height).
+static func callout_rects(cx: float, first_by: float, ws: Array, size: int) -> Array:
+	var out: Array = []
+	for i in ws.size():
+		var w := float(ws[i])
+		var r := NodeLogic.label_plate(-w * 0.5, w, size, 0.0)
+		out.append(Rect2(r.position + Vector2(cx, first_by + float(i) * _n("callout_line_px")), r.size))
+	return out
+
+
+static func _hard(rects: Array, obs: Array, clear: float) -> float:
+	var total := 0.0
+	for r in rects:
+		for o in obs:
+			if o is Rect2:
+				var i: Rect2 = (r as Rect2).grow(clear).intersection(o)
+				total += i.size.x * i.size.y
+			else:
+				var c: Vector3 = o
+				if circle_gap(r, c) < clear:
+					var box := Rect2(c.x - c.z, c.y - c.z, c.z * 2.0, c.z * 2.0).intersection((r as Rect2).grow(clear))
+					total += maxf(box.size.x * box.size.y * PI * 0.25, 1.0)
+	return total
+
+
+static func _soft(rects: Array, soft: Array) -> float:
+	var total := 0.0
+	for r in rects:
+		for o in soft:
+			var i: Rect2 = (r as Rect2).intersection(o)
+			total += i.size.x * i.size.y
+	return total
+
+
+## Where a set-piece callout sits for the fort at `fort` (ring radius `ring_r`), as the shared place
+## for the retreat and the taken lines. `base_y` is the baseline of its last line when it stands
+## above the fort (callout_gap_px over the rings, over Relish's token when she stands there: the
+## place it has always had); `widths` {one, a, b}: the text on one line, and (when it splits at
+## ": ") its two lines; `own` the fort's own rects: its name and tag plates, its chip, and
+## Relish's token when she stands at it. `obs` {rings: [Vector3 x, y, r], circles: [Vector3], rects:
+## [Rect2], soft: [Rect2]}: the HARD ones (every other fort's ring out to its outermost, Relish's
+## halo, the name and tag plates, the held forts' chips) and the SOFT (the open card, lane callouts).
+## Candidates in order: centred above; the same row slid by callout_slides x its width; the two-line
+## form centred above, then slid; then the same under the fort's plates. The first with no hard and no
+## soft overlap wins, else the first with no hard overlap, else the least hard overlap. A candidate is
+## only a candidate when it reads as the fort's: its nearest edge within callout_drift_px of the fort's
+## ring or its own rects, its span covering the fort's x (callout_x_margin_px of play), and no other
+## fort's ring nearer than its own. Returns {form: "one"|"two", place: "above"|"below", slide, pos
+## (centre x, first baseline), rects, hard, soft}.
+static func callout_place(fort: Vector2, ring_r: float, base_y: float, size: int, widths: Dictionary, own: Array, obs: Dictionary) -> Dictionary:
+	var clear := _n("callout_clear_px")
+	var line := _n("callout_line_px")
+	var own_ring := Vector3(fort.x, fort.y, ring_r)
+	var hard_obs: Array = [own_ring]
+	hard_obs.append_array(obs.get("rings", []))
+	hard_obs.append_array(obs.get("circles", []))
+	hard_obs.append_array(obs.get("rects", []))
+	hard_obs.append_array(own)
+	var soft_obs: Array = obs.get("soft", [])
+	var below_top := fort.y + ring_r
+	for r in own:
+		below_top = maxf(below_top, (r as Rect2).end.y)
+	below_top += _n("callout_below_gap_px")
+	var forms: Array = [["one", [float(widths["one"])]]]
+	if widths.has("a"):
+		forms.append(["two", [float(widths["a"]), float(widths["b"])]])
+	var slides: Array = [0.0]
+	for s in cfg()["callout_slides"]:
+		slides.append(float(s))
+	var cands: Array = []
+	for place in ["above", "below"]:
+		for fm in forms:
+			var ws: Array = fm[1]
+			var span := 0.0
+			for w in ws:
+				span = maxf(span, float(w))
+			var first_by := base_y - float(ws.size() - 1) * line if place == "above" else below_top + float(size) * float(NodeLogic.ncfg()["plate_ascent"])
+			for s in slides:
+				var cx := fort.x + float(s) * span
+				var rects := callout_rects(cx, first_by, ws, size)
+				cands.append({"form": fm[0], "place": place, "slide": float(s), "pos": Vector2(cx, first_by), "rects": rects,
+					"hard": _hard(rects, hard_obs, clear), "soft": _soft(rects, soft_obs)})
+	var valid: Array = []
+	for cd in cands:
+		if _reads_as_own(cd["rects"], fort, own_ring, own, obs.get("rings", [])):
+			valid.append(cd)
+	if valid.is_empty():
+		return cands[0]
+	for cd in valid:
+		if float(cd["hard"]) == 0.0 and float(cd["soft"]) == 0.0:
+			return cd
+	for cd in valid:
+		if float(cd["hard"]) == 0.0:
+			return cd
+	var best: Dictionary = valid[0]
+	for cd in valid:
+		if float(cd["hard"]) < float(best["hard"]) or (float(cd["hard"]) == float(best["hard"]) and float(cd["soft"]) < float(best["soft"])):
+			best = cd
+	return best
+
+
+## Whether a place still reads as the fort's own: see callout_place.
+static func _reads_as_own(rects: Array, fort: Vector2, own_ring: Vector3, own: Array, others: Array) -> bool:
+	var left := INF
+	var right := -INF
+	var own_gap := INF
+	var other_gap := INF
+	for r in rects:
+		left = minf(left, (r as Rect2).position.x)
+		right = maxf(right, (r as Rect2).end.x)
+		own_gap = minf(own_gap, circle_gap(r, own_ring))
+		for o in own:
+			own_gap = minf(own_gap, rect_gap(r, o))
+		for c in others:
+			other_gap = minf(other_gap, circle_gap(r, c))
+	var m := _n("callout_x_margin_px")
+	if fort.x < left - m or fort.x > right + m:
+		return false
+	return own_gap <= _n("callout_drift_px") and own_gap <= other_gap
+
+
 ## The first flip's green ripple at the fort's beat `phase` (Pulse.phase at its hops): {reach
 ## (0..1 of ripple_reach_px), alpha} while t < ripple_beats; {} after it and under reduced motion.
 static func ripple(phase: float, t: float, reduced: bool) -> Dictionary:

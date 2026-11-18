@@ -276,7 +276,7 @@ func _flip_tick(p: Dictionary, t: float, rm: bool, items: Array) -> bool:
 	if str(p["kind"]) != SetpieceLogic.FIRST_FLIP:  # every fort taken says so: "<Fort> taken by you"
 		var a0 := SetpieceLogic.callout_alpha(t, float(c["callout_beats"]), rm)
 		if a0 > 0.0:
-			items.append(_callout(id, SetpieceLogic.return_text(SetpieceLogic.TAKEN, str(model.names.get(id, id))), a0))
+			items.append_array(_callout(id, SetpieceLogic.return_text(SetpieceLogic.TAKEN, str(model.names.get(id, id))), a0))
 		return done and t >= float(c["callout_beats"])
 	var rip := SetpieceLogic.ripple(Pulse.phase(model.hops_of(id)), t, rm)
 	if not rip.is_empty():
@@ -285,7 +285,7 @@ func _flip_tick(p: Dictionary, t: float, rm: bool, items: Array) -> bool:
 			"width": float(c["ripple_width_px"]), "cap": float(c["ripple_halo_max_px"])})
 	var a := SetpieceLogic.callout_alpha(t, float(c["callout_beats"]), rm)
 	if a > 0.0:
-		items.append(_callout(id, SetpieceLogic.first_flip_text(str(model.names.get(id, id))), a))
+		items.append_array(_callout(id, SetpieceLogic.first_flip_text(str(model.names.get(id, id))), a))
 	return done and t >= maxf(float(c["ripple_beats"]), float(c["callout_beats"]))
 
 
@@ -298,9 +298,7 @@ func _retreat_tick(p: Dictionary, t: float, rm: bool, items: Array) -> bool:
 		return true
 	var a := SetpieceLogic.callout_alpha(t, float(c["callout_beats"]), rm)
 	if a > 0.0:
-		var item := _callout(id, SetpieceLogic.return_text(SetpieceLogic.RETREAT, str(model.names.get(id, id))), a)
-		item["key"] = "text"
-		items.append(item)
+		items.append_array(_callout(id, SetpieceLogic.return_text(SetpieceLogic.RETREAT, str(model.names.get(id, id))), a, "text"))
 	return t >= float(c["callout_beats"])
 
 
@@ -310,18 +308,60 @@ func _redraw_fort_all(id: String) -> void:
 	nodes.redraw_chips()
 
 
-## A callout centred above a fort's rings, callout_gap_px clear of them, and above Relish's token
-## when she stands there (back from its dungeon, she does).
-func _callout(id: String, text: String, alpha: float) -> Dictionary:
+## A fort's callout: one label item per line, where SetpieceLogic.callout_place puts it. Today's place
+## (centred above the fort's rings, callout_gap_px clear, and above Relish's token when she stands
+## there: back from its dungeon, she does) when nothing is in the way; else slid, split at ": " into
+## two lines, or under the fort's plates, so it never covers another fort. Hard: every other fort's
+## ring, every fort's name and tag plates, the held forts' chips, Relish's token. Soft: the open card
+## and the lane callouts, which this layer cannot read (they are MapCallouts' and the card's).
+func _callout(id: String, text: String, alpha: float, key := "undead") -> Array:
 	var f := model.fort(id)
 	var c := SetpieceLogic.cfg()
 	var ctx := nodes.ctx
-	var p := MapModel.to_vec(f["pos"])
-	var gap := ctx.px(float(c["callout_gap_px"]))
-	var y := p.y - NodeLogic.outer_radius("fort", int(f["tier"]), 0.0) - gap
+	var z := ctx.zoom
+	var size := int(c["callout_font"])
+	var p := MapModel.to_vec(f["pos"]) * z
+	var ring_r := NodeLogic.outer_radius("fort", int(f["tier"]), 0.0) * z
+	var gap := float(c["callout_gap_px"])
+	var base_y := p.y - ring_r - gap
+	var halo := float(NodeLogic.relish_radii(z)["halo"]) * z
+	var token := ctx.relish_pos * z
+	var own: Array = []
+	var obs := {"rings": [], "circles": [Vector3(token.x, token.y, halo)], "rects": [], "soft": []}
 	if str(model.relish.get("at", "")) == id and str(model.relish.get("state", "")) != "travelling":
-		y = minf(y, ctx.relish_pos.y - float(NodeLogic.relish_radii(ctx.zoom)["halo"]) - gap)
-	return {"kind": "label", "pos": Vector2(p.x, y), "text": text, "size": int(c["callout_font"]), "key": "undead", "alpha": alpha}
+		base_y = minf(base_y, token.y - halo - gap)
+		own.append(Rect2(token - Vector2(halo, halo), Vector2(halo, halo) * 2.0))
+	var font := ThemeDB.fallback_font  # what the map's labels measure with
+	var label_size := int(MapLogic.cfg()["font_label"])
+	for g in model.forts:
+		var gid := str(g["id"])
+		var tier := int(g["tier"])
+		var bucket: Array = own if gid == id else obs["rects"]
+		if gid != id:
+			var gp := MapModel.to_vec(g["pos"]) * z
+			(obs["rings"] as Array).append(Vector3(gp.x, gp.y, NodeLogic.outer_radius("fort", tier, 0.0) * z))
+		if NodeLogic.fort_label_shown(ctx.tier, tier):
+			var tag := NodeLogic.name_tag(g)
+			var tag_w := -1.0
+			if not tag.is_empty() and ctx.tier != "far":
+				tag_w = font.get_string_size(str(tag["text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, NodeLogic.tag_size()).x
+			var name_w := font.get_string_size(str(g["name"]), HORIZONTAL_ALIGNMENT_LEFT, -1, label_size).x
+			bucket.append_array(SetpieceLogic.fort_plates(MapModel.to_vec(g["pos"]), tier, name_w, tag_w, z))
+		if bool(g.get("held", false)) and IdleLogic.chip_shown(ctx.tier, z):
+			var r := nodes.chip_world_rect(g)
+			bucket.append(Rect2(r.position * z, r.size * z))
+	var widths := {"one": MapNodeLayer.label_width(text, size)}
+	var split := SetpieceLogic.split_text(text)
+	if not split.is_empty():
+		widths["a"] = MapNodeLayer.label_width(str(split[0]), size)
+		widths["b"] = MapNodeLayer.label_width(str(split[1]), size)
+	var at := SetpieceLogic.callout_place(p, ring_r, base_y, size, widths, own, obs)
+	var lines: Array = split if str(at["form"]) == "two" else [text]
+	var out: Array = []
+	for i in lines.size():
+		var pos := (at["pos"] as Vector2) + Vector2(0.0, float(i) * float(c["callout_line_px"]))
+		out.append({"kind": "label", "pos": pos / z, "text": str(lines[i]), "size": size, "key": key, "alpha": alpha})
+	return out
 
 
 # --- a finished build -------------------------------------------------------------------------
@@ -442,7 +482,7 @@ func _garrison_tick(p: Dictionary, t: float, rm: bool, items: Array) -> bool:
 			ctx.chip_fx[id] = chip
 		nodes.redraw_chips()
 	if float(g["callout"]) > 0.0:
-		items.append(_callout(id, SetpieceLogic.garrison_text(n), float(g["callout"])))
+		items.append_array(_callout(id, SetpieceLogic.garrison_text(n), float(g["callout"])))
 	if bool(g["done"]) and ctx.chip_fx.has(id):
 		ctx.chip_fx.erase(id)
 		nodes.redraw_chips()
