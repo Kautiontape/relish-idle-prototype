@@ -442,7 +442,33 @@ func run() -> int:
 	g.cleanup()
 	_full_pool_ready(c)
 	_pump_lost_cause(c)
+	_muster_digest(c)
 	return t.failures
+
+
+## Q-h (Phase I P3): the digest's workers block carries the muster rate per day of live time (the share of the WORK
+## stream that musters on), not idle_max_after_1h, which sat at worker.idle_cap by design. An hour of a new game's live
+## play: one sample every FINE_S, the mean muster and WORK equal to GameState's split as sampled, the share their ratio.
+func _muster_digest(c: Dictionary) -> void:
+	var g := Autoplayer._bot("keep_test_muster", c, {"print_rows": false})
+	g.new_game()
+	g._tick_to(3600.0)  # _frame samples every FINE_S
+	var md: Dictionary = g._muster_out()
+	var d0: Dictionary = md.get("0", {})
+	var raw: Dictionary = g._muster_day.get("0", {})
+	var n := int(raw.get("n", 0))
+	var mu := float(raw.get("muster_sum", 0.0))
+	var wk := float(raw.get("work_sum", 0.0))
+	t.ok(n >= int(3600.0 / Autoplayer.FINE_S) - 1 and int(d0.get("n", 0)) == n, "an hour of live play: %d muster samples (one per %.0f s)" % [n, Autoplayer.FINE_S])
+	t.ok(wk > 0.0 and is_equal_approx(float(d0["work_mean"]), snappedf(wk / n, 0.0001))
+		and is_equal_approx(float(d0["muster_mean"]), snappedf(mu / n, 0.0001)),
+		"day 0: muster %.4f/s of WORK %.4f/s, the sampled split's means" % [float(d0["muster_mean"]), float(d0["work_mean"])])
+	t.ok(float(d0["muster_share"]) >= 0.0 and float(d0["muster_share"]) <= 1.0 and is_equal_approx(float(d0["muster_share"]), snappedf(mu / wk, 0.0001)),
+		"the muster's share of WORK: %.4f" % float(d0["muster_share"]))
+	var src := FileAccess.get_file_as_string("res://tests/autoplay/autoplayer.gd")
+	t.ok(src.contains("\"muster_per_day\": _muster_out()") and not src.contains("\"idle_max_after_1h\""),
+		"summary's workers block is the muster rate, not idle_max_after_1h")
+	g.cleanup()
 
 
 ## E4 review item 11 (a): prepare_away's WAR pump (_pump_war) lets a lost cause go, as _war_topup does in a session.

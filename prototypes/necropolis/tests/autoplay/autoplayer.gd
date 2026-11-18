@@ -156,6 +156,9 @@ var vei_ready_wave_t := -1.0  # the old readout beside it (the sizing stop's rul
 var first :={"vat": -1.0, "chapel": -1.0, "clone": -1.0, "wall_queue": -1.0, "wall_report": -1.0, "full_raid": -1.0,
 	"bone_wait_seen": -1.0, "bone_wait_event": -1.0, "lots_full": -1.0}
 var _fine_day := {}
+## Q-h (Phase I P3): the muster rate per day of live time, at each FINE_S sample: {n, muster_sum, work_sum} (GameState's
+## split: the muster TownSim took from the WORK stream, and that stream), for summary's workers.muster_per_day
+var _muster_day := {}
 var _win := {}
 var _next_fine := 0.0
 var _next_open_row := 0.0
@@ -1921,6 +1924,26 @@ func _fine_sample() -> void:
 		_fine_day[d] = _stat0()
 	_stat_add(_fine_day[d], mint, bn)
 	_stat_add(_win, mint, bn)
+	if not _muster_day.has(d):
+		_muster_day[d] = {"n": 0, "muster_sum": 0.0, "work_sum": 0.0}
+	var md: Dictionary = _muster_day[d]
+	md["n"] = int(md["n"]) + 1
+	md["muster_sum"] = float(md["muster_sum"]) + float(s._split["muster"])
+	md["work_sum"] = float(md["work_sum"]) + float(s._split["work"])
+
+
+## Q-h (Phase I P3; BALANCE §5's "the wrong metric"): workers.muster_per_day from _muster_day: per day of live time the
+## mean muster (mass/s), the mean WORK stream and the muster's share of it (0 with no WORK). The idle count sits at
+## worker.idle_cap whenever the inflow outruns the slots, so the share of labour that streams on is the number.
+func _muster_out() -> Dictionary:
+	var out := {}
+	for d in _muster_day:
+		var md: Dictionary = _muster_day[d]
+		var n := maxi(1, int(md["n"]))
+		var wk := float(md["work_sum"])
+		out[d] = {"n": int(md["n"]), "muster_mean": _r(float(md["muster_sum"]) / n), "work_mean": _r(wk / n),
+			"muster_share": _r(float(md["muster_sum"]) / wk) if wk > 0.0 else 0.0}
+	return out
 
 
 static func _r(x: float) -> float:
@@ -2095,13 +2118,9 @@ func summary() -> Dictionary:
 		nas[k] = {"rows": p.size(), "projected_median_s": _r(_median(p)), "starts": g.size(), "gap_median_s": _r(_median(g)),
 			"gap_max_s": _r(g.max() if not g.is_empty() else -1.0)}
 	out["next_affordable"] = nas
-	# workers
-	var idle_max := 0.0
-	for r in rows:
-		if float(r["t"]) >= 3600.0:
-			idle_max = maxf(idle_max, float(r["workers_idle"]))
-	out["workers"] = {"idle_max_after_1h": _r(idle_max), "flat_runs": _flat_runs(t_end),
-		"basis": "rows: view_town jobs (staffed vs slots) and workers.idle; flat runs: over 30 min with no building finished (building_done, live and away)"}
+	# workers (Q-h, Phase I P3: the muster rate replaces idle_max_after_1h, which sat at worker.idle_cap by design)
+	out["workers"] = {"muster_per_day": _muster_out(), "flat_runs": _flat_runs(t_end),
+		"basis": "muster_per_day: GameState's split muster and work every 10 s of live time, the share muster / work; flat runs: over 30 min with no building finished (building_done, live and away)"}
 	out["lots"] = {"first_full_with_no_lot_t": first["lots_full"]}
 	out["stores"] = _stores()
 	var sw := {}
