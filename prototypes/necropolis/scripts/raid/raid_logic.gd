@@ -589,7 +589,10 @@ static func goal_rows(s: Dictionary) -> Array:
 		for i in br.size():
 			if compact and br.size() > 2 and i > 0 and i < br.size() - 1:
 				continue   # the TAKES row (between the BREAK and COUNTER rows) waits for the full block
-			rows.append({"text": str(br[i]), "px": xpx, "key": "text_dim"})
+			var bt := str(br[i])
+			if compact:
+				bt = bt.get_slice(": make one", 0)   # the COUNTER row's "make one at the Crypt slab" waits for the full block: at 15 px it would wrap and cover the ring
+			rows.append({"text": bt, "px": maxi(xpx, BREAK_ROW_PX), "key": BREAK_ROW_KEY})
 	elif bool(s.get("chest", false)):
 		rows.append({"text": goal_line(fort, str(s.get("warden_name", "")), false), "px": gpx, "key": "vei"})
 		rows.append({"text": CHEST_ROW, "px": rpx, "key": "text"})
@@ -642,8 +645,9 @@ const TOP_BLOCK_BASE_H := 62.0   # the awake WardenBlock's height with no extra 
 
 const WARDEN_BLOCK_W := 680.0    # the awake WardenBlock's plate width
 const WARDEN_BLOCK_INSET := 12.0   # its text's inset each side
-const BREAK_ROW_PX := 13           # the break / takes / counter rows' font size
-const BREAK_ROW_STEP := 20.0       # one wrapped line's height
+const BREAK_ROW_PX := 15           # the break / takes / counter rows' font size (the win line: at least 15, in the `text` key)
+const BREAK_ROW_STEP := 22.0       # one wrapped line's height (the font's height at BREAK_ROW_PX is 17, plus 5)
+const BREAK_ROW_KEY := "text"      # the break / takes / counter rows' colour key (full value tone)
 
 
 ## `text` in lines no wider than `max_w` at `font_px`: whole " · " chunks where they fit, a long chunk
@@ -884,16 +888,20 @@ static func death_card_rows(cause: String, banked_counts: Dictionary, unbanked: 
 	return rows
 
 
-## A wait for the death card's AFTER row: "45 s" under a minute, m:ss from 60 s ("1:30"); never "0 s".
+## A wait for the death card's AFTER row, with its unit: "45 s" under a minute; from 60 s minutes ("10 min",
+## "1 min 30 s"); never "0 s", never a bare m:ss.
 static func death_wait_text(secs: float) -> String:
 	var n := maxi(1, roundi(secs))
-	return "%d s" % n if n < 60 else "%d:%02d" % [n / 60, n % 60]
+	if n < 60:
+		return "%d s" % n
+	return "%d min" % (n / 60) if n % 60 == 0 else "%d min %d s" % [n / 60, n % 60]
 
 
 ## The death card's AFTER row {label, text, key}: what a run-ending death costs in time. Read from the raid
 ## seed's `death_ends` {outcome: "clone"|"unmade", respawn_s} (economy's, after any phylactery revives); the
 ## card copies no rule. "clone": "wakes at Covington", with " in N s" only when respawn_s > 0. "unmade":
-## "unmade", with " · reforms in N s" when respawn_s > 0. Without `death_ends` (an older save), or with an
+## "unmade · reforms at Covington", with " in N s/min" when respawn_s > 0, then " · the town takes a morale
+## shock" (state_runs applies economy.morale.death_shock). Without `death_ends` (an older save), or with an
 ## outcome it does not know (a newer economy's, or a broken key): the seed's clones_ready, "wakes at
 ## Covington" if > 0 else "unmade", with no number. A missing or non-positive respawn_s shows no number.
 static func death_next_row(seed: Dictionary) -> Dictionary:
@@ -905,9 +913,11 @@ static func death_next_row(seed: Dictionary) -> Dictionary:
 		secs = float(de.get("respawn_s", 0.0))
 	else:
 		clone = int(seed.get("clones_ready", 0)) > 0
-	var text := "wakes at Covington" if clone else "unmade"
+	var text := "wakes at Covington" if clone else "unmade · reforms at Covington"
 	if secs > 0.0:
-		text += (" in %s" if clone else " · reforms in %s") % death_wait_text(secs)
+		text += " in %s" % death_wait_text(secs)
+	if not clone:
+		text += " · the town takes a morale shock"
 	return {"label": "AFTER", "text": text, "key": "text" if clone else "danger"}
 
 
@@ -935,7 +945,7 @@ static func spread_angle(want: float, taken: PackedFloat32Array, sep: float) -> 
 
 ## The antechamber's last-chance banner, with the loose essence lit there (D-b review SF-4).
 static func last_chance_banner(lit: int) -> String:
-	return "LAST CHANCE · a free trance" + ("" if lit <= 0 else " · %d loose essence here: walk close and it drifts to you" % lit)
+	return "LAST CHANCE before the warden · your trance is ready and this raise costs no cooldown" + ("" if lit <= 0 else " · %d loose essence here: it drifts to you" % lit)
 
 
 ## T2: the words that say what the circle is for (never that it gathers essence).
@@ -998,7 +1008,7 @@ static func exposed_tint(level: float, cfg: Dictionary) -> float:
 ## The PHYLACT. row's words: "" while a charge is left; with none, what a death would mean (true
 ## whatever her hp: the chain and her hp still stand between her and it).
 static func phylactery_word(phyl_left: int) -> String:
-	return "" if phyl_left > 0 else "NO REVIVE · death ends the run"
+	return "" if phyl_left > 0 else "NO REVIVE · a death ends the raid"
 
 
 ## The PHYLACT. row's dim sub-lines, one string per row. No charge: the glossary's Jargon line in two rows (where a
@@ -1519,7 +1529,7 @@ static func death_rows_with_shut(rows: Array, shut: String) -> Array:
 static func retreat_keep_lines(held: bool, keep: Dictionary, door_line: String) -> Array:
 	var out: Array = [{"text": "You keep everything you found and all carried essence.", "key": "text"}]
 	var now := loot_line(keep)
-	out.append({"text": "  " + (now if now != "" else "nothing found yet"), "key": "text"})
+	out.append({"text": ("so far: " + now) if now != "" else "nothing found yet", "key": "text"})   # no indent: a wrapped line above made "  essence 8" read as a stray
 	var uses := loot_uses_line(keep)
 	if uses != "":
 		out.append({"text": uses, "key": "text_dim"})

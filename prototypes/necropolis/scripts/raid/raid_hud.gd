@@ -389,7 +389,7 @@ func refresh() -> void:
 		if at_exit:
 			_hint.visible = true
 		_hint2.text = RaidLogic.hint_sub_text(raid.trance_active, at_exit, raid.first_raise_done)
-		_hint2.visible = _hint.visible and _hint2.text != ""
+		_hint2.visible = _hint.visible and _hint2.text != "" and not _undead_cue_up()
 		# the "your undead fight on their own" cue (once per run)
 		if not _undead_cue_shown:
 			var alive := 0
@@ -468,7 +468,7 @@ func _update_goal() -> void:
 	var alive: bool = w != null and is_instance_valid(w) and w.alive
 	var s := {"held": held, "fort_name": raid.fort_name(), "warden_alive": alive, "warden_name": "",
 		"route_text": "", "break_rows": [], "chest": wr != null and wr.chest != null, "no_army": false,
-		"goal_px": int(g.get("goal_px", 17)), "route_px": int(g.get("route_px", 14)), "row_px": int(g.get("row_px", 13))}
+		"goal_px": int(g.get("goal_px", 17)), "route_px": int(g.get("route_px", 14)), "row_px": int(g.get("row_px", 15))}
 	if not held and alive:
 		var sp: Dictionary = w.spec
 		s["warden_name"] = str(sp.get("name", ""))
@@ -710,6 +710,12 @@ func show_cue(text: String, secs: float, color_key: String) -> void:
 	_cue_queue.append([text, secs, color_key, 0.0])
 
 
+## The one-shot "your undead fight on their own" toast is on screen: the idle sub-line says the same words, so it
+## waits (the banner's text is the cue's, broken at its " · ").
+func _undead_cue_up() -> bool:
+	return _banner != null and _banner.visible and _banner.text == RaidLogic.CUE_UNDEAD.replace(" · ", "\n")
+
+
 func _tick_cues() -> void:
 	if _cue_queue.is_empty():
 		return
@@ -827,7 +833,7 @@ class StatBlock:
 	var phyl := 0
 	var phyl_meaning := PackedStringArray()   # its dim meaning rows (RaidLogic.phylactery_meaning), kept by set_phyl
 	var phyl_extra := 0      # rows its meaning takes beyond one
-	var phyl_word := ""      # "NO REVIVE · death ends the run" at 0 charges (RaidLogic.phylactery_word)
+	var phyl_word := ""      # "NO REVIVE · a death ends the raid" at 0 charges (RaidLogic.phylactery_word)
 	var phyl_tone: Color = Palette.c("danger")   # the NO REVIVE words: `danger` whenever no charge is left
 	var banked_text := ""
 	var unbanked_text := ""
@@ -1234,6 +1240,7 @@ class WardenBlock:
 				draw_arc(p, r - 0.6, 0.0, TAU, 14, Palette.c("text_dim", 0.8), 1.3)
 			x += 16.0
 		x = _text(x + 2.0, y, "%d/%d" % [lit, w.meter_n], 15)
+		x = _text(x + 4.0, y, "break pips", 13, "text_dim")   # what the pips are: the blows it takes before it breaks
 		y += 26.0
 		if w is RaidBellringer:
 			var bw := w as RaidBellringer
@@ -1310,7 +1317,7 @@ class WardenBlock:
 		var ry := y + 22.0 * ((1.0 if hw != null else 0.0) + (1.0 if w.spec.has("pack") else 0.0))
 		for line in break_lines:
 			ry += RaidLogic.BREAK_ROW_STEP
-			_text(x0, ry, str(line), RaidLogic.BREAK_ROW_PX, "text_dim")
+			_text(x0, ry, str(line), RaidLogic.BREAK_ROW_PX, RaidLogic.BREAK_ROW_KEY)
 
 
 ## Screen-space pointers over the world (a Node2D: it takes no input). The loot pointer: a faint

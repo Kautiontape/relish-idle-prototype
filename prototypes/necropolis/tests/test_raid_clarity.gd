@@ -70,7 +70,7 @@ func _round2_tests(t: TestUtil) -> void:
 	var next_unmade := RaidLogic.death_next_row({"death_ends": {"outcome": "unmade", "respawn_s": 600.0}})
 	var fall := RaidLogic.retreat_fall_lines(0, ub, 2, next_unmade)
 	var card := RaidLogic.death_card_rows("x", {}, ub, 2, "", next_unmade)
-	t.ok(fall.size() == 2 and fall[0]["text"].ends_with(card[card.size() - 2]["text"]) and fall[1]["text"].ends_with(card[card.size() - 1]["text"]) and fall[1]["text"].contains("unmade · reforms in 10:00"),
+	t.ok(fall.size() == 2 and fall[0]["text"].ends_with(card[card.size() - 2]["text"]) and fall[1]["text"].ends_with(card[card.size() - 1]["text"]) and fall[1]["text"].contains("unmade · reforms at Covington in 10 min · the town takes a morale shock"),
 		"right: LOST and AFTER are the death card's own rows (%s)" % str(fall))
 	# I2: a big shut in at the cache is the death card's own SHUT IN row, before AFTER
 	var fall_s := RaidLogic.retreat_fall_lines(0, ub, 1, next_unmade, "Old Gristle")
@@ -326,7 +326,7 @@ func _hint_cue_tests(t: TestUtil) -> void:
 		for seg in str(cue).split(" · "):
 			longest = maxi(longest, seg.length())
 	t.ok(longest <= 36, "every cue line (split at ' · ') is short, so the cue's plate stays narrow over the world (longest %d chars)" % longest)
-	t.ok(RaidLogic.last_chance_banner(0) == "LAST CHANCE · a free trance" and RaidLogic.last_chance_banner(3).ends_with("3 loose essence here: walk close and it drifts to you"), "last chance: bare at 0, the drift line with a count")
+	t.ok(RaidLogic.last_chance_banner(0).contains("no cooldown") and RaidLogic.last_chance_banner(3).ends_with("3 loose essence here: it drifts to you"), "last chance: bare at 0, the drift line with a count")
 	t.ok(not RaidLogic.undead_cue_due(true, 3, 99.0, 5.0, 4), "the undead cue never repeats")
 	t.ok(not RaidLogic.undead_cue_due(false, 3, 99.0, 5.0, 0), "none without an undead standing")
 	t.ok(RaidLogic.undead_cue_due(false, 1, 0.0, 5.0, 1), "a kill makes it due")
@@ -527,7 +527,7 @@ func _goal_rows_tests(t: TestUtil) -> void:
 	r = RaidLogic.goal_rows(alive)
 	t.ok(r.size() == 4 and r[0]["text"] == RaidLogic.goal_line("Old Sluice", "The Bellringer", false) and r[1]["text"] == alive["route_text"] and r[1]["key"] == "text" and r[1]["px"] == 14,
 		"warden alive: the goal, then the route")
-	t.ok(r[2]["text"] == "BREAK x" and r[3]["text"] == "COUNTER y" and r[2]["key"] == "text_dim" and r[3]["px"] == 13, "then each break row, dim, at the row size")
+	t.ok(r[2]["text"] == "BREAK x" and r[3]["text"] == "COUNTER y" and r[2]["key"] == "text" and r[3]["key"] == "text" and r[3]["px"] >= 15, "then each break row, in the text key, at least 15 px")
 	var chest := base.duplicate()
 	chest["chest"] = true
 	r = RaidLogic.goal_rows(chest)
@@ -944,6 +944,10 @@ func _goal_compact_tests(t: TestUtil) -> void:
 		"compact: goal, BREAK, COUNTER and the short no-army row; no route, no TAKES")
 	t.ok(RaidLogic.NO_ARMY_SHORT.contains("retreat, then send WAR here or bring big undead") and RaidLogic.NO_ARMY_SHORT.begins_with("NO UNDEAD") and RaidLogic.NO_ARMY_SHORT.length() < RaidLogic.NO_ARMY_LINE.length(),
 		"the short no-army row keeps its advice and is shorter")
+	var cc := cs.duplicate()
+	cc["break_rows"] = ["BREAK it", "TAKES x4", "COUNTER · a big undead with speed 4+ intercepts its lunge · you have none: make one at the Crypt slab"]
+	t.ok(RaidLogic.goal_rows(cc)[2]["text"] == "COUNTER · a big undead with speed 4+ intercepts its lunge · you have none"
+		and RaidLogic.goal_rows(cc.merged({"compact": false}, true))[4]["text"].ends_with("make one at the Crypt slab"), "compact: the COUNTER row drops its slab tail (one line over the ring); the full block keeps it")
 	cs["no_army"] = false
 	t.ok(RaidLogic.goal_rows(cs).size() == 3, "compact without the no-army row: three rows")
 	cs["break_rows"] = ["BREAK it", "COUNTER them"]

@@ -663,12 +663,12 @@ func _hud_readouts(t: TestUtil, cfg: Dictionary) -> void:
 			"loss_card: backups spent %d + %d of 3; the whole party is lost, whoever had fallen in the scene" % [sp[0], sp[1]])
 	var sd_de := sd.duplicate(true)
 	var a_none: Dictionary = BossLogic.loss_card(sd_de, {}, [], 1.0, "relish_unmade", keep)["after"]
-	t.ok(a_none["label"] == "AFTER" and a_none["text"] == "unmade" and a_none["key"] == "danger",
+	t.ok(a_none["label"] == "AFTER" and a_none["text"].begins_with("unmade · reforms at Covington") and a_none["key"] == "danger",
 		"loss_card: no death_ends reads 'unmade', even when the seed began with a clone (a final death spent every backup)")
 	sd_de["death_ends"] = {"outcome": "unmade", "respawn_s": 0.0}
-	t.ok(BossLogic.loss_card(sd_de, {}, [], 1.0, "relish_unmade", keep)["after"]["text"] == "unmade", "loss_card: death_ends unmade at 0.0 shows no number")
+	t.ok(BossLogic.loss_card(sd_de, {}, [], 1.0, "relish_unmade", keep)["after"]["text"] == "unmade · reforms at Covington · the town takes a morale shock", "loss_card: death_ends unmade at 0.0 shows no number")
 	sd_de["death_ends"] = {"outcome": "unmade", "respawn_s": 60.0}
-	t.ok(BossLogic.loss_card(sd_de, {}, [], 1.0, "relish_unmade", keep)["after"]["text"] == "unmade · reforms in 1:00", "loss_card: death_ends unmade at 60 s reads 'reforms in 1:00'")
+	t.ok(BossLogic.loss_card(sd_de, {}, [], 1.0, "relish_unmade", keep)["after"]["text"] == "unmade · reforms at Covington in 1 min · the town takes a morale shock", "loss_card: death_ends unmade at 60 s reads 'reforms at Covington in 1 min'")
 	t.ok(BossLogic.loss_card(sd_de, {}, [], 1.0, "relish_unmade", keep)["after"] == RaidLogic.death_next_row({"death_ends": sd_de["death_ends"], "clones_ready": 0}),
 		"loss_card: the AFTER row is the raid card's rule (RaidLogic.death_next_row)")
 	t.ok((BossLogic.loss_card(sd_de, {}, [], 1.0, "fronts_held", keep)["after"] as Dictionary).is_empty(),

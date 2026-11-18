@@ -93,7 +93,7 @@
     },
     "retreat": {
       "_doc": "The retreat panel (RaidRetreatPanel): two columns, RETREAT NOW and IF RELISH FALLS. w is the plate's width; pad its inner margin; title_px/head_px/line_px the title, column-head and line sizes (no text under 13 px); line_h one line's pitch; col_gap the space between the columns; btn_w/btn_h/btn_gap the RETREAT and STAY buttons (btn_h is at least 44, a touch target). The words are RaidLogic.retreat_keep_lines / retreat_fall_lines.",
-      "plate_alpha": 0.97,
+      "plate_alpha": 1.0,
       "w": 820,
       "pad": 18,
       "title_px": 20,
@@ -109,7 +109,7 @@
       "_doc": "The goal block (top centre, where the warden's block sits, before the wake and after the warden falls; a held raid keeps it the whole run): the goal line (goal_px), the route line (route_px) and the rows under them (row_px), on a ground plate at plate_alpha. The words are RaidLogic.goal_line / route_line and WardenLogic.break_line / takes_line / counter_line.",
       "goal_px": 17,
       "route_px": 14,
-      "row_px": 13,
+      "row_px": 15,
       "plate_alpha": 0.96
     }
   },

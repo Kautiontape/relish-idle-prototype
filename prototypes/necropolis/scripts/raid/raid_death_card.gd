@@ -58,8 +58,16 @@ func _draw() -> void:
 	var w: float = dc["w"]
 	var pad: float = dc["pad"]
 	var lw: float = dc["label_w"]
-	var row_h := 34.0
-	var h := pad * 2.0 + 44.0 + row_h * rows.size() + 30.0
+	var vw := w - pad * 2.0 - lw
+	var vpx := int(dc["value_px"])
+	var heights: Array = []   # a long value wraps to a second line: its row grows (never clipped)
+	var total := 0.0
+	for r in rows:
+		var sz := f.get_multiline_string_size(str(r["text"]), HORIZONTAL_ALIGNMENT_LEFT, vw, vpx)
+		var rh := maxf(34.0, sz.y + 16.0)
+		heights.append(rh)
+		total += rh
+	var h := pad * 2.0 + 44.0 + total + 30.0
 	var vs := get_viewport_rect().size
 	var o := (vs - Vector2(w, h)) * 0.5
 	draw_rect(Rect2(Vector2.ZERO, vs), Palette.c("ground", float(dc["backdrop_a"]) * a))
@@ -69,9 +77,10 @@ func _draw() -> void:
 	var y := o.y + pad + 22.0
 	draw_string(f, Vector2(x, y), "RELISH FALLS", HORIZONTAL_ALIGNMENT_LEFT, -1, 24, Palette.c("danger", a))
 	y += 40.0
-	for r in rows:
+	for i in rows.size():
+		var r: Dictionary = rows[i]
 		draw_string(f, Vector2(x, y), str(r["label"]), HORIZONTAL_ALIGNMENT_LEFT, lw - 8.0, int(dc["label_px"]), Palette.c("text_dim", a))
-		draw_string(f, Vector2(x + lw, y), str(r["text"]), HORIZONTAL_ALIGNMENT_LEFT, w - pad * 2.0 - lw, int(dc["value_px"]), Palette.c(str(r["key"]), a))
-		y += row_h
-	var foot := "the run ends here · click or SPACE to go on" if can_skip() else "the run ends here"
+		draw_multiline_string(f, Vector2(x + lw, y), str(r["text"]), HORIZONTAL_ALIGNMENT_LEFT, vw, vpx, -1, Palette.c(str(r["key"]), a))
+		y += float(heights[i])
+	var foot := "the raid ends here, not the game · click or SPACE to go on" if can_skip() else "the raid ends here, not the game"
 	draw_string(f, Vector2(x, y + 4.0), foot, HORIZONTAL_ALIGNMENT_LEFT, -1, int(dc["foot_px"]), Palette.c("text_dim", a))
