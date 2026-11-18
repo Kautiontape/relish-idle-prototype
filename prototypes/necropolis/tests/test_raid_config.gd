@@ -100,6 +100,7 @@ const NUMBERS := [
 	"wardens.archetypes.bellringer.weak_point.counter_helps_from_tier", "wardens.archetypes.huntsman.weak_point.counter_helps_from_tier",
 	"wardens.archetypes.shieldwall.weak_point.counter_helps_from_tier", "wardens.archetypes.pyre_priest.weak_point.counter_helps_from_tier",
 	"trace_notch.live_font_px", "trace_notch.live_ladder_px", "trace_notch.live_gap_px", "trace_notch.live_pad_px", "trace_notch.live_plate_alpha",
+	"trace_notch.screen_margin_px", "trace_notch.result_gap_px", "trace_notch.result_stack_gap_px",
 ]
 
 ## The words the code formats, with the placeholders each must keep ("%d" words go through `%`, which throws without one).

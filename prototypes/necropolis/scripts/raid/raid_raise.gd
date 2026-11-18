@@ -14,6 +14,7 @@ func _init(p_raid: Node2D) -> void:
 
 func show_feedback(g: Dictionary, trace: PackedVector2Array) -> void:
 	var fb := RaidTraceFeedback.new()
+	fb.raid = _raid
 	fb.trace = trace
 	fb.fitted_center = g["center"]
 	fb.fitted_radius = g["radius"]

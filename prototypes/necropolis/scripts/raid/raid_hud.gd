@@ -9,6 +9,8 @@ extends CanvasLayer
 
 var raid: Node = null
 
+var trace_overlay: RaidTraceOverlay = null   # the loop's screen-space readouts (the trance and the feedback feed it)
+
 var _title: Label
 var _stats: StatBlock
 var _hint: Label
@@ -262,6 +264,21 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	if not boss_mode:
 		_banner.offset_top = 116.0   # its own row under the push line (up to two lines), so neither can run into the other
 	_banner_top = _banner.offset_top
+	# the loop's readouts (RaidTraceOverlay): drawn over every HUD control above, under the retreat panel and under
+	# the death, clear and Vei cards (added to this layer later, so after it)
+	trace_overlay = RaidTraceOverlay.new()
+	trace_overlay.raid = raid
+	trace_overlay.hud = self
+	add_child(trace_overlay)
+	if _retreat != null:
+		move_child(trace_overlay, _retreat.get_index())
+
+
+## The hint plate's screen rect (empty while it is hidden): the loop's readouts keep off it when they can.
+func hint_plate_rect() -> Rect2:
+	if _hint_plate == null or not _hint_plate.visible:
+		return Rect2()
+	return Rect2(_hint_plate.global_position, _hint_plate.size)
 
 
 func _mk_label(parent: Node, size: int, color: Color) -> Label:

@@ -224,7 +224,7 @@
     }
   },
   "trace_notch": {
-    "_doc": "The circle's feedback (RaidTraceFeedback): the tier notches' length and width, and its words. grade_head is the head over a fitted ring ('%d' the score, '%s' its grade word), tier_tail the tail ('%d' the units raised, '%s' their tier, upper-cased, '%s' the strength multiplier to 2 decimals). RaidTraceLive (the readout beside the pen while a loop is drawn; RaidLogic.loop_readout): live_head ('%d' the score now, '%s' the tier it would make, upper-cased), live_tail ('%d' the motes inside the fitted ring, '%s' the strength multiplier), live_ladder ('%d' the soldier score, '%d' the elite score, from raise.*_min_score) and live_none (shown in place of the first two while the trace fits no ring); live_font_px / live_ladder_px the sizes, live_gap_px the offset from the pen tip, live_pad_px the plate's padding, live_plate_alpha its backing. not_circle the head over a trace that fits no ring, and word_* the grade words, best score band first (perfect from 98, great 90, good 80, okay 70, shaky 60, poor 50, awful below).",
+    "_doc": "The circle's feedback (RaidTraceFeedback): the tier notches' length and width, and its words. grade_head is the head over a fitted ring ('%d' the score, '%s' its grade word), tier_tail the tail ('%d' the units raised, '%s' their tier, upper-cased, '%s' the strength multiplier to 2 decimals). RaidTraceLive (the readout beside the pen while a loop is drawn; RaidLogic.loop_readout): live_head ('%d' the score now, '%s' the tier it would make, upper-cased), live_tail ('%d' the motes inside the fitted ring, '%s' the strength multiplier), live_ladder ('%d' the soldier score, '%d' the elite score, from raise.*_min_score) and live_none (shown in place of the first two while the trace fits no ring); live_font_px / live_ladder_px the sizes, live_gap_px the offset from the pen tip, live_pad_px the plate's padding, live_plate_alpha its backing. Both the readout and the result's head and tail are screen-space plates (RaidTraceOverlay on the HUD's layer, RaidLogic.live_plate_rect / result_plate_rects): screen_margin_px the gap every plate keeps from the viewport's edges, result_gap_px the gap between the ring and its head or tail, result_stack_gap_px the gap between the head and the tail when they stack on one side of the ring. not_circle the head over a trace that fits no ring, and word_* the grade words, best score band first (perfect from 98, great 90, good 80, okay 70, shaky 60, poor 50, awful below).",
     "len_px": 9.0,
     "width_px": 3.0,
     "grade_head": "%d — %s",
@@ -238,6 +238,9 @@
     "live_gap_px": 26,
     "live_pad_px": 8,
     "live_plate_alpha": 0.92,
+    "screen_margin_px": 8,
+    "result_gap_px": 8,
+    "result_stack_gap_px": 4,
     "not_circle": "0 — NOT A CIRCLE",
     "word_perfect": "PERFECT!",
     "word_great": "GREAT",

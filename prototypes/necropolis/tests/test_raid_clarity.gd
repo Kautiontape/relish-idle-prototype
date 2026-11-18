@@ -22,6 +22,67 @@ func run() -> int:
 	return t.failures
 
 
+## The loop's screen-space plates (RaidLogic.live_plate_rect / result_plate_rects): always inside the viewport by
+## the margin, flipped where a side would leave it, off the hint plate when they can be.
+func _readout_place_tests(t: TestUtil) -> void:
+	var view := Vector2(1600, 900)
+	var m := 8.0
+	var hint := Rect2(Vector2(420, 806), Vector2(760, 76))   # the bottom hint plate
+	# the live plate: middle of the screen: right and below the pen tip
+	var psz := Vector2(300, 90)
+	var r := RaidLogic.live_plate_rect(psz, Vector2(800, 400), 26.0, view, m, [hint])
+	t.ok(r.position.is_equal_approx(Vector2(826, 426)) and RaidLogic.rect_inside_view(r, view, m), "live, mid-screen: 26 px right and below the tip (%s)" % r)
+	# near the right and bottom edges: flipped to the left and above, still off the hint
+	var tip_br := Vector2(1560, 860)
+	r = RaidLogic.live_plate_rect(psz, tip_br, 26.0, view, m, [hint])
+	t.ok(RaidLogic.rect_inside_view(r, view, m) and r.end.x <= tip_br.x - 26.0 + 0.01 and r.end.y <= tip_br.y - 26.0 + 0.01, "live, bottom-right: flipped across the tip (%s)" % r)
+	# near the left edge: the plate stays inside (the legend side), and a tip at the corner is clamped
+	r = RaidLogic.live_plate_rect(psz, Vector2(2, 2), 26.0, view, m, [])
+	t.ok(RaidLogic.rect_inside_view(r, view, m), "live, top-left corner: inside the margin (%s)" % r)
+	r = RaidLogic.live_plate_rect(psz, Vector2(40, 300), 26.0, view, m, [hint])
+	t.ok(RaidLogic.rect_inside_view(r, view, m) and r.position.x >= m, "live, near the left edge: inside (%s)" % r)
+	# above the hint plate: the pen tip just over it would put the plate on the hint, so it moves clear
+	r = RaidLogic.live_plate_rect(psz, Vector2(700, 700), 26.0, view, m, [hint])
+	t.ok(not r.intersects(hint) and RaidLogic.rect_inside_view(r, view, m), "live, tip over the hint plate: the plate keeps off it (%s)" % r)
+	t.ok(RaidLogic.live_plate_rect(psz, Vector2(700, 700), 26.0, view, m, [Rect2()]).position.is_equal_approx(Vector2(726, 726)), "an empty avoid rect (a hidden hint plate) is ignored")
+	# a plate that cannot be both on screen and off the hint is kept on screen
+	var wide := Rect2(Vector2(0, 0), Vector2(1600, 900))
+	r = RaidLogic.live_plate_rect(psz, Vector2(700, 400), 26.0, view, m, [wide])
+	t.ok(RaidLogic.rect_inside_view(r, view, m), "nothing clear: still on screen")
+	# the result: a ring in the middle: head above, tail under
+	var hs := Vector2(140, 27)
+	var ts := Vector2(380, 27)
+	var res := RaidLogic.result_plate_rects(hs, ts, Vector2(800, 400), 90.0, 8.0, 4.0, view, m, [hint])
+	t.ok(is_equal_approx(res["head"].end.y, 400.0 - 90.0 - 8.0) and is_equal_approx(res["tail"].position.y, 400.0 + 90.0 + 8.0)
+		and is_equal_approx(res["head"].get_center().x, 800.0) and is_equal_approx(res["tail"].get_center().x, 800.0), "result, mid-screen: head over the ring, tail under it, both centred")
+	# a ring near the bottom edge (Relish's spawn, bottom-left): the tail goes above the head, both inside, clear of the legend side hint
+	var c_bl := Vector2(300, 780)
+	res = RaidLogic.result_plate_rects(hs, ts, c_bl, 100.0, 8.0, 4.0, view, m, [hint])
+	t.ok(RaidLogic.rect_inside_view(res["head"], view, m) and RaidLogic.rect_inside_view(res["tail"], view, m)
+		and res["tail"].end.y <= res["head"].position.y and res["head"].end.y <= c_bl.y - 100.0, "result, bottom-left ring: both above it, the tail over the head (%s / %s)" % [res["head"], res["tail"]])
+	t.ok(not res["head"].intersects(res["tail"]), "the head and the tail never overlap")
+	# a ring near the left edge: slid sideways, inside
+	var c_l := Vector2(40, 400)
+	res = RaidLogic.result_plate_rects(hs, ts, c_l, 60.0, 8.0, 4.0, view, m, [hint])
+	t.ok(RaidLogic.rect_inside_view(res["head"], view, m) and RaidLogic.rect_inside_view(res["tail"], view, m)
+		and is_equal_approx(res["tail"].position.x, m) and is_equal_approx(res["head"].position.y, 400.0 - 60.0 - 8.0 - 27.0), "result, left-edge ring: slid right to the margin, still head above and tail under (%s / %s)" % [res["head"], res["tail"]])
+	# a ring near the top edge: both go under it, the tail nearest the ring
+	var c_top := Vector2(800, 60)
+	res = RaidLogic.result_plate_rects(hs, ts, c_top, 40.0, 8.0, 4.0, view, m, [])
+	t.ok(RaidLogic.rect_inside_view(res["head"], view, m) and RaidLogic.rect_inside_view(res["tail"], view, m)
+		and res["head"].position.y >= res["tail"].end.y and res["tail"].position.y >= c_top.y + 40.0, "result, top ring: both under it, head under the tail (%s / %s)" % [res["head"], res["tail"]])
+	# a tail over the hint plate moves clear: a ring whose lower plate would sit on the hint
+	var c_h := Vector2(800, 730)
+	res = RaidLogic.result_plate_rects(hs, ts, c_h, 60.0, 8.0, 4.0, view, m, [hint])
+	t.ok(not res["tail"].intersects(hint) and not res["head"].intersects(hint) and RaidLogic.rect_inside_view(res["tail"], view, m), "result, ring above the hint plate: the tail keeps off it (%s)" % res["tail"])
+	# no tail (a head-only result): the head alone
+	res = RaidLogic.result_plate_rects(hs, Vector2.ZERO, Vector2(800, 400), 0.0, 8.0, 4.0, view, m, [hint])
+	t.ok(RaidLogic.rect_inside_view(res["head"], view, m) and not (res["tail"] as Rect2).has_area(), "no tail: the head alone")
+	# a tip tucked at the bottom between the hint plate and the corner: the plate neither covers the tip nor leaves the screen
+	r = RaidLogic.live_plate_rect(psz, Vector2(1500, 860), 26.0, view, m, [hint])
+	t.ok(RaidLogic.rect_inside_view(r, view, m) and not r.has_point(Vector2(1500, 860)), "live, tip in the bottom-right: on screen and off the tip (%s)" % r)
+
+
 ## A stand-in for a RaidUnit (the fields the counter filter reads).
 class FakeUnit:
 	extends RefCounted
@@ -207,7 +268,8 @@ func _round2_tests(t: TestUtil) -> void:
 	t.ok(RaidLogic.word_fmt(tnw, "tier_tail", [3, "SOLDIER", "%.2f" % RaidLogic.stat_mult(82, ccfg)]) == "×3 SOLDIER · strength ×1.32", "the result's tail names tier and strength")
 	# (trace_feedback.gd names autoloads, so the headless suite reads its source rather than loading it)
 	t.ok(FileAccess.get_file_as_string("res://scripts/raid/trace_feedback.gd").contains("static func band_for(s: int)")
-		and FileAccess.get_file_as_string("res://scripts/raid/trace_live.gd").contains("RaidTraceFeedback.band_for(score)"), "the readout's colour is the feedback's band lookup")
+		and FileAccess.get_file_as_string("res://scripts/raid/trace_overlay.gd").contains("RaidTraceFeedback.band_for(score)"), "the readout's colour is the feedback's band lookup")
+	_readout_place_tests(t)
 	var over := Palette.c("ground").lerp(Color.WHITE, 1.0 - float(tnw["live_plate_alpha"]))   # worst case: white under the plate
 	var cr_dim := MapLogic.contrast_ratio(Palette.c("text_dim"), over)
 	t.ok(cr_dim >= 4.5 and int(tnw["live_ladder_px"]) >= 13 and int(tnw["live_font_px"]) >= 13, "the ladder's dim text holds 4.5:1 on its plate even over white (%.1f)" % cr_dim)

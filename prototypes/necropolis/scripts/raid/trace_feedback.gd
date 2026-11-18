@@ -12,6 +12,7 @@ var valid := false
 var raised_n := 0          # set by perform_raise: units the circle made
 var raised_tier := ""      # display tier: chaff | soldier | elite
 var raised_mult := 1.0     # set by perform_raise: the strength multiplier (RaidLogic.stat_mult of the score)
+var raid: Node = null      # the scene (its HUD's overlay draws the head and tail)
 var _age := 0.0
 
 
@@ -94,26 +95,33 @@ func _draw() -> void:
 		_draw_notches(c, ring_col)
 		var text_col := col
 		text_col.a = a
+		# the head and tail are screen-space plates on the HUD's layer (RaidTraceOverlay): this only hands them over
 		var head := RaidLogic.word_fmt(_words(), "grade_head", [score, _grade_word()])
-		_plate(c + Vector2(0, -fitted_radius - 14), head, a)
-		draw_string(ThemeDB.fallback_font, c + Vector2(-80, -fitted_radius - 14),
-			head, HORIZONTAL_ALIGNMENT_CENTER, 160, 22, text_col)
+		var tail := ""
 		if raised_n > 0 and raised_tier != "":
-			var tail := RaidLogic.word_fmt(_words(), "tier_tail", [raised_n, raised_tier.to_upper(), "%.2f" % raised_mult])
-			_plate(c + Vector2(0, fitted_radius + 28), tail, a)
-			draw_string(ThemeDB.fallback_font, c + Vector2(-190, fitted_radius + 28),
-				tail, HORIZONTAL_ALIGNMENT_CENTER, 380, 22, text_col)
+			tail = RaidLogic.word_fmt(_words(), "tier_tail", [raised_n, raised_tier.to_upper(), "%.2f" % raised_mult])
+		_hand_over(fitted_center, fitted_radius, head, tail, text_col, a)
 	else:
-		var c2 := to_local(trace[trace.size() / 2]) if trace.size() > 0 else Vector2.ZERO
-		draw_string(ThemeDB.fallback_font, c2 + Vector2(-80, -20),
-			str(_words().get("not_circle", "")), HORIZONTAL_ALIGNMENT_CENTER, 160, 22, Palette.c("danger", a))
+		var mid := trace[trace.size() / 2] if trace.size() > 0 else Vector2.ZERO
+		_hand_over(mid, 0.0, str(_words().get("not_circle", "")), "", Palette.c("danger", a), a)
 
 
-## A thin dark plate under a centred 22 px label whose baseline sits at `base` (walls and strokes
-## run under the ring's words).
-func _plate(base: Vector2, text: String, a: float) -> void:
-	var w := ThemeDB.fallback_font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
-	draw_rect(Rect2(base + Vector2(-w * 0.5 - 6.0, -21.0), Vector2(w + 12.0, 27.0)), Palette.c("ground", 0.62 * a))
+func _overlay() -> RaidTraceOverlay:
+	if raid != null and is_instance_valid(raid) and raid.get("hud") != null and is_instance_valid(raid.hud):
+		return raid.hud.get("trace_overlay") as RaidTraceOverlay
+	return null
+
+
+func _hand_over(center: Vector2, radius: float, head: String, tail: String, col: Color, a: float) -> void:
+	var ov := _overlay()
+	if ov != null:
+		ov.show_result(get_instance_id(), center, radius, head, tail, col, a)
+
+
+func _exit_tree() -> void:
+	var ov := _overlay()
+	if ov != null:
+		ov.clear_result(get_instance_id())
 
 
 ## Tier shape-code: chaff 1 notch, soldier 2, elite 3 (short radial ticks on the ring), spread

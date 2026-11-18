@@ -1973,3 +1973,103 @@ static func capture_count(tally: Dictionary, kind: String, outcome: String, show
 		k["shown"] = int(k["shown"]) + 1
 	if k.has(outcome):
 		k[outcome] = int(k[outcome]) + 1
+
+
+## --- Screen placement of the loop's readouts (RaidTraceOverlay) -------------------------------------------
+## `view` is the viewport's size, `margin` the gap every plate keeps from its edges, `avoid` rects a plate
+## should not cover (the hint plate) when it can move clear without leaving the screen.
+
+## True when `r` lies inside the viewport inset by `margin`.
+static func rect_inside_view(r: Rect2, view: Vector2, margin: float) -> bool:
+	return r.position.x >= margin - 0.01 and r.position.y >= margin - 0.01 \
+		and r.end.x <= view.x - margin + 0.01 and r.end.y <= view.y - margin + 0.01
+
+
+static func _rect_hits_any(r: Rect2, avoid: Array) -> bool:
+	for a in avoid:
+		if (a as Rect2).has_area() and r.intersects(a):
+			return true
+	return false
+
+
+## `r` moved the least that puts it inside the viewport inset by `margin` (pinned to the top-left when it is
+## bigger than the viewport).
+static func clamp_rect_to_view(r: Rect2, view: Vector2, margin: float) -> Rect2:
+	var out := r
+	out.position.x = clampf(r.position.x, margin, maxf(margin, view.x - margin - r.size.x))
+	out.position.y = clampf(r.position.y, margin, maxf(margin, view.y - margin - r.size.y))
+	return out
+
+
+## `r` slid sideways only, to stay inside the viewport's margin.
+static func slide_rect_x(r: Rect2, view: Vector2, margin: float) -> Rect2:
+	var out := r
+	out.position.x = clampf(r.position.x, margin, maxf(margin, view.x - margin - r.size.x))
+	return out
+
+
+## The first candidate that fits the viewport as it stands and clears `avoid`; else the first that clears
+## `avoid` once clamped inside without covering `anchor` (the pen tip; pass a far point for none); else the first
+## that clears `avoid` once clamped; else the first that fits as it stands; else the first, clamped.
+static func pick_plate_rect(cands: Array, view: Vector2, margin: float, avoid: Array, anchor := Vector2(-1e9, -1e9)) -> Rect2:
+	for c in cands:
+		if rect_inside_view(c, view, margin) and not _rect_hits_any(c, avoid):
+			return c
+	for c in cands:
+		var k := clamp_rect_to_view(c, view, margin)
+		if not _rect_hits_any(k, avoid) and not k.has_point(anchor):
+			return k
+	for c in cands:
+		var k2 := clamp_rect_to_view(c, view, margin)
+		if not _rect_hits_any(k2, avoid):
+			return k2
+	for c in cands:
+		if rect_inside_view(c, view, margin):
+			return c
+	return clamp_rect_to_view(cands[0], view, margin)
+
+
+## The live readout's plate (size `size`) beside the pen tip `tip` (screen px): `gap` right and below it, else
+## flipped across the tip to the left, above, or both (in that order of preference), and kept off `avoid`.
+static func live_plate_rect(size: Vector2, tip: Vector2, gap: float, view: Vector2, margin: float, avoid: Array) -> Rect2:
+	var cands: Array = []
+	for y in [tip.y + gap, tip.y - gap - size.y]:
+		for x in [tip.x + gap, tip.x - gap - size.x]:
+			cands.append(Rect2(Vector2(x, y), size))
+	return pick_plate_rect(cands, view, margin, avoid, tip)
+
+
+## The fitted ring's head and tail plates (sizes `head_size`, `tail_size`; a zero-width `tail_size` has no tail)
+## around a ring at screen `center` / `radius`: head `gap` above the ring's top, tail `gap` under its bottom, each
+## centred on the ring and slid sideways to stay inside the viewport. Where the tail would leave the screen (a ring
+## near the bottom edge) both stack above the ring, the tail over the head; where the head would (a ring near the
+## top) both go under it, the head over the tail. An arrangement must fit the viewport and clear `avoid` to win;
+## failing all, the first that fits, else the first clamped. Returns {head: Rect2, tail: Rect2}.
+static func result_plate_rects(head_size: Vector2, tail_size: Vector2, center: Vector2, radius: float, gap: float,
+		stack_gap: float, view: Vector2, margin: float, avoid: Array) -> Dictionary:
+	var has_tail := tail_size.x > 0.0
+	var top := center.y - radius - gap
+	var bottom := center.y + radius + gap
+	var ys: Array = [
+		[top - head_size.y, bottom],                                              # A: head above, tail under
+		[top - head_size.y, top - head_size.y - stack_gap - tail_size.y],         # B: both above, the tail over the head
+		[bottom + (tail_size.y + stack_gap if has_tail else 0.0), bottom]]        # C: both under, the head under the tail
+	var made: Array = []
+	for a in ys:
+		var h := slide_rect_x(Rect2(Vector2(center.x - head_size.x * 0.5, a[0]), head_size), view, margin)
+		var tl := Rect2()
+		if has_tail:
+			tl = slide_rect_x(Rect2(Vector2(center.x - tail_size.x * 0.5, a[1]), tail_size), view, margin)
+		made.append({"head": h, "tail": tl})
+	for m in made:
+		if rect_inside_view(m["head"], view, margin) and (not has_tail or rect_inside_view(m["tail"], view, margin)) \
+				and not _rect_hits_any(m["head"], avoid) and not (has_tail and _rect_hits_any(m["tail"], avoid)):
+			return m
+	for m in made:
+		if rect_inside_view(m["head"], view, margin) and (not has_tail or rect_inside_view(m["tail"], view, margin)):
+			return m
+	var m0: Dictionary = made[0]
+	m0["head"] = clamp_rect_to_view(m0["head"], view, margin)
+	if has_tail:
+		m0["tail"] = clamp_rect_to_view(m0["tail"], view, margin)
+	return m0

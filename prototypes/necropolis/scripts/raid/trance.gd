@@ -18,7 +18,7 @@ var trace := PackedVector2Array()
 var free_next := false   # the antechamber's last chance: the next completed raise starts no cooldown
 
 var _trace_line: Line2D = null
-var _live: RaidTraceLive = null   # the readout beside the pen while tracing
+var _live: RaidTraceOverlay = null   # the HUD's overlay that draws the readout beside the pen while tracing
 var _tracing := false
 var _button_held := false
 
@@ -114,7 +114,7 @@ func _update_live() -> void:
 	if valid:
 		n = raid.raiser.motes_inside(g["center"], float(g["radius"])).size()
 	var words: Dictionary = ConfigDb.data.get("raid", {}).get("trace_notch", {})
-	_live.show_lines(trace[trace.size() - 1], RaidLogic.loop_readout(words, valid, score, n, raid.rcfg(), ccfg), valid, score)
+	_live.show_live(trace[trace.size() - 1], RaidLogic.loop_readout(words, valid, score, n, raid.rcfg(), ccfg), valid, score)
 
 
 func _button_down() -> void:
@@ -222,9 +222,8 @@ func _make_trace_line() -> void:
 	_trace_line.default_color = Palette.c("relish")
 	_trace_line.z_index = 70
 	raid.fx_root.add_child(_trace_line)
-	_live = RaidTraceLive.new()
-	_live.raid = raid
-	raid.fx_root.add_child(_live)
+	if raid.hud != null:
+		_live = raid.hud.get("trace_overlay") as RaidTraceOverlay
 
 
 func _clear_trace() -> void:
@@ -233,7 +232,7 @@ func _clear_trace() -> void:
 		_trace_line.queue_free()
 	_trace_line = null
 	if _live != null and is_instance_valid(_live):
-		_live.queue_free()
+		_live.clear_live()
 	_live = null
 
 
