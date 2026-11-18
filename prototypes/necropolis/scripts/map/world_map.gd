@@ -163,6 +163,8 @@ func _build_ui() -> void:
 	seen.reconcile(str(model.hud.get("game_id", "")))  # the flags belong to one game
 	if _won_reload:  # debug (--won=reload): the victory was seen in the session that saved this won game
 		seen.mark(MapSeen.VICTORY)
+	if _won_applied:  # debug (--won, either form): a won game was played past its first tithe, so its explanation was seen (a harness session reads MapSeen empty)
+		seen.mark(MapSeen.TITHE)
 	var legend := MapLegend.new()  # the fort rings' key, just above the valve
 	legend.seen = seen  # it keeps the player's close there
 	legend.model = model
@@ -404,6 +406,8 @@ func _apply_skip_arg() -> void:
 ## the map's first read, so the map mounts a won game and plays its victory. `--won=reload` also writes the game to a
 ## scratch slot and loads it back (a real save and load, in a dev save dir that is removed after) and marks the
 ## victory seen once MapSeen is reconciled (`_won_reload`), as a later session's mount of that won save finds it.
+## Either form marks the first tithe's explanation seen there too: a harness session reads MapSeen empty, and a
+## real won game is long past its first tithe (the popup covered the victory headline in the shots).
 func _apply_won_arg() -> void:
 	if not Game.state.debug_enabled or _won_applied:
 		return
