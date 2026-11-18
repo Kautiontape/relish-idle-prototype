@@ -7,12 +7,17 @@ extends RefCounted
 ##   --boss-backups=<p>,<c>   the demo's phylactery charges and ready clones
 ##   --boss-phase2            the break from the start: the met fronts clear at once (at least
 ##                            fronts_required of them)
-##   --boss-stress            with the break: guards held at the cap, dev.stress_raised (at most
+##   --boss-stress            with the break: guards held at the pressured live ceiling (ceili of
+##                            BossLogic.guard_ceiling(uncleared, the break's pressured cfg): at the full
+##                            pool of 600 and one uncleared front, 2.3 x 1 x 6 = 14), dev.stress_raised (at most
 ##                            raised.unit_cap) raised undead
 ##                            and dev.stress_motes motes at the anchors kept topped up, Relish kept
 ##                            alive: the busiest phase-2 state, for --raid-perf (RaidDev, inherited)
 ##   --boss-autodie=<frames>  every ally gone and a lethal hit on Relish at that frame of the scene
 ##                            (a backup cracks, or the final death)
+##   --boss-autodie-src=weave|living   names that blow (the loss card's KILLED BY); none: "a wound"
+##   (her pool for a shot: --boss-cfg=demo.seed.living_pool=600, her full pool: the break's guards then
+##   come at x2.3; the demo's 380 is under pool_free, so x1)
 ##   --boss-autowin=<frames>  Vei breaks at that frame (the victory set piece)
 ##   --boss-hold-card         with the bot: its win shows the end card and holds, emitting nothing and not
 ##                            quitting (the card screenshot from a real fight); off, the bot emits at once
@@ -209,10 +214,12 @@ func on_break() -> void:
 		stress_tick()
 
 
-## --boss-stress: guards at the cap, the raised and the anchor motes topped up.
+## --boss-stress: guards held at the most that can stand at once in play (the pressured ceiling,
+## BossLogic.guard_ceiling of the break's `_gvc`: rate x uncleared x life_s, at most the pressured cap),
+## the raised and the anchor motes topped up.
 func stress_tick() -> void:
 	var cfg: Dictionary = _boss.vcfg()
-	var cap := int(cfg.get("guards", {}).get("cap", 12))
+	var cap := ceili(BossLogic.guard_ceiling(_boss.uncleared, _boss._gvc))
 	var n: int = cap - _boss.guards_alive()
 	for i in n:
 		_boss.spawn_guard()
@@ -244,7 +251,7 @@ func _die() -> void:
 	var rel: RaidRelish = _boss.relish
 	if rel != null and rel.alive:
 		rel._iframes = 0.0
-		rel.take_hit(rel.hp)   # her remaining hp: the STRUCK cue reads a plausible number (dev path only)
+		rel.take_hit(rel.hp, cli_value("--boss-autodie-src="))   # her remaining hp: the STRUCK cue reads a plausible number (dev path only)
 
 
 ## --boss-hide: the named layers stop drawing (units and motes come and go, so it runs every frame).

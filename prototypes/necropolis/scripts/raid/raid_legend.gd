@@ -11,16 +11,6 @@ extends Control
 ## never moves Relish. Anchored by its bottom-left corner: it grows upward.
 ## No autoloads (Palette reads its file when the config is absent).
 
-const L_HEADER := "CONTROLS"
-const L_HIDE := "hide"
-const L_CHIP := "? CONTROLS"
-const L_CLICK := "LEFT CLICK"
-const L_MOVE := "move Relish"
-const L_SPACE := "HOLD SPACE"
-const L_OR := "or"
-const L_MOUSE := "RIGHT MOUSE"
-const L_SLOW := "slow time"
-const L_DRAG := "then drag a loop around essence to RAISE undead"
 const CAP_PAD := 7.0    # a key cap's side padding
 const CAP_VPAD := 5.0    # and its top and bottom
 const MIN_PX := 13      # nothing in the legend is set smaller
@@ -36,6 +26,7 @@ var _chip := Vector2(140.0, 44.0)
 var _l_assist := ""   # the warned-attack assist's toggle row (RaidLogic.assist_on): "<label> · <off|on>", the words from hud.legend
 var _l_off := ""
 var _l_on := ""
+var _words: Dictionary = {}   # raid.json hud.legend: the header, hide, chip and row words (header, hide, chip, click, move, space, or, mouse, slow, drag)
 var _header_rect := Rect2()
 var _assist_rect := Rect2()   # the LONGER WARNINGS row's hit band (open only): the plate's width, at least HDR_HIT tall
 var _assist_box := Rect2()    # its drawn cap
@@ -60,6 +51,7 @@ func setup(cfg: Dictionary, open: bool) -> void:
 	_l_assist = str(cfg.get("assist_label", ""))
 	_l_off = str(cfg.get("assist_off", ""))
 	_l_on = str(cfg.get("assist_on", ""))
+	_words = cfg
 	is_open = open
 	_fit()
 
@@ -68,6 +60,11 @@ func setup(cfg: Dictionary, open: bool) -> void:
 func toggle() -> void:
 	is_open = not is_open
 	_fit()
+
+
+## The legend's word `key` (blank when raid.json has none).
+func _word(key: String) -> String:
+	return str(_words.get(key, ""))
 
 
 func _w(s: String, px: int) -> float:
@@ -86,11 +83,11 @@ func _fit() -> void:
 		_header_rect = Rect2(0.0, 0.0, 0.0, hb)
 		_hdr_base = (hb - hdr_h) * 0.5 + float(_key_px) * 0.85
 		var y := hb + _gap * 0.5
-		var widest := _w(L_HEADER, _key_px) + 24.0 + _w(L_HIDE, _key_px)
+		var widest := _w(_word("header"), _key_px) + 24.0 + _w(_word("hide"), _key_px)
 		var spec := [
-			[cap_h, [["cap", L_CLICK], ["txt", L_MOVE]]],
-			[cap_h, [["cap", L_SPACE], ["txt", L_OR], ["cap", L_MOUSE], ["txt", L_SLOW]]],
-			[float(_row_px) + 4.0, [["txt", L_DRAG]]],
+			[cap_h, [["cap", _word("click")], ["txt", _word("move")]]],
+			[cap_h, [["cap", _word("space")], ["txt", _word("or")], ["cap", _word("mouse")], ["txt", _word("slow")]]],
+			[float(_row_px) + 4.0, [["txt", _word("drag")]]],
 		]
 		for row in spec:
 			var x := _pad
@@ -114,7 +111,7 @@ func _fit() -> void:
 		var h := y - _gap + _pad
 		_header_rect.size.x = w
 		_assist_rect.size.x = w
-		_hdr_hide_x = w - _pad - _w(L_HIDE, _key_px)
+		_hdr_hide_x = w - _pad - _w(_word("hide"), _key_px)
 		size = Vector2(w, h)
 	else:
 		size = _chip
@@ -163,12 +160,12 @@ func _draw() -> void:
 	draw_rect(r, Palette.c("ground", _alpha))
 	draw_rect(r.grow(-0.75), Palette.c("text_dim"), false, 1.5)
 	if not is_open:
-		draw_string(font, Vector2(0.0, size.y * 0.5 + float(_key_px) * 0.36), L_CHIP,
+		draw_string(font, Vector2(0.0, size.y * 0.5 + float(_key_px) * 0.36), _word("chip"),
 			HORIZONTAL_ALIGNMENT_CENTER, size.x, _key_px, Palette.c("text"))
 		return
 	var hy := _hdr_base
-	draw_string(font, Vector2(_pad, hy), L_HEADER, HORIZONTAL_ALIGNMENT_LEFT, -1.0, _key_px, Palette.c("text"))
-	draw_string(font, Vector2(_hdr_hide_x, hy), L_HIDE, HORIZONTAL_ALIGNMENT_LEFT, -1.0, _key_px, Palette.c("text"))
+	draw_string(font, Vector2(_pad, hy), _word("header"), HORIZONTAL_ALIGNMENT_LEFT, -1.0, _key_px, Palette.c("text"))
+	draw_string(font, Vector2(_hdr_hide_x, hy), _word("hide"), HORIZONTAL_ALIGNMENT_LEFT, -1.0, _key_px, Palette.c("text"))
 	var on := RaidLogic.assist_on
 	if on:
 		draw_rect(_assist_box, Palette.c("text", 0.16))

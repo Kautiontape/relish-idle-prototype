@@ -386,26 +386,27 @@ static func break_eta_s(hist: Array, streak: int, need: int, lapse_cost: int, te
 	return eta if eta <= max_s else -1.0
 
 
-## eta_text(eta_s) -> String    "~30 s at this pace", rounded to 5 s from 10 s up; "" for no hint (< 0).
-static func eta_text(eta_s: float) -> String:
+## The words of the three read-outs below are raid.json's `vei_fight` block, passed as `words`.
+## eta_text(eta_s, words) -> String    "~30 s at this pace", rounded to 5 s from 10 s up; "" for no hint (< 0).
+static func eta_text(eta_s: float, words: Dictionary) -> String:
 	if eta_s < 0.0:
 		return ""
 	var s := roundi(eta_s) if eta_s < 10.0 else roundi(eta_s / 5.0) * 5
-	return "~%d s at this pace" % maxi(1, s)
+	return RaidLogic.word_fmt(words, "eta", [maxi(1, s)])
 
 
-## lapse_text(lapses, lost) -> String    the meter's running count: "" before the first lapse, else
+## lapse_text(lapses, lost, words) -> String    the meter's running count: "" before the first lapse, else
 ##   "LAPSES ×4 · −10 beats" (the beats the streak actually lost, capped by what it held).
-static func lapse_text(lapses: int, lost: int) -> String:
+static func lapse_text(lapses: int, lost: int, words: Dictionary) -> String:
 	if lapses <= 0:
 		return ""
-	return "LAPSES ×%d · −%d beat%s" % [lapses, lost, "" if lost == 1 else "s"]
+	return RaidLogic.word_fmt(words, "lapse", [lapses, lost, "" if lost == 1 else str(words.get("plural", ""))])
 
 
-## phase2_hint(break_beats, lapse_cost) -> String    the line under the meter for the break's first seconds.
-static func phase2_hint(break_beats: int, lapse_cost: int) -> String:
-	var s := "keep raise > ferry for %d beats" % break_beats
-	return s + (" · a lapse costs %d" % lapse_cost if lapse_cost >= 0 else " · a lapse resets the count")
+## phase2_hint(break_beats, lapse_cost, words) -> String    the line under the meter for the break's first seconds.
+static func phase2_hint(break_beats: int, lapse_cost: int, words: Dictionary) -> String:
+	var s := RaidLogic.word_fmt(words, "rule", [break_beats])
+	return s + (RaidLogic.word_fmt(words, "rule_cost", [lapse_cost]) if lapse_cost >= 0 else str(words.get("rule_reset", "")))
 
 
 ## card_unlocked(t, skip_after) -> bool
@@ -436,17 +437,105 @@ static func end_card(seed: Dictionary, spent: Dictionary, party_lost: Array, fig
 		"party_lost": lost, "party": party, "backlog_spent": backlog_spent(horde0, horde)}
 
 
-## The lost fight's headline per end_reason, as the loss banner's words in a sentence (vei_boss.gd `_lose`).
-const LOSS_WORDS := {"fronts_held": "her fronts held · too few fell in time",
-	"horde_ferried": "the horde was ferried · she did not break",
-	"relish_unmade": "Relish fell with no backup left"}
+## The lost fight's words are raid.json's `vei_loss` block (the card's headline per end_reason, the banner, the
+## cause and pressure rows, the HUD tag); every helper below takes that block as `words`.
+
+## The BACKLOG row of the HUD's boss block (raid_hud.gd BossBlock), left to right at the draw's own gaps: the value
+## column, then the backlog at 20 px, GAP_FERRY, the ferried text at 13 px, GAP_TAG and the pressure tag (only above
+## the threshold), GAP_STATUS and the status. The block is BLOCK_W wide with an INSET on each side.
+const BACKLOG_COL := 108.0
+const GAP_FERRY := 10.0
+const GAP_TAG := 8.0
+const GAP_STATUS := 18.0
+const BLOCK_W := 640.0
+const BLOCK_INSET := 12.0
+
+
+## The width of the BACKLOG row from its value column to the status's end (the HUD draws exactly these pieces).
+static func backlog_row_w(font: Font, horde_text: String, ferry_text: String, tag: String, status: String, status_px: int) -> float:
+	var w := font.get_string_size(horde_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x + GAP_FERRY
+	w += font.get_string_size(ferry_text, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+	if tag != "":
+		w += GAP_TAG + font.get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+	return w + GAP_STATUS + font.get_string_size(status, HORIZONTAL_ALIGNMENT_LEFT, -1, status_px).x
+
+
+static func _fmt(text: String, vals: Dictionary) -> String:
+	var out := text
+	for k in vals:
+		out = out.replace("{%s}" % str(k), str(vals[k]))
+	return out
+
+
+## The loss banner's text per end reason (vei_boss `_lose`).
+static func loss_banner(reason: String, words: Dictionary) -> String:
+	return str((words.get("banner", {}) as Dictionary).get(reason, words.get("banner_unknown", "")))
+
+
+## A front's name on the lane label and the BREAK THROUGH banner: raid.json vei_loss.front_names (the loss card's
+## names), upper-cased; the id upper-cased where there is none. One rename moves all three places.
+static func front_label(id: String, words: Dictionary) -> String:
+	return str((words.get("front_names", {}) as Dictionary).get(id, id)).to_upper()
+
+
+## The pressure the break's guards came with (VeiFronts.pressure_mult) as the short HUD tag, "· guards ×2.3";
+## "" at or below `pressure_min` (a pool under pool_free changes nothing, so it says nothing).
+static func pressure_tag(pressure: float, words: Dictionary) -> String:
+	if pressure < float(words.get("pressure_min", 1.05)):
+		return ""
+	return _fmt(str(words.get("tag", "")), {"mult": "%.1f" % pressure})
+
+
+## The loss card's GUARDS row: {label, text, key} like VeiCard rows, "×2.3 · 600 living in her reserve", or {} below
+## `pressure_min`.
+static func pressure_row(pressure: float, living_pool: float, words: Dictionary) -> Dictionary:
+	if pressure < float(words.get("pressure_min", 1.05)):
+		return {}
+	return {"label": str(words.get("pressure_label", "")), "key": "living", "text": _fmt(str(words.get("pressure_text", "")),
+		{"mult": "%.1f" % pressure, "pool": roundi(living_pool), "reserve": str(words.get("reserve", ""))})}
+
+
+## "A", "A and B", "A, B and C" (the glossary's plain list).
+static func _join_names(names: Array, words: Dictionary) -> String:
+	var comma := str(words.get("join_comma", ", "))
+	var conj := str(words.get("join_and", " and "))
+	if names.size() <= 1:
+		return "".join(PackedStringArray(names))
+	return comma.join(PackedStringArray(names.slice(0, names.size() - 1))) + conj + str(names[names.size() - 1])
+
+
+## The loss card's first row, naming the cause: {label, text, key}, or {} for a reason it has no row for.
+## `facts`: last_hit_src (Relish.last_hit_src), streak_max, break_beats, fronts_cleared (ids), fronts_required.
+static func loss_cause(reason: String, facts: Dictionary, words: Dictionary) -> Dictionary:
+	match reason:
+		"relish_unmade":
+			var kb: Dictionary = words.get("killed_by", {})
+			var src := str(facts.get("last_hit_src", ""))
+			var who := str(kb.get(src, kb.get("other", "")))
+			return {"label": str(words.get("killed_by_label", "")), "text": who, "key": "text"}
+		"horde_ferried":
+			return {"label": str(words.get("break_label", "")), "key": "text", "text": _fmt(str(words.get("break_text", "")),
+				{"best": int(facts.get("streak_max", 0)), "need": int(facts.get("break_beats", 0))})}
+		"fronts_held":
+			var cleared: Array = facts.get("fronts_cleared", [])
+			var names: Dictionary = words.get("front_names", {})
+			var held: Array = []
+			for id in FRONT_IDS:
+				if not cleared.has(id):
+					held.append(str(names.get(id, id)))
+			var text := _fmt(str(words.get("fronts_text", "")), {"fell": FRONT_IDS.size() - held.size(), "total": FRONT_IDS.size(),
+				"need": int(facts.get("fronts_required", 0))})
+			if not held.is_empty():
+				text += _fmt(str(words.get("held_clause", "")), {"held": _join_names(held, words)})
+			return {"label": str(words.get("fronts_label", "")), "text": text, "key": "text"}
+	return {}
 
 
 ## loss_card(seed, spent, party_lost, fight_t, end_reason, keep, death_words) -> Dictionary
 ##   What the Vei loss card prints (D-e close-out), in the win card's frame (`end_card`): time_text, the
 ##   backups spent and the big undead lost (the same keys; on a loss all of the seed's party, MECHANICS §6),
-##   `ended` (LOSS_WORDS for the reason; an unknown
-##   one reads "the fight is lost"), `keep_pct` (loss_backlog_keep as a whole percent) and `keep_text`
+##   `ended` (raid.json vei_loss.ended for the reason, passed as `loss_words`; an unknown
+##   one reads vei_loss.ended_unknown, "the fight is lost"), `keep_pct` (loss_backlog_keep as a whole percent) and `keep_text`
 ##   ("35% stays"), and `after`, the AFTER row, only for a final death (relish_unmade; with fronts_held or
 ##   horde_ferried she is alive at Vei, so no row). The AFTER row is RaidLogic.death_next_row's text on the
 ##   seed's `death_ends` (`death_words` is raid.json's `death` block: "unmade · reforms at Covington", " in N"
@@ -456,16 +545,16 @@ const LOSS_WORDS := {"fronts_held": "her fronts held · too few fell in time",
 ##   (STATE-API §8.3, `vei.undead_queue ×= loss_backlog_keep`), which is not the seed's backlog (the
 ##   queue moves while she is away) and not what is left after `backlog_spent` (informational, A10).
 static func loss_card(seed: Dictionary, spent: Dictionary, party_lost: Array, fight_t: float,
-		end_reason: String, keep: float, death_words: Dictionary) -> Dictionary:
+		end_reason: String, keep: float, death_words: Dictionary, loss_words := {}) -> Dictionary:
 	var info := end_card(seed, spent, party_lost, fight_t, 0.0, 0.0)
 	info.erase("backlog_spent")
 	info["party_lost"] = info["party"]   # a lost fight kills the whole party (MECHANICS §6, STATE-API §8.3), not only the ones that fell in the scene
 	info["lost"] = true
 	info["reason"] = end_reason
-	info["ended"] = String(LOSS_WORDS.get(end_reason, "the fight is lost"))
+	info["ended"] = str((loss_words.get("ended", {}) as Dictionary).get(end_reason, loss_words.get("ended_unknown", "")))
 	var pct := clampi(roundi(keep * 100.0), 0, 100)
 	info["keep_pct"] = pct
-	info["keep_text"] = "%d%% stays" % pct
+	info["keep_text"] = RaidLogic.word_fmt(loss_words, "keep_text", [pct])
 	var after := {}
 	if end_reason == "relish_unmade":
 		var de: Variant = seed.get("death_ends", null)

@@ -53,6 +53,21 @@ func _end_tests(t: TestUtil) -> void:
 		"a gap in a running death or victory beat leaves the beat alone")
 	t.ok(not RaidLogic.gap_leaves_beat(false, "") and not RaidLogic.gap_leaves_beat(true, "") and not RaidLogic.gap_leaves_beat(false, "relish_died"),
 		"no beat under way: the AWAY TOO LONG stop runs")
+	# gap_plan: the raid keeps a running ending beat (leave); the Vei fight never does, and cuts whatever end is up
+	var gp := RaidLogic.gap_plan(true, "relish_died", false)
+	t.ok(gp["leave"] and not gp["cut_end"], "gap_plan raid, death beat running: leave it, cut nothing")
+	gp = RaidLogic.gap_plan(true, "warden_beaten", false)
+	t.ok(gp["leave"] and not gp["cut_end"], "gap_plan raid, victory beat running: leave it")
+	gp = RaidLogic.gap_plan(false, "", false)
+	t.ok(not gp["leave"] and not gp["cut_end"], "gap_plan raid, nothing ended: the stop runs, nothing to cut")
+	gp = RaidLogic.gap_plan(true, "", false)
+	t.ok(not gp["leave"] and not gp["cut_end"], "gap_plan raid, retreat beat (ended, no pending_exit): the stop runs, no card to cut")
+	gp = RaidLogic.gap_plan(false, "", true)
+	t.ok(not gp["leave"] and not gp["cut_end"], "gap_plan boss, mid-fight: the stop runs, no end to cut")
+	gp = RaidLogic.gap_plan(true, "", true)
+	t.ok(not gp["leave"] and gp["cut_end"], "gap_plan boss, unravel or card up (ended, no pending_exit): cut the card and the set piece, then the banner")
+	gp = RaidLogic.gap_plan(true, "relish_died", true)
+	t.ok(not gp["leave"] and gp["cut_end"], "gap_plan boss never leaves a beat: the state forfeits the fight")
 	var gcfg: Dictionary = TestUtil.load_json("res://configs/raid.json").get("gap_end", {})
 	var b := RaidLogic.gap_banner(gcfg)
 	t.ok(b.begins_with("AWAY TOO LONG") and b.contains("last checkpoint"), "the raid's banner (raid.json gap_end.banner_text) says it in the glossary's words: " + b)
@@ -116,27 +131,34 @@ func _wrap_tests(t: TestUtil) -> void:
 
 func _wiring_tests(t: TestUtil) -> void:
 	t.suite("raid_gap_wiring")
+	# Source pins, on purpose: raid.gd, raid_endings.gd and raid_hud.gd name autoloads, so the headless suite cannot
+	# build a raid, emit run_ended and run to the finish. The decisions are RaidLogic's statics (tested above); these
+	# pin each call WITH its arguments inside the function it must live in, so a rename or a wrong argument fails.
+	# The end-to-end check (one result, a checkpoint-less beat) is the --raid-run-ended=60 boot, which reads "retreated".
 	var raid := _src("res://scripts/raid/raid.gd")
 	var end := _src("res://scripts/raid/raid_endings.gd")
 	var dev := _src("res://scripts/raid/raid_dev.gd")
 	t.ok(raid.contains("Game.game_event.connect(") and raid.contains("Game.game_event.disconnect("), "the raid connects Game.game_event and disconnects it")
 	var ev := _func_src(raid, "func _on_game_event(")
-	t.ok(ev.contains("RaidLogic.gap_ends_run(") and ev.contains("view_relish()") and ev.contains("gap_end("),
-		"the handler asks the pure rule, reading the open run id from view_relish")
+	t.ok(ev.contains("if RaidLogic.gap_ends_run(ev, run_id, open_id):\n\t\tendings.gap_end(RaidLogic.gap_outcome(ev, endings.pending_exit))")
+		and ev.contains("int(Game.state.view_relish().get(\"run_id\", -1)) if str(ev.get(\"type\", \"\")) == \"away_report\" else -1"),
+		"the handler asks the pure rule with the run id and the open run id (from view_relish), then ends the run with the recorded outcome and pending_exit")
 	t.ok(ev.contains("RaidLogic.reread_seed(") or raid.contains("RaidLogic.reread_seed("), "an away_report with the run still open re-reads the seed's phylactery fields")
 	var ge := _func_src(end, "func gap_end(")
 	t.ok(ge.contains("ended = true") and ge.contains("trance.force_end()") and ge.contains("close_retreat()") and ge.contains("_pending_cp = {}"),
 		"gap_end stops the raid like an ending, closes the retreat panel and drops a pending checkpoint")
-	t.ok(ge.contains("retreat_by = \"gap\"") and ge.contains("RaidLogic.gap_banner(gcfg, _raid.is_boss())") and ge.contains("gap_end\", {}).get(\"beat_s\""),
-		"it sets retreat_by, shows the banner (the boss's words for the Vei fight) and holds the beat from raid.json")
-	t.ok(not ge.contains("RaidDeathCard") and not ge.contains("RaidClearCard") and not ge.contains("_card"), "gap_end frees no card (none can be open: both exist only once pending_exit is set)")
+	t.ok(ge.contains("if not ended:\n\t\tretreat_by = \"gap\"") and ge.contains("_raid.hud.show_banner(RaidLogic.gap_banner(gcfg, _raid.is_boss()), float(gcfg.get(\"banner_s\", 4.0)), \"danger\")")
+		and ge.contains("create_timer(float(_raid.rcfg().get(\"gap_end\", {}).get(\"beat_s\", 2.5))).timeout.connect(_finish_gap.bind(outcome))"),
+		"it sets retreat_by (unless an ending ran), shows the banner (the boss's words for the Vei fight) and holds the beat from raid.json, then finishes with the recorded outcome")
+	t.ok(not ge.contains("RaidDeathCard") and not ge.contains("RaidClearCard") and not ge.contains("_card"), "gap_end frees no raid card itself (none can be open: both exist only once pending_exit is set; the boss's own card goes through gap_plan)")
 	t.ok(not FileAccess.get_file_as_string("res://scripts/raid/raid_logic.gd").contains("the raid ended at its last checkpoint"), "the banner's words are not in the code")
-	t.ok(_func_src(end, "func _finish_gap(").contains("finish("), "the beat's end finishes (the one emit)")
-	t.ok(ge.contains("if finished or _gap"), "it runs once")
-	var lb := ge.find("RaidLogic.gap_leaves_beat(ended, pending_exit)")
+	var fg := _func_src(end, "func _finish_gap(")
+	t.ok(fg.contains("\tfinish(_raid.close_result())") and fg.contains("\t\tfinish(win_result)")
+		and fg.contains("finish(_raid._death_result() if plan[\"exit\"] == \"relish_died\" else build_result(plan[\"exit\"], plan[\"closing\"]))"), "the beat's end finishes (the one emit) with the result the state recorded: boss, win, death or retreat")
+	t.ok(ge.contains("if finished or _gap:\n\t\treturn\n\t_gap = true"), "it runs once: a second call, or one after the finish, returns before it sets _gap")
+	var lb := ge.find("RaidLogic.gap_plan(ended, pending_exit, _raid.is_boss())")
 	t.ok(lb >= 0 and ge.substr(lb, 200).contains("return") and lb < ge.find("show_banner(") and lb < ge.find("create_timer("),
 		"gap_end returns early on a running ending, before the banner and timer")
-	t.ok(raid.contains("RaidLogic.gap_outcome(ev, endings.pending_exit)"), "the handler passes pending_exit")
 	t.ok(_func_src(end, "func _send_checkpoint(").contains("_post_checkpoint(") and _func_src(end, "func _post_checkpoint(").contains("checkpoint_pending_after("),
 		"a refused checkpoint is kept")
 	t.ok(_func_src(end, "func tick(").contains("checkpoint_resend_due(") and _func_src(raid, "func _process(").contains("endings.tick()"),

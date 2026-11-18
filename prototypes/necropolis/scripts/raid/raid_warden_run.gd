@@ -242,7 +242,7 @@ func on_chest_opened(c: RaidChest) -> void:
 		# the card's path finishes with the result frozen at chest open (e.win_result); the bot has none and builds it now
 		e.finish(e.win_result if not e.win_result.is_empty() else e.build_result("warden_beaten"))   # finish guards a double: the card's click and its timer both land here
 	if RaidAutopilot.enabled():   # the measuring bot never sees the card: the banner and the victory_s beat, as before
-		_raid.hud.show_banner("THE WARDEN IS BEATEN · loot banked", float(wc.get("victory_s", 1.5)) + 1.0, "vei")
+		_raid.hud.show_banner(str(wc.get("words", {}).get("beaten_banner", "")), float(wc.get("victory_s", 1.5)) + 1.0, "vei")
 		_raid.get_tree().create_timer(float(wc.get("victory_s", 1.5))).timeout.connect(finish_win)
 		return
 	# everyone else: the clear card names what was won; a click/SPACE or `clear.card_s` ends it
@@ -254,6 +254,8 @@ func on_chest_opened(c: RaidChest) -> void:
 	var card := RaidClearCard.new()
 	_raid.hud.add_child(card)
 	cards.append(card)
-	card.setup(RaidLogic.clear_card_title(_raid.fort_name()), RaidLogic.clear_card_rows(warden_name, won))
+	var clear_words: Dictionary = _raid.rcfg().get("clear", {})
+	card.setup(RaidLogic.clear_card_title(clear_words, _raid.fort_name()),
+		RaidLogic.clear_card_rows(clear_words, _raid.rcfg().get("loot_uses", {}), warden_name, won))
 	card.dismissed.connect(finish_win)
 	_raid.get_tree().create_timer(float(_raid.rcfg().get("clear", {}).get("card_s", 12.0))).timeout.connect(finish_win)

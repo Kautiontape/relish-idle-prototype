@@ -446,6 +446,20 @@ const LIVING_DASH_SWEEP := 0.56   # radians: 3 dashes + 2 gaps span the bow's 2.
 const LIVING_GAP_SWEEP := 0.36
 const LIVING_CORE_MIX := 0.4   # how far the living's core goes from `living` toward `living_core`
 
+static var _bow_cache := {}      # layer count -> RaidLogic.living_bow_spans at angle 0
+static var _bow_solid := -1      # raid.combat.living_bow_solid_layers, read once (fallback 2)
+
+
+## The living bow's spans for a stack of n layers, relative to angle 0: computed once per layer count
+## (the stack comes from LineGlow and does not change at runtime), so a draw allocates and walks no config.
+static func _bow_spans(n: int) -> Array:
+	if _bow_solid < 0:
+		_bow_solid = int(ConfigDb.data.get("raid", {}).get("combat", {}).get("living_bow_solid_layers", 2))
+	if not _bow_cache.has(n):
+		_bow_cache[n] = RaidLogic.living_bow_spans(0.0, n, _bow_solid, LIVING_DASHES, LIVING_DASH_SWEEP, LIVING_GAP_SWEEP)
+	return _bow_cache[n]
+
+
 ## A dashed bow arc (spans ~2.2 x radius) with a hollow ring head (r ~0.45 x radius) at its tip.
 ## A heavier `living_core` stroke keeps it readable against the orange walls.
 func _draw_living(off: Vector2) -> void:
@@ -459,11 +473,12 @@ func _draw_living(off: Vector2) -> void:
 	# the bow is DASHED (VISUAL-LANGUAGE dash rhythm): three strokes with gaps, so living and undead part in greyscale
 	# too, where both bright cores read near-white. Undead strokes stay solid.
 	var layers := LineGlow.layers(col, width, 0.4, core)   # the stroke stack once for all three dashes
-	var seg := LineGlow.segments(r, LIVING_DASH_SWEEP)
-	for i in LIVING_DASHES:
-		var da := a0 + float(i) * (LIVING_DASH_SWEEP + LIVING_GAP_SWEEP)
-		for l in layers:
-			draw_arc(c, r, da, da + LIVING_DASH_SWEEP, seg, l[1], l[0])
+	# perf: the faint outer halo layers draw as ONE solid arc each (RaidLogic.living_bow_spans); the inner two stay dashed
+	# the spans are computed once (relative to angle 0, keyed on the layer count) and shifted by a0 here
+	var spans := _bow_spans(layers.size())
+	for li in layers.size():
+		for s: Vector2 in spans[li]:
+			draw_arc(c, r, a0 + s.x, a0 + s.y, LineGlow.segments(r, s.y - s.x), layers[li][1], layers[li][0])
 	LineGlow.ring(self, c + _facing * r, radius * 0.45, col, maxf(1.8, width * 0.6), 0.0, core)   # a thin stroke: the head stays visibly hollow
 	if kind == "guard":
 		LineGlow.ring(self, off, radius * 1.6, Palette.c("vei"), 2.2, 0.5)

@@ -59,5 +59,5 @@ func _draw() -> void:
 		draw_arc(ctr, rad, a0, a0 + step * fill, 6, col, float(c.get("width_px", 3.0)))
 	var font := ThemeDB.fallback_font
 	var fs := int(c.get("label_px", 16))
-	draw_string(font, ctr + Vector2(-120.0, -rad - 12.0), str(c.get("label", "trace around the glow")),
+	draw_string(font, ctr + Vector2(-120.0, -rad - 12.0), str(c.get("label", "")),
 		HORIZONTAL_ALIGNMENT_CENTER, 240.0, fs, Palette.c("text", 0.85))

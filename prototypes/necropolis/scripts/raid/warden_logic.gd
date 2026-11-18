@@ -123,30 +123,31 @@ static func pack_breaker(sp: Dictionary, stat_value: float) -> bool:
 
 ## The verb a pack unit's one-blow death shows, the warden's own weak point's: MUFFLED, INTERCEPTED,
 ## FLANKED or SNUFFED.
-static func pack_verb(sp: Dictionary) -> String:
+## `words` here and in every helper below that takes it is raid.json's `wardens.words` block.
+static func pack_verb(words: Dictionary, sp: Dictionary) -> String:
 	match str((sp.get("weak_point", {}) as Dictionary).get("effect", "")):
 		"muffle":
-			return "MUFFLED"
+			return str(words.get("word_muffled", ""))
 		"intercept":
-			return "INTERCEPTED"
+			return str(words.get("word_intercepted", ""))
 		"flank":
-			return "FLANKED"
+			return str(words.get("word_flanked", ""))
 		"snuff":
-			return "SNUFFED"
-	return "BROKEN"
+			return str(words.get("word_snuffed", ""))
+	return str(words.get("word_broken", ""))
 
 
 ## The HUD's pack row before and between packs, from the spec: "at 2/3 and 1/3 of its strength it calls
 ## 5 hounds · it is warded while they run" ("" with no pack).
-static func pack_teach(pk: Dictionary) -> String:
+static func pack_teach(words: Dictionary, pk: Dictionary) -> String:
 	if pk.is_empty():
 		return ""
 	var gates: PackedStringArray = []
 	for g in pk.get("at_hp_frac", []):
 		gates.append(_frac_word(float(g)))
 	var wp: Dictionary = sp_weak(pk)
-	var tail := "" if wp.is_empty() else " · %s %s kills one in a blow" % [str(wp.get("stat", "")), str(snappedf(float(wp.get("threshold", 0.0)), 0.1))]
-	return "at %s of its strength it calls %d %s · it is warded while they run%s" % [" and ".join(gates), int(pk.get("size", 0)), str(pk.get("name", "pack")), tail]
+	var tail := "" if wp.is_empty() else RaidLogic.word_fmt(words, "pack_teach_weak", [str(wp.get("stat", "")), str(snappedf(float(wp.get("threshold", 0.0)), 0.1))])
+	return RaidLogic.word_fmt(words, "pack_teach", [str(words.get("join_and", "")).join(gates), int(pk.get("size", 0)), str(pk.get("name", "pack")), tail])
 
 
 ## The weak point a pack spec carries for its teach row (WardenLogic.spec copies it in as `weak`).
@@ -162,10 +163,10 @@ static func _frac_word(f: float) -> String:
 
 
 ## The HUD's pack row: "HOUNDS 3 of 5 · it takes ×0.25" while they run, "" otherwise.
-static func pack_label(pk: Dictionary, alive: int, n: int) -> String:
+static func pack_label(words: Dictionary, pk: Dictionary, alive: int, n: int) -> String:
 	if pk.is_empty() or alive <= 0:
 		return ""
-	return "%s %d of %d · it takes ×%s" % [str(pk.get("name", "PACK")).to_upper(), alive, n, str(snappedf(float(pk.get("ward_mult", 1.0)), 0.01))]
+	return RaidLogic.word_fmt(words, "pack_label", [str(pk.get("name", "PACK")).to_upper(), alive, n, str(snappedf(float(pk.get("ward_mult", 1.0)), 0.01))])
 
 
 # ------------------------------------------------------------------- beats ---
@@ -668,21 +669,21 @@ static func flank_step(from: Vector2, pos: Vector2, post_angle: float, orbit_px:
 
 ## The HUD's shield line for a phase, from the spec: "front ±80° glances ×0.1 · back ×2.5 · turns
 ## 40°/s · bash every 4 beats" (arc, turn rate and period per phase; the multipliers from the attack).
-static func shield_label(sp: Dictionary, phase: int, lever := false) -> String:
+static func shield_label(words: Dictionary, sp: Dictionary, phase: int, lever := false) -> String:
 	var ph := shield_phase(sp, phase)
 	var at: Dictionary = sp.get("attack", {})
-	var line := "front ±%d° glances ×%s · back ×%s · turns %d°/s · bash every %s beats" % [roundi(ph["front_half_deg"]),
-		_num(float(at.get("front_mult", 0.1))), _num(float(at.get("back_mult", 1.0))), roundi(ph["turn_deg_s"]), _num(ph["period_beats"])]
+	var line := RaidLogic.word_fmt(words, "shield_line", [roundi(ph["front_half_deg"]),
+		_num(float(at.get("front_mult", 0.1))), _num(float(at.get("back_mult", 1.0))), roundi(ph["turn_deg_s"]), _num(ph["period_beats"])])
 	var every := int(at.get("rush_lane_every", 0))
 	if every > 0 and lever:   # (lever: WardenLogic.lever_on for this fight, as the rule itself is gated)
-		line += " · every %s breaks the pin" % _ordinal(every)   # D-e task 4
+		line += RaidLogic.word_fmt(words, "shield_pin", [_ordinal(words, every)])   # D-e task 4
 	return line
 
 
-static func _ordinal(n: int) -> String:
+static func _ordinal(words: Dictionary, n: int) -> String:
 	if n % 100 in [11, 12, 13]:
-		return "%dth" % n
-	return "%d%s" % [n, {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")]
+		return "%d%s" % [n, str(words.get("ord_th", ""))]
+	return "%d%s" % [n, str({1: words.get("ord_st", ""), 2: words.get("ord_nd", ""), 3: words.get("ord_rd", "")}.get(n % 10, words.get("ord_th", "")))]
 
 
 static func _num(v: float) -> String:
@@ -693,53 +694,56 @@ static func _num(v: float) -> String:
 ## How the warden is beaten, in words (the WardenBlock's and the GoalBlock's lines). Every number is read
 ## from the spec (built from raid.json), never retyped.
 ## The break rule: its meter's pips are the strength to take off, and the chest it drops takes the fort.
-static func break_line(_sp: Dictionary, meter_pips: int) -> String:
-	return "BREAK IT · your undead's blows take its %d pips, then open the chest it drops" % meter_pips
+static func break_line(words: Dictionary, _sp: Dictionary, meter_pips: int) -> String:
+	return RaidLogic.word_fmt(words, "break_line", [meter_pips])
 
 
 ## What multiplies a blow on it, from the spec: "TAKES ×2.5 while stunned (an intercepted lunge stuns it)"
 ## and the like. Parts join with " · ": the archetype's own, then its pack's. "" when nothing does.
-static func takes_line(sp: Dictionary) -> String:
+static func takes_line(words: Dictionary, sp: Dictionary) -> String:
 	var parts: PackedStringArray = []
 	var wp: Dictionary = sp.get("weak_point", {})
 	var at: Dictionary = sp.get("attack", {})
 	match str(sp.get("archetype", "")):
 		"huntsman":
-			parts.append("×%s while stunned (an intercepted lunge stuns it)" % _num(float(wp.get("stun_dmg_mult", 1.0))))
+			parts.append(RaidLogic.word_fmt(words, "takes_stunned", [_num(float(wp.get("stun_dmg_mult", 1.0)))]))
 		"shieldwall":
-			parts.append("×%s on its shield · ×%s from behind" % [_num(float(at.get("front_mult", 0.1))), _num(float(at.get("back_mult", 1.0)))])
+			parts.append(RaidLogic.word_fmt(words, "takes_shield", [_num(float(at.get("front_mult", 0.1))), _num(float(at.get("back_mult", 1.0)))]))
 		"pyre_priest":
 			if acolyte_count(sp) > 0:
-				parts.append("×%s while an acolyte stands" % _num(float(at.get("ward_mult", 1.0))))
+				parts.append(RaidLogic.word_fmt(words, "takes_acolyte", [_num(float(at.get("ward_mult", 1.0)))]))
 	var pk: Dictionary = sp.get("pack", {})
 	if not pk.is_empty() and int(pk.get("size", 0)) > 0:
-		parts.append("×%s while its %s stand" % [_num(float(pk.get("ward_mult", 1.0))), str(pk.get("name", "pack"))])
-	return "" if parts.is_empty() else "TAKES " + " · ".join(parts)
+		parts.append(RaidLogic.word_fmt(words, "takes_pack", [_num(float(pk.get("ward_mult", 1.0))), str(pk.get("name", "pack"))]))
+	return "" if parts.is_empty() else str(words.get("takes_head", "")) + " · ".join(parts)
 
 
 ## The counter: which big undead breaks it and whether the party has one. `party_values` are the party bigs'
 ## values of the weak point's stat (RaidLogic.unit_stat): none at all, none that meets it, or k that do.
-static func counter_line(sp: Dictionary, party_values: Array) -> String:
+## `compact` leaves the "make one at the Crypt slab" advice (words.counter_make) off the two "none" forms: the goal
+## block's row over a sleeping warden's ring (RaidHud.break_rows builds it for goal_rows' break_rows_compact).
+static func counter_line(words: Dictionary, sp: Dictionary, party_values: Array, compact := false) -> String:
 	var wp: Dictionary = sp.get("weak_point", {})
 	var thr := float(wp.get("threshold", 0.0))
 	var verb := ""
 	match str(wp.get("effect", "")):
 		"muffle":
-			verb = "muffles its slams"
+			verb = str(words.get("counter_muffle", ""))
 		"intercept":
-			verb = "intercepts its lunge"
+			verb = str(words.get("counter_intercept", ""))
 		"flank":
-			verb = "flanks it from behind"
+			verb = str(words.get("counter_flank", ""))
 		"snuff":
-			verb = "snuffs an acolyte in one blow"
-	var s := "COUNTER · a big undead with %s %d+ %s" % [str(wp.get("stat", "")), int(thr), verb]
+			verb = str(words.get("counter_snuff", ""))
+	var s := RaidLogic.word_fmt(words, "counter_line", [str(wp.get("stat", "")), int(thr), verb])
+	var make := "" if compact else str(words.get("counter_make", ""))
 	if party_values.is_empty():
-		return s + " · you have none: make one at the Crypt slab"   # circles raise chaff to elites; only the slab makes bigs
+		return s + str(words.get("counter_none", "")) + make   # circles raise chaff to elites; only the slab makes bigs
 	var k := 0
 	for v in party_values:
 		if float(v) >= thr:
 			k += 1
-	return s + (" · none in your party: make one at the Crypt slab" if k == 0 else " · %d in your party" % k)
+	return s + (str(words.get("counter_none_party", "")) + make if k == 0 else RaidLogic.word_fmt(words, "counter_have", [k]))
 
 
 # ------------------------------------------------------------- pyre-priest ---
@@ -966,14 +970,14 @@ static func pyre_snuff_pips(m: Dictionary, before: int, after: int) -> Vector2i:
 
 ## The HUD's pyre line from the spec: "warded ×0.2 · 3 fires every 4 beats, 2 at Relish" while
 ## acolytes live, "exposed · 1 fire every 3 beats" once they are gone.
-static func pyre_label(sp: Dictionary, phase: int, living: int) -> String:
+static func pyre_label(words: Dictionary, sp: Dictionary, phase: int, living: int) -> String:
 	var k := pyre_phase_knobs(sp, phase)
 	var n := burn_count(sp, phase, living)
-	var fires := "%d fire%s every %s beats" % [n, "" if n == 1 else "s", _num(float(k["period_beats"]))]
+	var fires := RaidLogic.word_fmt(words, "pyre_fires", [n, "" if n == 1 else str(words.get("pyre_plural", "")), _num(float(k["period_beats"]))])
 	if living <= 0:
-		return "exposed · " + fires
+		return RaidLogic.word_fmt(words, "pyre_exposed", [fires])
 	var at_rel := burn_aim_relish(sp, phase, living)
-	return "warded ×%s · %s%s" % [_num(ward_mult(sp, living)), fires, "" if at_rel <= 0 else ", %d at Relish" % at_rel]
+	return RaidLogic.word_fmt(words, "pyre_warded", [_num(ward_mult(sp, living)), fires, "" if at_rel <= 0 else RaidLogic.word_fmt(words, "pyre_at_relish", [at_rel])])
 
 
 ## Where Relish steps to leave the lit burn areas: the nearest point that is `clear` px (her radius
@@ -1089,16 +1093,16 @@ static func catch_notches(sp: Dictionary) -> Array[int]:
 ## `dmg_relish` hp per catch (spec.attack, already scaled for the first dungeon; a lethal catch is
 ## taken by an ally in her place) and the phases turn faster at each notch. "" for a warden with no
 ## catch notches.
-static func catch_label(sp: Dictionary, bypass := false) -> String:
+static func catch_label(words: Dictionary, sp: Dictionary, bypass := false) -> String:
 	var n := catch_notches(sp)
 	if n.is_empty():
 		return ""
 	var dmg := roundi(float((sp.get("attack", {}) as Dictionary).get("dmg_relish", 0.0)))
 	var at := ""
 	for i in n.size():
-		at += ("" if i == 0 else (" and " if i == n.size() - 1 else ", ")) + str(n[i])
+		at += ("" if i == 0 else (str(words.get("join_and", "")) if i == n.size() - 1 else str(words.get("join_comma", "")))) + str(n[i])
 	# with the tell bypass on (lever_on, D-d/E Step 4b) a killing catch is hers, so no ally note
-	return "each catch costs Relish %d hp%s · it hunts faster at %s catches" % [dmg, "" if bypass else " (an ally takes a killing one)", at]
+	return RaidLogic.word_fmt(words, "catch_label", [dmg, "" if bypass else str(words.get("catch_ally", "")), at])
 
 
 ## Slots on the CAUGHT track: the last notch plus two, so the open-ended last phase shows too.

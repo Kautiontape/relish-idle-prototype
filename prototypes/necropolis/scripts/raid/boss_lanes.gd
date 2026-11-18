@@ -450,18 +450,19 @@ class Labels:
 		var f := ln._front(i)
 		var have := float(f.get("have", 0.0))
 		var need := float(f.get("need", 0.0))
-		var status := "SHORT %d" % ceili(need - have - 0.0001)
+		var vw: Dictionary = ln.boss.vwords()   # raid.json vei_fight: the lane words
+		var status := RaidLogic.word_fmt(vw, "lane_short", [ceili(need - have - 0.0001)])
 		var skey := "living"
 		if bool(f.get("cleared", false)):
-			status = "CLEARED"
+			status = str(vw.get("lane_cleared", ""))
 			skey = "undead"
 		elif ln.phase >= 2:
-			status = "SENDS GUARDS"
+			status = str(vw.get("lane_sends", ""))
 		elif have >= need:
-			status = "MET · breaking"
+			status = str(vw.get("lane_met", ""))
 			skey = "undead"
-		return PackedStringArray([String(ln.lanes[i]["id"]).to_upper(),
-			"have %d / need %d" % [floori(have + 0.0001), ceili(need - 0.0001)], status, skey])
+		return PackedStringArray([ln.boss.front_label(String(ln.lanes[i]["id"])),
+			RaidLogic.word_fmt(vw, "lane_have", [floori(have + 0.0001), ceili(need - 0.0001)]), status, skey])
 
 	func _draw() -> void:
 		var t0 := BossDev.pt()
@@ -576,7 +577,7 @@ class SafeCue:
 				draw_line(d * (r - 6.0 / z), d * (r + 8.0 / z), Palette.c("text", 0.55 + 0.35 * sin(t * 9.0 + k)), 2.0 / z)
 		# the words, on a plate so they read over the floor: 14 px on screen whatever the zoom
 		var fs := int(round(16.0 / z))
-		var text := "SAFE %d s" % ceili(left)
+		var text := RaidLogic.word_fmt(boss.vwords(), "safe_cue", [ceili(left)])
 		var font := ThemeDB.fallback_font
 		var tw := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 		var at := Vector2(-tw * 0.5, float(boss.relish.radius) + 26.0 / z)   # inside the ring: nothing outside it is touched

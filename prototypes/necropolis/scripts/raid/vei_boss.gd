@@ -75,12 +75,22 @@ var _seq_t := 0.0
 var _emitted := false
 var _card: VeiCard = null       # the win or loss card, once the closing set piece is done
 var _rcfg_cache := {}
+var _vw_cache := {}              # vwords(), read once
+var _tag_p := -1.0               # the pressure _tag_text was built for (hud_info runs every frame)
+var _tag_text := ""
 var _bdev: BossDev = null
 var _bot: BossAutopilot = null
 
 
 func vcfg() -> Dictionary:
 	return ConfigDb.data.get("vei", {})
+
+
+## raid.json `vei_fight`: the fight's banners, hints, HUD words and end-card words.
+func vwords() -> Dictionary:
+	if _vw_cache.is_empty():   # the walk once (the HUD reads this every frame); the Dictionary itself stays ConfigDb's
+		_vw_cache = ConfigDb.data.get("raid", {}).get("vei_fight", {})
+	return _vw_cache
 
 
 ## The boss scene's own warm list (vei.json `sound.warm`): unravel and the param kinds, no warden kinds.
@@ -107,7 +117,7 @@ func is_boss() -> bool:
 
 
 func fort_name() -> String:
-	return "Vei · the final test"
+	return str(vwords().get("name", ""))
 
 
 func fort_tier() -> int:
@@ -236,7 +246,7 @@ func _build_extra() -> void:
 	safe.z_index = 1
 	relish.add_child(safe)
 
-	hud.show_banner("VEI'S COURT · break %d of the 4 fronts" % VeiFronts.required(vc), 3.2, "vei")
+	hud.show_banner(RaidLogic.word_fmt(vwords(), "banner_court", [VeiFronts.required(vc)]), 3.2, "vei")
 	if _standalone:
 		var met := 0
 		for f in fronts:
@@ -323,7 +333,7 @@ func _on_front_cleared(i: int) -> void:
 	lanes_node.on_cleared(i)
 	RaidFx.ring(fx_root, lanes[i]["b"], Palette.c("undead"), 70.0, 0.6, 3.0)
 	var n := VeiFronts.fronts_met(p1["fronts"])
-	hud.show_banner("%s BREAK THROUGH · %d of %d" % [String(lanes[i]["id"]).to_upper(), n, VeiFronts.required(vcfg())],
+	hud.show_banner(RaidLogic.word_fmt(vwords(), "banner_front", [front_label(String(lanes[i]["id"])), n, VeiFronts.required(vcfg())]),
 		2.0, "undead")
 	if _standalone:
 		print("BOSS_FRONT cleared=%s t=%.1f" % [lanes[i]["id"], float(p1["t"])])
@@ -379,7 +389,7 @@ func _begin_break() -> void:
 	vei.start_weaves(float(vc.get("weaves", {}).get("first_beat", 3.0)))
 	vei.flare()
 	RaidFx.ring(fx_root, vei.global_position, Palette.c("vei"), vei.radius * 3.0, 0.8, 4.0)
-	hud.show_banner("THE BREAK · raise at the anchors faster than she ferries", 3.5, "vei")
+	hud.show_banner(str(vwords().get("banner_break", "")), 3.5, "vei")
 	if _bdev != null:
 		_bdev.on_break()
 	if _standalone:
@@ -433,9 +443,10 @@ func _step_break(delta: float) -> void:
 			_win()
 			return
 	_anchor_motes(delta, vc)
-	_spawn_guards(delta, _gvc)
 	if stress and _bdev != null:
-		_bdev.stress_tick()
+		_bdev.stress_tick()   # DEV: the top-up alone holds the guards at the live ceiling (the spawner would stack on top, up to the pressured cap)
+	else:
+		_spawn_guards(delta, _gvc)
 	vei.weave_step(b1)
 	if phase == Phase.BREAK and horde <= 0.0:
 		_lose("horde_ferried")
@@ -638,8 +649,9 @@ func try_phylactery() -> bool:
 		trance.ready_now()   # her circle is ready at once (no stored free raise): a real second chance
 	hud.flash(Palette.c("relish"))
 	var left := backups_left()
-	hud.show_banner("%s CRACKS · %d backup%s left" % ["A PHYLACTERY" if kind == "phylactery" else "A CLONE", left,
-		"" if left == 1 else "s"], float(bc.get("banner_s", 2.2)), "relish" if left > 0 else "danger")
+	var vw := vwords()
+	hud.show_banner(RaidLogic.word_fmt(vw, "banner_crack", [str(vw.get("crack_phyl", "")) if kind == "phylactery" else str(vw.get("crack_clone", "")), left,
+		"" if left == 1 else str(vw.get("plural", ""))]), float(bc.get("banner_s", 2.2)), "relish" if left > 0 else "danger")
 	if _standalone:
 		print("BOSS_BACKUP kind=%s deaths=%d left=%d t=%.1f" % [kind, deaths, left, fight_t])
 	return true
@@ -714,7 +726,7 @@ func _death_result() -> Dictionary:
 
 # ----------------------------------------------------------------- endings ---
 func on_first_weave() -> void:
-	hud.show_banner("VEI WEAVES · step off the thread", 2.6, "danger")
+	hud.show_banner(str(vwords().get("banner_weave", "")), 2.6, "danger")
 	RaidFx.ring(fx_root, vei.global_position, Palette.c("vei"), vei.radius * 4.0, 0.9, 4.0)
 	RaidFx.ring(fx_root, vei.global_position, Palette.c("danger", 0.8), vei.radius * 2.4, 0.7, 3.0)
 	if _standalone:
@@ -744,7 +756,7 @@ func _win_card() -> void:
 		info["clones_total"] = int(seed_data.get("clones_ready", 0))
 		_card = VeiCard.new()
 		hud.add_child(_card)
-		_card.setup(info, vcfg().get("card", {}), _emit.bind(true))
+		_card.setup(info, vcfg().get("card", {}), _emit.bind(true), vwords())
 	if _bot != null and not (_bdev != null and _bdev.hold_card):
 		_emit(true)
 
@@ -754,9 +766,7 @@ func _lose(reason: String) -> void:
 		return
 	end_reason = reason
 	_end_common()
-	var text := {"fronts_held": "HER FRONTS HOLD", "horde_ferried": "THE HORDE IS FERRIED",
-		"relish_unmade": "RELISH IS UNMADE"}
-	hud.show_banner(str(text.get(reason, "THE FIGHT IS LOST")), 3.0, "danger")
+	hud.show_banner(BossLogic.loss_banner(reason, rcfg().get("vei_loss", {})), 3.0, "danger")
 	lanes_node.lose_f = 0.0
 	vei.feed_f = 0.0
 	_seq_kind = "lose"
@@ -770,14 +780,38 @@ func _lose(reason: String) -> void:
 func _lose_card() -> void:
 	_seq_kind = ""
 	if _card == null:
-		var info := BossLogic.loss_card(seed_data, spent, party_lost, fight_t, end_reason, float(vcfg().get("loss_backlog_keep", 0.35)), rcfg().get("death", {}))
+		var lw: Dictionary = rcfg().get("vei_loss", {})
+		var info := BossLogic.loss_card(seed_data, spent, party_lost, fight_t, end_reason, float(vcfg().get("loss_backlog_keep", 0.35)), rcfg().get("death", {}), lw)
+		info["cause"] = BossLogic.loss_cause(end_reason, {"last_hit_src": relish.last_hit_src if relish != null else "", "streak_max": streak_max,
+			"break_beats": int(vcfg().get("break_beats", 8)), "fronts_cleared": _cleared_now(), "fronts_required": VeiFronts.required(vcfg())}, lw)
+		info["pressure_row"] = BossLogic.pressure_row(pressure, float(seed_data.get("living_pool", 0.0)), lw) if phase1_s >= 0.0 else {}
 		info["phyl_total"] = int(seed_data.get("phylactery_charges", 0))
 		info["clones_total"] = int(seed_data.get("clones_ready", 0))
 		_card = VeiCard.new()
 		hud.add_child(_card)
-		_card.setup(info, vcfg().get("card", {}), _emit.bind(false))
+		_card.setup(info, vcfg().get("card", {}), _emit.bind(false), vwords())
 	if _bot != null and not (_bdev != null and _bdev.hold_card):
 		_emit(false)
+
+
+## The ids of the fronts that have fallen: the list frozen at the break, or phase 1's own until then.
+func _cleared_now() -> Array:
+	if phase1_s >= 0.0:
+		return fronts_cleared
+	var out: Array = []
+	for f in p1.get("fronts", []):
+		if bool(f["cleared"]):
+			out.append(String(f["id"]))
+	return out
+
+
+## A gap (RaidEndings.gap_end) forfeits a boss fight in the state (no writeback), so a closing set piece
+## or card still up would contradict it: stop the set piece and take the card down.
+func gap_cut_end() -> void:
+	_seq_kind = ""
+	if _card != null and is_instance_valid(_card):
+		_card.queue_free()
+	_card = null
 
 
 func _end_common() -> void:
@@ -854,6 +888,20 @@ func _emit(won: bool) -> void:
 
 
 # --------------------------------------------------------------------- HUD ---
+## Front `id`'s upper-cased name (vei_loss.front_names, BossLogic.front_label): the lane labels and the banner.
+func front_label(id: String) -> String:
+	return BossLogic.front_label(id, rcfg().get("vei_loss", {}))
+
+
+## The guards tag (BossLogic.pressure_tag), rebuilt only when `pressure` changes: it is set once, in `_begin_break`
+## (the pool it comes from is the seed's and never moves), so the per-frame HUD read costs one compare.
+func _pressure_tag() -> String:
+	if pressure != _tag_p:
+		_tag_p = pressure
+		_tag_text = BossLogic.pressure_tag(pressure, rcfg().get("vei_loss", {}))
+	return _tag_text
+
+
 ## What the boss HUD block shows, read each frame (raid_hud.gd BossBlock).
 func hud_info() -> Dictionary:
 	var vc := vcfg()
@@ -861,19 +909,20 @@ func hud_info() -> Dictionary:
 	var hint := ""
 	if not _ended:
 		if phase == Phase.FRONTS and _p1_raises == 0:
-			hint = "HOLD SPACE — CIRCLE THE ESSENCE BY A LANE · it joins that front"
+			hint = str(vwords().get("hint_fronts", ""))
 		elif phase == Phase.BREAK and _p2_raises == 0:
-			hint = "RAISE AT THE ANCHORS · outpace her ferry"
+			hint = str(vwords().get("hint_break", ""))
 	var mc: Dictionary = vc.get("meter", {})
 	var break_s := fight_t - phase1_s if phase1_s >= 0.0 else 0.0
 	var eta := ""
 	if phase == Phase.BREAK:
 		eta = BossLogic.eta_text(BossLogic.break_eta_s(beat_hist, int(brk.get("streak", 0)), int(vc.get("break_beats", 8)),
-			int(vc.get("lapse_cost", -1)), tempo_s(), int(mc.get("eta_min_beats", 4)), float(mc.get("eta_max_s", 240.0))))
+			int(vc.get("lapse_cost", -1)), tempo_s(), int(mc.get("eta_min_beats", 4)), float(mc.get("eta_max_s", 240.0))), vwords())
 	var rule_on := phase == Phase.BREAK and break_s < float(mc.get("hint_s", 14.0))
 	return {"phase": phase, "break_began": phase1_s >= 0.0, "eta": eta, "rule_on": rule_on,
-		"rule": BossLogic.phase2_hint(int(vc.get("break_beats", 8)), int(vc.get("lapse_cost", -1))) if rule_on else "", "met": met, "required": VeiFronts.required(vc),
+		"rule": BossLogic.phase2_hint(int(vc.get("break_beats", 8)), int(vc.get("lapse_cost", -1)), vwords()) if rule_on else "", "met": met, "required": VeiFronts.required(vc),
 		"t": float(p1.get("t", 0.0)), "max_t": float(vc.get("phase1_max_s", 90.0)),
+		"pressure": pressure, "pressure_tag": _pressure_tag(),
 		"horde": horde, "ferry": ferry, "streak": int(brk.get("streak", 0)), "break_beats": int(vc.get("break_beats", 8)),
 		"winning": float(brk.get("ema", 0.0)) > ferry_beat, "phyl_left": phylactery_left(), "clones_left": clones_left(),
 		"spent_phyl": int(spent["phylactery"]), "spent_clones": int(spent["clones"]), "hint": hint,

@@ -109,7 +109,7 @@ func _send_checkpoint(loot := {}) -> void:
 
 
 ## Send one payload; a catching_up refusal keeps it as the pending one (RaidLogic.checkpoint_pending_after: each
-## send replaces what was pending, so a newer checkpoint supersedes an older one).
+## send replaces what was pending, so a newer checkpoint supersedes an older one; gap_end drops it).
 func _post_checkpoint(payload: Dictionary) -> void:
 	var res: Dictionary = Game.state.cmd_run_checkpoint(int(payload["run_id"]), payload["loot"], str(payload["outcome"]))
 	_pending_cp = RaidLogic.checkpoint_pending_after(payload, res)
@@ -130,9 +130,14 @@ func gap_end(outcome: String) -> void:
 	if finished or _gap:
 		return
 	_gap = true
+	# A gap drops a still-pending checkpoint: that only matters if state_runs ever refuses a death or win checkpoint
+	# with catching_up (it does not today; see RaidLogic.checkpoint_pending_after).
 	_pending_cp = {}
-	if RaidLogic.gap_leaves_beat(ended, pending_exit):
+	var plan := RaidLogic.gap_plan(ended, pending_exit, _raid.is_boss())
+	if bool(plan["leave"]):
 		return   # a death or victory beat is running and already matches the state: it keeps its card and its one finish
+	if bool(plan["cut_end"]):
+		_raid.gap_cut_end()   # the Vei fight's end set piece or card contradicts the forfeit the state recorded
 	if not ended:
 		retreat_by = "gap"
 	ended = true
@@ -297,13 +302,14 @@ func death_inputs() -> Dictionary:
 ## The death card's rows: what killed her, what the last checkpoint banked, what is lost.
 func death_rows() -> Array:
 	var wname: String = _raid.warden_run.warden_name if _raid.warden_run != null else ""
-	var cause := RaidLogic.death_cause(_raid.relish.last_hit_src, wname)
+	var dw: Dictionary = _raid.rcfg().get("death", {})
+	var cause := RaidLogic.death_cause(dw, _raid.relish.last_hit_src, wname)
 	var di := death_inputs()
 	var ub: Dictionary = di["unbanked"]
 	var shut: String = di["shut"]
 	var party_n: int = di["party_n"]
-	return RaidLogic.death_rows_with_shut(RaidLogic.death_card_rows(cause, RaidLogic.loot_counts(banked), ub, party_n,
-		RaidLogic.death_tell(_raid.relish.last_hit_src), RaidLogic.death_next_row(_raid.seed_data, _raid.rcfg().get("death", {}))), shut)
+	return RaidLogic.death_rows_with_shut(dw, RaidLogic.death_card_rows(dw, cause, RaidLogic.loot_counts(banked), ub, party_n,
+		RaidLogic.death_tell(dw, _raid.relish.last_hit_src), RaidLogic.death_next_row(_raid.seed_data, dw)), shut)
 
 
 # ------------------------------------------------------------------- result ---

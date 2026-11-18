@@ -145,7 +145,7 @@ func tick(delta: float) -> void:
 	if rroom == room and not _entered:
 		_entered = true
 		if raid.hud != null:
-			raid.hud.show_banner(RaidLogic.HELD_DOOR_ENTRY, 3.0, "vei")
+			raid.hud.show_banner(str(_hc.get("entry", "")), 3.0, "vei")
 	if state == "sent" or state == "held":
 		var alive := holder != null and is_instance_valid(holder) and holder.alive
 		var on := alive and holder.global_position.distance_to(site["plate"]) <= _c("hold_px", 18.0)
@@ -177,7 +177,7 @@ func _shut_in() -> void:
 	holder.global_position = site["park"]
 	_set_open(false)
 	if raid.hud != null:
-		raid.hud.show_banner(RaidLogic.held_door_label("shut", holder_name), 3.0, "danger")
+		raid.hud.show_banner(RaidLogic.held_door_label(_hc, "shut", holder_name), 3.0, "danger")
 
 
 ## The warden fell: the door unlocks and the big spent on it rejoins her party (RaidLogic.held_door_fall). A
@@ -254,12 +254,12 @@ func shut_name() -> String:
 
 ## The plate's prompt for the HUD ("" when she cannot send a big now).
 func prompt_text() -> String:
-	return RaidLogic.held_door_prompt() if can_order() else ""
+	return RaidLogic.held_door_prompt(_hc) if can_order() else ""
 
 
 ## The HUD row while a big is spent on the door.
 func row_text() -> String:
-	return RaidLogic.held_door_row(state, holder_name)
+	return RaidLogic.held_door_row(_hc, state, holder_name)
 
 
 ## Measuring only (the bot's `door` dict, capture's): what the door did this run.
@@ -309,13 +309,13 @@ func _draw() -> void:
 	var lines: Array = []
 	match state:
 		"unused":
-			lines = [["HELD DOOR", "vei"], ["a big on the plate holds it · it stays behind", "text"]]
+			lines = [[str(_hc.get("label_unused_head", "")), "vei"], [str(_hc.get("label_unused_sub", "")), "text"]]
 		"sent", "held":
-			lines = [[RaidLogic.held_door_label("held" if held else "sent", holder_name), "undead"]]
+			lines = [[RaidLogic.held_door_label(_hc, "held" if held else "sent", holder_name), "undead"]]
 		"shut":
-			lines = [[RaidLogic.held_door_label("shut", holder_name), "danger"]]
+			lines = [[RaidLogic.held_door_label(_hc, "shut", holder_name), "danger"]]
 		"freed":
-			lines = [[RaidLogic.held_door_label("freed", holder_name), "undead"]]
+			lines = [[RaidLogic.held_door_label(_hc, "freed", holder_name), "undead"]]
 	var w := 0.0
 	for l in lines:
 		w = maxf(w, font.get_string_size(str(l[0]), HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x)
