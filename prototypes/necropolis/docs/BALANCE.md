@@ -600,9 +600,17 @@ vr_probe3 without trace, seeds 1–4, Vei-ready day (backups at it). The lever i
 
 Round 1 lands the gap but moves every sessions run a session early, where seed 1 has 1+4 (graded 5/20): the first
 attempt would leave 40–60%. Sessions seed 1 sits 0.0035 under 0.6 at day 5.0, so any credit tips it. Round 2 slows
-the time term to hold sessions' pacing (the worker's ruling 35, flagged to the manager). The faithful grade at round
+the time term to hold sessions' pacing. The faithful grade at round
 2's sessions Vei-ready (seed 1, day 5.1667, readiness 0.604): 1+6 9/20 (the first attempt, in band), 1+4 5/20, 1+2
 1/20, 0+0 0/20, 1+10 16/20. Seed 4 gains least: its continuous run is front-limited (fronts met at day 5.10).
+
+**Ruling 35 (the run's manager, 2026-11-18, accepted; reversible): `odds.time_s` 4.5 days.** The aim was "active
+play sooner, sessions unchanged", and time_s is economy's own knob, so round 2 ships: the time term slows by what the
+raid credit adds, sessions keep P3's Vei-ready and continuous comes 5.5% sooner. **The spread is accepted too:** the
+mean is 5.5%, seeds 3 and 4 sit at 4.0% and 1.3% (seed 4 front-limited), and the front needs stay as they are. **To
+reverse it:** `odds.raid_credit` 0 with `time_s` 345 600 is P3's readiness bit for bit; pre_vei's away report
+(test_backups, test_stances, test_big_undead) is re-pinned with it (its odds line moves; the state and events don't).
+024c11a's message has the proof that P3's whole odds block passes the pins from before P3b.
 
 ## 6. Known balance risks
 - **The knife edge** (systems review S5). Odds of 0.6 need a backlog of about 18,000 raw. Vei's undead

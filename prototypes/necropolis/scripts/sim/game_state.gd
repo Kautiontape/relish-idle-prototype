@@ -988,16 +988,18 @@ static func first_odds_of(readiness: float, backups: int, mid: float, scale: flo
 ## nothing in the fight reads them. Read live (a test may change the config after setup). time_weight 0 with
 ## backlog_cap 1 is the strain bit for bit (the revert proof). P3b (V-I2 (a), the active nudge): the strain term takes
 ## raid_credit() too, so raids move the readiness clock (and only it: the strain itself, which the tithe, reship and
-## need read, doesn't move).
-func win_odds(age_s: float, strain: float) -> float:
+## need read, doesn't move). `credit` (P9): a credit other than today's raid_credit() (the away report's start, its
+## snapshot's); negative, the default, reads raid_credit().
+func win_odds(age_s: float, strain: float, credit := -1.0) -> float:
 	return win_odds_of(age_s, strain, _req_f("realm.odds.time_weight"), _req_f("realm.odds.time_s"),
-		_req_f("realm.odds.backlog_cap"), raid_credit())
+		_req_f("realm.odds.backlog_cap"), raid_credit() if credit < 0.0 else credit)
 
 
 ## P3b (V-I2 (a), the run's manager's re-set aim: continuous play Vei-ready 5-10% sooner than sessions): what active
 ## play adds to the readiness's strain term, realm.json odds.raid_credit per raid finished (stats.raids, saved: every
 ## raid result applied, a gap's or a load's end of one included), up to odds.raid_credit_cap, which bounds what active
-## play can gain. raid_credit 0 is the readiness without it bit for bit (the revert proof).
+## play can gain. raid_credit 0 is the readiness without it bit for bit (the revert proof). P9 (the P3b review's
+## should-fix 2, recorded): an empty result counts too, a retreat at the entrance included (MECHANICS §3.5's exposure).
 func raid_credit() -> float:
 	return minf(_req_f("realm.odds.raid_credit_cap"), maxf(0.0, _req_f("realm.odds.raid_credit")) * float(stats.get("raids", 0)))
 

@@ -447,7 +447,8 @@ from `BALANCE.md` §0.
     `odds.backups_mid`) / `odds.backups_scale`)), and two new keys on both views carry its inputs: `readiness` (float,
     the v12 win odds, `GameState.win_odds`, unchanged) and `backups` (int, `GameState.vei_backups`: min(phylactery
     charges, `phylactery.max_per_dungeon`) + clones ready). The away report's "odds A → B" and the save summary show
-    the new odds (A on the backups at the away's start). The boss seed's `odds` stays the readiness (§7), and the bots'
+    the new odds (A on the backups at the away's start, and since P9 on its raid credit too, `away_before`'s
+    `raid_credit`; MECHANICS §3.5). The boss seed's `odds` stays the readiness (§7), and the bots'
     Vei-ready reads the readiness. `GameState.first_odds_of(readiness, backups, mid, scale)` is the pure form, which the
     map valve can apply to `win_odds_of`'s projection. (P3b changes the form: see the P3b bullet below and §10 A16's
     amendment.)
@@ -1589,7 +1590,7 @@ Every field is live from E2a:
 | `won` | bool | |
 | `readiness` | float | v14: the win odds, 0..1 (v12, E4 step 9; the manager's 2026-11-17 13:44 ruling, option B): `odds.time_weight` · t / (t + `odds.time_s`) + (1 − `time_weight`) · min(`odds.backlog_cap`, strain + `raid_credit`) (P3b: the raid credit, `raid_credit` below; 0 is the v12 form bit for bit), t the game's age (`t` above) and strain `backlog / (backlog + K)` (`view_vei.strain`); `GameState.win_odds`. `view_hud.odds` and `view_vei.odds` from v12 to v13. Nothing in the fight reads it (her tithe period, reship and need read the strain); the boss seed's `odds`, the bots' Vei-ready (≥ 0.6) and BALANCE's Vei-ready rows read it, and the map valve's "odds in 10 min" projects it (`GameState.win_odds_of`) |
 | `backups` | int | v14: the backups a first attempt on Vei could spend, min(phylactery charges, `backups.json` `phylactery.max_per_dungeon`) + clones ready (`GameState.vei_backups`), which `odds` reads |
-| `raid_credit` | float | P3b (Phase I, the raid credit; MECHANICS §3.5): what raids add to the readiness's strain term, `GameState.raid_credit()` = min(`odds.raid_credit_cap`, `odds.raid_credit` × `stats.raids`) (`stats.raids`: every raid result applied, saved; sized in BALANCE §5's P3b rows). Only the readiness reads it: `strain` and what reads it (the tithe period, reship, need) don't move. `odds.raid_credit` 0 gives the readiness before it bit for bit. `ValveLogic.odds_at` takes it as `credit` |
+| `raid_credit` | float | P3b (Phase I, the raid credit; MECHANICS §3.5): what raids add to the readiness's strain term, `GameState.raid_credit()` = min(`odds.raid_credit_cap`, `odds.raid_credit` × `stats.raids`) (`stats.raids`: every raid result applied, saved; sized in BALANCE §5's P3b rows. Every one counts, a retreat at the entrance with nothing done included; `cmd_abort_dungeon` writes nothing back, so it doesn't: MECHANICS §3.5 has the exposure). Only the readiness reads it: `strain` and what reads it (the tithe period, reship, need) don't move. `odds.raid_credit` 0 gives the readiness before it bit for bit. `ValveLogic.odds_at` takes it as `credit` |
 ```gdscript
 {rev: 3, game_id: "0000002a", t: 1.0, time_scale: 1.0, paused: false,
  rates: [{id: "mint", rate: 12.8, stock: -1.0, cap: -1.0, unit: "mass/s"},

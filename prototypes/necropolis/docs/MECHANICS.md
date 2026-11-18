@@ -751,6 +751,19 @@ corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
   in BALANCE §5's P3b rows. Only the readiness reads it: `RealmSim.strain()` and what reads it (the tithe period,
   reship, need) don't move. `raid_credit` 0 is the readiness above bit for bit (`ValveLogic.odds_at` takes it as
   `credit`).
+  - **Every applied result counts, an empty one too** (P9, the P3b review's should-fix 2; recorded, not gated). A raid
+    begun and left at once by the entrance's door (a few seconds, nothing killed or banked) writes back `"retreated"`
+    and counts as a cleared fort does, and so does a gap's or a load's end of a run with no checkpoint (STATE-API
+    §4.5). `cmd_abort_dungeon` writes nothing back, so an abort doesn't count. The exposure: 160 such retreats
+    (`raid_credit_cap` / `raid_credit`) reach the cap, at most (1 − `time_weight`) × `raid_credit_cap` = 0.036 of
+    readiness, the same ceiling real raids have. Gating it on a raid that did something needs a new saved counter
+    (every state-hash pin moves) or a narrower `stats.raids` (STATE-API §4.5's +1 for an ended run changes), and the
+    bots' sizing (BALANCE §5's P3b rows, ruling 35) counted every result, so a gate waits for the next balance batch.
+  - **The away report's start odds** (P9, the P3b review's should-fix 3): "odds A → B" reads A on the credit at the
+    away's start (`StateViews.away_before`'s `raid_credit`), as it reads that start's backups. A gap's or a load's end
+    of an open run is applied before that snapshot (its events are queued as live, before the time away), so its
+    raid is in A as its chaff is in A's backlog. Catch-up runs no raids, so A is today's credit in every path the
+    game has; the snapshot keeps it so.
 - The EMA is saved (`readout.diff_ema`); the raw `diff` is not.
 - Vei's panel and the confrontation dialog show all three.
 - `RealmSim.readout()` stays for its old readers with the same keys. Its `capacity` is the most
