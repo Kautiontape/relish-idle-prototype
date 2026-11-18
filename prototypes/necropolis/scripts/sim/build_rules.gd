@@ -832,6 +832,12 @@ static func process_queue(gs: GameState) -> String:
 ## costs no relics and fits under every cap now (over_cap: re-read as the caps rise). Each is timed as a lone queue head
 ## at today's stocks (_afford_at at queue_net, clock 0, as head_dry); one no income can pay (−1.0) is passed over, so
 ## Grow never stalls on it. The pick is the soonest, ties (several affordable now) in `order`, then lot order.
+## The upkeep test (the run's manager's ruling 1 on handoff 5): a level with a gold price is passed over while the gold
+## income can't pay the working buildings' gold upkeep plus what the level adds (TownSim.income_pays, the one margin
+## held_by_income and the queue's upkeep gate read, at gold_income() and gold_due() from state). A level adds no upkeep
+## (buildings.json's upkeep is per building), so this reads "the town's gold net is above 0": Grow never spends the gold
+## stock a town short on its bill lives on, which would bring its shed (pre_vei) sooner. A building that earns gold (stall
+## jobs) is exempt, as in held_by_income: its level is the income.
 ## {} when there is none; else {lot_id, building_id, level, cost, in_s, oi}.
 static func grow_target(gs: GameState) -> Dictionary:
 	var ts := gs.town_sim
@@ -839,6 +845,7 @@ static func grow_target(gs: GameState) -> Dictionary:
 	var queued := {}
 	for e in gs.build_queue:
 		queued[str(e["lot_id"])] = true
+	var pays := ts.income_pays(ts.gold_income(), ts.gold_due())
 	var tl0 := {}
 	var best := {}
 	for lot_id in built_lots(gs):
@@ -853,6 +860,8 @@ static func grow_target(gs: GameState) -> Dictionary:
 			continue
 		var cost := construction_cost(gs, bid, level)
 		if int(cost["relics"]) > 0 or over_cap(gs, cost) != "":
+			continue
+		if not pays and float(cost["gold"]) > 0.0 and not ts.earns_gold(bid):
 			continue
 		if req_reason(gs, {"tier": req_of(gs, bid)["tier"], "blueprint": "", "building": ""}) != "":
 			continue

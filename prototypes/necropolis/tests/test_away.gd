@@ -62,9 +62,11 @@ func run() -> int:
 ## case): pre_vei with Grow turned on (its save loads with it off), loaded 2 h on. Grow starts over a dozen upgrades in
 ## the catch-up; the report's build-finished line is every building_done of it in order, Grow's among them, with
 ## `lots` (api-request #19) the lots in the names' order, and every Grow start that finished inside the window is on it at
-## its level.
+## its level. At market.price ×2: pre_vei's own gold net is negative (0.60 against 1.07 g/s), so Grow's upkeep test would
+## pass over every pick (test_catchup.grow_price).
 func _grow_report() -> void:
 	var c := cfgs()
+	c["economy"]["market"]["price"] = float(c["economy"]["market"]["price"]) * 2.0
 	var s := _mk(c)
 	s.cmd_debug_load_fixture("pre_vei")
 	t.ok(s.cmd_set_stance("grow", true)["ok"], "(setup) Grow on in pre_vei")

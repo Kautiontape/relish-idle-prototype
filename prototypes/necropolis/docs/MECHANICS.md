@@ -1511,7 +1511,7 @@ finished against a copy without (STATE-API §5.10). The table is the design inte
 | Hearth | morale < `stance.hearth_morale` (0.5) | `stall` to the top |
 | Muster | idle workers: some stand idle, or the last step mustered some | the idle cap (`worker.idle_cap`) reads 0: every idle worker musters to WAR at once (without it the overflow above the cap musters to Vei's queue, §3.2) |
 | Thrift | the stalls' gold income < the gold upkeep owed | idles buildings over `stance.thrift_upkeep` (0.05) gold upkeep, in its order, until the income covers what is still paid |
-| Grow | a build or upgrade has finished since the new game (the finished levels total more than `opening.buildings`') | on in a new game (`stance.grow.default_on`), no slot. Right after the queue's processing, while no queue head waits on funds and fewer than `stance.grow.max_active` (1) constructions are under way: starts the upgrade, of a standing building in `stance.grow.order` whose lot has no queue entry and whose next level passes the tier gate, costs no relics and fits under every cap, that is affordable soonest at the queue's net income (ties in `order`, then lot order), once the stocks cover it; it passes over one no income can pay. `grow_started`. Below |
+| Grow | a build or upgrade has finished since the new game (the finished levels total more than `opening.buildings`') | on in a new game (`stance.grow.default_on`), no slot. Right after the queue's processing, while no queue head waits on funds and fewer than `stance.grow.max_active` (1) constructions are under way: starts the upgrade, of a standing building in `stance.grow.order` whose lot has no queue entry and whose next level passes the tier gate, costs no relics and fits under every cap, that is affordable soonest at the queue's net income (ties in `order`, then lot order), once the stocks cover it; it passes over one no income can pay, and a gold-priced one while the gold income can't pay the upkeep (the Market's excepted). `grow_started`. Below |
 
 - **`active` is the condition alone, for every stance, on or off** (the run's manager). A stance acts only
   while it is on, not suspended and active; an off or suspended stance shows `active` and does nothing.
@@ -1581,6 +1581,11 @@ finished against a copy without (STATE-API §5.10). The table is the design inte
   - **What it never does:** build on an empty lot (the lots are the player's plan), spend relics, start a level behind
     the tier or over a cap (re-read as the caps rise), or start a burst: at most `max_active` (1) constructions under
     way, anyone's, since builders sit at the ladder's top, 3 to a site.
+  - **It spends no gold a short town lives on** (the run's manager's ruling 1 on P3's handoff 5): a level with a gold
+    price is passed over while the gold income can't pay the working buildings' gold upkeep (`TownSim.income_pays` at
+    `gold_income()` and `gold_due()`, the margin `held_by_income` reads; a level adds no upkeep, which is per
+    building). A building that earns gold (the Market) is exempt: its level is the income. Without it, pre_vei's Grow
+    spent the stock on the living's levels and shed nine buildings 57 min in, against 2 h 8 min with Grow off.
   - **The wall stays visible:** once every standing building is at its last relic-free level, Grow has no pick and the
     queue's parked relic entries are what's left.
   - **The step:** right after `process_queue` in the core step (§3 step 3), on the state the processing left; a step

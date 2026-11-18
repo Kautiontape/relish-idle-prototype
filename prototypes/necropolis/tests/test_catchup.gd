@@ -858,6 +858,17 @@ static func grow_on_json(js: String) -> String:
 	return JSON.stringify(d)
 
 
+## pre_vei's gold net is negative (0.60 g/s of income against a 1.07 g/s bill: its one Market at L2 against City-tier
+## upkeep, a fixture artifact), so Grow's upkeep test (the run's manager's ruling 1 on handoff 5; BuildRules.grow_target)
+## passes over every pick there and Grow starts nothing until the town sheds. The pre_vei Grow-on cases run `c` with
+## economy.json market.price doubled: 1.20 g/s of income, a net of +0.13 g/s, so Grow spends the stock on the living's
+## levels as it did before the test. A copy; `c` is unchanged.
+static func grow_price(c: Dictionary) -> Dictionary:
+	var g: Dictionary = c.duplicate(true)
+	g["economy"]["market"]["price"] = float(g["economy"]["market"]["price"]) * 2.0
+	return g
+
+
 ## The Grow-on I1 script: the default I1's valve and House (whose finish arms Grow), the bone store filled to its cap
 ## so Grow has picks: the Market's L2 at once, then the House's levels on gold waits, on a smooth income. (A Bone Mill
 ## first, the shipped path, has picks too, but its convoy-fed mill saws bone_net 37.5% and the mint 16.8% at a 30 min
@@ -1017,19 +1028,22 @@ func _accuracy_2h() -> void:
 		t.ok(r["ok"], "%s: 2 h caught up against 2 h live at 0.5 s: within %s, held forts ±1, Covington identical, the same outcomes, both ledgers balanced: %s" % [
 			st, conv._pct(tol), r["lines"]])
 	# Phase I P3 (the run's manager's ruling 1 on handoff 4): a Grow-on case. pre_vei with Grow turned on (its save loads
-	# with it off): 16 Grow starts in the 2 h at this tree (the mill's and the charnel's L2 at once, then the living's
+	# with it off): 17 Grow starts at this tree (the mill's and the charnel's L2 at once, then the living's
 	# levels and the Inn's and the pit's on waits), so the catch-up's clip at each pick's time (grow_start_s) is exercised;
 	# each start within the outcomes' bound or tol of its wait (grow_same). pre_vei's feed saws (catchup_accuracy: 36.6% on an
 	# 8.5 s cycle), so its mint and split are judged on their 600 s means, as there: unwindowed, its 2 h endpoint passed on its
 	# phase and read the mint 44.9% apart with the Grow clip reverted, while every Grow start stayed within 1.3 s. The clip's
-	# revert proof is the I1 case below (and test_grow's)
-	var rg := accuracy(c, grow_on_json(conv.start_json("pre_vei")), 7200.0, tol, 600.0)
+	# revert proof is the I1 case below (and test_grow's). At market.price ×2 (grow_price: pre_vei's own net is negative,
+	# so Grow's upkeep test would hold every pick), over 7 000 s, not 2 h: with the doubled price Grow's last levels wait
+	# on bone, and at 7 200 s the window ends 28 s after the second pit's L2 spent the bone store (305), where the stock,
+	# 4 bone, reads that start's 1.3 s drift × 0.40 bone/s as 8% (0.32 bone). At 7 000 s the store is about 236 bone.
+	var rg := accuracy(grow_price(c), grow_on_json(conv.start_json("pre_vei")), 7000.0, tol, 600.0)
 	var gs2: Array = rg["grow_started"]
 	var gd := grow_same(gs2[0], gs2[1], tol, float(rg["t0"]), float(rg["grow_bound_s"]))
-	print("  [catchup] pre_vei with Grow on, 2 h caught up vs live: %s; Grow started %d caught up, %d live, the worst %.3f s apart" % [rg["lines"],
+	print("  [catchup] pre_vei with Grow on, 7 000 s caught up vs live: %s; Grow started %d caught up, %d live, the worst %.3f s apart" % [rg["lines"],
 		(gs2[0] as Array).size(), (gs2[1] as Array).size(), grow_worst_dt(gs2[0], gs2[1])])
 	t.ok(rg["ok"] and (gs2[1] as Array).size() >= 10 and gd == "",
-		"pre_vei with Grow on: 2 h caught up against live within %s, the same outcomes, and the same %d Grow starts in order, each within the outcomes' bound or %s of its wait (%s): %s" % [
+		"pre_vei with Grow on: 7 000 s caught up against live within %s, the same outcomes, and the same %d Grow starts in order, each within the outcomes' bound or %s of its wait (%s): %s" % [
 		conv._pct(tol), (gs2[1] as Array).size(), conv._pct(tol), gd if gd != "" else "the worst %.3f s" % grow_worst_dt(gs2[0], gs2[1]), rg["lines"]])
 
 
@@ -1260,11 +1274,12 @@ func _determinism() -> void:
 	t.ok(a.to_dict() == b.to_dict() and a.catchup_events() == b.catchup_events() and a.rng.state == b.rng.state,
 		"the same save and 3600 s away: the same to_dict(), events and RNG twice")
 	# Phase I P3 (the run's manager's ruling 1 on handoff 4): with Grow on, pre_vei (Grow turned on before the save), whose
-	# hour away holds over a dozen Grow starts
-	var sg := _start(c, "pre_vei")
+	# hour away holds over a dozen Grow starts (at market.price ×2: grow_price)
+	var cp := grow_price(c)
+	var sg := _start(cp, "pre_vei")
 	sg.cmd_set_stance("grow", true)
-	var ga := _away(c, sg, "detg", 3600)
-	var gb := _away(c, sg, "detg", 3600)
+	var ga := _away(cp, sg, "detg", 3600)
+	var gb := _away(cp, sg, "detg", 3600)
 	var ng := grow_starts(ga.catchup_events()).size()
 	t.ok(ga.to_dict() == gb.to_dict() and ga.catchup_events() == gb.catchup_events() and ga.rng.state == gb.rng.state and ng >= 5,
 		"with Grow on: the same save and 3600 s away, %d Grow starts in it: the same to_dict(), events and RNG twice" % ng)

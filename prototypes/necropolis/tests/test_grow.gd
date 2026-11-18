@@ -6,6 +6,7 @@ extends RefCounted
 ##   three slot stances still fit beside it, a fourth is refused, and it is never suspended;
 ## - its condition: a build or upgrade has finished since the new game (the opening's levels alone don't arm it);
 ## - the pick: the soonest affordable, ties in stance.grow.order; one no income can pay is passed over;
+## - the upkeep test: a gold-priced level is passed over while the gold income can't pay the bill (a gold earner isn't);
 ## - never while a queue head waits on funds; a parked (gated) entry doesn't stop it; a lot with a queue entry, a level
 ##   costing relics, over a cap or behind the tier, or a building not in `order`, is never picked;
 ## - at most stance.grow.max_active constructions under way, anyone's;
@@ -16,7 +17,8 @@ extends RefCounted
 ## House while the head waits, so the unqueued start finds it built); without the max_active cap, 5 FAIL (two starts at
 ## once in _pick_order, _held's parked case and both _max_active rows); next_event_s without grow_start_s, 1 FAIL
 ## (_catchup_on_time: the catch-up starts it at the step's end, +210 s against +204.5 s); grow_target without the
-## relic check, 1 FAIL (_never_picks, the House's L6 under an L8 mill's cap).
+## relic check, 1 FAIL (_never_picks, the House's L6 under an L8 mill's cap); grow_target without the upkeep test, 2 FAIL
+## (_upkeep: the House's level 2 starts on the short bill; pre_vei's hour holds 15 Grow starts and sheds 9 buildings).
 
 var t := TestUtil.new()
 var _dir := "user://test_grow_%d" % OS.get_process_id()
@@ -30,6 +32,7 @@ func run() -> int:
 	_pick_order()
 	_held()
 	_never_picks()
+	_upkeep()
 	_max_active()
 	_off()
 	_save()
@@ -227,6 +230,66 @@ func _never_picks() -> void:
 	other.town_sim.place_building("lot-05", "house", 1)
 	_funds(other, 5000.0, 200.0)
 	t.ok(BuildRules.grow_target(other).is_empty(), "a House when `order` names only the Inn: no pick")
+
+
+## The upkeep test (the run's manager's ruling 1 on handoff 5; grow_target): a level with a gold price is passed over
+## while the gold income can't pay the working buildings' gold upkeep (TownSim.income_pays at gold_income() and
+## gold_due()); a gold earner (the Market: stall jobs) is exempt. A new game with a House (it arms Grow), and a Statue
+## and Walls placed so the bill is over the two stalls' income; then the same without them. And pre_vei as shipped
+## (0.60 g/s of income against a 1.07 g/s bill), 1 h away with Grow on: nothing starts and nothing goes unpaid in the
+## hour, where an ungated Grow spends its stock on the living's levels and sheds the town 57 min in (the Grow-off shed
+## is 2 h 8 min in).
+func _upkeep() -> void:
+	var c := cfgs({"economy.stance.grow.order": ["house", "charnel_house"]})
+	for order in ["two", "shipped"]:
+		var s := _mk(c if order == "two" else cfgs())
+		s.town_sim.place_building("lot-05", "house", 1)
+		s.town_sim.place_building("lot-06", "statue", 1)
+		s.town_sim.place_building("lot-07", "walls", 1)
+		_funds(s, 1000.0, 200.0)
+		s.drain_events()
+		s.tick(2.0)
+		var ts := s.town_sim
+		var g := _grows(s.drain_events())
+		if order == "shipped":
+			t.ok(ts.gold_due() > ts.gold_income() and g.size() == 1 and g[0]["building_id"] == "market",
+				"the shipped order, the same bill: the Market's level 2 (a gold earner) starts: %s" % str(g))
+			continue
+		t.ok(ts.gold_income() > 0.0 and ts.gold_due() > ts.gold_income(),
+			"(setup) the bill over the income: %.3f g/s due, %.3f g/s in" % [ts.gold_due(), ts.gold_income()])
+		var g0 := ts.gold
+		s.tick(30.0)
+		g.append_array(_grows(s.drain_events()))
+		t.ok(g.is_empty() and BuildRules.grow_target(s).is_empty() and ts.gold > g0 - 30.0 * ts.gold_due() - 1e-6,
+			"the income short of the bill, 32 s: the House's and the charnel house's level 2 are passed over, the gold only pays the upkeep (%.1f -> %.1f)" % [
+			g0, ts.gold])
+	var p := _mk(c)
+	p.town_sim.place_building("lot-05", "house", 1)
+	_funds(p, 1000.0, 200.0)
+	p.drain_events()
+	p.tick(2.0)
+	var pg := _grows(p.drain_events())
+	t.ok(p.town_sim.income_pays(p.town_sim.gold_income(), p.town_sim.gold_due()) and pg.size() == 1 and pg[0]["lot_id"] == "lot-05",
+		"no Statue or Walls (%.3f g/s due, %.3f in): the House's level 2 starts: %s" % [p.town_sim.gold_due(), p.town_sim.gold_income(), str(pg)])
+	var sc := cfgs()
+	var v := GameState.new(sc)
+	v.debug_enabled = true
+	v.save_dir = _dir
+	v.cmd_debug_load_fixture("pre_vei")
+	v.cmd_set_stance("grow", true)
+	v.tick(0.5)
+	t.ok(v.town_sim.gold_due() > v.town_sim.gold_income() and v.stances_on.has("grow"),
+		"(setup) pre_vei, Grow on: %.3f g/s due, %.3f in, %.0f gold" % [v.town_sim.gold_due(), v.town_sim.gold_income(), v.town_sim.gold])
+	v.clock_override = CLOCK
+	t.ok(v.cmd_save("up")["ok"], "(setup) saved")
+	var n := GameState.new(sc)
+	n.save_dir = _dir
+	n.clock_override = CLOCK + 3600
+	t.ok(n.cmd_load("up")["ok"], "(setup) loaded 1 h on")
+	var evs := n.catchup_events()
+	var unpaid := evs.filter(func(e): return e["type"] == "building_unpaid" and bool(e["unpaid"]))
+	t.ok(_grows(evs).is_empty() and unpaid.is_empty(),
+		"pre_vei with Grow on, 1 h away: %d Grow starts, %d buildings unpaid (%.0f gold left)" % [_grows(evs).size(), unpaid.size(), n.town_sim.gold])
 
 
 ## stance.grow.max_active: a House under construction (the player's) keeps Grow from starting at 1; at 2 it starts one.

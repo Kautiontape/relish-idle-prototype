@@ -70,8 +70,10 @@ func run() -> int:
 ## started 30 s after live's, 4.5 min in, at the same 10 s core step as the 30 min case (5.4 s there), while every stock
 ## ended within 0.02% (likely the field's 12 h steps, idle.field_steps; not chased). pre_vei's worst was 39.8 s of 12 h.
 ## The new game's Grow starts run out once its bone is spent (no mill is built); pre_vei's run on through the 12 h.
+## pre_vei runs at market.price ×2 (test_catchup.grow_price): its own gold net is negative, so Grow's upkeep test (the
+## run's manager's ruling 1 on handoff 5) would pass over every pick until the town sheds.
 func _grow_on(c: Dictionary, conv: Variant, cu: Variant, tol: float) -> void:
-	var r: Dictionary = cu.accuracy(c, cu.grow_on_json(conv.start_json("pre_vei")), HOURS * 3600.0, tol, WINDOW_S)
+	var r: Dictionary = cu.accuracy(cu.grow_price(c), cu.grow_on_json(conv.start_json("pre_vei")), HOURS * 3600.0, tol, WINDOW_S)
 	var g: Array = r["grow_started"]
 	var gd: String = cu.grow_same(g[0], g[1], tol, float(r["t0"]), INF)
 	print("  [catchup_accuracy] pre_vei with Grow on, %.0f h caught up vs live: %s; Grow started %d caught up, %d live (%s; the worst %.3f s apart)" % [
