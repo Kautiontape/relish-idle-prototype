@@ -180,6 +180,13 @@ func _hit_word_tests(t: TestUtil) -> void:
 	var src_b := _code(FileAccess.get_file_as_string("res://scripts/raid/warden_bellringer.gd"))
 	t.ok(src_r.contains("RaidLogic.hit_word_rect(") and src_r.contains("meter_row_rect()"), "relish.gd places STRUCK and SOAKED by hit_word_rect against the warden's meter row")
 	t.ok(src_w.contains("RaidLogic.hit_word_rect(") and src_b.contains("_hit_word(ci, _toll_word_at"), "the Bellringer's TOLLED and MUFFLED go through the same rule")
+	# the stray "b" (dungeon-huntsman-awake): the "break pips" plate under the meter row lay under Relish's body, which
+	# draws over it and left one letter showing. The label is not drawn while her disc (1.8 x her radius) touches its plate.
+	var lbl := Rect2(Vector2(468, 478), Vector2(64, 24))   # a plate under the row, centred on the warden at (500,450)
+	t.ok(RaidLogic.rect_hits_circle(lbl, Vector2(500, 480), 13.0 * 1.8), "the test bites: Relish on the plate covers it")
+	t.ok(not RaidLogic.rect_hits_circle(lbl, Vector2(500, 560), 13.0 * 1.8) and not RaidLogic.rect_hits_circle(lbl, Vector2(380, 490), 13.0 * 1.8), "clear of the plate she does not hide it")
+	t.ok(src_w.contains("label != \"\" and not _label_under_relish()") and src_w.contains("RaidLogic.rect_hits_circle(meter_label_rect(), raid.relish.global_position, raid.relish.radius * 1.8)"),
+		"warden.gd draws the meter label only while Relish is not over its plate")
 
 
 ## The awake WardenBlock's note (the Huntsman's catch cost and its siblings): at the break rows' size and full tone,
