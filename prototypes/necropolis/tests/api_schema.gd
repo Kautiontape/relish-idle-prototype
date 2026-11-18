@@ -359,6 +359,8 @@ const EVENTS := {
 	"counter_garrison_cleared": {"fort_id": S, "killed_mass": F},
 	# api_version 6 (E2b-2 T3.2, api-request #3): a queued build started; waited_on is what held it last
 	"queue_started": {"building_id": S, "lot_id": S, "level": I, "upgrade": B, "waited_on": S},
+	# api_version 14 (Phase I P3, Q-b): the Grow stance started an upgrade (BuildRules.grow_step)
+	"grow_started": {"building_id": S, "lot_id": S, "level": I},
 	"tithe_warning": {"wave_id": I, "fort_id": S, "eta_s": F, "surge": F},
 	"tithe_wave": {"wave_id": I, "fort_id": S, "surge": F, "duration_s": F, "relish_here": B, "siege_block": F},
 	"stance_fired": {"stance_id": S, "active": B, "beat_id": I},

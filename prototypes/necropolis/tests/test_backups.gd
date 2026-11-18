@@ -62,6 +62,13 @@ const CLOCK := 1_800_000_000  # a "now" for the saves (unix seconds)
 ## don't move. The proof: the v14 tree with API_VERSION set back to 13 and realm.json odds.backups_mid -1e9 (the
 ## readiness bit for bit) passes every old pin in this suite, test_stances and test_big_undead (288 PASS, 0 FAIL).
 ## Was: day1 e0c2c449… / ab49446c…, midgame_2flips 99fdcbb4… / 330008c2…, pre_vei 579ad780… / 50f7cc0b… (state / away).
+## Re-pinned at Phase I P3's Grow stance (API v14, STATE-API §10 A17; the standing re-pin rule): midgame_2flips' and
+## pre_vei's states and events. Both fixtures are past their first build, so Grow's condition holds at the first beat
+## and its `active` changes once: one more event (stance_fired {grow, active true}; 241 and 16) and the save's
+## stances.state gains grow. The fixtures load with Grow off (their on-list is []), so nothing else moves: the away
+## reports and day1 (not armed) are unchanged. The proof: this tree with grow out of GameState.STANCE_IDS passes every
+## old pin here and in test_big_undead (225 PASS, 0 FAIL). Was: midgame_2flips 9c683088… / d1014dba…, pre_vei
+## 45f2ea1c… / e3093d57… (state / events).
 const TIP := {
 	"day1": {"state": "1ec82f7a6d729e068b3a2b676b3f4eabf48e7c5d45e8844f18d5b35be2c0ff25",
 		"events": "bf49daaddc2123e6ee4b4da8affd68561ee577d54c464d657e414d0452193d34",
@@ -90,9 +97,9 @@ const TIP := {
 	# under hold.mint_ref), so α plays no part. The proof tree (the most-undead rule in _tithe_target and the train,
 	# mint_alpha 0.7, the old line, fort_retaken without the two keys) passes the old pins (was 54ae7149… / 7eb703c3… /
 	# e0a288bf…)
-	"midgame_2flips": {"state": "9c68308892a8c40c5e08a10230917073fe950211b4938970034dfe4b84b30620",
-		"events": "d1014dbadd6ad58404818316e0e65a295e012af5ef8675ffb59dd678d1899e90",
-		"away": "d172a2cf9b4ab0ccc5c2d218d60bd02bb7e8e8ab548e59ac9ec7cce06eb92af1", "steps": 4356, "n_events": 240},
+	"midgame_2flips": {"state": "1ab0643afc8b35208a3264c28c441efc91b71fcb962bd24281253093938b71e9",
+		"events": "47b8beb6aabf4999e69ed75d1752a7bb724cf79b98c595f6ad5c14e80344f355",
+		"away": "d172a2cf9b4ab0ccc5c2d218d60bd02bb7e8e8ab548e59ac9ec7cce06eb92af1", "steps": 4356, "n_events": 241},
 	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i) on the gold-trap stop; the standing re-pin
 	# rule): its floor sheds as before, but only one of the two Houses resumes, since the second would leave the gold
 	# income (0.60) exactly at the paying upkeep, so one building_unpaid event fewer (15, not 16); the gold climbs at
@@ -105,9 +112,9 @@ const TIP := {
 	# +1,868,492 (+1,867,726), the mint +2,251,317 (+2,251,104), the bone not stored 4,731 (4,730), the end bodies 0.34
 	# (0). The events are unchanged. day1's and midgame_2flips' convoys land nothing in these 12 h, so they don't move.
 	# The proof: the claim off (× 0) passes the old pins (was f23659ff… / a8a97ed8…).
-	"pre_vei": {"state": "45f2ea1c16758d87cf6afd52127b35f14647be695cf4b6baaefca4c8df620fa8",
-		"events": "e3093d57d7355dc31433aca50040e476c11b5e6fa89ed1372a608aa1860d5a84",
-		"away": "1d42c14b95a5de056457bb73452d994a3bdb622da1a2c3e378a0108523a54adf", "steps": 4321, "n_events": 15},
+	"pre_vei": {"state": "68c68ffdc82dc8c62a249d8fe91f0fd2c184c5522775ce967a180a255297384a",
+		"events": "fb00b6b760bbd7366d217e5421aa89e3ea3aeef9909f2f64b947bc2aae796177",
+		"away": "1d42c14b95a5de056457bb73452d994a3bdb622da1a2c3e378a0108523a54adf", "steps": 4321, "n_events": 16},
 }
 
 

@@ -18,6 +18,9 @@ func run() -> int:
 	t.suite("gold_trap")
 	DirAccess.make_dir_recursive_absolute(_dir)
 	var c := TestUtil.configs()
+	# Phase I P3's depth put the Market's level 3 at 890 bone, over pre_vei's level-1 Bone Mill cap (300), so the lever
+	# below would be refused (cost_exceeds_cap) for its bone; the trap is the gold's, so the base bone cap covers it
+	c["economy"]["bone"]["cap"] = 1200.0
 	var s := _mk(c)
 	t.ok(s.cmd_debug_load_fixture("pre_vei")["ok"], "(setup) pre_vei loads")
 	s.build_queue.clear()

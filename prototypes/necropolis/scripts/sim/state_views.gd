@@ -516,13 +516,14 @@ static func beat_id(gs: GameState) -> int:
 static func stances(gs: GameState) -> Dictionary:
 	var slots := gs._stance_slots()
 	var proj := stance_projections(gs)
+	var slotted := gs._slotted(gs.stances_on)  # (Phase I P3) a slot-free stance (Grow) takes none and is never suspended
 	var list: Array = []
 	for id in GameState.STANCE_IDS:
-		var idx := gs.stances_on.find(id)
-		list.append({"id": id, "on": idx >= 0, "suspended": idx >= slots, "active": gs._stance_active.has(id),
+		var idx := slotted.find(id)
+		list.append({"id": id, "on": gs.stances_on.has(id), "suspended": idx >= slots, "active": gs._stance_active.has(id),
 			"fired_beat_id": int(gs._stance_fired.get(id, -1)), "hold_s_left": maxf(0.0, float(gs._stance_hold.get(id, 0.0))),
 			"projected": (proj[id] as Dictionary).duplicate()})
-	return {"rev": gs.rev, "slots": slots, "used": mini(gs.stances_on.size(), slots), "beat_id": beat_id(gs), "stances": list}
+	return {"rev": gs.rev, "slots": slots, "used": mini(slotted.size(), slots), "beat_id": beat_id(gs), "stances": list}
 
 
 ## view_stances' `projected` (STATE-API §5.11, E3-1): for each stance, the change in each net rate per second if it
@@ -547,10 +548,13 @@ static func stance_projections(gs: GameState) -> Dictionary:
 	var now := gs._acting_of(gs.stances_on)
 	var base := {}
 	for id in GameState.STANCE_IDS:
+		if id == "grow":
+			out[id] = {}  # (Phase I P3) Grow moves no rate while it acts: it spends at a start, as a queued build would
+			continue
 		var on_list: Array = gs.stances_on.duplicate()
 		if on_list.has(id):
 			on_list.erase(id)
-		elif on_list.size() < gs._stance_slots():
+		elif gs._stance_free.has(id) or gs._slotted(on_list).size() < gs._stance_slots():
 			on_list.append(id)
 		var acting := gs._acting_of(on_list)
 		if acting == now:

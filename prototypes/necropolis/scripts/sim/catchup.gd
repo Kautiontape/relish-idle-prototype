@@ -212,6 +212,7 @@ static func next_event_s(gs: GameState) -> float:
 			e = minf(e, stock / -net)
 	if not gs.build_queue.is_empty():
 		e = minf(e, build_start_s(gs))
+	e = minf(e, BuildRules.grow_start_s(gs))  # (Phase I P3) the Grow stance's pick becoming affordable
 	var r := gs.realm
 	var ti: Dictionary = r.tithe
 	if bool(ti.get("started", false)):

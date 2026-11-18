@@ -13,7 +13,7 @@ const DOC_CONSTANTS := {
 	"HUD_RATE_IDS": ["mint", "workers", "bodies", "gold", "bone", "living"],
 	"LANE_KINDS": ["war", "flood", "work", "dead", "living", "haul", "redirect"],
 	"JOB_IDS": ["haul", "mill", "stall", "forge", "pit", "tend", "build"],
-	"STANCE_IDS": ["vigil", "harvest", "thrift", "muster", "hearth"],
+	"STANCE_IDS": ["vigil", "harvest", "thrift", "muster", "hearth", "grow"],  # grow: v14 (Phase I P3, A17)
 	"FRONT_IDS": ["giants", "swarm", "carvers", "raw"],
 	"CRAFT_IDS": ["simulacrum", "phylactery_charge"],
 	"TIERS": ["hamlet", "village", "town", "city"],
@@ -255,6 +255,7 @@ func _schema_self_check() -> void:
 		{"t": 1.0, "type": "fort_retaken", "fort_id": "old-sluice", "cause": "broken", "war_in": 4.1, "pressure_mult": 5.2},
 		{"t": 1.0, "type": "big_undead_returned", "uid": "u4", "fort_id": "old-sluice"},
 		{"t": 192.5, "type": "queue_started", "building_id": "market", "lot_id": "lot-13", "level": 1, "upgrade": false, "waited_on": "needs_tier"},
+		{"t": 3610.5, "type": "grow_started", "building_id": "bone_mill", "lot_id": "lot-06", "level": 3},
 		{"t": 4712.5, "type": "counter_garrison_cleared", "fort_id": "ashgate", "killed_mass": 31.4},
 		{"t": 5100.0, "type": "tithe_warning", "wave_id": 2, "fort_id": "old-sluice", "eta_s": 150.0, "surge": 24.0},
 		{"t": 1.0, "type": "tithe_wave", "wave_id": 2, "fort_id": "old-sluice", "surge": 12.0, "duration_s": 40.0, "relish_here": true, "siege_block": 0.6},
@@ -273,7 +274,7 @@ func _schema_self_check() -> void:
 		ApiSchema.check(ev, ApiSchema.EVENTS[ev["type"]], "example." + ev["type"], errs)
 		t.ok(errs.is_empty(), "§6 example %s passes its schema%s" % [ev["type"], "" if errs.is_empty() else ": " + str(errs)])
 		types[ev["type"]] = true
-	t.ok(types.size() == 21 and ApiSchema.EVENTS.size() == 21, "all 21 §6 event types have a schema and an example")
+	t.ok(types.size() == 22 and ApiSchema.EVENTS.size() == 22, "all 22 §6 event types have a schema and an example (v14: grow_started)")
 	var raid := {"v": 2, "run_id": 1, "seed_rev": 512, "fort_id": "old-sluice", "warden_beaten": true,
 		"retreated": false, "relish_died": false, "revived_in_place": 0, "killed_living_mass": 30.0,
 		"raised": [{"score": 75, "count": 2, "mass": 8.0}], "chaff_mass": 4.0, "garrison_mass": 6.0,
@@ -352,11 +353,12 @@ func _exercise(s: GameState) -> void:
 	_cmd(s, "cmd_cancel_build", ["lot-99"], false)
 	_cmd(s, "cmd_build", ["house", "lot-05"], true)  # a house is on its way for the views below
 	# the build queue (T3.2): with no mill yet, the reliquary's bone is over the base cap (cost_exceeds_cap);
-	# then a level-1 Bone Mill (bone cap 300), since the Market is bought with bone (T7) and its level 3, which
-	# the queued upgrade builds, is over the base cap: an upgrade of the market under construction waits
-	# (under_construction) and stays queued for the views below; a well starts on the next substep
+	# then a level-2 Bone Mill (bone cap 1 225), since the Market is bought with bone (T7) and its level 3, which
+	# the queued upgrade builds, is over the base cap (and, from Phase I P3's depth, 890 bone, over a level-1 mill's
+	# 300): an upgrade of the market under construction waits (under_construction) and stays queued for the views
+	# below; a well starts on the next substep
 	_cmd(s, "cmd_queue_build", ["reliquary", "lot-23"], false)  # cost_exceeds_cap: its bone over the base cap
-	s.town_sim.place_building("lot-08", "bone_mill", 1)
+	s.town_sim.place_building("lot-08", "bone_mill", 2)
 	_cmd(s, "cmd_queue_build", ["", "lot-04"], true)
 	_cmd(s, "cmd_queue_build", ["well", "lot-06"], true)
 	_cmd(s, "cmd_queue_build", ["nope", "lot-06"], false)

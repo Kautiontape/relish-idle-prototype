@@ -182,7 +182,7 @@ func _init(p: String, cfgs_in: Dictionary, save_dir := "") -> void:
 ## and a variant: "no_bone_prices" is ablation (b), the dead's buildings at 0 bone (cost and every level_costs entry;
 ## their gold prices unchanged).
 static func cfgs(variant := "") -> Dictionary:
-	var out := TestUtil.configs()
+	var out := TestUtil.shipped_configs()  # (Phase I P3) the shipped default: the bots get Grow because it is on
 	out["realm"]["field"]["w"] = 8
 	out["realm"]["field"]["h"] = 6
 	out["economy"]["sim"]["prewarm_ticks"] = 0
@@ -1856,6 +1856,10 @@ func _on_event(e: Dictionary, where: String) -> void:
 				"waited_on": str(e["waited_on"]), "gold": cost[0], "bone": cost[1], "relics": cost[2], "where": where})
 			if str(e["waited_on"]) == "no_bone" and first["bone_wait_event"] < 0.0:
 				first["bone_wait_event"] = t
+		"grow_started":  # (Phase I P3, Q-b) the Grow stance's start: a build the bot didn't queue, waited_on "grow"
+			var cost := _cost(str(e["building_id"]), int(e["level"]))
+			builds.append({"t": t, "b": str(e["building_id"]), "lot": str(e["lot_id"]), "level": int(e["level"]),
+				"waited_on": "grow", "gold": cost[0], "bone": cost[1], "relics": cost[2], "where": where})
 		"building_done":
 			var cost := _cost(str(e["building_id"]), int(e["level"]))
 			done.append({"t": t, "b": str(e["building_id"]), "lot": str(e["lot_id"]), "level": int(e["level"]),

@@ -14,7 +14,9 @@ const RATE_IDS := ["mint", "work", "war", "flood", "workers", "bodies", "gold", 
 const HUD_RATE_IDS := ["mint", "workers", "bodies", "gold", "bone", "living"]
 const LANE_KINDS := ["war", "flood", "work", "dead", "living", "haul", "redirect"]
 const JOB_IDS := ["haul", "mill", "stall", "forge", "pit", "tend", "build"]
-const STANCE_IDS := ["vigil", "harvest", "thrift", "muster", "hearth"]
+## Phase I P3 (Q-b, option (a)): Grow, the last, takes no slot (economy.json stance.slot_free) and is on in a new game
+## when stance.grow.default_on (BuildRules.grow_step).
+const STANCE_IDS := ["vigil", "harvest", "thrift", "muster", "hearth", "grow"]
 const FRONT_IDS := ["giants", "swarm", "carvers", "raw"]
 const CRAFT_IDS := ["simulacrum", "phylactery_charge"]
 const TIERS := ["hamlet", "village", "town", "city"]
@@ -64,6 +66,8 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	# thresholds, and the beat they are read at (Thrift's two keys are TownSim's)
 	"economy.stance.hold_s", "economy.stance.top_job", "economy.stance.priority", "economy.stance.harvest_bodies_frac",
 	"economy.stance.hearth_morale", "pulse.tempo_ms",
+	# Phase I P3 (Q-b, option (a)): the Grow stance (BuildRules.grow_step) and the stances that take no slot
+	"economy.stance.slot_free", "economy.stance.grow.default_on", "economy.stance.grow.order", "economy.stance.grow.max_active",
 	# E4 (the A1 day-1 ruling): a new game's bone edge (view_hud.bone_war_share) and the mill's lever per starved reason
 	"economy.opening.bone_edge.war_share", "economy.town.starved_lever",
 	# E3-2: the backups (MECHANICS §7): a tended vat's growth (_grow_vats), the death rule's respawns
@@ -281,6 +285,11 @@ var _harvest_frac := 0.0  # economy.json stance.harvest_bodies_frac
 var _hearth_morale := 0.0  # economy.json stance.hearth_morale
 var _stance_priority: Array = []  # economy.json stance.priority: the ladder stances, top first when several act
 var _stance_top_job := {}  # economy.json stance.top_job: ladder stance id -> the job it lifts
+var _stance_free: Array = []  # economy.json stance.slot_free: the stances that take no slot (Phase I P3: Grow)
+var _grow_order: Array = []  # economy.json stance.grow.order: the buildings Grow levels, its tie order (BuildRules.grow_target)
+## The reason of the queue head the last core step's processing left waiting on funds, "" when none (BuildRules.
+## process_queue's return): Grow acts only when it is "", and catch-up's clip at Grow's pick reads it. Session only.
+var _queue_held := ""
 var _bone_war_share := 0.0  # economy.json opening.bone_edge.war_share (view_hud.bone_war_share)
 var _starved_lever := {}  # economy.json town.starved_lever: TownSim.mill_starved reason -> its lever id
 ## [TownSim.structure_rev, town_tier] when the core step last checked the tiers and none rose: the check
@@ -373,6 +382,10 @@ func setup(cfgs: Dictionary) -> void:
 	var top: Variant = _req("economy.stance.top_job")
 	_stance_priority = (pri as Array).duplicate() if pri is Array else []
 	_stance_top_job = (top as Dictionary).duplicate() if top is Dictionary else {}
+	var free: Variant = _req("economy.stance.slot_free")
+	_stance_free = (free as Array).duplicate() if free is Array else []
+	var gro: Variant = _req("economy.stance.grow.order")
+	_grow_order = (gro as Array).duplicate() if gro is Array else []
 	_bone_war_share = _req_f("economy.opening.bone_edge.war_share")
 	var lev: Variant = _req("economy.town.starved_lever")
 	_starved_lever = (lev as Dictionary).duplicate() if lev is Dictionary else {}
@@ -644,7 +657,8 @@ func cmd_new_game(seed: int) -> Dictionary:
 	blueprints = []
 	haul_target = "auto"
 	build_queue = []
-	stances_on = []
+	_queue_held = ""
+	stances_on = ["grow"] if bool(_req("economy.stance.grow.default_on")) else []  # Phase I P3 (Q-b): Grow starts on
 	vats_staffed = []
 	town_tier = "hamlet"
 	relish = {
@@ -1359,14 +1373,14 @@ func cmd_set_stance(stance_id: String, on: bool) -> Dictionary:
 		return {"ok": false, "reason": "unknown_stance", "slots": 0, "used": 0}
 	var slots := _stance_slots()
 	if on and not stances_on.has(stance_id):
-		if stances_on.size() >= slots:
+		if not _stance_free.has(stance_id) and _slotted(stances_on).size() >= slots:
 			return {"ok": false, "reason": "no_slot", "slots": 0, "used": 0}
 		stances_on.append(stance_id)
 	elif not on:
 		stances_on.erase(stance_id)
 	_apply_stances(t)
 	rev += 1
-	return {"ok": true, "reason": "", "slots": slots, "used": mini(stances_on.size(), slots)}
+	return {"ok": true, "reason": "", "slots": slots, "used": mini(_slotted(stances_on).size(), slots)}
 
 
 # ------------------------------------------------------------------ the stances (E3-1) ----
@@ -1435,19 +1449,44 @@ func _stance_condition(id: String) -> bool:
 			return float(ts.staffing.get("idle", 0.0)) > 0.0 or float(ts.rates["workers"]["muster"]) > 0.0
 		"thrift":
 			return ts.trade_income() < ts.gold_bill()
+		"grow":
+			return _grow_armed()
 	return false
 
 
+## Grow's condition (Phase I P3, Q-b: it acts only after the player's first finished build, so the first step stays
+## theirs): the finished levels of the town's buildings total more than the opening's (economy.json opening.buildings,
+## each at level 1). A first build counts at its finish (a construction's level is 0 until then), an upgrade too.
+func _grow_armed() -> bool:
+	var n := 0
+	for lot_id in town_sim.buildings:
+		n += int(town_sim.buildings[lot_id]["level"])
+	return n > (town_sim._start["buildings"] as Dictionary).size()
+
+
+## Phase I P3: the stances in `on_list` that take a slot (all but economy.json stance.slot_free's), oldest first.
+func _slotted(on_list: Array) -> Array:
+	if _stance_free.is_empty():
+		return on_list
+	return on_list.filter(func(id): return not _stance_free.has(id))
+
+
 ## The stances that would act with `on_list` the toggles (oldest first): {id: true} for each on, not suspended (within
-## the slots, the oldest first) and active.
+## the slots, the oldest first; a slot-free one, Phase I P3's Grow, is never suspended) and active.
 func _acting_of(on_list: Array) -> Dictionary:
 	var out := {}
 	if on_list.is_empty():
 		return out
 	var slots := _stance_slots()
-	for i in mini(on_list.size(), slots):
-		if _stance_active.has(on_list[i]):
-			out[on_list[i]] = true
+	var used := 0
+	for id in on_list:
+		if _stance_free.has(id):
+			if _stance_active.has(id):
+				out[id] = true
+			continue
+		if used < slots and _stance_active.has(id):
+			out[id] = true
+		used += 1
 	return out
 
 
@@ -2884,7 +2923,9 @@ func _core_step(dt: float) -> Array:
 		_tiers_seen = [town_sim.structure_rev, town_tier]
 	# the build queue (IDLE §5, MECHANICS §4.4): right after the tiers, so a tier that rises this step
 	# opens its entries this step and this step's income counts
-	BuildRules.process_queue(self)
+	_queue_held = BuildRules.process_queue(self)
+	# Phase I P3 (Q-b): the Grow stance, right after the queue: it acts only when no head is left waiting on funds
+	BuildRules.grow_step(self, _queue_held)
 	# TownSim's muster joins this step's FLOOD, or its WAR while the Muster stance acts (_split_of; E4 step 5, A1)
 	_split = _split_of(mint, valve, float(town["muster_mass"]) / dt, town_sim.muster_all)
 	# §3 step 4: Relish's travel and state (her arrival's moment inside the step, for a walk home: _emit_realm)
@@ -3110,6 +3151,7 @@ func from_dict(d: Dictionary) -> Dictionary:
 	_catchup = Catchup.new()
 	_away = {}  # a load replaces the last report (the next catch-up's, if any, follows)
 	_tiers_seen = [-1, ""]
+	_queue_held = ""  # (Phase I P3) the next core step's processing sets it
 	# the vats come back after TownSim's own load: they open the tend slots (refilled, the saved
 	# states kept); a staffed vat holding a ready clone opens none (_tended_vats, E4 step 10), as live play left it
 	town_sim.set_vats(_tended_vats(), true)

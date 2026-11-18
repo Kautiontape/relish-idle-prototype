@@ -9,7 +9,8 @@ var _dir := "user://test_saves_api_v7_%d" % OS.get_process_id()
 ## Builds and upgrades that fill a fixture's queue to queue.max_len (each tried in order; refusals skipped).
 const FILL := [["", "lot-02"], ["", "lot-04"], ["", "lot-04"], ["house", "lot-05"], ["well", "lot-06"], ["bakery", "lot-07"],
 	["bone_mill", "lot-08"], ["house", "lot-09"], ["well", "lot-10"], ["house", "lot-11"], ["well", "lot-12"], ["", "lot-03"],
-	["", "lot-03"], ["house", "lot-18"], ["well", "lot-19"], ["house", "lot-20"], ["", "lot-05"], ["", "lot-06"], ["", "lot-07"]]
+	["", "lot-03"], ["house", "lot-18"], ["well", "lot-19"], ["house", "lot-20"], ["", "lot-05"], ["", "lot-06"], ["", "lot-07"],
+	["", "lot-08"], ["well", "lot-21"]]  # (Phase I P3's depth: the Market's and the charnel house's L3 are over pre_vei's cap)
 
 
 func run() -> int:

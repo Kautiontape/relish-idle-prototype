@@ -534,7 +534,9 @@ in §5; E4 tunes the numbers):**
   the Chapel of Vats its own, 2, 4, 6, 6, 6), with relic costs that never fall with level; the
   charnel house's `body_cap` table runs on to 8 entries (+50 a level, 350 at L8);
 - the bone cap grows with the ladder: the Bone Mill's `bone_cap` is a table per level, 100, 150, 350, 700,
-  1 250, 2 050, 3 400, 8 400 (caps 300 to 8 600). The rule (§5, Store caps): each level's cap covers 1.2 ×
+  1 250, 2 050, 3 400, 8 400 (caps 300 to 8 600). **Phase I P3's depth** (below) scales the dead's buildings' bone
+  from L3 by 3.5 and the cap (base plus table) from the mill's L2 by the same: 100, 1 025, 1 725, 2 950, 4 875,
+  7 675, 12 400, 29 900 (caps 300, then 1 225 to 30 100). The rule (§5, Store caps): each level's cap covers 1.2 ×
   the mill's and the Market's next level, rounded up to 50, and the top level's every bone cost (the
   Forge's L8, 8 575); `tests/test_build_ladder.gd` checks that every price fits a cap reachable by its
   building's tier. The Market's `gold_cap` stays 3 250 a level (32 500 at L8). G4 ran on town's branch
@@ -549,6 +551,40 @@ in §5; E4 tunes the numbers):**
   E3's `pure_idle` and `town_only` profiles (target: 2–3 days, then "needs relics"). L6+ relic costs
   are untested without raids.
 - Rent is dropped.
+
+**Phase I P3's depth (Q-b; the run's manager's ruling of 2026-11-18: the Grow stance, then one depth pass sized on
+pure_idle and town_only together for 48–72 h).** One multiplier, 3.5, on the **bone** price of every level from L3
+of the dead's buildings (raising pit, charnel house, Market, Bone Mill, Forge, graveyard, Stables, Embalmer, Chapel of
+Vats, the Crypt), relic levels included so the curve never falls from L5 to L6, and on the Bone Mill's bone cap from
+its L2 (the cap at a level is (200 + table) × 3.5, so each still covers 1.2 × the mill's and the Market's next level and
+the Forge's L8, 30 010, fits L8's 30 100). Left alone: every level 2 (the S0 spine: the mill's, the Market's and the
+pit's L2 are its first buys), every gold price (gold isn't the binder: it sits at its cap in every profile), and the
+living's buildings (House, Well, Bakery, Inn: bought with gold, and the House's handover rule above keeps its steps
+at 2.5× or less and its L4 and L5 under a new game's 200 bone cap). Gold scaling was ruled out too: the Chapel's L8
+at 3.5 × 9 450 gold is over the Market's L8 cap (32 500). Sized with `wip/tools-p3/qb_probe.gd` (`QB_COSTMULT`, the
+whole level costs from L3 of every relic-free level, the cap from L2; cff0ecc's tree plus Grow): the last build of
+pure_idle's 168 h close and of town_only's 8 days, both ending with every relic-free level built:
+
+| multiplier | pure_idle | town_only |
+|---|---|---|
+| none, Grow off (shipped before P3) | 3.69 h (14 builds) | 33.9 h (50) |
+| 1, Grow on | 22.6 h (50) | 20.7 h (50) |
+| 2.0 | 35.9 h | 35.4 h |
+| 2.5 | 42.9 h | 42.5 h |
+| 3.0 | 49.9 h | 49.8 h |
+| 3.5 | 56.8 h | 56.4 h |
+
+The time is linear in the multiplier (about 14 h per unit), and town_only tracks pure_idle within half an hour: with
+Grow on, both are bone-bound on the same relic-free ceiling (12 buildings, every one at L5, the Stables at L3). Bone
+only on every L3+ level of every building gave the same 56.8 h / 56.4 h at 3.5. **As shipped** (the dead's bone only,
+the living's buildings left alone; measured with the same probe on this commit's configs, no overrides): pure_idle's
+last build 52.8 h into its close (50 builds, 36 of them Grow's), town_only's at 54.2 h (day 2.26; 50 builds, 16
+Grow's); next-affordable gaps S1 median 28 / 20 min, S2 median 1.8 / 1.8 h. sessions (raiding) reaches the City tier
+with 123 builds in 8 days (27 Grow's, the last at 69.1 h), still building at the close; its S0 gaps are unchanged
+(median 700 s, max 1 300 s), S1 median 16 min, S2 median 1.9 h. These are probe readings on one seed; P3's batch
+measures every profile. The step from L2
+to L3 is now steep on the dead's buildings (the pit's 305 to 1 575 bone, ×5.2, against ×1.5 before), a side effect
+of leaving L2 alone; a ramp (×3.5 reached at L5) is the alternative if the balance pass wants a smoother curve.
 
 ## 8. Balance stand-ins (E3-6a; `configs/balance_standins.json` v0)
 The autoplayer (E3-6b) can't run the dungeon headless. `tests/autoplay/standin_resolver.gd`

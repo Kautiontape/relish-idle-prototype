@@ -1500,7 +1500,7 @@ finished against a copy without (STATE-API §5.10). The table is the design inte
   the staffing it previews.
 - **Stances:** named, pre-written behaviours the player toggles. Slots: `stance.base_slots` (2), plus
   the Guildhall, plus 1 while Relish is home; when they run short the newest are suspended (on, but no
-  effect) until a slot frees. Each shows its projected effect on net rates before you toggle it. None
+  effect) until a slot frees. Grow (Phase I P3) takes no slot (`stance.slot_free`) and is never suspended. Each shows its projected effect on net rates before you toggle it. None
   touches the valve (one controller per dial). Live from E3-1 (the run's manager's rulings for Shawn); the
   thresholds are `economy.json` `stance`, v0 (BALANCE §5, E4 calibrates).
 
@@ -1511,6 +1511,7 @@ finished against a copy without (STATE-API §5.10). The table is the design inte
 | Hearth | morale < `stance.hearth_morale` (0.5) | `stall` to the top |
 | Muster | idle workers: some stand idle, or the last step mustered some | the idle cap (`worker.idle_cap`) reads 0: every idle worker musters to WAR at once (without it the overflow above the cap musters to Vei's queue, §3.2) |
 | Thrift | the stalls' gold income < the gold upkeep owed | idles buildings over `stance.thrift_upkeep` (0.05) gold upkeep, in its order, until the income covers what is still paid |
+| Grow | a build or upgrade has finished since the new game (the finished levels total more than `opening.buildings`') | on in a new game (`stance.grow.default_on`), no slot. Right after the queue's processing, while no queue head waits on funds and fewer than `stance.grow.max_active` (1) constructions are under way: starts the upgrade, of a standing building in `stance.grow.order` whose lot has no queue entry and whose next level passes the tier gate, costs no relics and fits under every cap, that is affordable soonest at the queue's net income (ties in `order`, then lot order), once the stocks cover it; it passes over one no income can pay. `grow_started`. Below |
 
 - **`active` is the condition alone, for every stance, on or off** (the run's manager). A stance acts only
   while it is on, not suspended and active; an off or suspended stance shows `active` and does nothing.
@@ -1570,6 +1571,22 @@ finished against a copy without (STATE-API §5.10). The table is the design inte
   staffing, against the same for the stances acting now: pure, no rev, no event.
 - Firings show in `view_stances()` with `fired_beat_id`. The town scene flashes the affected agents
   on its next visual beat (for every stance's change, on or off, since `active` is for every stance).
+- **Grow** (Phase I P3, Q-b: the run's manager's ruling of 2026-11-18, option (a); STATE-API §10 A17). Shawn's lever
+  for an idle imbalance ("we can play with conditional stances if we feel there is an imbalance"), for his never-raid
+  target: 2–3 days of real idle growth, then a visible wall. `BuildRules.grow_target` picks, `grow_step` starts,
+  `grow_start_s` is catch-up's clip.
+  - **Its own path, not the queue.** It starts an upgrade only when the stocks already cover it and no queue head waits
+    on funds, so it never takes what the player's queue is saving; a parked (gated) entry holds nothing and doesn't
+    stop it, and a lot with any queue entry is left to the player. A pick it can't afford yet holds nothing.
+  - **What it never does:** build on an empty lot (the lots are the player's plan), spend relics, start a level behind
+    the tier or over a cap (re-read as the caps rise), or start a burst: at most `max_active` (1) constructions under
+    way, anyone's, since builders sit at the ladder's top, 3 to a site.
+  - **The wall stays visible:** once every standing building is at its last relic-free level, Grow has no pick and the
+    queue's parked relic entries are what's left.
+  - **The step:** right after `process_queue` in the core step (§3 step 3), on the state the processing left; a step
+    starts as many as the cap allows, each picked on the stocks the last left. Catch-up clips at the pick's time
+    (`Catchup.next_event_s`), and a construction finishing (which frees the cap) is a clip already, so a catch-up
+    starts it within the live run's substep (`test_grow`).
 
 ### 4.6 The crypt slab: big undead
 - Only while Relish is home. The town scene's crypt view runs SlabLogic's live preview (ported from

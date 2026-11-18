@@ -782,10 +782,11 @@ static func upkeep_short(gs: GameState, building_id: String, lots: Dictionary) -
 ## {building_id, lot_id, level, upgrade, waited_on}`. Every entry that stays and was skipped or waited on
 ## funds keeps that reason as its waited_on, and one queued behind the head that waits on funds takes the
 ## head's (no_gold, no_bone): the funds hold it now. A start its command refuses (it never should: the walk
-## checks what they check) keeps its entry and stops this step's starts.
-static func process_queue(gs: GameState) -> void:
+## checks what they check) keeps its entry and stops this step's starts. Returns the reason of the head left waiting
+## on funds (no_gold, no_bone), "" when none (Phase I P3: the Grow stance acts only then; grow_step).
+static func process_queue(gs: GameState) -> String:
 	if gs.build_queue.is_empty():
-		return
+		return ""
 	var w := queue_walk(gs, gs.build_queue, false)  # the statuses only: the times are the views'
 	var gone := {}
 	for i in w["start"]:
@@ -821,6 +822,97 @@ static func process_queue(gs: GameState) -> void:
 			e.erase("never_since")
 		keep.append(e)
 	gs.build_queue = keep
+	return held
+
+
+## Phase I P3 (Q-b, option (a): the run's manager's ruling of 2026-11-18; economy.json stance.grow): the Grow stance's
+## pick, read from the state as it stands. Its candidates are the standing buildings (lot order) whose building is in
+## stance.grow.order, that are working (not constructing, unpaid or Thrift-idled), whose lot has no queue entry (the
+## player's plan for it, parked or not), and whose next level is within max_level, passes the upgrade's tier gate,
+## costs no relics and fits under every cap now (over_cap: re-read as the caps rise). Each is timed as a lone queue head
+## at today's stocks (_afford_at at queue_net, clock 0, as head_dry); one no income can pay (−1.0) is passed over, so
+## Grow never stalls on it. The pick is the soonest, ties (several affordable now) in `order`, then lot order.
+## {} when there is none; else {lot_id, building_id, level, cost, in_s, oi}.
+static func grow_target(gs: GameState) -> Dictionary:
+	var ts := gs.town_sim
+	var order: Array = gs._grow_order
+	var queued := {}
+	for e in gs.build_queue:
+		queued[str(e["lot_id"])] = true
+	var tl0 := {}
+	var best := {}
+	for lot_id in built_lots(gs):
+		var b: Dictionary = ts.buildings[lot_id]
+		var bid := str(b["building_id"])
+		var oi := order.find(bid)
+		var st := str(b["state"])
+		if oi < 0 or queued.has(lot_id) or st == "constructing" or st == "unpaid" or st == "thrift":
+			continue
+		var level := int(b["level"]) + 1
+		if level > int(buildings_cfg(gs).get(bid, {}).get("max_level", 1)):
+			continue
+		var cost := construction_cost(gs, bid, level)
+		if int(cost["relics"]) > 0 or over_cap(gs, cost) != "":
+			continue
+		if req_reason(gs, {"tier": req_of(gs, bid)["tier"], "blueprint": "", "building": ""}) != "":
+			continue
+		if tl0.is_empty():
+			tl0 = {"net": queue_net(gs), "cap": {"gold": ts.gold_cap(), "bone": ts.bone_cap(), "relics": float(gs._cap_of("relics"))}}
+		var tl := {"clock": 0.0, "fund": {"gold": ts.gold, "bone": ts.bone, "relics": float(gs.relics)}, "net": tl0["net"],
+			"cap": tl0["cap"], "starved": {}}
+		var in_s := float(_afford_at(gs, cost, tl, false)[0])
+		if in_s < 0.0:
+			continue
+		if best.is_empty() or in_s < float(best["in_s"]) or (in_s == float(best["in_s"]) and oi < int(best["oi"])):
+			best = {"lot_id": lot_id, "building_id": bid, "level": level, "cost": cost, "in_s": in_s, "oi": oi}
+	return best
+
+
+## Phase I P3 (Q-b, option (a)): the Grow stance's step, in the core step right after process_queue (`held`: its
+## return, the reason of a queue head left waiting on funds). While Grow acts, no head waits on funds (so it never
+## takes funds the player's queue is saving) and fewer than economy.json stance.grow.max_active constructions are under
+## way (anyone's: so it never starts a burst that pulls the producers' hands onto building sites), it starts
+## grow_target's upgrade when the stocks cover it now, through cmd_upgrade's own path (`bump` false, as the queue's
+## starts), and picks again on the stocks that left while the cap has room. A pick it can't afford yet holds nothing:
+## the stocks grow, and Catchup.next_event_s clips at its time (grow_start_s), so catch-up starts it when live play
+## would; a construction finishing, which frees the cap, is a clip already.
+static func grow_step(gs: GameState, held: String) -> void:
+	if held != "" or not gs._stance_acting.has("grow"):
+		return
+	var cap := int(gs._req_f("economy.stance.grow.max_active"))
+	while constructions(gs) < cap:
+		var tg := grow_target(gs)
+		if tg.is_empty() or float(tg["in_s"]) > 0.0:
+			return
+		var r := upgrade(gs, str(tg["lot_id"]), false)
+		if not r["ok"]:
+			push_warning("BuildRules: Grow's %s on %s was refused (%s)" % [tg["building_id"], tg["lot_id"], r["reason"]])
+			return
+		gs._emit({"type": "grow_started", "building_id": str(tg["building_id"]), "lot_id": str(tg["lot_id"]),
+			"level": int(r["level"])})
+
+
+## The constructions under way (first builds and upgrades), anyone's: Grow's cap (stance.grow.max_active) counts them.
+static func constructions(gs: GameState) -> int:
+	var n := 0
+	for lot_id in gs.town_sim.buildings:
+		if str(gs.town_sim.buildings[lot_id]["state"]) == "constructing":
+			n += 1
+	return n
+
+
+## Phase I P3: the seconds until Grow's pick is affordable (grow_target's in_s, plus Catchup.HOLD_EPS_S so the step
+## that ends there has the stocks over its cost), INF when Grow doesn't act, a queue head waits on funds (the last
+## processing's, gs._queue_held), its cap is full or there is no pick. Catchup.next_event_s clips at it.
+static func grow_start_s(gs: GameState) -> float:
+	if gs._queue_held != "" or not gs._stance_acting.has("grow"):
+		return INF
+	if constructions(gs) >= int(gs._req_f("economy.stance.grow.max_active")):
+		return INF
+	var tg := grow_target(gs)
+	if tg.is_empty():
+		return INF
+	return float(tg["in_s"]) + Catchup.HOLD_EPS_S
 
 
 ## §4.3 cmd_queue_build: appends a build (or, with building_id "", an upgrade of the building on or queued

@@ -686,6 +686,13 @@ same profile with the game closed.
     first `queue.max_len` entries no gate holds get them (a `next` row holds one until it starts), and any later one
     waits as `skipped_gate` `wait_slot` ("when a queue slot came free"), holding nothing. So parking gated entries
     can't open more than 8 active builds, and a new entry that would wait for a slot is refused (`queue_full`).
+- **The Grow stance** (Phase I P3, Q-b: the run's manager's ruling of 2026-11-18, option (a); MECHANICS §4.5,
+  STATE-API §10 A17): what keeps a closed game growing once the queue's buildable entries have started. On in a new
+  game, and from the player's first finished build it upgrades what stands, one construction at a time, right after
+  the queue's processing, whenever no queue head waits on funds; never a relic level, never an empty lot. Catch-up
+  starts each upgrade when live play would (its clip, §4). Why: the list's spare room holds only gated entries, so a
+  pure_idle queue of at most 8 buildable entries finished 3.69 h into a 168 h close (cff0ecc), against 48–72 h of
+  growth; with Grow and BALANCE §7's depth (P3), pure_idle's last build is 56.8 h in (BALANCE §5).
 - **Processing**, every core step, right after the tier check:
   - The queue is processed in order.
   - An entry blocked by an **unmet gate** (blueprint, tier, a building, a locked lot, relics) is flagged
