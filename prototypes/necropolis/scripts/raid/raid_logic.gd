@@ -697,6 +697,17 @@ static func row1_fits(x: float, w: float, reserve: float, plate_w: float) -> boo
 ## (The break / takes / counter rows' font size is raid.json hud.break_row_px, at least 15 as the win line, and one
 ## wrapped line's height hud.break_row_step: the font's height at 15 is 17, plus 5.)
 const BREAK_ROW_KEY := "text"      # the break / takes / counter rows' colour key (full value tone)
+const WARDEN_NOTE_KEY := "text"    # the awake WardenBlock's note under the pip rows (what a catch costs, what the shield does...): full tone
+
+## The awake WardenBlock's rows under row 2, by what they hold: `note_n` note lines (the Huntsman's catch cost, the
+## Shieldwall's shield, the Pyre-priest's fires, the Bellringer's muffle), a pack row when `has_pack`, `break_n`
+## wrapped break lines of `step` px each. extra_h is how much taller the block is than TOP_BLOCK_BASE_H; pack_dy
+## and break_dy are where the pack row's baseline and the break rows' start sit under row 2's baseline.
+static func warden_rows_layout(note_n: int, has_pack: bool, break_n: int, step: float) -> Dictionary:
+	return {
+		"extra_h": (20.0 + float(note_n - 1) * step if note_n > 0 else 0.0) + (20.0 if has_pack else 0.0) + (step * float(break_n) + 6.0 if break_n > 0 else 0.0),
+		"pack_dy": 22.0 + step * float(note_n),
+		"break_dy": step * float(note_n) + (22.0 if has_pack else 0.0)}
 
 
 ## `text` in lines no wider than `max_w` at `font_px`, greedy over its " · " chunks: a chunk that fits on the
@@ -2073,3 +2084,45 @@ static func result_plate_rects(head_size: Vector2, tail_size: Vector2, center: V
 	if has_tail:
 		m0["tail"] = clamp_rect_to_view(m0["tail"], view, margin)
 	return m0
+
+
+## True when `r` and the disc at `c` of radius `rad` overlap.
+static func rect_hits_circle(r: Rect2, c: Vector2, rad: float) -> bool:
+	var nearest := Vector2(clampf(c.x, r.position.x, r.end.x), clampf(c.y, r.position.y, r.end.y))
+	return nearest.distance_to(c) < rad
+
+
+## Where a hit word (STRUCK −4, SOAKED, TOLLED, MUFFLED: a plate of `size`) is drawn, in world units: its `home`
+## rect when that is clear, else the nearest clear spot round the hub (Relish: the disc at `hub` of radius `hub_r`,
+## her body and ring), tried above, below, right, left, then the four corners, at `gap` and then at three times
+## `gap` from the disc. Clear means: inside `bounds` (the screen, in world units), off the hub's disc, and off
+## every rect in `avoid` (the warden's meter row of pips and label, its body). When no spot is clear the home rect,
+## pulled inside `bounds`, stands.
+static func hit_word_rect(size: Vector2, home: Rect2, hub: Vector2, hub_r: float, gap: float, avoid: Array, bounds: Rect2) -> Rect2:
+	if _hit_word_clear(home, hub, hub_r, avoid, bounds):
+		return home
+	for g in [gap, gap * 3.0]:
+		var d: float = hub_r + g
+		var k: float = d * 0.7071
+		var cands: Array = [
+			Rect2(Vector2(hub.x - size.x * 0.5, hub.y - d - size.y), size),                 # above
+			Rect2(Vector2(hub.x - size.x * 0.5, hub.y + d), size),                          # below
+			Rect2(Vector2(hub.x + d, hub.y - size.y * 0.5), size),                          # right
+			Rect2(Vector2(hub.x - d - size.x, hub.y - size.y * 0.5), size),                 # left
+			Rect2(Vector2(hub.x + k, hub.y - k - size.y), size),                            # above right
+			Rect2(Vector2(hub.x - k - size.x, hub.y - k - size.y), size),                   # above left
+			Rect2(Vector2(hub.x + k, hub.y + k), size),                                     # below right
+			Rect2(Vector2(hub.x - k - size.x, hub.y + k), size)]                            # below left
+		for c in cands:
+			if _hit_word_clear(c, hub, hub_r, avoid, bounds):
+				return c
+	var out := home
+	out.position.x = clampf(home.position.x, bounds.position.x, maxf(bounds.position.x, bounds.end.x - home.size.x))
+	out.position.y = clampf(home.position.y, bounds.position.y, maxf(bounds.position.y, bounds.end.y - home.size.y))
+	return out
+
+
+static func _hit_word_clear(r: Rect2, hub: Vector2, hub_r: float, avoid: Array, bounds: Rect2) -> bool:
+	if not bounds.encloses(r) or rect_hits_circle(r, hub, hub_r):
+		return false
+	return not _rect_hits_any(r, avoid)

@@ -19,6 +19,8 @@ func run() -> int:
 	_lost_agreement_tests(t)
 	_contrast_tests(t)
 	_goal_compact_tests(t)
+	_hit_word_tests(t)
+	_warden_note_tests(t)
 	return t.failures
 
 
@@ -81,6 +83,120 @@ func _readout_place_tests(t: TestUtil) -> void:
 	# a tip tucked at the bottom between the hint plate and the corner: the plate neither covers the tip nor leaves the screen
 	r = RaidLogic.live_plate_rect(psz, Vector2(1500, 860), 26.0, view, m, [hint])
 	t.ok(RaidLogic.rect_inside_view(r, view, m) and not r.has_point(Vector2(1500, 860)), "live, tip in the bottom-right: on screen and off the tip (%s)" % r)
+
+
+## True when a hit word's rect is clear of everything it must keep off.
+func _word_clear(r: Rect2, hub: Vector2, hub_r: float, avoid: Array, bounds: Rect2) -> bool:
+	if not bounds.encloses(r) or RaidLogic.rect_hits_circle(r, hub, hub_r):
+		return false
+	for a in avoid:
+		if r.intersects(a):
+			return false
+	return true
+
+
+## STRUCK / SOAKED / TOLLED / MUFFLED (RaidLogic.hit_word_rect): kept off Relish's body and ring and the warden's
+## meter row and body, and on screen, wherever Relish stands against the warden.
+func _hit_word_tests(t: TestUtil) -> void:
+	t.suite("raid_hit_word")
+	var bounds := Rect2(0, 0, 1600, 900).grow(-8.0)
+	var rad := 13.0
+	var hub_r := maxf(rad * 1.8, rad + 20.0)
+	var wsize := Vector2(64.0, 18.75)   # "STRUCK −4" at 15 px
+	var warden := Vector2(800, 450)
+	var wr := 20.0
+	var body := Rect2(warden - Vector2(wr, wr), Vector2(wr, wr) * 2.0)
+	var meter := Rect2(warden + Vector2(-40.0, wr * 1.75 + 8.0 - 7.0), Vector2(80.0, 14.0)).merge(Rect2(warden + Vector2(-34.0, wr * 1.75 + 24.0), Vector2(68.0, 25.0)))
+	var avoid := [meter, body]
+	# the word's default spot above her, as relish.gd builds it
+	var home_of := func(rel: Vector2) -> Rect2:
+		return Rect2(rel + Vector2(-wsize.x * 0.5, -rad - 22.0 - 9.0 - 14.0), wsize)
+	var cases := {"under the warden (on its meter row)": Vector2(800, 505), "just under, off to one side": Vector2(830, 500), "above the warden": Vector2(800, 380),
+		"beside the warden": Vector2(860, 450), "on the warden's meter row, left": Vector2(775, 485)}
+	for name in cases:
+		var rel: Vector2 = cases[name]
+		var home: Rect2 = home_of.call(rel)
+		var r := RaidLogic.hit_word_rect(wsize, home, rel, hub_r, 6.0, avoid, bounds)
+		t.ok(_word_clear(r, rel, hub_r, avoid, bounds), "relish %s: the word is clear of her, the meter row and the warden, on screen (%s)" % [name, r])
+	var under: Vector2 = cases["under the warden (on its meter row)"]
+	var h_under: Rect2 = home_of.call(under)
+	t.ok(h_under.intersects(meter) or h_under.intersects(body), "the test bites: her default spot under the warden is on its meter row or body")
+	var moved := RaidLogic.hit_word_rect(wsize, h_under, under, hub_r, 6.0, avoid, bounds)
+	t.ok(moved != h_under, "so it moved")
+	# a clear default stays put
+	var far := Vector2(300, 600)
+	t.ok(RaidLogic.hit_word_rect(wsize, home_of.call(far), far, hub_r, 6.0, avoid, bounds) == home_of.call(far), "a word whose spot is clear does not move")
+	# at the screen's top edge the word cannot go above her, so it goes under or beside her
+	var top := Vector2(300, 30)
+	var rt := RaidLogic.hit_word_rect(wsize, home_of.call(top), top, hub_r, 6.0, avoid, bounds)
+	t.ok(_word_clear(rt, top, hub_r, avoid, bounds), "relish near the top edge: the word stays on screen (%s)" % rt)
+	# in the corner, wedged: still on screen and off her
+	var corner := Vector2(20, 20)
+	var rc := RaidLogic.hit_word_rect(wsize, home_of.call(corner), corner, hub_r, 6.0, [], bounds)
+	t.ok(bounds.encloses(rc), "relish in the corner: the word is on screen (%s)" % rc)
+	# the toll word (TOLLED / MUFFLED) goes through the same rule: her spot, home on it, so it steps off her
+	var toll_home := Rect2(under - wsize * 0.5, wsize)
+	var rtoll := RaidLogic.hit_word_rect(wsize, toll_home, under, hub_r, 6.0, avoid, bounds)
+	t.ok(_word_clear(rtoll, under, hub_r, avoid, bounds), "TOLLED where she still stands: beside her, off the warden's meter row (%s)" % rtoll)
+	var src_r := _code(FileAccess.get_file_as_string("res://scripts/raid/relish.gd"))
+	var src_w := _code(FileAccess.get_file_as_string("res://scripts/raid/warden.gd"))
+	var src_b := _code(FileAccess.get_file_as_string("res://scripts/raid/warden_bellringer.gd"))
+	t.ok(src_r.contains("RaidLogic.hit_word_rect(") and src_r.contains("meter_row_rect()"), "relish.gd places STRUCK and SOAKED by hit_word_rect against the warden's meter row")
+	t.ok(src_w.contains("RaidLogic.hit_word_rect(") and src_b.contains("_hit_word(ci, _toll_word_at"), "the Bellringer's TOLLED and MUFFLED go through the same rule")
+
+
+## The awake WardenBlock's note (the Huntsman's catch cost and its siblings): at the break rows' size and full tone,
+## 4.5:1 on its plate, wrapped to the block, and the rows it adds counted in the block's height.
+func _warden_note_tests(t: TestUtil) -> void:
+	t.suite("raid_warden_note")
+	var cfg: Dictionary = TestUtil.load_json("res://configs/raid.json")
+	var hud: Dictionary = cfg["hud"]
+	var px := int(hud["break_row_px"])
+	t.ok(px >= 15, "the note is drawn at hud.break_row_px (%d), at least 15" % px)
+	var plate_a := float(hud["warden_plate_alpha"])
+	var worst := 99.0
+	for key in [RaidLogic.WARDEN_NOTE_KEY, "danger"]:
+		var worst_bg := Palette.c("ground").lerp(Color.WHITE, 1.0 - plate_a)   # the plate over the brightest world colour
+		worst = minf(worst, RaidLogic.contrast_ratio(Palette.c(key), worst_bg))
+	t.ok(worst >= 4.5, "the note's tones (%s, and danger for an exposed Pyre-priest) are %.1f:1 on the plate over the brightest world colour" % [RaidLogic.WARDEN_NOTE_KEY, worst])
+	t.ok(RaidLogic.contrast_ratio(Palette.c(RaidLogic.WARDEN_NOTE_KEY), Palette.c("ground")) > RaidLogic.contrast_ratio(Palette.c("text_dim"), Palette.c("ground")) + 3.0, "and it is plainly brighter than the dim grey it replaces")
+	var hs := _code(FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd"))
+	var ws := hs.substr(hs.find("class WardenBlock:"), hs.find("class Pointers:") - hs.find("class WardenBlock:"))
+	t.ok(ws.contains("_text(x0, y + 22.0 + _step() * float(i), note_lines[i], npx, note_key)") and ws.contains("\"break_row_px\"") and not ws.contains("catch_label(w.wwords(), w.spec, raid.warden_run.tell_bypass), 13"),
+		"the HUD draws the note lines at break_row_px in the note's key (not the old 13 px dim line)")
+	# every archetype's note fits the block: wrapped to its inner width, at most 3 lines, each line within it
+	var f := ThemeDB.fallback_font
+	var inner := RaidLogic.break_wrap_width(float(hud["warden_block_w"]), RaidLogic.WARDEN_BLOCK_INSET, float(hud.get("break_wrap_min_px", 120.0)))
+	var ww: Dictionary = cfg["wardens"]["words"]
+	var worst_lines := 0
+	var widest := 0.0
+	for arche in ["huntsman", "bellringer", "shieldwall", "pyre_priest"]:
+		for variant in [{"tier": 1, "first_dungeon": true}, {"tier": 3, "first_dungeon": false}]:
+			var sp := WardenLogic.spec({"id": "x", "archetype": arche, "tier": variant["tier"], "first_dungeon": variant["first_dungeon"]}, cfg)
+			var notes: Array = []
+			if arche == "huntsman":
+				notes = [WardenLogic.catch_label(ww, sp), WardenLogic.catch_label(ww, sp, true)]
+			elif arche == "shieldwall":
+				notes = [WardenLogic.shield_label(ww, sp, 0, true), WardenLogic.shield_label(ww, sp, 2, true)]
+			elif arche == "pyre_priest":
+				notes = [WardenLogic.pyre_label(ww, sp, 0, 3), WardenLogic.pyre_label(ww, sp, 1, 0)]
+			else:
+				notes = [str((sp.get("weak_point", {}) as Dictionary).get("label", ""))]
+			for n in notes:
+				t.ok(str(n) != "", "%s (tier %d): has a note" % [arche, variant["tier"]])
+				var lines := RaidLogic.wrap_chunks(str(n), f, px, inner)
+				worst_lines = maxi(worst_lines, lines.size())
+				for ln in lines:
+					widest = maxf(widest, f.get_string_size(ln, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x)
+	t.ok(worst_lines <= 3 and widest <= inner, "every warden's note wraps to at most 3 lines inside the block's %.0f px (worst %d lines, widest %.0f px)" % [inner, worst_lines, widest])
+	# the rows the note adds are counted in the block's height, and the banner steps down by it
+	var one := RaidLogic.warden_rows_layout(1, false, 0, 22.0)
+	var two := RaidLogic.warden_rows_layout(2, true, 3, 22.0)
+	t.ok(one["extra_h"] == 20.0 and one["pack_dy"] == 44.0 and one["break_dy"] == 22.0, "a one-line note is the old third row's 20 px (%s)" % str(one))
+	t.ok(two["extra_h"] == 20.0 + 22.0 + 20.0 + 22.0 * 3.0 + 6.0 and two["pack_dy"] == 22.0 + 44.0 and two["break_dy"] == 44.0 + 22.0, "two note lines push the pack row and the break rows down a step each (%s)" % str(two))
+	t.ok(RaidLogic.warden_rows_layout(0, false, 0, 22.0)["extra_h"] == 0.0 and RaidLogic.warden_rows_layout(0, false, 0, 22.0)["pack_dy"] == 22.0, "no note: the bare block, the pack row at the old y+22")
+	t.ok(RaidLogic.banner_top(116.0, true, RaidLogic.TOP_BLOCK_BASE_H + float(two["extra_h"])) == 116.0 + 14.0 + float(two["extra_h"]), "the wake banner steps down by every added row")
+	t.ok(float(hud["warden_block_w"]) == 680.0 and inner == 656.0, "the block keeps hud.warden_block_w (680), notes wrap inside its 12 px insets")
 
 
 ## A stand-in for a RaidUnit (the fields the counter filter reads).

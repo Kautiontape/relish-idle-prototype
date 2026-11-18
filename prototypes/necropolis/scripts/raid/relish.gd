@@ -159,9 +159,30 @@ func _draw_hit_cue() -> void:
 		return
 	var font := ThemeDB.fallback_font
 	var tw := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	# above her by default; where that spot sits on the warden's meter row (it stands right over her), on her own ring
+	# or off the screen, the word moves to the nearest clear side (RaidLogic.hit_word_rect)
+	var wsize := Vector2(tw + 8.0, float(fs) * 1.25)
 	var p := Vector2(-tw * 0.5, -radius - 22.0 - float(fs) * 0.6)
-	draw_rect(Rect2(p + Vector2(-4.0, -float(fs) * 0.9), Vector2(tw + 8.0, float(fs) * 1.25)), Palette.c("ground", 0.75))
-	draw_string(font, p, text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)
+	var r := _hit_word_rect(Rect2(global_position + p + Vector2(-4.0, -float(fs) * 0.9), wsize), wsize, z, rw)
+	var q := r.position - global_position
+	draw_rect(Rect2(q, wsize), Palette.c("ground", 0.75))
+	draw_string(font, q + Vector2(4.0, float(fs) * 0.9), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)
+
+
+## The hit word's world rect: `home` unless it is not clear (see _draw_hit_cue). The warden's meter row and body
+## are the rects to keep off, and the screen the bounds.
+func _hit_word_rect(home: Rect2, size: Vector2, z: float, rw: Dictionary) -> Rect2:
+	if raid == null:
+		return home
+	var avoid: Array = []
+	var run = raid.get("warden_run")
+	var w = run.warden if run != null else null
+	if w != null and is_instance_valid(w) and w.alive and w.awake:
+		avoid.append(w.meter_row_rect())
+		avoid.append(Rect2(w.global_position - Vector2(w.radius, w.radius), Vector2(w.radius, w.radius) * 2.0))
+	var bounds: Rect2 = raid.get_canvas_transform().affine_inverse() * raid.get_viewport_rect().grow(-float(rw.get("hit_word_margin_px", 8.0)))
+	return RaidLogic.hit_word_rect(size, home, global_position, maxf(radius * 1.8, radius + float(rw.get("hit_word_halo_px", 20.0))),
+		float(rw.get("hit_word_gap_px", 6.0)) / z, avoid, bounds)
 
 
 ## Phylactery revive: back to `new_hp` with i-frames.

@@ -400,6 +400,47 @@ func _pack_word(ci: CanvasItem, p: Vector2, text: String, px: int, col: Color) -
 	ci.draw_string(font, p + Vector2(-tw * 0.5, float(px) * 0.35), text, HORIZONTAL_ALIGNMENT_LEFT, -1, px, col)
 
 
+## A hit word at the spot `p` (warden-local, as _pack_word's), kept off Relish where she stands now and off this
+## warden's meter row and body (RaidLogic.hit_word_rect; the word moves only when its spot is not clear).
+func _hit_word(ci: CanvasItem, p: Vector2, text: String, px: int, col: Color) -> void:
+	var font := ThemeDB.fallback_font
+	var tw := font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x
+	var size := Vector2(tw + 8.0, float(px) * 1.25)
+	var home := Rect2(global_position + p + Vector2(-tw * 0.5 - 4.0, -float(px) * 0.75), size)
+	var r := home
+	if raid != null and raid.relish != null and is_instance_valid(raid.relish):
+		var z := zoom()
+		var rc: Dictionary = raid.rcfg().get("relish", {})
+		var rad: float = raid.relish.radius
+		var avoid: Array = [meter_row_rect(), Rect2(global_position - Vector2(radius, radius), Vector2(radius, radius) * 2.0)]
+		var bounds: Rect2 = raid.get_canvas_transform().affine_inverse() * raid.get_viewport_rect().grow(-float(rc.get("hit_word_margin_px", 8.0)))
+		r = RaidLogic.hit_word_rect(size, home, raid.relish.global_position, maxf(rad * 1.8, rad + float(rc.get("hit_word_halo_px", 20.0))),
+			float(rc.get("hit_word_gap_px", 6.0)) / z, avoid, bounds)
+	var q := r.position - global_position
+	ci.draw_rect(Rect2(q, r.size), Palette.c("ground", 0.7))
+	ci.draw_string(font, q + Vector2(4.0, float(px) * 1.1), text, HORIZONTAL_ALIGNMENT_LEFT, -1, px, col)
+
+
+## The in-world meter row's world rect (its pips with their notches, and the label's plate under them): where
+## _draw_meter_row draws, for the hit words to keep off.
+func meter_row_rect() -> Rect2:
+	var z := zoom()
+	var pr := float(wcfg().get("meter_pip_px", 3.5)) / z
+	var step := pr * 2.7
+	var gap := pr * 1.6
+	var w := step * float(meter_n - 1) + gap * float(meter_notch.size()) + pr * 2.0
+	var y := _meter_y() + pr
+	var r := Rect2(global_position + Vector2(-w * 0.5, y - pr * 2.0), Vector2(w, pr * 4.0))
+	var label := str(wcfg().get("meter_label", ""))
+	if label != "":
+		var lpx := int(wcfg().get("meter_label_px", 13))
+		var font := ThemeDB.fallback_font
+		var half := (font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, lpx).x + 1.0) * 0.5 + PLATE_PAD
+		var top := y + pr * 2.0 + float(wcfg().get("meter_label_gap_px", 4.0)) / z
+		r = r.merge(Rect2(global_position + Vector2(-half / z, top), Vector2(half * 2.0, font.get_height(lpx) + PLATE_PAD * 2.0) / z))
+	return r
+
+
 ## Subclass telegraph drawing, on the z 37 child (centred on the warden).
 func _draw_telegraph(_ci: CanvasItem) -> void:
 	pass

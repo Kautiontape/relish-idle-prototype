@@ -183,7 +183,7 @@ func _draw_toll(ci: CanvasItem) -> void:
 		ci.draw_arc(p, toll_r * (1.0 - 0.25 * (1.0 - f)), 0.0, TAU, 40, Palette.c("danger", 0.35), 1.5 / zoom())
 		_pack_word(ci, p + Vector2(0, -toll_r - fs * 0.8), str(wwords().get("word_toll", "")), fs, Palette.c("danger"))
 	elif _toll_word != "" and _toll_word_t < float(wcfg().get("pack_label_s", 1.2)):
-		_pack_word(ci, _toll_word_at - global_position, _toll_word, fs, Palette.c("undead") if _toll_word == str(wwords().get("word_muffled", "")) else Palette.c("danger"))
+		_hit_word(ci, _toll_word_at - global_position, _toll_word, fs, Palette.c("undead") if _toll_word == str(wwords().get("word_muffled", "")) else Palette.c("danger"))
 
 
 ## Who is bracing the bell (the bigs the muffle counts: beef at the threshold, within the pad), kept
