@@ -25,6 +25,12 @@ static func _n(key: String) -> float:
 	return float(ncfg().get(key, 0.0))
 
 
+## The node labels' texts, keyed war / flood / work / covington / vei (configs/map_view.json
+## "node_names"): the one source the layers draw from and IdleLogic's obstacles are measured from.
+static func node_names() -> Dictionary:
+	return MapLogic.cfg().get("node_names", {})
+
+
 ## LineGlow's stroke stack for one glowing line, with every halo pulled toward the core by the
 ## same share so the outermost is at most `halo_max` wide (the same cap LaneStyle.capped_halo
 ## applies to lanes). [[width, Color], ...], outermost first, the core last.

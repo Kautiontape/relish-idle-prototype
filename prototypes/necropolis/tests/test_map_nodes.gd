@@ -504,6 +504,13 @@ func _sources(t: TestUtil) -> void:
 	var layers := ""
 	for f in ["map_fort_ring.gd", "map_covington.gd", "map_vei.gd", "map_relish.gd"]:
 		layers += FileAccess.get_file_as_string("%s/%s" % [MAP_DIR, f])
+	var names := NodeLogic.node_names()
+	t.ok(names == {"war": "WAR", "flood": "FLOOD", "work": "WORK", "covington": "COVINGTON", "vei": "VEI'S DOMAIN"}, "the node names reader returns the five labels' texts")
+	for f in ["map_covington.gd", "map_vei.gd", "map_fort_idle.gd"]:
+		var src := FileAccess.get_file_as_string("%s/%s" % [MAP_DIR, f])
+		t.ok(src.length() > 500 and src.contains("NodeLogic.node_names()"), "%s reads its label texts from NodeLogic.node_names()" % f)
+		for k in names:
+			t.ok(not src.contains("\"%s\"" % names[k]), "%s carries no \"%s\" literal" % [f, names[k]])
 	t.ok(layers.contains("Pulse.wave(") and layers.contains("Pulse.phase(") and layers.contains("hops_of("), "the layers take their tempo from Pulse.wave and Pulse.phase at model.hops_of")
 	t.ok(not layers.contains("Pulse.wave(1") and not layers.contains("Pulse.wave(0") and not layers.contains("Pulse.wave(2"), "no literal hop counts")
 	t.ok(layers.contains("LineGlow.") or layers.contains("glow_arc("), "glows go through LineGlow")

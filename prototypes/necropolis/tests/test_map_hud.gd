@@ -43,7 +43,10 @@ func _clarity(t: TestUtil) -> void:
 	t.ok(HudLogic.tip("mint").contains("Raising Pit"), "MINT says where undead come from")
 	var mint_line := "Mint: the undead your Raising Pits make each second. The map's valve splits it into WORK (your town's jobs), WAR (your forts) and FLOOD (Vei's queue)."
 	var war_line := "WAR sends undead to your forts, spread by distance, with Relish's fort drawing 3× its share. FLOOD sends them into Vei's queue, which raises your odds against her."
-	t.ok(HudLogic.tip("mint") == mint_line and str(MapLogic.cfg()["clarity"]["valve_tip"]) == mint_line, "the mint and valve tips are the glossary's line verbatim")
+	t.ok(HudLogic.tip("mint") == mint_line, "the mint tip is the glossary's line verbatim")
+	t.ok(not MapLogic.cfg()["clarity"].has("valve_tip"), "the mint line lives under clarity.tips.mint only")
+	var valve_src := FileAccess.get_file_as_string("res://scripts/map/map_valve.gd")
+	t.ok(valve_src.contains("tooltip_text = HudLogic.tip(\"mint\")") and not valve_src.contains("valve_tip"), "the valve's tooltip is the mint line (HudLogic.tip(\"mint\"))")
 	t.ok(HudLogic.tip("war") == war_line and HudLogic.tip("flood") == war_line, "the WAR and FLOOD tips are the glossary's full line verbatim")
 	t.ok(HudLogic.tip("strain") == "How backed up Vei's queue is. ▲ means it's growing (FLOOD is clogging it); ▼ means she's working it down.", "the STRAIN tip is the glossary's line verbatim")
 	t.ok(HudLogic.tip("drain") == "How long until Vei's queue empties at this rate. ∞ means it isn't emptying.", "the DRAIN tip is the glossary's line verbatim")

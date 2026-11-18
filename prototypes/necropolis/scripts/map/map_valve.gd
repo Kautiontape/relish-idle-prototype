@@ -81,7 +81,7 @@ func _ready() -> void:
 	_explain.custom_minimum_size.x = _payoff_w
 	_explain.size = Vector2(_payoff_w, 0.0)
 	add_child(_explain)
-	tooltip_text = str(cfg["clarity"]["valve_tip"])
+	tooltip_text = HudLogic.tip("mint")
 	var line_h := MapType.rate_font().get_height(MapType.size_of("size_rate"))
 	_place(cfg, w, top + line_h * 2.0 + float(c["valve_payoff_row_gap_px"]) + inner)
 	refresh(true)

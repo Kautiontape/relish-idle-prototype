@@ -537,6 +537,7 @@
   "objective_text": "Take her forts; FLOOD clogs her queue and raises your odds. Face Vei when they're good.",
   "objective_won_text": "Vei has drowned in the dead. The realm is quiet.",
   "drain_empty_text": "queue empty",
+  "node_names": {"war": "WAR", "flood": "FLOOD", "work": "WORK", "covington": "COVINGTON", "vei": "VEI'S DOMAIN"},
   "strain_label": "STRAIN",
   "drain_label": "DRAIN",
   "clarity": {
@@ -546,7 +547,6 @@
     ],
     "goal_gap_px": 0.0,
     "valve_line": "WORK: your town's jobs · WAR: your forts · FLOOD: Vei's queue",
-    "valve_tip": "Mint: the undead your Raising Pits make each second. The map's valve splits it into WORK (your town's jobs), WAR (your forts) and FLOOD (Vei's queue).",
     "tips": {
       "mint": "Mint: the undead your Raising Pits make each second. The map's valve splits it into WORK (your town's jobs), WAR (your forts) and FLOOD (Vei's queue).",
       "odds": "Your chance to beat Vei if you faced her now. It grows with time and with her clogged queue.",
@@ -573,7 +573,7 @@
         {"state": "hers", "word": "VEI'S", "key": "text", "line": "Not taken yet. Raid it and break its warden to take it."},
         {"state": "held", "word": "HELD", "key": "undead", "line": "Yours, taken by breaking its warden. Vei contests it when its timer ends; WAR troops hold it."},
         {"state": "overrun", "word": "OVERRUN", "key": "text", "line": "Your WAR killed its living and your undead fill it, but it is still Vei's until you break its warden."},
-        {"state": "retaken", "word": "RETAKEN", "key": "danger", "line": "Vei won it back. Raid it to win it back."}
+        {"state": "retaken", "word": "RETAKEN", "key": "danger", "line": "Vei won it back; its name is tagged \"retaken\". Raid it to win it back."}
       ]
     }
   },

@@ -90,7 +90,7 @@ func _layout(c: Dictionary) -> Dictionary:
 			"name_w": font.get_string_size(str(g["name"]), HORIZONTAL_ALIGNMENT_LEFT, -1, size).x if shown else -1.0, "tag_w": tag_w})
 	var tr := float(NodeLogic.relish_radii(ctx.zoom)["halo"]) + ctx.px(float(NodeLogic.ncfg()["relish_halo_max_px"]) * 0.5)
 	# Covington's glyph, name and stream labels and Vei's reach and name, measured as their layers do
-	var names := {"war": "WAR", "flood": "FLOOD", "work": "WORK", "covington": "COVINGTON", "vei": "VEI'S DOMAIN"}
+	var names := NodeLogic.node_names()
 	var text_w := {}
 	for k in names:
 		text_w[k] = font.get_string_size(names[k], HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
