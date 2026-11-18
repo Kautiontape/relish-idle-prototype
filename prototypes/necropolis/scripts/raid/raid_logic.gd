@@ -775,10 +775,12 @@ static func phylactery_word(phyl_left: int) -> String:
 	return "" if phyl_left > 0 else "NO REVIVE · death ends the run"
 
 
-## The PHYLACT. row's dim sub-line (glossary jargon: "revives Relish in place, at most once per dungeon"; its
-## "The Ossuary Tower crafts it from essence" clause is cut to fit the stat block). The same whatever the count.
-static func phylactery_meaning(_phyl_left: int) -> String:
-	return "revives Relish in place, at most once per dungeon"
+## The PHYLACT. row's dim sub-lines, one string per row. No charge: the glossary's Jargon line in two rows (where a
+## charge comes from matters most then). With charges: one row, what one does now.
+static func phylactery_meaning(phyl_left: int) -> PackedStringArray:
+	if phyl_left > 0:
+		return PackedStringArray(["a death here revives her in place, once"])
+	return PackedStringArray(["revives Relish in place, at most once per dungeon.", "The Ossuary Tower crafts it from essence."])
 
 
 ## Sacrifice chain (MECHANICS 5.0): rank 0 chaff tier (raised chaff, garrison, starters),
@@ -1312,7 +1314,7 @@ const FALL_HEAD := "IF RELISH FALLS"
 ## (death_next_row). With a charge left a death revives her in place, so LOST and AFTER would not apply.
 static func retreat_fall_lines(revive_left: int, unbanked: Dictionary, party_n: int, next_row: Dictionary) -> Array:
 	if revive_left > 0:
-		return [{"text": "a phylactery charge revives her here (once this raid)", "key": "relish"}]
+		return [{"text": "a phylactery charge revives her here (at most once per dungeon)", "key": "relish"}]
 	var lost := death_lost_line(unbanked, party_n)
 	return [
 		{"text": "LOST · " + lost, "key": "danger" if lost != "nothing" else "text_dim"},
@@ -1327,9 +1329,9 @@ static func loot_uses_line(counts: Dictionary) -> String:
 	if int(counts.get("relics", 0)) > 0:
 		parts.append("relics are spent when you build")
 	if int(counts.get("husks", 0)) > 0:
-		parts.append("husks: the frame a big undead is raised in, on the crypt slab")
-	if int(counts.get("remnants", 0)) > 0:
-		parts.append("remnants: slotted into a husk to shape it")
+		parts.append("husk: the frame a big undead is raised in · lay it on the crypt slab and slot remnants to shape it")
+	elif int(counts.get("remnants", 0)) > 0:
+		parts.append("remnants feed the crypt slab, which raises big undead")
 	if int(counts.get("essence", 0)) > 0:
 		parts.append("essence pays for backups (Ossuary Tower)")
 	return " · ".join(parts)

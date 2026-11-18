@@ -72,7 +72,7 @@ func _round2_tests(t: TestUtil) -> void:
 		"right: LOST and AFTER are the death card's own rows (%s)" % str(fall))
 	t.ok(RaidLogic.retreat_fall_lines(0, {}, 0, next_unmade)[0]["text"].ends_with("nothing"), "nothing at stake reads nothing")
 	var rev := RaidLogic.retreat_fall_lines(1, ub, 2, next_unmade)
-	t.ok(rev.size() == 1 and rev[0]["text"] == "a phylactery charge revives her here (once this raid)", "a charge left: the revive line, no LOST or AFTER")
+	t.ok(rev.size() == 1 and rev[0]["text"] == "a phylactery charge revives her here (at most once per dungeon)", "a charge left: the revive line, no LOST or AFTER")
 	t.ok(RaidLogic.RETREAT_HEAD == "RETREAT NOW" and RaidLogic.FALL_HEAD == "IF RELISH FALLS", "the column heads")
 	var rl := _func_src(hsrc, "func _retreat_lines(")
 	t.ok(rl.contains("RaidLogic.retreat_fall_lines(") and rl.contains("death_inputs()") and rl.contains("RaidLogic.retreat_keep_lines("), "the HUD builds both columns from the endings' own death inputs")
@@ -94,15 +94,18 @@ func _round2_tests(t: TestUtil) -> void:
 	t.ok(RaidLogic.hint_sub_text(true, false, false) == "" and RaidLogic.hint_sub_text(false, true, false) == "", "the trance and exit hints take the line alone")
 	t.ok(hsrc.contains("RaidLogic.hint_sub_text(raid.trance_active, at_exit, raid.first_raise_done)"), "the HUD picks the second line with the helper")
 	# A4: PHYLACT. explanation and the loot uses
-	for n in [0, 1, 3]:
-		var m := RaidLogic.phylactery_meaning(n)
-		t.ok(m == "revives Relish in place, at most once per dungeon", "PHYLACT. meaning (%d): the glossary's jargon line, clause cut: %s" % [n, m])
-		t.ok(ThemeDB.fallback_font.get_string_size(m, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x <= 320.0, "PHYLACT. meaning (%d) fits the value column at 13 px" % n)
+	t.ok(RaidLogic.phylactery_meaning(0) == PackedStringArray(["revives Relish in place, at most once per dungeon.", "The Ossuary Tower crafts it from essence."]), "no charge: the Jargon line in two rows")
+	t.ok(RaidLogic.phylactery_meaning(2) == PackedStringArray(["a death here revives her in place, once"]), "charges: one row, what one does now")
+	for n in [0, 2]:
+		for m in RaidLogic.phylactery_meaning(n):
+			t.ok(ThemeDB.fallback_font.get_string_size(m, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x <= 320.0, "PHYLACT. meaning (%d) row fits the value column at 13 px: %s" % [n, m])
 	t.ok(RaidLogic.loot_uses_line(RaidLogic.loot_counts({})) == "", "no loot: no uses line")
 	t.ok(RaidLogic.loot_uses_line(RaidLogic.loot_counts({"blueprints": [{}]})) == "", "blueprints alone: no use line")
 	var all := RaidLogic.loot_uses_line(RaidLogic.loot_counts({"relics": 1, "husks": [{}], "remnants": [{}], "essence": 2}))
-	t.ok(all == "relics are spent when you build · husks: the frame a big undead is raised in, on the crypt slab · remnants: slotted into a husk to shape it · essence pays for backups (Ossuary Tower)", "every kind: its use (%s)" % all)
-	t.ok(RaidLogic.loot_uses_line(RaidLogic.loot_counts({"husks": [{}]})) == "husks: the frame a big undead is raised in, on the crypt slab", "husks alone: the glossary's husk line")
+	var husk := "husk: the frame a big undead is raised in · lay it on the crypt slab and slot remnants to shape it"
+	t.ok(all == "relics are spent when you build · " + husk + " · essence pays for backups (Ossuary Tower)", "every kind: relics, the husk piece only, essence (%s)" % all)
+	t.ok(RaidLogic.loot_uses_line(RaidLogic.loot_counts({"husks": [{}]})) == husk, "husks alone: the Jargon husk line")
+	t.ok(RaidLogic.loot_uses_line(RaidLogic.loot_counts({"remnants": [{}]})) == "remnants feed the crypt slab, which raises big undead", "remnants without husks: the glossary's loot sentence")
 	var cr := RaidLogic.clear_card_rows("X", RaidLogic.loot_counts({"relics": 1}))
 	t.ok(cr.size() == 5 and cr[3]["label"] == "USE" and cr[3]["key"] == "text_dim" and cr[4]["label"] == "NEXT", "the clear card: a dim USE row after LOOT")
 	t.ok(RaidLogic.clear_card_rows("X", RaidLogic.loot_counts({})).size() == 4, "nothing found: no USE row")

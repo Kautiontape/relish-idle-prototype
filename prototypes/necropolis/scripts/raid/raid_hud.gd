@@ -344,7 +344,7 @@ func refresh() -> void:
 			_door_prompt.text = dp
 		_door_prompt.visible = dp != ""
 	if not raid.is_boss():
-		st.phyl = raid.phylactery_left()
+		st.set_phyl(raid.phylactery_left())
 		st.phyl_word = RaidLogic.phylactery_word(st.phyl)
 		if st.phyl_word != "":
 			# no revive is a state, not a mood: `danger` whatever her hp (the halo's dashes say it in the world)
@@ -775,6 +775,7 @@ class StatBlock:
 	var ward := [0, 0, 0, 0]
 	var raised_text := ""
 	var phyl := 0
+	var phyl_extra := 0      # rows its meaning takes beyond one
 	var phyl_word := ""      # "NO REVIVE · death ends the run" at 0 charges (RaidLogic.phylactery_word)
 	var phyl_tone: Color = Palette.c("danger")   # the NO REVIVE words: `danger` whenever no charge is left
 	var banked_text := ""
@@ -821,8 +822,16 @@ class StatBlock:
 	func value_w() -> float:
 		return 420.0 - _col - 8.0
 
+	## The PHYLACT. count: its meaning is one row, or two with none left (RaidLogic.phylactery_meaning).
+	func set_phyl(n: int) -> void:
+		phyl = n
+		var extra := RaidLogic.phylactery_meaning(n).size() - 1
+		if extra != phyl_extra:
+			phyl_extra = extra
+			_fit()
+
 	func _fit() -> void:
-		custom_minimum_size = Vector2(420.0, (14.0 + (2.0 if show_key else 0.0) + float(door_lines.size())) * _row + 8.0)
+		custom_minimum_size = Vector2(420.0, (14.0 + float(phyl_extra) + (2.0 if show_key else 0.0) + float(door_lines.size())) * _row + 8.0)
 
 	## A floor glyph as the pickups draw it (RaidLoot.floor_glyph shapes), small, at `p`.
 	func _key_glyph(p: Vector2, shape: String, col: Color) -> void:
@@ -924,8 +933,9 @@ class StatBlock:
 					draw_string(ThemeDB.fallback_font, Vector2(hx, y), phyl_word.substr(cut), HORIZONTAL_ALIGNMENT_LEFT, -1, _lab, Palette.c("text_dim"))
 			y += _row
 			# what a phylactery charge is (RaidLogic.phylactery_meaning), dim, as the ESSENCE row's meaning line
-			draw_string(ThemeDB.fallback_font, Vector2(_col, y), RaidLogic.phylactery_meaning(phyl), HORIZONTAL_ALIGNMENT_LEFT, -1, _lab, Palette.c("text_dim"))
-			y += _row
+			for ml in RaidLogic.phylactery_meaning(phyl):
+				draw_string(ThemeDB.fallback_font, Vector2(_col, y), ml, HORIZONTAL_ALIGNMENT_LEFT, -1, _lab, Palette.c("text_dim"))
+				y += _row
 			# zero kinds are hidden; nothing at all is one dim word
 			_label(y, "BANKED")
 			_value(_col, y, banked_text if banked_text != "" else "none", null if banked_text != "" else Palette.c("text_dim"))
