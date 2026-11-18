@@ -69,7 +69,7 @@ static func fort_card(fort: Dictionary, desc: String, backups: Dictionary, names
 	blocks.append(_para("raid", str(c.get("raid_again_fmt", "%d")) % hours if held else str(c.get("raid_take", "")), "select"))
 	blocks.append(_para("retreat", str(c.get("retreat_held" if held else "retreat_veis", "")), "text_dim"))
 	var ci := CardLogic.comes_in(fort, party, raid_cfg, econ_cfg)
-	var warn := CardLogic.comes_in_warning(ci, CardLogic.profile(int(fort.get("tier", 1)), raid_cfg), int(fort.get("tier", 1)))
+	var warn := CardLogic.comes_in_warning(ci, CardLogic.profile(int(fort.get("tier", 1)), raid_cfg), int(fort.get("tier", 1)), float(fort.get("dead", 0.0)))
 	blocks.append(_head("comes_in_head", str(c.get("comes_in_head", ""))))
 	blocks.append(_para("comes_in", CardLogic.comes_in_text(ci), "text", "mass"))
 	blocks.append(_para("bring_more", CardLogic.bring_more_text(tide_bias), "text_dim"))

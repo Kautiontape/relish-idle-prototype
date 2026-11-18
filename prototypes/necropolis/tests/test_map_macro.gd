@@ -427,7 +427,7 @@ func _plates(t: TestUtil) -> void:
 		"the tithe ETA": Palette.c("living"),
 		"WAVE": Palette.c("danger"),
 		"your first dungeon / INSIDE": Palette.c("relish"),
-		"garrison N": Palette.c("text"),
+		"HELD N undead": Palette.c("text"),
 		"retaken: raid it back": Palette.c("danger"),
 		"Vei's: raid it to take it": Palette.c("text_dim"),
 	}

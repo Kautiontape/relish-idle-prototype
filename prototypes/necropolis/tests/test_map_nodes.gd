@@ -133,7 +133,18 @@ func _countdowns(t: TestUtil) -> void:
 	held["held"] = true
 	held["flipped_count"] = 1
 	t.ok(NodeLogic.name_tag(held).is_empty(), "a held fort has no tag")
-	t.ok(NodeLogic.fort_static_sig(over, {}) != NodeLogic.fort_static_sig(back, {}), "a tag's text is in the static signature")
+	# two unheld forts with identical matter, differing only in flipped_count: the retaken tag is the only difference
+	var plain := _fort(100.0, 40.0, 0.0, 0.0)
+	var retaken := _fort(100.0, 40.0, 0.0, 0.0)
+	retaken["flipped_count"] = 1
+	t.ok(NodeLogic.name_tag(plain).is_empty() and not NodeLogic.name_tag(retaken).is_empty(), "the pair differs by the tag alone")
+	var sp := NodeLogic.fort_static_sig(plain, {})
+	var sr := NodeLogic.fort_static_sig(retaken, {})
+	var diff := []
+	for i in sp.size():
+		if sp[i] != sr[i]:
+			diff.append(i)
+	t.ok(sp != sr and diff == [7], "a tag's text is in the static signature: only the tag slot differs (%s)" % str(diff))
 
 
 func _vei(t: TestUtil) -> void:

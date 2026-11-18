@@ -152,7 +152,7 @@ func _chip(t: TestUtil) -> void:
 	t.suite("map_next-chip")
 	var f := _held("a", 2.0, 64.0)
 	var falling := IdleLogic.chip_parts(f, "will_fall", {"rate": -0.4, "fall_s": 2400.0})
-	t.ok(falling["count"] == "garrison 64" and falling["rate"] == "−0.4/s", "line one: the count and its signed rate (%s, %s)" % [falling["count"], falling["rate"]])
+	t.ok(falling["count"] == "HELD · 64 undead" and falling["rate"] == "−0.4/s", "line one: the count and its signed rate (%s, %s)" % [falling["count"], falling["rate"]])
 	t.ok(falling["word"] == "WILL FALL" and falling["fall"] == "falls in ~40 min", "line two: the word and the clock")
 	t.ok(falling["key"] == "danger", "the margin's colour")
 	var holding := IdleLogic.chip_parts(f, "safe", {"rate": 0.3, "fall_s": -1.0})
@@ -954,7 +954,7 @@ func _cards(t: TestUtil) -> void:
 	f["margin"] = "safe"
 	f["grace_s_left"] = 0.0
 	var hc := CardLogic.held_chip(f)
-	t.ok(hc["text"] == "HELD · garrison 64 · SAFE" and hc["key"] == "undead", "with fort.margin and no grace: the garrison and the margin (%s)" % hc["text"])
+	t.ok(hc["text"] == "HELD · 64 undead · SAFE" and hc["key"] == "undead", "with fort.margin and no grace: the garrison and the margin (%s)" % hc["text"])
 	f["margin"] = "will_fall"
 	t.ok(CardLogic.held_chip(f)["key"] == "danger", "in the margin's colour")
 	var loot := TestUtil.load_json("res://configs/loot.json")

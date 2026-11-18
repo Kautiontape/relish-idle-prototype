@@ -171,7 +171,7 @@ static func fort_state(fort: Dictionary) -> Dictionary:
 
 
 ## The held chip. While the grace clock runs, "HELD · Vei contests in 6:14" (the hold's own colour);
-## after it, with a margin, "HELD · garrison 64 · SAFE" in the margin's colour; with none, "HELD".
+## after it, with a margin, "HELD · 64 undead · SAFE" in the margin's colour; with none, "HELD".
 static func held_chip(fort: Dictionary) -> Dictionary:
 	if float(fort.get("grace_s_left", 0.0)) > 0.0:
 		return {"text": str(_table("chips").get("held_fmt", "%s")) % fmt_clock(float(fort["grace_s_left"])),
@@ -266,8 +266,13 @@ static func profile(tier: int, raid_cfg: Dictionary) -> Dictionary:
 
 ## The warning before a raid: {text, key}, or {}. Nobody coming in is "danger"; a party under the
 ## tier's standard is "select" (the big-undead part is dropped when the standard has none).
-static func comes_in_warning(ci: Dictionary, prof: Dictionary, tier: int) -> Dictionary:
+## With nobody coming in, corpse piles decide: a raid builds them when the fort's `dead` is over
+## cards.comes_pile_min_dead (raid.gd's `dead > 0.05`), and Relish can raise undead from them
+## ("select": a way forward); with none the raid can't be won ("danger").
+static func comes_in_warning(ci: Dictionary, prof: Dictionary, tier: int, dead: float) -> Dictionary:
 	if int(ci.get("total", 0)) == 0:
+		if dead > float(_c().get("comes_pile_min_dead", 0.05)):
+			return {"text": str(_c().get("comes_none_piles", "")), "key": "select"}
 		return {"text": str(_c().get("comes_none", "")), "key": "danger"}
 	var u := int(prof.get("undead", 0))
 	var b := int(prof.get("bigs", 0))

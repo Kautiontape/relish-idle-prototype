@@ -122,7 +122,7 @@ func _state(t: TestUtil) -> void:
 	t.ok(grace["state"] == "held" and grace["chip"]["text"] == "HELD · Vei contests in 6:14" and grace["chip"]["key"] == "undead", "held in grace: " + str(grace["chip"]))
 	t.ok(str(grace["line"]).begins_with("Taken by you. Vei can't touch it until the clock runs out"), "grace line: " + str(grace["line"]))
 	var cont := CardLogic.fort_state({"held": true, "grace_s_left": 0.0, "margin": "thin", "undead": 40.0})
-	t.ok(cont["state"] == "held" and cont["chip"]["key"] == IdleLogic.color_key("thin") and str(cont["chip"]["text"]).begins_with("HELD · garrison "), "held contested wears the margin: " + str(cont["chip"]))
+	t.ok(cont["state"] == "held" and cont["chip"]["key"] == IdleLogic.color_key("thin") and str(cont["chip"]["text"]).begins_with("HELD · 40 undead · "), "held contested wears the margin: " + str(cont["chip"]))
 	t.ok(str(cont["line"]).begins_with("Taken by you. Vei contests it now"), "contested line: " + str(cont["line"]))
 	var ret := CardLogic.fort_state({"held": false, "flipped_count": 1, "cap": 80.0, "living": 60.0})
 	t.ok(ret["state"] == "retaken" and ret["chip"] == {"text": "RETAKEN", "key": "danger"} and str(ret["line"]).begins_with("Vei won it back."), "retaken: " + str(ret["chip"]))
@@ -130,7 +130,7 @@ func _state(t: TestUtil) -> void:
 	var both := CardLogic.held_chip({"held": true, "grace_s_left": 374.0, "margin": "safe", "undead": 64.0})
 	t.ok(both["text"] == "HELD · Vei contests in 6:14" and both["key"] == "undead", "grace beats the margin: " + str(both))
 	t.ok(CardLogic.held_chip({"held": true, "grace_s_left": 61.0})["text"] == "HELD · Vei contests in 1:01", "the countdown moves with grace_s_left")
-	t.ok(CardLogic.held_chip({"held": true, "grace_s_left": 0.0, "margin": "safe", "undead": 64.0})["text"] == "HELD · garrison 64 · SAFE", "no grace: the garrison and margin")
+	t.ok(CardLogic.held_chip({"held": true, "grace_s_left": 0.0, "margin": "safe", "undead": 64.0})["text"] == "HELD · 64 undead · SAFE", "no grace: the undead and margin (never 'garrison': that is the raid count)")
 	var bare := CardLogic.held_chip({"held": true, "grace_s_left": 0.0})
 	t.ok(bare["text"] == "HELD" and bare["key"] == "undead", "no grace and no margin: bare HELD")
 	t.ok(not FileAccess.get_file_as_string("res://scripts/map/card_logic.gd").contains("held_s_left"), "card_logic no longer reads held_s_left")
@@ -410,15 +410,23 @@ func _comes(t: TestUtil) -> void:
 		and CardLogic.profile(3, raid) == {"undead": 8, "bigs": 2} and CardLogic.profile(4, raid) == {"undead": 12, "bigs": 3}, "profiles t1..t4")
 	t.ok(CardLogic.profile(9, raid) == CardLogic.profile(4, raid) and CardLogic.profile(0, raid) == CardLogic.profile(1, raid), "the tier clamps to 1..4")
 	var zero := {"garrison": 0, "starter": 0, "bigs": 0, "total": 0}
-	var w0 := CardLogic.comes_in_warning(zero, CardLogic.profile(2, raid), 2)
-	t.ok(w0 == {"text": "No undead come in. Relish never attacks, so this raid can't be won yet.", "key": "danger"}, "nobody: danger")
+	var w0 := CardLogic.comes_in_warning(zero, CardLogic.profile(2, raid), 2, 0.0)
+	t.ok(w0 == {"text": "No undead and no corpses here. Relish never attacks, so this raid can't be won yet.", "key": "danger"}, "nobody, no corpses: danger")
+	var wp := CardLogic.comes_in_warning(zero, CardLogic.profile(2, raid), 2, 3.1)
+	t.ok(wp == {"text": "No undead come in: you'd raise every one inside, from corpse piles. Bring some first.", "key": "select"}, "nobody, corpses: select, and it is not 'can't be won'")
+	# the threshold mirrors raid.gd's `dead > 0.05`: exactly at it is no piles, just over it is piles
+	var pmin := float(MapLogic.cfg()["cards"]["comes_pile_min_dead"])
+	t.ok(pmin == 0.05, "the pile threshold mirrors raid.gd:207 (0.05)")
+	t.ok(CardLogic.comes_in_warning(zero, CardLogic.profile(2, raid), 2, pmin)["key"] == "danger", "dead exactly at the threshold: no piles, danger")
+	t.ok(CardLogic.comes_in_warning(zero, CardLogic.profile(2, raid), 2, pmin + 0.001)["key"] == "select", "dead just over the threshold: piles, select")
+	t.ok(CardLogic.comes_in_warning({"garrison": 6, "starter": 0, "bigs": 1, "total": 7}, CardLogic.profile(2, raid), 2, 3.1).is_empty(), "corpses do not change a warning-free party")
 	var low := {"garrison": 6, "starter": 0, "bigs": 0, "total": 6}
-	var w2 := CardLogic.comes_in_warning(low, CardLogic.profile(2, raid), 2)
+	var w2 := CardLogic.comes_in_warning(low, CardLogic.profile(2, raid), 2, 0.0)
 	t.ok(w2 == {"text": "Below a standard tier-2 party (6 undead, 1 big undead): expect losses.", "key": "select"}, "below t2 names 1 big: " + str(w2))
-	t.ok(CardLogic.comes_in_warning({"garrison": 5, "starter": 0, "bigs": 1, "total": 6}, CardLogic.profile(2, raid), 2)["key"] == "select", "too few undead warns too")
-	t.ok(CardLogic.comes_in_warning({"garrison": 6, "starter": 0, "bigs": 1, "total": 7}, CardLogic.profile(2, raid), 2).is_empty(), "at the profile: no warning")
-	t.ok(CardLogic.comes_in_warning({"garrison": 12, "starter": 0, "bigs": 4, "total": 16}, CardLogic.profile(4, raid), 4).is_empty(), "above the profile: no warning")
-	var w1 := CardLogic.comes_in_warning({"garrison": 2, "starter": 0, "bigs": 0, "total": 2}, CardLogic.profile(1, raid), 1)
+	t.ok(CardLogic.comes_in_warning({"garrison": 5, "starter": 0, "bigs": 1, "total": 6}, CardLogic.profile(2, raid), 2, 0.0)["key"] == "select", "too few undead warns too")
+	t.ok(CardLogic.comes_in_warning({"garrison": 6, "starter": 0, "bigs": 1, "total": 7}, CardLogic.profile(2, raid), 2, 0.0).is_empty(), "at the profile: no warning")
+	t.ok(CardLogic.comes_in_warning({"garrison": 12, "starter": 0, "bigs": 4, "total": 16}, CardLogic.profile(4, raid), 4, 0.0).is_empty(), "above the profile: no warning")
+	var w1 := CardLogic.comes_in_warning({"garrison": 2, "starter": 0, "bigs": 0, "total": 2}, CardLogic.profile(1, raid), 1, 0.0)
 	t.ok(w1["text"] == "Below a standard tier-1 party (6 undead): expect losses.", "a t1 profile drops the big-undead part: " + str(w1))
 	# the card
 	var back := {"death": {"outcome": "unmade", "respawn_s": 0.0, "loses": ["party"]}}
@@ -435,13 +443,20 @@ func _comes(t: TestUtil) -> void:
 		wids.append(b["id"])
 	want = ["chips", "state", "raid", "retreat", "comes_in_head", "comes_in", "bring_more", "comes_warn", "warden"]
 	t.ok(wids.filter(func(i): return want.has(i)) == want, "with a warning: comes_warn sits before the warden: " + str(wids))
-	t.ok(wb["comes_warn"]["key"] == "danger" and wb["comes_warn"]["text"].begins_with("No undead come in"), "nobody coming in: the danger line on the card")
+	t.ok(wb["comes_warn"]["key"] == "select" and wb["comes_warn"]["text"].begins_with("No undead come in:"), "nobody coming in, corpses there (dead 3.1): the select line on the card")
+	warn_f["dead"] = 0.0
+	var wb0 := {}
+	for b in _fc(warn_f, "", back, {}, _loot_cfg())["blocks"]:
+		wb0[b["id"]] = b
+	t.ok(wb0["comes_warn"]["key"] == "danger" and wb0["comes_warn"]["text"].begins_with("No undead and no corpses"), "nobody and no corpses: the danger line on the card")
+	t.ok(CardBlocksLogic.sig_of(wb["comes_warn"]) == CardBlocksLogic.sig_of(wb0["comes_warn"]), "the two warnings share a signature, so the view must restyle on the key")
 	t.ok(wb["comes_in_head"]["text"] == "WHO COMES IN" and wb["comes_in"]["face"] == "mass" and wb["comes_in"]["text"] == "Garrison 0 (from WAR) · starter 0 · big undead 0 · total 0", "the head and the count: " + str(wb["comes_in"]["text"]))
 	t.ok(wb["bring_more"]["key"] == "text_dim" and wb["bring_more"]["text"].contains("draws 3× its share") and wb["bring_more"]["text"].begins_with("Bring more: raise WAR on the valve;"), "the tide bias reads from config: " + str(wb["bring_more"]["text"]))
 	t.ok(CardLogic.bring_more_text(2.5).contains("2.5×") and CardLogic.bring_more_text(3.0).contains("3×") and not CardLogic.bring_more_text(3.0).contains("3.0"), "no trailing .0")
 	# the pinned line and the descend dialog text
 	t.ok(CardLogic.comes_count_text({"garrison": 2, "starter": 8, "bigs": 1, "total": 11}) == "10 undead and 1 big undead come in", "the pinned count")
 	t.ok(CardLogic.descend_confirm_text(w0) == w0["text"] + "\n\nDescend anyway?", "the descend dialog's text")
+	t.ok(CardLogic.descend_confirm_text(wp) == wp["text"] + "\n\nDescend anyway?", "the dialog opens for the corpse-pile case too")
 	# vei: fronts short versus met
 	var short := {"fronts_met": 1, "fronts_required": 3}
 	var sentence := "Fronts met 1 of 3 required: Vei will likely win. Assign big undead to the open fronts."
@@ -470,7 +485,16 @@ func _parity(t: TestUtil) -> void:
 		var ci := CardLogic.comes_in(fort, party, raid, econ)
 		t.ok(party["fort_id"] == cs[1], "view_party is for %s" % cs[1])
 		t.ok(ci["garrison"] == party["garrison_units"] and ci["starter"] == party["starter_units"], "%s: comes_in garrison %d / starter %d equal view_party's %d / %d (undead %.1f)" % [cs[1], ci["garrison"], ci["starter"], party["garrison_units"], party["starter_units"], fort["undead"]])
-		t.ok(ci["bigs"] == (party["party"] as Array).size(), "%s: bigs are the party's" % cs[1])
+		# bigs: put two big undead in the party, then compare with the party the raid's own seed carries
+		s.cmd_debug_grant({"big_undead": 2})
+		var uids: Array = s.big_undead.map(func(b): return b["uid"])
+		t.ok(uids.size() >= 2 and s.cmd_set_party(uids.slice(0, 2))["ok"], "%s: two big undead are in the party" % cs[1])
+		party = s.view_party()
+		ci = CardLogic.comes_in(fort, party, raid, econ)
+		var begun := s.cmd_begin_dungeon(cs[1])
+		var seeded: Array = s.view_dungeon_seed(cs[1]).get("party", [])
+		t.ok(begun["ok"] and seeded.size() == 2, "%s: the raid starts with a party of 2 in its seed (%s)" % [cs[1], str(begun.get("reason", ""))])
+		t.ok(ci["bigs"] == seeded.size(), "%s: comes_in's bigs (%d) are the raid seed's party (%d)" % [cs[1], ci["bigs"], seeded.size()])
 
 
 ## map_sidebar.gd names autoloads, so it is read as text: DESCEND checks who comes in before it dives, and a
@@ -488,6 +512,16 @@ func _sidebar_src(t: TestUtil) -> void:
 	var cards: Dictionary = TestUtil.load_json("res://configs/map_view.json")["cards"]
 	t.ok(cards["descend_confirm_ok"] == "Descend anyway" and cards["descend_confirm_title"] == "No undead come in", "the dialog's title and OK")
 	t.ok(src.contains('items[i].get("key", "text_dim")'), "a line is coloured by its key, text_dim by default")
+	t.ok(src.contains('float(f.get("dead", 0.0))'), "the sidebar passes the fort's dead to the warning")
+	# the card view names autoloads, so its para restyle is read as text: the style is stored at build and re-applied when the key or face changes
+	var view := FileAccess.get_file_as_string("res://scripts/map/map_card_view.gd")
+	var pa := view.find('"para":', view.find("func _update"))
+	var pb := view.find('"chips":', pa)
+	var pbranch := view.substr(pa, pb - pa)
+	t.ok(view.contains('refs["para_style"] = _para_style(blk)'), "a para's style (face and key) is stored in its refs at build")
+	t.ok(pa >= 0 and pb > pa and pbranch.contains('refs.get("para_style", "") != style') and pbranch.contains('_face(refs["label"], str(blk["face"]), str(blk["key"]))'), "_update re-applies a para's face when its style changed")
+	var ps := CardBlocksLogic.sig_of({"kind": "para", "id": "x", "text": "a", "key": "danger", "face": "text"})
+	t.ok(ps == CardBlocksLogic.sig_of({"kind": "para", "id": "x", "text": "b", "key": "select", "face": "mass"}), "a para's signature ignores key and face (hence the restyle)")
 
 
 func _loot_cfg() -> Dictionary:

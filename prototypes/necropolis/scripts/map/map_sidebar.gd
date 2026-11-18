@@ -155,7 +155,7 @@ func _comes(f: Dictionary) -> Dictionary:
 	var raid: Dictionary = ConfigDb.data.get("raid", {})
 	var ci := CardLogic.comes_in(f, model.party, raid, ConfigDb.data.get("economy", {}))
 	var tier := int(f.get("tier", 1))
-	return {"ci": ci, "warn": CardLogic.comes_in_warning(ci, CardLogic.profile(tier, raid), tier)}
+	return {"ci": ci, "warn": CardLogic.comes_in_warning(ci, CardLogic.profile(tier, raid), tier, float(f.get("dead", 0.0)))}
 
 
 func _world_desc(key: String) -> String:
