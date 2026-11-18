@@ -21,7 +21,7 @@ Worker report for `scenes/raid/Raid.tscn` and `scenes/boss/VeiBoss.tscn`.
 | `scripts/raid/essence_orb.gd` | Glowing green orb: ~12s world-time life, drift toward Relish ≤120px, absorb streak |
 | `scripts/raid/corpse_pile.gd` | Grey MATTE pile; stirs into 2-4 orbs when Relish comes ≤90px |
 | `scripts/raid/wall_segment.gd` | One wall segment; feeds the shader per-segment uniforms (length, world offset for hue continuity) |
-| `scripts/raid/raid_hud.gd` | CanvasLayer HUD: fort/tier, counters, trance meter, hint, RETREAT button + ConfirmationDialog (dungeon only), the boss block (fronts, horde, break pips, backups), standalone result panel |
+| `scripts/raid/raid_hud.gd` | CanvasLayer HUD: fort/tier, counters, trance meter, hint, RETREAT button + its mouse-only retreat panel (`raid_retreat_panel.gd`, dungeon only; Phase I: Space never confirms a retreat), the boss block (fronts, horde, break pips, backups), standalone result panel |
 | `scripts/raid/raid_fx.gd` | One-shot fx: expanding rings, click ping, red soul-link line |
 | `shaders/raid/wall.gdshader` | The showpiece: rainbow hue drifting along wall length, shimmer/pulse, neon rim, soft glow apron with door-jamb end fade |
 | `configs/circle.json` | UNCHANGED copy from raid-and-raise |

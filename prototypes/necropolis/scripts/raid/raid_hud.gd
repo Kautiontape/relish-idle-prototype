@@ -14,7 +14,7 @@ var _stats: StatBlock
 var _hint: Label
 var _meter: Control
 var _exit_btn: Control = null       # dungeon only
-var _dialog: ConfirmationDialog = null
+var _retreat: RaidRetreatPanel = null   # dungeon only: the retreat choice (mouse only; Space never confirms)
 var _flash: ColorRect
 var _flash_t := -1.0
 var _banner: Label
@@ -32,7 +32,6 @@ var _banner_top := 70.0
 var _loot_key := []              # [banked, found_loot, carried, on the floor] the BANKED/UNBANKED lines show
 var _door_prompt: Label = null    # D-e task 6: the held door's plate prompt, while she can send a big (its row is the StatBlock's DOOR)
 var _door_text := ""             # the DOOR row's text as last wrapped
-const RETREAT_TEXT := "Retreat through this exit? Your loot is banked and the fort does not flip."
 # boss extras
 var _boss_block: Control = null
 var boss_info: Dictionary = {}   # the boss's hud_info(), built once a frame in refresh() (BossBlock reads it)
@@ -147,12 +146,11 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		_push.offset_top = 64.0
 		_push.offset_bottom = 88.0
 
-		_dialog = ConfirmationDialog.new()
-		_dialog.title = "Retreat"
-		_dialog.dialog_text = RETREAT_TEXT
-		_dialog.get_ok_button().text = "Retreat"
-		_dialog.confirmed.connect(func() -> void: raid.try_retreat())
-		add_child(_dialog)
+		_retreat = RaidRetreatPanel.new()
+		_retreat.chosen.connect(func(go: bool) -> void:
+			if go:
+				raid.endings.try_retreat("click"))
+		add_child(_retreat)
 
 	_flash = ColorRect.new()
 	_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -269,6 +267,8 @@ func refresh() -> void:
 		var rc: Dictionary = raid.ledger_v2.raised_counts()
 		st.raised_text = "%d chaff · %d soldier · %d elite" % [rc["chaff"], rc["soldier"], rc["elite"]]
 	_hint.visible = not raid.first_raise_done and not raid._ended
+	if retreat_open() and (raid._ended or not exit_enabled()):
+		_retreat.close()   # she walked off the exit (or the run ended): the choice is gone
 	if _door_prompt != null:
 		var dr: String = raid.held_door.row_text()
 		if dr != _door_text:
@@ -455,12 +455,23 @@ static func wrap_chunks(text: String, font: Font, font_px: int, max_w: float) ->
 
 
 func open_exit_dialog() -> void:
-	if _dialog == null or raid._ended or not exit_enabled():
+	if _retreat == null or raid._ended or not exit_enabled():
 		return
 	var hd = raid.held_door
 	# a big spent on the held door is lost, said by its state (on the plate, or shut in at the cache)
-	_dialog.dialog_text = RETREAT_TEXT + (RaidLogic.held_door_retreat_line(hd.state, hd.holder_name) if hd != null else "")
-	_dialog.popup_centered()
+	var keep := RaidLogic.loot_counts(RaidLogic.loot_snapshot(raid.found_loot, raid.carried_count()))
+	_retreat.open(RaidLogic.retreat_lines(raid.held, keep,
+		RaidLogic.held_door_retreat_line(hd.state, hd.holder_name) if hd != null else ""))
+
+
+## The retreat panel shows (the raid closes it on a stay key: Space, right mouse, Esc).
+func retreat_open() -> bool:
+	return _retreat != null and _retreat.is_open()
+
+
+func close_retreat() -> void:
+	if _retreat != null:
+		_retreat.close()
 
 
 ## Standalone runs: show the emitted result so the scene is testable by itself.

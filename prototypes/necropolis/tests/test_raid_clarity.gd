@@ -1,0 +1,102 @@
+extends RefCounted
+## Phase I raid clarity (dungeon-i): the retreat panel (item 8: Space never confirms a retreat) and the
+## retreat lines (item 6). Pure logic and the real RaidRetreatPanel class; no scene tree, no autoloads.
+
+
+func run() -> int:
+	var t := TestUtil.new()
+	Palette.configure(TestUtil.load_json("res://configs/palette.json"))
+	_retreat_panel_tests(t)
+	_retreat_line_tests(t)
+	return t.failures
+
+
+func _key(code: Key, pressed := true) -> InputEventKey:
+	var k := InputEventKey.new()
+	k.keycode = code
+	k.physical_keycode = code
+	k.pressed = pressed
+	return k
+
+
+func _mouse(button: MouseButton, pos: Vector2, pressed := true) -> InputEventMouseButton:
+	var m := InputEventMouseButton.new()
+	m.button_index = button
+	m.position = pos
+	m.global_position = pos
+	m.pressed = pressed
+	return m
+
+
+## Item 8: the cac5a17 ConfirmationDialog focused its OK button, and Space (the trance key) is also
+## ui_accept, so one Space press confirmed a retreat. The panel takes no focus and only a left click on
+## RETREAT confirms.
+func _retreat_panel_tests(t: TestUtil) -> void:
+	t.suite("raid_retreat_panel")
+	var p := RaidRetreatPanel.new()
+	p.open(PackedStringArray(["a", "b", "c"]))
+	var got := []
+	p.chosen.connect(func(go: bool) -> void: got.append(go))
+	t.ok(p.focus_mode == Control.FOCUS_NONE, "the panel never takes focus")
+	t.ok(p.get_child_count() == 0, "no child controls (no Button to focus and press with ui_accept)")
+	t.ok(p.is_open() and p.retreat_rect().size.y >= 44.0 and p.stay_rect().size.y >= 44.0, "open, with 44 px buttons")
+	var on_retreat := p.retreat_rect().get_center()
+	var accept := InputEventAction.new()
+	accept.action = &"ui_accept"
+	accept.pressed = true
+	var keys := [_key(KEY_SPACE), _key(KEY_ENTER), _key(KEY_KP_ENTER), _key(KEY_ESCAPE), accept]
+	var none := true
+	for ev in keys:
+		none = none and p.classify(ev) == ""
+	t.ok(none, "no key confirms: Space, Enter, keypad Enter, Esc and the ui_accept action all classify as nothing")
+	for ev in keys:
+		p.apply(p.classify(ev))
+	t.ok(got.is_empty() and p.is_open(), "applied, the keys neither retreat nor close it")
+	t.ok(p.classify(_mouse(MOUSE_BUTTON_RIGHT, on_retreat)) == "", "a right click on RETREAT does nothing (right mouse is the trance)")
+	t.ok(p.classify(_mouse(MOUSE_BUTTON_LEFT, on_retreat, false)) == "", "a left release on RETREAT does nothing")
+	t.ok(p.classify(_mouse(MOUSE_BUTTON_LEFT, Vector2(2, 2))) == "", "a left click on the plate, off the buttons, does nothing")
+	t.ok(p.classify(_mouse(MOUSE_BUTTON_LEFT, p.stay_rect().get_center())) == "stay", "a left click on STAY stays")
+	p.apply(p.classify(_mouse(MOUSE_BUTTON_LEFT, p.stay_rect().get_center())))
+	t.ok(got == [false] and not p.is_open(), "STAY closes the panel and says stay")
+	p.open(PackedStringArray(["a"]))
+	p.apply(p.classify(_mouse(MOUSE_BUTTON_LEFT, p.retreat_rect().get_center())))
+	t.ok(got == [false, true] and not p.is_open(), "a left click on RETREAT is the one way to retreat")
+	p.apply("retreat")
+	t.ok(got.size() == 2, "a closed panel ignores a late choice")
+	t.ok(RaidRetreatPanel.is_stay_key(_key(KEY_SPACE)) and RaidRetreatPanel.is_stay_key(_key(KEY_ESCAPE))
+		and RaidRetreatPanel.is_stay_key(_mouse(MOUSE_BUTTON_RIGHT, Vector2.ZERO)), "Space, Esc and right mouse are stay keys")
+	t.ok(not RaidRetreatPanel.is_stay_key(_key(KEY_SPACE, false)) and not RaidRetreatPanel.is_stay_key(_mouse(MOUSE_BUTTON_LEFT, Vector2.ZERO)),
+		"a release, or a left click, is not a stay key")
+	p.free()
+	# source guards: no dialog anywhere in the raid that a key could confirm; the raid closes the panel on a stay key
+	var dialogs := []
+	var made := RegEx.create_from_string("(ConfirmationDialog|AcceptDialog)\\.new\\(|:\\s*(ConfirmationDialog|AcceptDialog)\\b|extends\\s+(ConfirmationDialog|AcceptDialog)")
+	var dir := DirAccess.open("res://scripts/raid")
+	for f in dir.get_files():
+		if f.ends_with(".gd") and made.search(FileAccess.get_file_as_string("res://scripts/raid/" + f)) != null:
+			dialogs.append(f)
+	t.ok(dialogs.is_empty(), "no ConfirmationDialog or AcceptDialog in scripts/raid (found: %s)" % str(dialogs))
+	var raid_src := FileAccess.get_file_as_string("res://scripts/raid/raid.gd")
+	t.ok(RegEx.create_from_string("retreat_open\\(\\) and RaidRetreatPanel\\.is_stay_key\\(ev\\):\\s*hud\\.close_retreat\\(\\)").search(raid_src) != null,
+		"the raid closes the panel on a stay key before the trance reads it")
+	var hud_src := FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd")
+	t.ok(hud_src.contains("raid.endings.try_retreat(\"click\")"), "the panel's RETREAT is labelled a click for the capture")
+	var cap_src := FileAccess.get_file_as_string("res://scripts/raid/raid_capture.gd")
+	t.ok(cap_src.contains("\"retreat_by\": _raid.endings.retreat_by"), "the capture row carries the retreat trigger")
+
+
+## Item 6: the panel says what a retreat keeps (as counts) and what stays, in the glossary's words.
+func _retreat_line_tests(t: TestUtil) -> void:
+	t.suite("raid_retreat_lines")
+	var keep := RaidLogic.loot_counts(RaidLogic.loot_snapshot({"relics": 2, "husks": [{"kind": "skeleton"}]}, 5))
+	var l := RaidLogic.retreat_lines(false, keep, "")
+	t.ok(l[0] == "You keep everything you found and all carried essence.", "first: what you keep")
+	t.ok(l[1].contains("relics 2") and l[1].contains("husks 1") and l[1].contains("essence 5"), "then the counts a retreat pays")
+	t.ok(l[2].begins_with("The fort stays Vei's") and l.size() == 3, "then what stays: the fort stays Vei's")
+	var e := RaidLogic.retreat_lines(true, RaidLogic.loot_counts(RaidLogic.empty_loot()), "\nBone Knight is on the plate · lost if you retreat.")
+	t.ok(e[1].contains("nothing yet"), "nothing found: 'nothing yet'")
+	t.ok(e[2] == "The fort stays yours.", "a held fort stays yours")
+	t.ok(e.size() == 4 and e[3] == "Bone Knight is on the plate · lost if you retreat.", "the held door's line, without its newline")
+	var paid := RaidLogic.loot_counts(RaidLogic.result_loot("retreated", false, {"relics": 2, "husks": [{"kind": "skeleton"}]}, 5, {}))
+	t.ok(paid["relics"] == keep["relics"] and paid["husks"] == keep["husks"] and paid["essence"] == keep["essence"],
+		"the counts shown are what result_loot pays a retreat")

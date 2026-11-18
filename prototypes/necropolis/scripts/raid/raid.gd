@@ -328,6 +328,8 @@ func _cam_follow() -> void:
 func _unhandled_input(ev: InputEvent) -> void:
 	if not _built or _ended:
 		return
+	if hud != null and hud.has_method("retreat_open") and hud.retreat_open() and RaidRetreatPanel.is_stay_key(ev):
+		hud.close_retreat()   # Space, right mouse or Esc with the retreat panel up: stay (the trance still opens)
 	if trance.handle_input(ev):
 		get_viewport().set_input_as_handled()
 		return

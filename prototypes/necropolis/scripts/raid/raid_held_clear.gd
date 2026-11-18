@@ -86,4 +86,4 @@ func _start() -> void:
 func _end() -> void:
 	if not is_instance_valid(_raid):
 		return   # the scene was freed during the window
-	_raid.endings.confirm_exit()   # no-op if the run already ended (death or a manual retreat)
+	_raid.endings.confirm_exit("held_clear")   # no-op if the run already ended (death or a manual retreat)

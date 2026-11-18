@@ -1093,6 +1093,21 @@ static func death_rows_with_shut(rows: Array, shut: String) -> Array:
 
 
 ## The retreat dialog's line for a big spent on the door, by its state ("" when none is spent).
+## The retreat panel's lines (Phase I item 6/8, the glossary's words): what a retreat keeps, as counts
+## (`keep` is loot_counts of what a retreat pays: everything found plus the carried essence, as
+## result_loot builds it), and what stays: the fort stays Vei's (a held fort stays yours). `door_line`
+## is held_door_retreat_line's text, its leading newline dropped ("" for none).
+static func retreat_lines(held: bool, keep: Dictionary, door_line: String) -> PackedStringArray:
+	var out := PackedStringArray(["You keep everything you found and all carried essence."])
+	var now := loot_line(keep)
+	out.append("  now: " + (now if now != "" else "nothing yet"))
+	out.append("The fort stays yours." if held else "The fort stays Vei's · you can come back and break its warden.")
+	var d := door_line.strip_edges()
+	if d != "":
+		out.append(d)
+	return out
+
+
 static func held_door_retreat_line(state: String, name: String) -> String:
 	match state:
 		"sent":
