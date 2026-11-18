@@ -235,6 +235,8 @@
         "short_slots": "workers: {n} short of slots",
         "idle_build": "{n} idle: build a {label} ({gain}) or let them muster",
         "idle_upgrade": "{n} idle: upgrade the {label} to L{level} ({gain}) or let them muster",
+        "idle_build_short": "{n} idle: build a {label} ({gain})",
+        "idle_upgrade_short": "{n} idle: upgrade the {label} to L{level} ({gain})",
         "idle_jobs": "+{n} jobs",
         "idle_none": "{n} idle: no job building affordable; mustering to WAR",
         "idle_none_wait": "{n} idle: no job building affordable; waiting at the crypt",

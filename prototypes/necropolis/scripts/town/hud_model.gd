@@ -101,8 +101,10 @@ static func kept_reason(town: Dictionary, hud: Dictionary, steady: float, kept_n
 ## item is buildable. A new build's gain is the catalog row's `projected` rates (api-request #9, oblique, "now") or
 ## else its job count; an upgrade's, the building's jobs per level. "10 idle: no job building affordable;
 ## mustering to WAR" (or "waiting at the crypt" while nobody musters) only when no job build or upgrade can
-## be paid for. [] when the idle hands are no need.
-static func idle_parts(views: Dictionary, vcfg: Dictionary, bview: Dictionary, bcfg: Dictionary, tab: Dictionary = {}) -> Array:
+## be paid for. [] when the idle hands are no need. `short` (the HUD cell, whose width clips the full line; the
+## tooltip keeps it whole): the job count as the gain and hud.text's `_short` templates, with no "or let them muster".
+static func idle_parts(views: Dictionary, vcfg: Dictionary, bview: Dictionary, bcfg: Dictionary, tab: Dictionary = {},
+		short := false) -> Array:
 	var hcfg: Dictionary = vcfg.get("hud", {})
 	var need := BuildSort.idle_need(views, vcfg.get("needs", {}), bcfg)
 	if need.is_empty():
@@ -141,13 +143,16 @@ static func idle_parts(views: Dictionary, vcfg: Dictionary, bview: Dictionary, b
 		var row: Dictionary = best["row"]
 		var bid := String(row.get("building_id", ""))
 		var gain: Array = []
-		if not bool(row.get("upgrade", false)) and row.get("projected") is Dictionary:
+		if not short and not bool(row.get("upgrade", false)) and row.get("projected") is Dictionary:
 			var rt := BuildSort.rate_texts(row["projected"], vcfg)
 			if not rt.is_empty():
 				gain = [[", ".join(rt), true]]
 		if gain.is_empty():
 			gain = [[BuildSort.fmt(_t(hcfg, "idle_jobs"), {"n": BuildSort.job_slots(bid, bcfg)}), false]]
-		return fill_parts(_t(hcfg, "idle_upgrade" if bool(row.get("upgrade", false)) else "idle_build"),
+		var key := "idle_upgrade" if bool(row.get("upgrade", false)) else "idle_build"
+		if short and (hcfg.get("text", {}) as Dictionary).has(key + "_short"):
+			key += "_short"
+		return fill_parts(_t(hcfg, key),
 			{"n": str(n), "label": BuildSort.label_of(bid, bview), "level": int(row.get("level", 0)), "gain": gain})
 	var mustering := float(views.get("town", {}).get("workers", {}).get("muster", 0.0)) > 0.0
 	return [[BuildSort.fmt(_t(hcfg, "idle_none" if mustering else "idle_none_wait"), {"n": n}), false]]

@@ -22,6 +22,7 @@ func run() -> int:
 	_away_label()
 	_catchup()
 	_spread_refresh()
+	_hud_idle_short()
 	_p2_counts()
 	return t.failures
 
@@ -110,6 +111,28 @@ func _spread_refresh() -> void:
 		"the setup's fetch still binds everything at once, from both phases")
 	var take := _body(shell, "_take")
 	t.ok(take.contains("_update_goal(views)") and take.contains("_check_replay(views)"), "the goal and the replay read the full set")
+
+
+## Q-g, the HUD idle line's truncation: the workers cell clipped "5 idle: build a Bone Mill (−0.00/s workers now,
+## −0.39/s bodie". The cell takes the short line (the job count, no "or let them muster"); the tooltip keeps the
+## whole one with its projected rates.
+func _hud_idle_short() -> void:
+	var bv: Dictionary = cfg["buildings_view"]
+	var bc: Dictionary = cfg["buildings"]
+	var row := {"building_id": "charnel_house", "cost": {"gold": 10.0, "bone": 0.0, "relics": 0}, "count": 0, "lot_size": 1,
+		"max_level": 2, "requires": {"tier": "village", "blueprint": "", "building": ""}, "can_build": true, "reason": "",
+		"lots": ["lot-06"], "projected": {"bodies": 0.4, "gold": -0.03}}
+	var v := {"town": {"workers": {"idle": 10.0, "muster": 0.1}, "buildings": [], "jobs": [], "next_tier": {}},
+		"hud": {"rates": [{"id": "gold", "rate": 0.2}, {"id": "bone", "rate": 0.2}]}, "catalog": {"buildings": [row]}, "fort_names": {}}
+	var whole := HudModel.parts_text(HudModel.idle_parts(v, vcfg, bv, bc))
+	var short := HudModel.parts_text(HudModel.idle_parts(v, vcfg, bv, bc, {}, true))
+	var label := BuildSort.label_of("charnel_house", bv)
+	t.ok(whole.contains("bodies now") and whole.ends_with("or let them muster"), "the tooltip's line keeps the rates: '%s'" % whole)
+	t.ok(short == "10 idle: build a %s (+%d jobs)" % [label, BuildSort.job_slots("charnel_house", bc)],
+		"the cell's line is short: '%s' (%d characters)" % [short, short.length()])
+	t.ok(short.length() <= 48, "short enough for the workers cell beside '+0.03/s → WAR' (%d ≤ 48)" % short.length())
+	var hud_src := FileAccess.get_file_as_string("res://scripts/town/town_hud.gd")
+	t.ok(hud_src.contains("_tab, true)") and hud_src.contains("tooltip_text = whole"), "the HUD binds the short line and tooltips the whole one")
 
 
 ## The foreman menu offers job buildings only (buildings.json jobs), a Chapel even while no vat is staffed.
