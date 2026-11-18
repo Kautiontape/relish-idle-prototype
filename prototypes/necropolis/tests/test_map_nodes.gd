@@ -97,9 +97,11 @@ func _countdowns(t: TestUtil) -> void:
 	var f := _fort(100, 0, 50, 0, 2)
 	t.near(NodeLogic.held_fraction(f, flip), 0.0, 1e-9, "not held: no countdown")
 	f["held"] = true
-	f["held_s_left"] = 225.0
-	t.near(NodeLogic.held_fraction(f, flip), 225.0 / 450.0, 1e-6, "held countdown = held_s_left / grace_total (tier 2: 450 s)")
-	f["held_s_left"] = 9999.0
+	f["held_s_left"] = 9999.0  # the dead stub: ignored
+	t.near(NodeLogic.held_fraction(f, flip), 0.0, 1e-9, "held_s_left is not read")
+	f["grace_s_left"] = 225.0
+	t.near(NodeLogic.held_fraction(f, flip), 225.0 / 450.0, 1e-6, "held countdown = grace_s_left / grace_total (tier 2: 450 s)")
+	f["grace_s_left"] = 9999.0
 	t.near(NodeLogic.held_fraction(f, flip), 1.0, 1e-9, "clamped to 1")
 	t.near(NodeLogic.held_fraction(f, {}), 0.0, 1e-9, "no flip config, no divide by zero")
 	var w := float(NodeLogic.ncfg()["tithe_warning_s"])
@@ -112,6 +114,26 @@ func _countdowns(t: TestUtil) -> void:
 		and NodeLogic.tithe_mode({"tithe": {"targeted": true, "wave_active": true}}) == "wave", "tithe mode: none, warning, wave")
 	t.ok(NodeLogic.first_dungeon_pulse({"first_dungeon": true, "first_clear": true}) and not NodeLogic.first_dungeon_pulse({"first_dungeon": true, "first_clear": false}) \
 		and not NodeLogic.first_dungeon_pulse({"first_clear": true}), "the first-dungeon pulse needs both flags")
+	# the one tag line under a name
+	var n := NodeLogic.ncfg()
+	var over := _fort(100.0, 0.0, 60.0, 0.0)
+	var tag := NodeLogic.name_tag(over)
+	t.ok(NodeLogic.fort_state(over, "") == NodeLogic.OVERRUN and tag.get("text", "") == n["label_overrun"] and tag.get("key", "") == "text_dim", "overrun, never taken: Vei's tag in text_dim")
+	var first := _fort(100.0, 0.0, 60.0, 0.0)
+	first["first_dungeon"] = true
+	first["first_clear"] = true
+	tag = NodeLogic.name_tag(first)
+	t.ok(tag.get("text", "") == n["label_first_dungeon"] and tag.get("key", "") == "relish", "the first dungeon keeps its relish line, ahead of the overrun tag")
+	var back := _fort(100.0, 40.0, 0.0, 0.0)
+	back["flipped_count"] = 1
+	tag = NodeLogic.name_tag(back)
+	t.ok(tag.get("text", "") == n["label_retaken"] and tag.get("key", "") == "danger", "retaken (flipped before, not held): danger tag")
+	t.ok(NodeLogic.name_tag(_fort(100.0, 40.0, 0.0, 0.0)).is_empty(), "a plain hers fort has no tag")
+	var held := _fort(100.0, 0.0, 60.0, 0.0)
+	held["held"] = true
+	held["flipped_count"] = 1
+	t.ok(NodeLogic.name_tag(held).is_empty(), "a held fort has no tag")
+	t.ok(NodeLogic.fort_static_sig(over, {}) != NodeLogic.fort_static_sig(back, {}), "a tag's text is in the static signature")
 
 
 func _vei(t: TestUtil) -> void:

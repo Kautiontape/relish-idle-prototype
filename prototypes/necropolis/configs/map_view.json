@@ -264,6 +264,8 @@
     "label_line_px": 15.0,
     "label_shadow_px": 1.0,
     "label_first_dungeon": "your first dungeon",
+    "label_retaken": "retaken: raid it back",
+    "label_overrun": "Vei's: raid it to take it",
     "village_size_px": 10.0,
     "village_fill_alpha": 0.55,
     "village_edge_px": 1.5,

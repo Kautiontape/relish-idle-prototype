@@ -5,7 +5,7 @@ extends MapNodeLayer
 ## diamond tip to tip, the square and hourglass side to side, the ring's outer edge), a
 ## distinct SHAPE per state so greyscale still tells them apart; colour is second:
 ##   hers       a solid living square;
-##   overrun    a hollow undead square (her fort, your garrison inside, not flipped);
+##   overrun    a hollow undead square (Vei's fort, your garrison inside, never taken: not yours);
 ##   contested  an hourglass, the undead's half above, the living's below;
 ##   emptied    a matte dead ring (never glows, never pulses);
 ##   held       a diamond: solid (safe), hollow (thin), hollow struck through by a danger

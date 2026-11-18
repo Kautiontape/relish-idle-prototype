@@ -271,7 +271,7 @@ func fit_items() -> Array:
 	var n := NodeLogic.ncfg()
 	var out: Array = []
 	for f in forts:
-		var second := NodeLogic.first_dungeon_pulse(f)
+		var second := not NodeLogic.name_tag(f).is_empty()
 		var text_px := IdleLogic.name_bottom_px(second)
 		if bool(f.get("held", false)):
 			text_px = IdleLogic.chip_top_px(second) + IdleLogic.chip_height_px()

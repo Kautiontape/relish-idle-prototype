@@ -166,12 +166,12 @@ func _static_sig(t: TestUtil) -> void:
 	t.ok(NodeLogic.fort_static_sig(_fort(100.0 + 160.0 / steps * 0.2, 40.0, 10.0, 160.0), flip) == sig, "a drift under one step (a fraction of a body) does not redraw")
 	t.ok(NodeLogic.fort_static_sig(_fort(100.0 + 160.0 / steps * 3.0, 40.0, 10.0, 160.0), flip) != sig, "a few steps of matter redraw")
 	t.ok(NodeLogic.fort_static_sig(_fort(100.0, 60.0, 10.0, 160.0), flip) != sig, "a new pip redraws")
-	var held := _fort(10.0, 60.0, 0.0, 160.0, {"held": true, "held_s_left": 300.0})
+	var held := _fort(10.0, 60.0, 0.0, 160.0, {"held": true, "grace_s_left": 300.0})
 	var hs := NodeLogic.fort_static_sig(held, flip)
 	t.ok(hs != NodeLogic.fort_static_sig(_fort(10.0, 60.0, 0.0, 160.0), flip), "held redraws")
 	var grace := NodeLogic.grace_total(flip, 2)
-	t.ok(NodeLogic.fort_static_sig(_fort(10.0, 60.0, 0.0, 160.0, {"held": true, "held_s_left": 300.0 - grace / steps * 0.2}), flip) == hs, "the countdown under a step does not")
-	t.ok(NodeLogic.fort_static_sig(_fort(10.0, 60.0, 0.0, 160.0, {"held": true, "held_s_left": 300.0 - grace / steps * 3.0}), flip) != hs, "a few steps of countdown do")
+	t.ok(NodeLogic.fort_static_sig(_fort(10.0, 60.0, 0.0, 160.0, {"held": true, "grace_s_left": 300.0 - grace / steps * 0.2}), flip) == hs, "the countdown under a step does not")
+	t.ok(NodeLogic.fort_static_sig(_fort(10.0, 60.0, 0.0, 160.0, {"held": true, "grace_s_left": 300.0 - grace / steps * 3.0}), flip) != hs, "a few steps of countdown do")
 	t.ok(NodeLogic.fort_static_sig(_fort(100.0, 40.0, 10.0, 160.0, {"simulacrum_charges": 3.0}), flip) != sig, "a simulacrum redraws")
 	t.near(NodeLogic.state_alpha(0.0), float(NodeLogic.ncfg()["state_alpha_base"]), 1e-6, "the glyph beat's trough is state_alpha_base")
 	t.ok(NodeLogic.state_alpha(1.0) <= 1.0 and NodeLogic.state_alpha(1.0) > NodeLogic.state_alpha(0.0), "and its crest at most 1")
@@ -428,6 +428,8 @@ func _plates(t: TestUtil) -> void:
 		"WAVE": Palette.c("danger"),
 		"your first dungeon / INSIDE": Palette.c("relish"),
 		"garrison N": Palette.c("text"),
+		"retaken: raid it back": Palette.c("danger"),
+		"Vei's: raid it to take it": Palette.c("text_dim"),
 	}
 	for k in labels:
 		var r := MapLogic.contrast_ratio(labels[k], under)

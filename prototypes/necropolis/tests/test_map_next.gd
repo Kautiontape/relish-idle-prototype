@@ -751,17 +751,17 @@ func _weight(t: TestUtil) -> void:
 	for st in [IdleLogic.SAFE, IdleLogic.THIN, IdleLogic.WILL_FALL]:
 		t.ok(NodeLogic.ring_weight(st) >= 2.0 * hers, "held (%s) ring stroke is at least 2x hers (%.1f vs %.1f)" % [st, NodeLogic.ring_weight(st), hers])
 		t.ok(NodeLogic.has_core(st), "held (%s) fills its core" % st)
-	t.ok(NodeLogic.ring_weight(NodeLogic.OVERRUN) >= 2.0 * hers and NodeLogic.has_core(NodeLogic.OVERRUN), "overrun (your garrison inside, not flipped) reads as yours too: heavy ring and core")
-	for st in [NodeLogic.HERS, NodeLogic.CONTESTED, NodeLogic.EMPTIED]:
+	t.ok(not NodeLogic.yours(NodeLogic.OVERRUN), "overrun is not yours: it was never taken")
+	for st in [NodeLogic.HERS, NodeLogic.CONTESTED, NodeLogic.EMPTIED, NodeLogic.OVERRUN]:
 		t.ok(NodeLogic.ring_weight(st) == 1.0 and not NodeLogic.has_core(st), "%s keeps the thin ring and no core" % st)
 	var ring := FileAccess.get_file_as_string("res://scripts/map/map_fort_ring.gd")
 	var over_mult := float(NodeLogic.ncfg()["held_overview_mult"])
 	t.ok(over_mult >= 2.0 and NodeLogic.ncfg()["overview_tiers"] == ["far", "mid"], "the overview multiplier is at least 2x, on far and mid")
-	for st in [IdleLogic.SAFE, IdleLogic.THIN, IdleLogic.WILL_FALL, NodeLogic.OVERRUN]:
+	for st in [IdleLogic.SAFE, IdleLogic.THIN, IdleLogic.WILL_FALL]:
 		for tier in ["far", "mid"]:
 			t.ok(is_equal_approx(NodeLogic.ring_weight(st, tier), NodeLogic.ring_weight(st) * over_mult), "held (%s) ring is %.1fx heavier again at the %s tier" % [st, over_mult, tier])
 		t.ok(NodeLogic.ring_weight(st, "near") == NodeLogic.ring_weight(st), "held (%s) ring is unchanged at near" % st)
-	for st in [NodeLogic.HERS, NodeLogic.CONTESTED, NodeLogic.EMPTIED]:
+	for st in [NodeLogic.HERS, NodeLogic.CONTESTED, NodeLogic.EMPTIED, NodeLogic.OVERRUN]:
 		t.ok(NodeLogic.ring_weight(st, "far") == 1.0 and NodeLogic.ring_weight(st, "mid") == 1.0, "%s ring stays a hairline in the overview tiers" % st)
 	t.ok(ring.contains("NodeLogic.ring_weight(") and ring.contains("NodeLogic.has_core("), "the ring layer draws with these")
 
