@@ -24,6 +24,7 @@ func run() -> int:
 	DirAccess.make_dir_recursive_absolute(_dir)
 	_save_after_win()
 	_won_town_words()
+	_catalog_rows_refresh()
 	_clean()
 	return t.failures
 
@@ -57,6 +58,59 @@ func _won_town_words() -> void:
 		"a won town's inspector reads the won line (stocks carry won)")
 	t.ok(FileAccess.get_file_as_string("res://scripts/town/panel_build.gd").contains("TownGuide.add_lines(v, bid, _bcfg, _vcfg.get(\"guide\", {}), bool(_st.get(\"won\", false)))")
 		and FileAccess.get_file_as_string("res://scripts/town/town_card.gd").contains("_make_row(bid, bool(st.get(\"won\", false)))"), "both catalog builders pass won to the why line")
+
+
+## P3b merge check: the catalog rows fix each building's why line when they are built, so a row built before the win
+## kept the pre-win words. Both builders now rebuild on a won flip. The lot card (TownCard, no autoload) is driven
+## headless: a catalog shown on pre_vei, then the same lot shown with the won stocks, and the Raising Pit's row reads
+## the won line; the Build tab (panel_build, which needs the autoload) rebuilds on BuildSort.rows_shape, tested by value.
+func _catalog_rows_refresh() -> void:
+	var vcfg: Dictionary = cfg["town"]["view"]
+	var s := GameState.new(cfg)
+	s.debug_enabled = true
+	s.save_dir = _dir
+	t.ok(bool(s.cmd_debug_load_fixture("pre_vei").get("ok", false)), "(setup) pre_vei loads, not won")
+	var v := _views(s)
+	var st := BuildSort.stocks(v)
+	var items := BuildSort.fitting(BuildSort.tab_suggestion(v, bview, cfg["buildings"], vcfg)["items"], 9)
+	var has_pit := items.any(func(it): return String(it["row"].get("building_id", "")) == "raising_pit")
+	t.ok(has_pit and not bool(st.get("won", false)), "(setup) the Raising Pit is in the catalog")
+	var card: Control = load("res://scripts/town/town_card.gd").new()
+	card.setup(vcfg, bview, cfg["buildings"])
+	card.show_catalog("lot-05", 9, items, st, "", true)
+	var before := _row_texts(card, "raising_pit")
+	var wst := st.duplicate(true)
+	wst["won"] = true
+	card.show_catalog("lot-05", 9, items, wst, "", true)
+	var after := _row_texts(card, "raising_pit")
+	var unwon := TownGuide.why("raising_pit", gcfg)
+	var won_l := TownGuide.why("raising_pit", gcfg, true)
+	t.ok(before.has(unwon) and not before.has(won_l), "the lot card before the win: the Raising Pit's row reads '%s'" % unwon)
+	t.ok(after.has(won_l) and not after.has(unwon), "the same card once won: the row is rebuilt and reads '%s' (%s)" % [won_l, str(after)])
+	card.show_catalog("lot-05", 9, items, wst, "", true)
+	t.ok(_row_texts(card, "raising_pit").has(won_l), "shown again won: still the won line (no flip, no rebuild)")
+	card.free()
+	var rows: Array = v["catalog"].get("buildings", [])
+	t.ok(BuildSort.rows_shape(rows, false) != BuildSort.rows_shape(rows, true) and BuildSort.rows_shape(rows, true) == BuildSort.rows_shape(rows, true)
+		and BuildSort.rows_shape(rows, false).begins_with(String(rows[0]["building_id"])), "the Build tab's rebuild key holds the ids and won, so a flip rebuilds its rows")
+	t.ok(FileAccess.get_file_as_string("res://scripts/town/panel_build.gd").contains("var shape := BuildSort.rows_shape(rows, bool(_st.get(\"won\", false)))")
+		and FileAccess.get_file_as_string("res://scripts/town/panel_build.gd").find("_st = BuildSort.stocks(") < FileAccess.get_file_as_string("res://scripts/town/panel_build.gd").find("BuildSort.rows_shape("),
+		"panel_build's bind keys its rows on rows_shape, with the stocks read first")
+
+
+## The texts of every Label in building `bid`'s row of a TownCard's catalog.
+func _row_texts(card: Control, bid: String) -> Array:
+	var out: Array = []
+	var rows: Dictionary = card.get("_rows")
+	if not rows.has(bid):
+		return out
+	var stack: Array = [rows[bid]["node"]]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		if n is Label:
+			out.append((n as Label).text)
+		stack.append_array(n.get_children())
+	return out
 
 
 func _views(s: GameState) -> Dictionary:

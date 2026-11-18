@@ -25,6 +25,7 @@ var _scroll: ScrollContainer
 var _body: VBoxContainer
 var _rows_box: VBoxContainer
 var _rows := {}
+var _rows_won := false  # whether _rows were built for a won game (their why lines read it): a flip rebuilds them
 var _hover := ""
 var _status: RichTextLabel
 var _status_parts: Array = []
@@ -128,6 +129,10 @@ func show_catalog(lot_id: String, lot_size: int, items: Array, st: Dictionary, s
 	_title.text = "Empty lot (size %d)" % lot_size + ("\n" + note if note != "" else "")
 	_rows_box.visible = true
 	insp_host.visible = false
+	if bool(st.get("won", false)) != _rows_won:  # each row's why line was fixed at build (TownGuide.why reads won)
+		_rows_won = bool(st.get("won", false))
+		TownUI.clear(_rows_box)
+		_rows.clear()
 	var shown := {}
 	for i in items.size():
 		var it: Dictionary = items[i]

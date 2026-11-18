@@ -225,7 +225,7 @@ func bind(views: Dictionary) -> void:
 		_seed_queue()
 		_q.evaluate(_ctx)
 	var rows: Array = views.get("catalog", {}).get("buildings", [])
-	var shape := ",".join(rows.map(func(r): return String(r.get("building_id", ""))))
+	var shape := BuildSort.rows_shape(rows, bool(_st.get("won", false)))  # a won flip rebuilds the rows: their why lines read won
 	if shape != _shape:
 		_shape = shape
 		_rebuild_rows(rows)

@@ -24,6 +24,13 @@ static func hud_rate(hud: Dictionary, id: String) -> Dictionary:
 	return {}
 
 
+## The Build tab's catalog rows are rebuilt when this key changes: the catalog's building ids in order, and whether the
+## game is won. A row's why line is fixed when it is built and has a won variant (TownGuide.why, guide.why_won), so a
+## row built before the win must be built again once `won` flips (P3b merge check: else it keeps the old words).
+static func rows_shape(rows: Array, won: bool) -> String:
+	return ",".join(rows.map(func(r): return String(r.get("building_id", "")))) + ("|won" if won else "")
+
+
 ## Stocks the build checks read: {gold, bone, relics}, the net rates the time estimates divide by
 ## (`rates`: {gold, bone} from view_hud), each building's `max_level` from view_catalog, and the
 ## big undead's names by uid (a foreman is shown by name; with the slab config `slab` a creature still
