@@ -388,8 +388,7 @@ func _place_callout(id: String, text: String, prev: Dictionary) -> Dictionary:
 	if hud != null:  # the visible screen between the top bar and the bottom bars
 		var cp := cam.position if cam != null else Vector2.ZERO
 		obs["bounds"] = SetpieceLogic.screen_bounds(get_viewport().get_visible_rect().size, cp, z, hud.bar_bottom(), hud.bottom_top())
-	var at := SetpieceLogic.callout_place(p, ring_r, base_y, size, widths, own, obs, prev)
-	var texts: Array = split if str(at["form"]) == "two" else [text]
+	var at := SetpieceLogic.callout_place(p, ring_r, base_y, size, widths, own, obs, prev)	var texts: Array = split if str(at["form"]) == "two" else [text]
 	var lines: Array = []
 	for i in texts.size():
 		var pos := (at["pos"] as Vector2) + Vector2(0.0, float(i) * float(at["line"]))

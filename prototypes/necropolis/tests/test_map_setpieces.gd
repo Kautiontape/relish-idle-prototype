@@ -194,7 +194,8 @@ func _place(t: TestUtil, c: Dictionary) -> void:
 	t.ok(str(top["place"]) == "below" and _inside(top, bounds), "a fort near the top never gets a place crossing the top inset")
 	var lost := SetpieceLogic.callout_place(fort, 30.0, base_y, 16, w, [], {"rings": [], "circles": [], "rects": [], "soft": [], "bounds": Rect2(0.0, 100.0, 50.0, 50.0)})
 	t.ok(lost.has("rects") and str(lost["place"]) == "above", "no place on screen: the one with the least off-screen area (the above row, nearest the bounds)")
-	t.ok(SetpieceLogic.screen_bounds(Vector2(1600.0, 900.0), Vector2(100.0, 50.0), 2.0, 62.0, 852.0) == Rect2(12.0 - 800.0 + 200.0, 74.0 - 450.0 + 100.0, 1576.0, 766.0), "the bounds are the viewport less the edge, the top bar and the bottom bars, in the zoomed frame")
+	var e := float(c["callout_edge_px"])
+	t.ok(SetpieceLogic.screen_bounds(Vector2(1600.0, 900.0), Vector2(100.0, 50.0), 2.0, 62.0, 852.0) == Rect2(e - 800.0 + 200.0, 62.0 + e - 450.0 + 100.0, 1600.0 - e * 2.0, 852.0 - 62.0 - e * 2.0),"the bounds are the viewport less the edge, the top bar and the bottom bars, in the zoomed frame")
 	# nothing reads as the fort's (drift cap of 1 px): the least hard overlap wins, not the first candidate
 	var wall_above := {"rings": [], "circles": [], "rects": [Rect2(0.0, 400.0, 1000.0, 75.0)], "soft": []}
 	var saved_cap: float = float(c["callout_drift_px"])
@@ -242,13 +243,13 @@ func _inside(place: Dictionary, bounds: Rect2) -> bool:
 ## The return shot (--fixture=day1 --teleport=old-sluice --finish-raid): a 1600 x 900 window, every fort at
 ## its world.json position, none held (day1 holds no fort, so no chip), Old Sluice's "your first dungeon"
 ## tag, Relish's token standing above it with her real halo. The camera is the one the return eases out to,
-## read from a run of that command (the fit: zoom 0.57474949494949 centred on (986.6473, 657.0635), the top
-## bar 62 px tall and the bottom bars from y 852). The retreat line must sit inside the inset screen, clear
+## read from a run of that command (a print in MapSetpieces._place_callout: zoom 0.57552540302277 centred on
+## (986.6473, 657.0635), the top bar 62 px tall and the bottom bars from y 848). The retreat line must sit inside the inset screen, clear
 ## of every other fort's ring and every plate and the token, and read as Old Sluice's. The sweep re-frames
 ## Old Sluice at the same screen point at other zooms.
 func _shot_geometry(t: TestUtil, c: Dictionary) -> void:
 	var vp := Vector2(1600.0, 900.0)
-	var shot_z := 0.57474949494949
+	var shot_z := 0.57552540302277
 	var shot_cam := Vector2(986.6473, 657.0635)
 	var sluice := Vector2(1420.0, 1305.0)
 	var screen_pt := (sluice - shot_cam) * shot_z + vp * 0.5
@@ -286,8 +287,8 @@ func _shot_geometry(t: TestUtil, c: Dictionary) -> void:
 ## The shot's scene at zoom `z`, camera `cam_pos` (all in the zoomed frame, world x zoom): Old Sluice (`fp`,
 ## `ring_r`, its `own` plates and Relish's token), every other fort's ring and plates, Covington's and Vei's
 ## discs and plates at the day-1 valve (IdleLogic.node_obstacles: the chip layout's own), the two lane callouts
-## the shot draws over the line's neighbourhood (read from the shot: REDIRECT x 757..1030, y 772..793 and
-## WAR x 1172..1415, y 779..800 screen px at the shot camera, kept at their world anchor, screen size), and the bounds.
+## the shot draws over the line's neighbourhood (REDIRECT and WAR, plates 28 px tall, as MapCallouts.drawn_rects
+## gave them at the shot zoom; at other zooms kept at their world anchor, screen size), and the bounds.
 func _shot_scene(c: Dictionary, z: float, cam_pos: Vector2, shot_z: float, shot_cam: Vector2, vp: Vector2) -> Dictionary:
 	var world := TestUtil.load_json("res://configs/world.json")
 	var forts: Array = world["forts"]
@@ -331,12 +332,11 @@ func _shot_scene(c: Dictionary, z: float, cam_pos: Vector2, shot_z: float, shot_
 		NodeLogic.fort_centroid(pos_list), z, true, text_w)
 	var hard := SetpieceLogic.node_hard(nodes, z)
 	var soft: Array = []
-	for s in [Rect2(757.0, 772.0, 273.0, 21.0), Rect2(1172.0, 779.0, 243.0, 21.0)]:
-		var anchor := ((s as Rect2).position - vp * 0.5) / shot_z + shot_cam
-		soft.append(Rect2(anchor * z, (s as Rect2).size))
+	for s in [Rect2(524.6368, 696.5007, 274.0, 28.0), Rect2(939.8651, 704.0345, 243.0, 28.0)]:  # as MapCallouts drew them (zoomed frame at the shot zoom)
+		soft.append(Rect2((s as Rect2).position / shot_z * z, (s as Rect2).size))
 	return {"fp": fp, "ring_r": ring_r, "own": own, "rings": rings, "rects": rects + (hard["rects"] as Array), "tok": tok, "halo": halo,
 		"circles": [Vector3(tok.x, tok.y, halo)] + (hard["circles"] as Array), "soft": soft,
-		"bounds": SetpieceLogic.screen_bounds(vp, cam_pos, z, 62.0, 852.0), "z": z}
+		"bounds": SetpieceLogic.screen_bounds(vp, cam_pos, z, 62.0, 848.0), "z": z}
 
 
 ## `text`'s place in `sc` (callout_place with the widths measured as MapSetpieces does) and whether it is clean:
