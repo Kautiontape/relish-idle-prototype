@@ -433,9 +433,10 @@ func _step_break(delta: float) -> void:
 			_win()
 			return
 	_anchor_motes(delta, vc)
-	_spawn_guards(delta, _gvc)
 	if stress and _bdev != null:
-		_bdev.stress_tick()
+		_bdev.stress_tick()   # DEV: the top-up alone holds the guards at the live ceiling (the spawner would stack on top, up to the pressured cap)
+	else:
+		_spawn_guards(delta, _gvc)
 	vei.weave_step(b1)
 	if phase == Phase.BREAK and horde <= 0.0:
 		_lose("horde_ferried")

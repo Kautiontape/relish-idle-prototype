@@ -633,7 +633,7 @@ func _loss_cause_tests(t: TestUtil, cfg: Dictionary, lw: Dictionary, dw: Diction
 	t.ok(pm_demo == 1.0 and BossLogic.pressure_row(pm_demo, 380.0, lw).is_empty() and BossLogic.pressure_tag(pm_demo, lw) == "",
 		"the demo seed's pool of 380 (x1.0) shows no row and no tag")
 	var pr := BossLogic.pressure_row(pm_full, 600.0, lw)
-	t.ok(pr["label"] == "GUARDS" and pr["text"] == "×2.3 · 600 in her living reserve", "the GUARDS row: " + str(pr["text"]))
+	t.ok(pr["label"] == "GUARDS" and pr["text"] == "×2.3 · 600 living in her reserve", "the GUARDS row: " + str(pr["text"]))
 	t.ok(BossLogic.pressure_tag(pm_full, lw) == "· guards ×2.3", "the HUD tag: " + BossLogic.pressure_tag(pm_full, lw))
 	var thr := float(lw["pressure_min"])
 	t.ok(thr > 1.0 and thr <= pm_full and BossLogic.pressure_row(thr - 0.001, 400.0, lw).is_empty() and not BossLogic.pressure_row(thr, 400.0, lw).is_empty()

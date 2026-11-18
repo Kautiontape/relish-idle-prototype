@@ -479,7 +479,7 @@ static func pressure_tag(pressure: float, words: Dictionary) -> String:
 	return _fmt(str(words.get("tag", "")), {"mult": "%.1f" % pressure})
 
 
-## The loss card's GUARDS row: {label, text, key} like VeiCard rows, "×2.3 · 600 in her living reserve", or {} below
+## The loss card's GUARDS row: {label, text, key} like VeiCard rows, "×2.3 · 600 living in her reserve", or {} below
 ## `pressure_min`.
 static func pressure_row(pressure: float, living_pool: float, words: Dictionary) -> Dictionary:
 	if pressure < float(words.get("pressure_min", 1.05)):

@@ -1695,7 +1695,7 @@ class BossBlock:
 			x2 = _text(x2 + BossLogic.GAP_FERRY, y, "ferried %.2f/s" % float(info["ferry"]), 13, "text_dim")
 			var tag := str(info["pressure_tag"])   # "· guards ×2.3" only when her pool presses the break (BossLogic.pressure_tag)
 			if tag != "":
-				x2 = _text(x2 + BossLogic.GAP_TAG, y, tag, 13, "living")
+				x2 = _text(x2 + BossLogic.GAP_TAG, y, tag, 13, "text_dim")   # dim like "ferried": it qualifies the ferry, and the orange status after it stays its own phrase
 			x2 += BossLogic.GAP_STATUS
 			if bool(info["won"]):
 				_text(x2, y, "SHE BREAKS", 15, "vei")
