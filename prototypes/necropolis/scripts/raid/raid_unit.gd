@@ -459,11 +459,12 @@ func _draw_living(off: Vector2) -> void:
 	# the bow is DASHED (VISUAL-LANGUAGE dash rhythm): three strokes with gaps, so living and undead part in greyscale
 	# too, where both bright cores read near-white. Undead strokes stay solid.
 	var layers := LineGlow.layers(col, width, 0.4, core)   # the stroke stack once for all three dashes
-	var seg := LineGlow.segments(r, LIVING_DASH_SWEEP)
-	for i in LIVING_DASHES:
-		var da := a0 + float(i) * (LIVING_DASH_SWEEP + LIVING_GAP_SWEEP)
-		for l in layers:
-			draw_arc(c, r, da, da + LIVING_DASH_SWEEP, seg, l[1], l[0])
+	# perf: the faint outer halo layers draw as ONE solid arc each (RaidLogic.living_bow_spans); the inner two stay dashed
+	var solid := int(ConfigDb.data.get("raid", {}).get("combat", {}).get("living_bow_solid_layers", 2))
+	var spans := RaidLogic.living_bow_spans(a0, layers.size(), solid, LIVING_DASHES, LIVING_DASH_SWEEP, LIVING_GAP_SWEEP)
+	for li in layers.size():
+		for s: Vector2 in spans[li]:
+			draw_arc(c, r, s.x, s.y, LineGlow.segments(r, s.y - s.x), layers[li][1], layers[li][0])
 	LineGlow.ring(self, c + _facing * r, radius * 0.45, col, maxf(1.8, width * 0.6), 0.0, core)   # a thin stroke: the head stays visibly hollow
 	if kind == "guard":
 		LineGlow.ring(self, off, radius * 1.6, Palette.c("vei"), 2.2, 0.5)

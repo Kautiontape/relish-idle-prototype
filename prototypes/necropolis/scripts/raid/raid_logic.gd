@@ -1912,6 +1912,28 @@ static func capture_outcome(struck: bool, countered: bool, aimed: bool) -> Strin
 	return "clear"
 
 
+## The arcs of a living unit's bow, per LineGlow layer (outermost first; the last is the core): an Array with one
+## entry per layer, each an Array of Vector2(start, end) radians. The first `solid` layers (the faint halo) are one
+## span from the first dash's start to the last dash's end; every other layer is `dashes` dashes, dash i starting at
+## a0 + i * (dash_sweep + gap_sweep) and sweeping dash_sweep. The core and the layer just inside it are never
+## solid (the dash rhythm is the non-colour 'living' signal), so solid is clamped to layer_count - 2 (0 for a
+## stack of one or two layers).
+static func living_bow_spans(a0: float, layer_count: int, solid: int, dashes: int, dash_sweep: float, gap_sweep: float) -> Array:
+	var n_solid := clampi(solid, 0, maxi(layer_count - 2, 0))
+	var out := []
+	var last_end := a0 + float(dashes - 1) * (dash_sweep + gap_sweep) + dash_sweep
+	for l in layer_count:
+		var spans := []
+		if l < n_solid:
+			spans.append(Vector2(a0, last_end))
+		else:
+			for i in dashes:
+				var da := a0 + float(i) * (dash_sweep + gap_sweep)
+				spans.append(Vector2(da, da + dash_sweep))
+		out.append(spans)
+	return out
+
+
 ## Count one closed tell into a capture tally {kind: {tells, shown, struck, countered, dodged, clear,
 ## cancelled}}: `shown` when she stood in the warden's room as it began; `outcome` one capture_outcome gives,
 ## or "cancelled" (a horn took it before it struck).

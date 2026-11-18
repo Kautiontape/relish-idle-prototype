@@ -1271,10 +1271,47 @@ func _contrast_tests(t: TestUtil) -> void:
 	var living_src := _func_src(us, "func _draw_living(")
 	var undead_src := _func_src(us, "func _draw_undead(")
 	undead_src = undead_src.substr(0, undead_src.find("\nconst "))   # up to the living's constants that follow it
-	t.ok(living_src.contains("for i in LIVING_DASHES") and living_src.contains("LineGlow.layers(") and living_src.contains("draw_arc(") and living_src.contains("LineGlow.ring("), "the living's bow is dashed LineGlow arcs, the hollow ring head kept")
+	t.ok(living_src.contains("RaidLogic.living_bow_spans(") and living_src.contains("LIVING_DASHES") and living_src.contains("LineGlow.layers(") and living_src.contains("draw_arc(") and living_src.contains("LineGlow.ring("), "the living's bow is dashed LineGlow arcs, the hollow ring head kept")
 	t.ok(not undead_src.contains("LIVING_DASHES") and undead_src.contains("draw_line("), "the undead's strokes stay solid")
 	var sweep := 3.0 * 0.56 + 2.0 * 0.36
 	t.ok(us.contains("const LIVING_DASHES := 3") and us.contains("const LIVING_DASH_SWEEP := 0.56") and us.contains("const LIVING_GAP_SWEEP := 0.36") and sweep <= 2.45, "three dashes and their gaps span the bow's 2.4 rad")
+	# perf: the bow's two faint halo layers are one solid arc each, the inner two stay dashed (8 draw_arc calls, not 12)
+	var a0 := 0.7
+	var ds := 0.56
+	var gp := 0.36
+	var spans := RaidLogic.living_bow_spans(a0, 4, 2, 3, ds, gp)
+	var calls := 0
+	for ls in spans:
+		calls += (ls as Array).size()
+	t.ok(spans.size() == 4 and calls == 8, "a 4-layer living bow draws 8 arcs (was 12): %d" % calls)
+	var whole_end := a0 + 2.0 * (ds + gp) + ds
+	var halo_ok := true
+	for l in 2:
+		halo_ok = halo_ok and (spans[l] as Array).size() == 1 and is_equal_approx((spans[l][0] as Vector2).x, a0) and is_equal_approx((spans[l][0] as Vector2).y, whole_end)
+	t.ok(halo_ok, "the two outer layers are one span each, first dash's start to last dash's end")
+	var dash_ok := true
+	for l in [2, 3]:
+		dash_ok = dash_ok and (spans[l] as Array).size() == 3
+		for i in 3:
+			var da := a0 + float(i) * (ds + gp)
+			dash_ok = dash_ok and (spans[l][i] as Vector2).is_equal_approx(Vector2(da, da + ds))
+	t.ok(dash_ok, "the inner two layers are today's three dashes exactly (same starts and sweeps)")
+	# a short stack: the core and the layer just inside it stay dashed (solid = min(solid, layers - 2))
+	for lc in [1, 2]:
+		var sh := RaidLogic.living_bow_spans(a0, lc, 2, 3, ds, gp)
+		var all_dashed: bool = sh.size() == lc
+		for ls in sh:
+			all_dashed = all_dashed and (ls as Array).size() == 3
+		t.ok(all_dashed, "a %d-layer stack draws every layer dashed, never the core solid" % lc)
+	var three := RaidLogic.living_bow_spans(a0, 3, 2, 3, ds, gp)
+	t.ok((three[0] as Array).size() == 1 and (three[1] as Array).size() == 3 and (three[2] as Array).size() == 3, "a 3-layer stack solids only the outermost")
+	var no_solid := RaidLogic.living_bow_spans(a0, 4, 0, 3, ds, gp)
+	var none_ok := true
+	for ls in no_solid:
+		none_ok = none_ok and (ls as Array).size() == 3
+	t.ok(none_ok, "living_bow_solid_layers 0 keeps every layer dashed")
+	var lcfg: Dictionary = TestUtil.load_json("res://configs/raid.json").get("combat", {})
+	t.ok(int(lcfg.get("living_bow_solid_layers", -1)) == 2 and us.contains("living_bow_solid_layers\", 2)"), "the solid count is raid.combat.living_bow_solid_layers (2), read with that fallback")
 
 
 ## The compact goal block: the decision, the rows, the ring's rect, and the HUD's wiring (source text).

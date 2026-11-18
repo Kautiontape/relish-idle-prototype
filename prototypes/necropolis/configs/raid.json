@@ -473,6 +473,8 @@
     "wander_repick_min_s": 2.0,
     "wander_repick_max_s": 5.0,
     "strike_reach_pad": 7.0,
+    "_doc_living_bow": "Draw only (RaidUnit._draw_living, RaidLogic.living_bow_spans): living_bow_solid_layers is how many of the living bow's faint outer glow layers (LineGlow's stack, outermost first) draw as one solid arc over the whole bow instead of three dashes; the core and the layer just inside it always stay dashed (the dash rhythm is the non-colour 'living' signal), so a short stack solids fewer. 2 = 8 draw_arc calls per living unit instead of 12 (clarity round 2 perf follow-up). 0 = every layer dashed, as before.",
+    "living_bow_solid_layers": 2,
     "ally_follow_px": 150.0,
     "route_repath_s": 0.25,
     "route_door_pad_px": 14.0
