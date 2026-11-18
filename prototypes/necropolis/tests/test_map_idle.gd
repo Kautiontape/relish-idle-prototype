@@ -70,10 +70,11 @@ func _layout_key(t: TestUtil) -> void:
 		v[k] = changes[k]
 		t.ok(IdleLogic.layout_key(v) != k0, "a changed %s changes the key" % k)
 	# Relish moving inside one cell leaves the cell, and so the key, alone
-	var c1 := IdleLogic.token_cell(Vector2(100, 50), grid)
-	var c2 := IdleLogic.token_cell(Vector2(100 + grid * 0.4, 50 - grid * 0.4), grid)
-	t.ok(c1 == c2, "a token move of 0.4 cell stays in its grid cell")
-	t.ok(IdleLogic.token_cell(Vector2(100 + grid, 50), grid) != c1, "a move of a whole cell changes the cell")
+	var mid := Vector2(8.0, 4.0) * grid  # a cell's centre
+	var c1 := IdleLogic.token_cell(mid, grid)
+	var c2 := IdleLogic.token_cell(mid + Vector2(grid * 0.4, -grid * 0.4), grid)
+	t.ok(c1 == c2, "a token move of 0.4 cell from a cell's centre stays in its grid cell")
+	t.ok(IdleLogic.token_cell(mid + Vector2(grid, 0.0), grid) != c1, "a move of a whole cell changes the cell")
 	# the pad covers the distance from the cell's centre to any point in it
 	var corner := IdleLogic.token_center(c1, grid) + Vector2(grid, grid) * 0.5  # a cell is centred on its centre
 	t.ok(absf((corner - IdleLogic.token_center(c1, grid)).length() - IdleLogic.token_pad(grid)) < 0.001, "the token pad is half the cell's diagonal (%.2f)" % IdleLogic.token_pad(grid))
