@@ -166,7 +166,8 @@ func _stalk(delta: float, stop_px: float, tgt: Dictionary) -> void:
 
 ## Where the dash really ends: along from->to, stopping at the first wall.
 func _wall_clipped(from: Vector2, to: Vector2) -> Vector2:
-	return WardenLogic.wall_clipped(from, to, radius, raid.resolve_walls)
+	var resolve: Callable = raid.resolve_walls   # raid is a Node2D: the method is looked up by name, so say what it is
+	return WardenLogic.wall_clipped(from, to, radius, resolve)
 
 
 func _begin_lunge() -> void:

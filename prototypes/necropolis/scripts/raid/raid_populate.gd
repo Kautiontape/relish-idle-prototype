@@ -17,7 +17,8 @@ func populate(cfg: Dictionary, fort_id: String, tier: int) -> void:
 	var relish: RaidRelish = _raid.relish
 	var living := float(sd.get("living", 0.0))
 	var cap := float(sd.get("fort", {}).get("cap", 100.0))
-	if living > 0.05:
+	var floor_living := float(ConfigDb.data["realm"]["hold"]["clear_min_living"])   # realm.json hold.clear_min_living: the spawn floor GameState mirrors
+	if living > floor_living:
 		var n := RaidLogic.enemy_count(living, cap, cfg)
 		var mpe := living / n
 		# the guarded detour's guard comes out of the fort's own count: the same bodies, mass and motes, placed

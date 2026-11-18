@@ -246,7 +246,7 @@ static func slam_crosses(dist: float, r_prev: float, r_now: float, band_px: floa
 ## scaled by the weak point's dmg_mult. With the risk lever on (`lever`: WardenLogic.lever_on; D-d/E Step
 ## 4b, the counter is the soak; the chain no longer soaks a slam there) a muffled slam does not reach
 ## Relish at all; below it (t1, the first dungeon) she takes the scaled slam as at 5b70259.
-static func slam_damage(sp: Dictionary, target: String, beef: float, muffled: bool, lever := true) -> float:
+static func slam_damage(sp: Dictionary, target: String, beef: float, muffled: bool, lever: bool) -> float:
 	if target == "relish" and muffled and lever:
 		return 0.0
 	var at: Dictionary = sp.get("attack", {})
@@ -256,6 +256,14 @@ static func slam_damage(sp: Dictionary, target: String, beef: float, muffled: bo
 	if muffled:
 		d *= float((sp.get("weak_point", {}) as Dictionary).get("dmg_mult", 1.0))
 	return d
+
+
+## How far the slam's ring really reaches: its radius plus half its band (the same edge slam_crosses uses).
+## The tell's edge warning and the toll's "beyond the slam" test read this, so the warning is on wherever the
+## slam can land (it stopped at the bare radius, 18 px short of the ring's outer edge).
+static func slam_edge_px(sp: Dictionary) -> float:
+	var at: Dictionary = sp.get("attack", {})
+	return float(at.get("radius_px", 360.0)) + float(at.get("band_px", 36.0)) * 0.5
 
 
 ## Contacts are [{beef}]: big undead touching the bell. Muffled when any has beef >= threshold.

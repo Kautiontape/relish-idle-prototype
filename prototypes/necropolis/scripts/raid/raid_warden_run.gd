@@ -223,6 +223,8 @@ func on_chest_opened(c: RaidChest) -> void:
 	_raid.found_loot = RaidLogic.merge_loot(_raid.found_loot, _raid.chest_loot())
 	e.ended = true
 	e.pending_exit = RaidLogic.pending_on("chest_opened")
+	# the win's loot (what build_result pays below), checkpointed and saved now: a crash in the beat resumes as the win
+	e.checkpoint_ending(RaidLogic.result_loot("warden_beaten", false, _raid.found_loot, _raid.carried_count(), e.banked))
 	_raid.trance.force_end()
 	var wc: Dictionary = _raid.rcfg().get("wardens", {})
 	RaidFx.ring(_raid.fx_root, c.global_position, Palette.c("vei"), 120.0, 0.9, 5.0)

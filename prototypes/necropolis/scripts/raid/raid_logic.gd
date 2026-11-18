@@ -230,6 +230,14 @@ static func close_exit(ended: bool, pending_exit: String) -> String:
 	return pending_exit if ended and pending_exit in ["relish_died", "warden_beaten"] else "retreated"
 
 
+## The outcome a checkpoint sent to the state carries (RaidEndings._send_checkpoint): the ending beat already
+## playing (`pending_exit`: relish_died or warden_beaten, from pending_on), else "retreated". A save written
+## mid-beat, or a crash, then ends the run as that ending on the next load, and no later checkpoint can
+## write "retreated" back over it. Any other string reads as a retreat.
+static func checkpoint_outcome(pending_exit: String) -> String:
+	return pending_exit if pending_exit in ["relish_died", "warden_beaten"] else "retreated"
+
+
 ## The exit an ending beat leaves pending when it starts: `chest_opened` (the warden's victory beat)
 ## -> warden_beaten, `relish_died` (her death beat) -> relish_died; "" for anything else.
 static func pending_on(event: String) -> String:

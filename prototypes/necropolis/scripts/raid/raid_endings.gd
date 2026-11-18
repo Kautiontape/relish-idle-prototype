@@ -87,11 +87,26 @@ func clamp_banked() -> void:
 	_send_checkpoint()
 
 
-## Tell the state what is banked. TODO(api-request #4): cmd_run_checkpoint(run_id, loot) is not
-## in the state API yet, so this is a no-op until it lands.
-func _send_checkpoint() -> void:
-	if _raid._from_run and Game.state.has_method("cmd_run_checkpoint"):
-		Game.state.cmd_run_checkpoint(int(_raid.seed_data.get("run_id", 0)), banked)
+## Tell the state what is banked and the exit the run would end in now (Game.state.cmd_run_checkpoint; a
+## save written from here, or a crash, ends the run from it on the next load). The outcome comes from
+## `pending_exit` (RaidLogic.checkpoint_outcome), so it is sticky: once an ending beat has begun, no later
+## call (take_checkpoint, clamp_banked) can write "retreated" back over it. `loot` is `banked` unless the
+## victory beat passes the win's loot.
+func _send_checkpoint(loot := {}) -> void:
+	if _raid._from_run:
+		Game.state.cmd_run_checkpoint(int(_raid.seed_data.get("run_id", 0)), banked if loot.is_empty() else loot,
+			RaidLogic.checkpoint_outcome(pending_exit))
+
+
+## An ending beat has begun (`pending_exit` is set): record it with the state and save now, so a crash in
+## the beat resumes as that ending and not as a retreat (the autosave clock is 30 s of real time).
+## `loot` is `banked` (a death keeps the last checkpoint snapshot) or the win's loot.
+func checkpoint_ending(loot := {}) -> void:
+	if not _raid._from_run:
+		return
+	_send_checkpoint(loot)
+	if Game.has_method("autosave"):
+		Game.autosave()
 
 
 # ------------------------------------------------------------------ retreat ---
@@ -125,8 +140,7 @@ func confirm_exit(by := "") -> void:
 
 
 # ------------------------------------------------------------------- close ---
-## "No run survives a close" (IDLE I5), the scene's stand-in until economy's cmd_run_checkpoint lands
-## (TODO(api-request #4)): the window is asked to close mid-run, so the run ends now. Only a
+## "No run survives a close" (IDLE I5): the window is asked to close mid-run, so the run ends now. Only a
 ## router-launched run does this (not standalone); it must emit before the quit save, see raid.gd
 ## `_notification`. True when it emitted.
 ##   dungeon  a retreat paying the last checkpoint snapshot (what was found since is lost, the same
@@ -185,6 +199,7 @@ func on_relish_died() -> void:
 		return
 	ended = true
 	pending_exit = RaidLogic.pending_on("relish_died")
+	checkpoint_ending()   # a death keeps the last checkpoint snapshot: a crash in the beat resumes as a death
 	_raid.trance.force_end()
 	RaidFx.ring(_raid.fx_root, _raid.relish.global_position, Palette.c("danger"), 90.0, 0.8, 4.0)
 	RaidFx.ring(_raid.fx_root, _raid.relish.global_position, Palette.c("relish"), 50.0, 0.8, 3.0)
