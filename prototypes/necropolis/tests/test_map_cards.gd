@@ -466,7 +466,7 @@ func _comes(t: TestUtil) -> void:
 	var fa_oi := fa_ok.find_custom(func(i): return str(i["act"]) == "descend")
 	t.ok(fa_ok[fa_oi - 1]["text"] == "6 undead and 1 big undead come in" and not fa_ok[fa_oi - 1].has("key"), "no warning: the count line sits above DESCEND, uncoloured")
 	# vei: fronts short versus met
-	var short :={"fronts_met": 1, "fronts_required": 3}
+	var short := {"fronts_met": 1, "fronts_required": 3}
 	var sentence := "Fronts met 1 of 3 required: Vei will likely win. Assign big undead to the open fronts."
 	var ro := {"odds": 0.61, "sign": 1, "drain_s": 200.0}
 	t.ok(CardLogic.confirm_text(ro, short).ends_with("\n" + sentence), "confirm_text appends the shortfall on its own line")

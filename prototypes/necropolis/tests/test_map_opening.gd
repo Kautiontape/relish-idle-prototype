@@ -18,7 +18,7 @@ func run() -> int:
 	_flash(t)
 	_seen(t)
 	_tithe(t)
-	_pending_tithe(t)
+	_tithe_focus(t)
 	_seen_reset(t)
 	_panel(t)
 	_collapse(t)
@@ -106,12 +106,19 @@ func _flash(t: TestUtil) -> void:
 	t.ok(OpeningLogic.flash_active(0.0, beat) and not OpeningLogic.flash_active(beat, beat) and not OpeningLogic.flash_active(-1.0, beat), "active for [0, one beat)")
 
 
-func _pending_tithe(t: TestUtil) -> void:
-	var forts := [{"id": "ashgate", "tithe": {"targeted": false, "eta_s": -1.0}}, {"id": "greywall", "tithe": {"targeted": true, "eta_s": 88.0}}]
-	var p := OpeningLogic.pending_tithe(forts, false)
-	t.ok(p["fort_id"] == "greywall" and is_equal_approx(float(p["eta_s"]), 88.0), "a warning already pending names its fort and the view's ETA")
-	t.ok(OpeningLogic.pending_tithe(forts, true).is_empty(), "nothing once the explanation has been seen")
-	t.ok(OpeningLogic.pending_tithe([forts[0]], false).is_empty(), "nothing when no fort is targeted")
+func _tithe_focus(t: TestUtil) -> void:
+	var warn := {"target": "greywall", "eta_s": 88.0, "warning": true, "wave_active": false, "wave_s_left": -1.0, "next_target": "ashgate", "next_s": 300.0}
+	var f := OpeningLogic.tithe_focus(warn)
+	t.ok(f["fort_id"] == "greywall" and is_equal_approx(float(f["eta_s"]), 88.0), "a warning: the warned fort and its ETA, not next_target")
+	var wave := {"target": "greywall", "eta_s": 0.0, "warning": false, "wave_active": true, "wave_s_left": 40.0, "next_target": "ashgate", "next_s": 300.0}
+	f = OpeningLogic.tithe_focus(wave)
+	t.ok(f["fort_id"] == "greywall" and OpeningLogic.tithe_text("Greywall", float(f["eta_s"])).contains("in now:"), "a running wave: its fort, ETA 0 reads as now")
+	var idle := {"target": "", "eta_s": -1.0, "warning": false, "wave_active": false, "wave_s_left": -1.0, "next_target": "ashgate", "next_s": 212.0}
+	f = OpeningLogic.tithe_focus(idle)
+	t.ok(f["fort_id"] == "ashgate" and is_equal_approx(float(f["eta_s"]), 212.0), "no target: the fort the rule would pick, with next_s")
+	f = OpeningLogic.tithe_focus({"target": "", "eta_s": -1.0, "next_target": "", "next_s": -1.0})
+	t.ok(f["fort_id"] == "" and is_equal_approx(float(f["eta_s"]), -1.0), "neither: no fort")
+	t.ok(OpeningLogic.tithe_focus({})["fort_id"] == "", "an empty view: no fort")
 
 
 func _seen_reset(t: TestUtil) -> void:
@@ -215,11 +222,6 @@ func _tithe(t: TestUtil) -> void:
 	var txt := OpeningLogic.tithe_text("Ashgate", 240.0)
 	t.ok(txt == "Vei is sending a tithe wave at Ashgate in 4:00: a surge of the living to retake it. Stand Relish here, or place a big undead there as siege, to blunt it.", "the explanation names the fort and its ETA")
 	t.ok(OpeningLogic.tithe_text("Ashgate", 100.0).contains("in 1:40:"), "and follows the live ETA")
-	var forts := [{"id": "ashgate", "tithe": {"targeted": true, "eta_s": 88.0, "wave_active": false}}, {"id": "greywall", "tithe": {"targeted": false, "eta_s": -1.0, "wave_active": false}}]
-	t.near(OpeningLogic.tithe_eta(forts, "ashgate", 240.0), 88.0, 0.0001, "the live ETA is the fort's tithe.eta_s while targeted")
-	t.near(OpeningLogic.tithe_eta(forts, "greywall", 240.0), 240.0, 0.0001, "an untargeted fort falls back to the event's ETA")
-	t.ok(OpeningLogic.debug_tithe_fort(forts, "old-sluice") == "ashgate", "the debug trigger picks the fort a warning targets")
-	t.ok(OpeningLogic.debug_tithe_fort([forts[1]], "old-sluice") == "old-sluice", "else the demo fort")
 
 
 func _panel(t: TestUtil) -> void:
@@ -231,6 +233,14 @@ func _panel(t: TestUtil) -> void:
 	t.ok(low.y == 180.0, "with no room above (under the HUD) it goes below")
 	var edge := OpeningLogic.panel_pos(Vector2(1590, 500), size, vp, 100.0, 30.0, 8.0)
 	t.ok(edge.x == 1600.0 - 300.0 - 8.0, "and it is kept inside the viewport")
+	t.ok(OpeningLogic.panel_pos(Vector2(800, 500), size, vp, 100.0, 30.0, 8.0, Rect2()) == p, "no card: placement is unchanged")
+	var card := Rect2(1200, 60, 392, 780)
+	var near := OpeningLogic.panel_pos(Vector2(1300, 500), size, vp, 100.0, 30.0, 8.0, card)
+	t.ok(not Rect2(near, size).intersects(card), "a panel over the card moves clear of it")
+	t.ok(near.x == 1200.0 - 8.0 - 300.0 and near.y == 320.0, "to the card's left, a margin off, same height")
+	t.ok(OpeningLogic.panel_pos(Vector2(400, 500), size, vp, 100.0, 30.0, 8.0, card) == Vector2(250, 320), "a panel already clear stays put")
+	var low2 := OpeningLogic.panel_pos(Vector2(1300, 150), size, vp, 100.0, 30.0, 8.0, card)
+	t.ok(not Rect2(low2, size).intersects(card) and low2.y == 180.0, "also below the fort, and still under the HUD")
 
 
 func _lane(kind: String, from: String, to: String, rate: float, why: String) -> Dictionary:

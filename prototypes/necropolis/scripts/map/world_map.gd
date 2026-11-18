@@ -172,6 +172,7 @@ func _build_ui() -> void:
 	tithe_explain.cam = cam
 	tithe_explain.hud = hud
 	tithe_explain.seen = seen
+	tithe_explain.card = sidebar  # the plate keeps off the open card
 	tithe_explain.toast.connect(hud.show_toast)
 	layer.add_child(tithe_explain)
 	Game.game_event.connect(tithe_explain.on_event)
