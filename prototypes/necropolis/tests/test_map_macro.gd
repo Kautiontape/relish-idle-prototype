@@ -434,6 +434,20 @@ func _plates(t: TestUtil) -> void:
 	for k in labels:
 		var r := MapLogic.contrast_ratio(labels[k], under)
 		t.ok(r >= 4.5, "%s on the plate over %s: %.2f:1 (>= 4.5)" % [k, bright_key, r])
+	# the name tags (NodeLogic.name_tag) are drawn through the same plate (MapNodeLayer.draw_label): each tag's
+	# key over the plate composited on every lane colour the map draws at full alpha
+	var tag_forts := {
+		"overrun": {"held": false, "cap": 80.0, "living": 0.0, "undead": 30.0, "flipped_count": 0},
+		"retaken": {"held": false, "cap": 80.0, "living": 60.0, "undead": 0.0, "flipped_count": 1},
+		"first dungeon": {"held": false, "first_dungeon": true, "first_clear": true, "cap": 80.0, "living": 60.0},
+	}
+	for tk in tag_forts:
+		var tag := NodeLogic.name_tag(tag_forts[tk])
+		t.ok(not tag.is_empty(), "the %s fort has a name tag" % tk)
+		for lane_key in ["undead", "living", "vei"]:
+			var lane_under := Palette.c("ground").lerp(Palette.c(lane_key), 1.0 - plate.a)
+			var tr := MapLogic.contrast_ratio(Palette.c(str(tag["key"])), lane_under)
+			t.ok(tr >= 4.5, "the %s tag (%s) on its plate over a full-alpha %s lane: %.2f:1 (>= 4.5)" % [tk, tag["key"], lane_key, tr])
 	var chip_under := Palette.c("ground").lerp(Palette.c(bright_key), 1.0 - float(cfg["idle"]["plate_alpha"]))
 	for m in [IdleLogic.SAFE, IdleLogic.THIN, IdleLogic.WILL_FALL]:
 		var r := MapLogic.contrast_ratio(Palette.c(IdleLogic.color_key(m)), chip_under)

@@ -259,6 +259,8 @@ static func comes_in(fort: Dictionary, party: Dictionary, raid_cfg: Dictionary, 
 
 
 ## The standard party of tier `tier` (clamped 1..4): {undead, bigs}, from raid autopilot.party_profiles.
+## "Standard party" is raid.json autopilot.party_profiles: dungeon-owned (BALANCE 3's calibration
+## party), the one source on purpose. If dungeon retunes it, the warning moves with it.
 static func profile(tier: int, raid_cfg: Dictionary) -> Dictionary:
 	var p: Dictionary = raid_cfg.get("autopilot", {}).get("party_profiles", {}).get(str(clampi(tier, 1, 4)), {})
 	return {"undead": int(p.get("garrison_units", 0)) + int(p.get("starter_units", 0)), "bigs": (p.get("party", []) as Array).size()}
@@ -283,9 +285,9 @@ static func comes_in_warning(ci: Dictionary, prof: Dictionary, tier: int, dead: 
 	return {}
 
 
-## "Garrison 2 (from WAR) · starter 8 · big undead 1 · total 11".
+## "11 come in: garrison 2 (WAR) · starter 8 · big undead 1".
 static func comes_in_text(ci: Dictionary) -> String:
-	return str(_c().get("comes_in_fmt", "%d %d %d %d")) % [ci["garrison"], ci["starter"], ci["bigs"], ci["total"]]
+	return str(_c().get("comes_in_fmt", "%d %d %d %d")) % [ci["total"], ci["garrison"], ci["starter"], ci["bigs"]]
 
 
 ## The tide bias as the card says it: 3.0 reads "3", 2.5 reads "2.5".

@@ -269,7 +269,7 @@ func _update(refs: Dictionary, blk: Dictionary) -> void:
 			_put(refs["label"], str(blk["text"]))
 		"para":
 			_put(refs["label"], str(blk["text"]))
-			var style := _para_style(blk)  # a para's colour can change under the same id (comes_warn: danger / select)
+			var style := _para_style(blk)  # a para's colour can change under the same id
 			if refs.get("para_style", "") != style:
 				refs["para_style"] = style
 				_face(refs["label"], str(blk["face"]), str(blk["key"]))

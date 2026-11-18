@@ -115,17 +115,17 @@ func _chips(t: TestUtil) -> void:
 func _state(t: TestUtil) -> void:
 	var veis := CardLogic.fort_state({"held": false, "cap": 80.0, "living": 60.0, "undead": 2.0, "flipped_count": 0})
 	t.ok(veis["state"] == "veis" and veis["chip"] == {"text": "VEI'S", "key": "living"}, "a Vei's fort: " + str(veis["chip"]))
-	t.ok(veis["line"] == "Not taken yet. Raid it and break its warden to take it.", "its line: " + str(veis["line"]))
+	t.ok(veis["line"] == "Not taken yet.", "its line: " + str(veis["line"]))
 	var over := CardLogic.fort_state({"held": false, "cap": 80.0, "living": 0.0, "undead": 30.0, "flipped_count": 0})
-	t.ok(over["state"] == "veis" and over["chip"]["text"] == "VEI'S" and str(over["line"]).begins_with("Your undead fill it, but it's still Vei's."), "an overrun fort is still Vei's: " + str(over["line"]))
+	t.ok(over["state"] == "veis" and over["chip"]["text"] == "VEI'S" and over["line"] == "Your undead fill it, but it's still Vei's.", "an overrun fort is still Vei's: " + str(over["line"]))
 	var grace := CardLogic.fort_state({"held": true, "grace_s_left": 374.0, "margin": "thin"})
 	t.ok(grace["state"] == "held" and grace["chip"]["text"] == "HELD · Vei contests in 6:14" and grace["chip"]["key"] == "undead", "held in grace: " + str(grace["chip"]))
-	t.ok(str(grace["line"]).begins_with("Taken by you. Vei can't touch it until the clock runs out"), "grace line: " + str(grace["line"]))
+	t.ok(grace["line"] == "Taken by you. Vei contests it when the clock runs out.", "grace line: " + str(grace["line"]))
 	var cont := CardLogic.fort_state({"held": true, "grace_s_left": 0.0, "margin": "thin", "undead": 40.0, "garrison": 40.0})
 	t.ok(cont["state"] == "held" and cont["chip"]["key"] == IdleLogic.color_key("thin") and str(cont["chip"]["text"]).begins_with("HELD · 40 undead · "), "held contested wears the margin: " + str(cont["chip"]))
-	t.ok(str(cont["line"]).begins_with("Taken by you. Vei contests it now"), "contested line: " + str(cont["line"]))
+	t.ok(cont["line"] == "Taken by you. Vei contests it now: keep WAR coming, or stand Relish here.", "contested line: " + str(cont["line"]))
 	var ret := CardLogic.fort_state({"held": false, "flipped_count": 1, "cap": 80.0, "living": 60.0})
-	t.ok(ret["state"] == "retaken" and ret["chip"] == {"text": "RETAKEN", "key": "danger"} and str(ret["line"]).begins_with("Vei won it back."), "retaken: " + str(ret["chip"]))
+	t.ok(ret["state"] == "retaken" and ret["chip"] == {"text": "RETAKEN", "key": "danger"} and ret["line"] == "Vei won it back.", "retaken: " + str(ret["chip"]))
 	# the held chip
 	var both := CardLogic.held_chip({"held": true, "grace_s_left": 374.0, "margin": "safe", "undead": 64.0})
 	t.ok(both["text"] == "HELD · Vei contests in 6:14" and both["key"] == "undead", "grace beats the margin: " + str(both))
@@ -232,8 +232,8 @@ func _blocks(t: TestUtil) -> void:
 	t.ok(not (sc["blocks"] as Array).any(func(b): return b["id"] == "hint"), "no hint row when there is none")
 	var order: Array = ids.filter(func(i): return ["chips", "state", "raid", "retreat", "warden"].has(i))
 	t.ok(order == ["chips", "state", "raid", "retreat", "warden"], "order: chips, state, raid, retreat, warden: " + str(order))
-	t.ok(by_id["state"]["text"] == "Not taken yet. Raid it and break its warden to take it." and by_id["state"]["key"] == "text", "the state line")
-	t.ok(by_id["raid"]["text"] == "Raid: break the warden to take the fort. Loot: relics, husks, essence." and by_id["raid"]["key"] == "select", "the raid line, unheld")
+	t.ok(by_id["state"]["text"] == "Not taken yet." and by_id["state"]["key"] == "text", "the state line")
+	t.ok(by_id["raid"]["text"] == "Raid: break the warden to take it. Loot: relics, husks, essence." and by_id["raid"]["key"] == "select", "the raid line, unheld")
 	t.ok(by_id["retreat"]["text"].ends_with("the fort stays Vei's.") and by_id["retreat"]["key"] == "text_dim", "the retreat line, unheld")
 	var hf := _fort_entry()
 	hf["held"] = true
@@ -431,8 +431,9 @@ func _comes(t: TestUtil) -> void:
 	# the card
 	var back := {"death": {"outcome": "unmade", "respawn_s": 0.0, "loses": ["party"]}}
 	var ids: Array = _fc(_fort_entry(), "", back, {}, _loot_cfg())["blocks"].map(func(b): return b["id"])
-	var want := ["chips", "state", "raid", "retreat", "comes_in_head", "comes_in", "bring_more", "warden"]
-	t.ok(ids.filter(func(i): return want.has(i)) == want, "block order: chips, state, raid, retreat, comes_in_head, comes_in, bring_more, warden (no warning for a first dungeon): " + str(ids))
+	var want := ["chips", "state", "comes_in_head", "comes_in", "bring_more", "raid", "retreat", "warden"]
+	t.ok(ids.filter(func(i): return want.has(i)) == want, "block order: chips, state, who comes in (head, count, bring more), raid, retreat, warden: " + str(ids))
+	t.ok(not ids.has("comes_warn"), "the card has no comes_warn: the warning is the pinned line above DESCEND")
 	var warn_f := _fort_entry()
 	warn_f["first_dungeon"] = false
 	warn_f["tier"] = 2
@@ -441,17 +442,9 @@ func _comes(t: TestUtil) -> void:
 	for b in _fc(warn_f, "", back, {}, _loot_cfg())["blocks"]:
 		wb[b["id"]] = b
 		wids.append(b["id"])
-	want = ["chips", "state", "raid", "retreat", "comes_in_head", "comes_in", "bring_more", "comes_warn", "warden"]
-	t.ok(wids.filter(func(i): return want.has(i)) == want, "with a warning: comes_warn sits before the warden: " + str(wids))
-	t.ok(wb["comes_warn"]["key"] == "select" and wb["comes_warn"]["text"].begins_with("No undead come in:"), "nobody coming in, corpses there (dead 3.1): the select line on the card")
-	warn_f["dead"] = 0.0
-	var wb0 := {}
-	for b in _fc(warn_f, "", back, {}, _loot_cfg())["blocks"]:
-		wb0[b["id"]] = b
-	t.ok(wb0["comes_warn"]["key"] == "danger" and wb0["comes_warn"]["text"].begins_with("No undead and no corpses"), "nobody and no corpses: the danger line on the card")
-	t.ok(CardBlocksLogic.sig_of(wb["comes_warn"]) == CardBlocksLogic.sig_of(wb0["comes_warn"]), "the two warnings share a signature, so the view must restyle on the key")
-	t.ok(wb["comes_in_head"]["text"] == "WHO COMES IN" and wb["comes_in"]["face"] == "mass" and wb["comes_in"]["text"] == "Garrison 0 (from WAR) · starter 0 · big undead 0 · total 0", "the head and the count: " + str(wb["comes_in"]["text"]))
-	t.ok(wb["bring_more"]["key"] == "text_dim" and wb["bring_more"]["text"].contains("draws 3× its share") and wb["bring_more"]["text"].begins_with("Bring more: raise WAR on the valve;"), "the tide bias reads from config: " + str(wb["bring_more"]["text"]))
+	t.ok(wids.filter(func(i): return want.has(i)) == want and not wids.has("comes_warn"), "even with a warning due, the card shows it once, not as a block (the pinned line has it): " + str(wids))
+	t.ok(wb["comes_in_head"]["text"] == "WHO COMES IN" and wb["comes_in"]["face"] == "text" and wb["comes_in"]["text"] == "0 come in: garrison 0 (WAR) · starter 0 · big undead 0", "the head and the count, total first, in the text face: " + str(wb["comes_in"]["text"]))
+	t.ok(wb["bring_more"]["key"] == "text_dim" and wb["bring_more"]["text"].contains("draws 3× its share") and wb["bring_more"]["text"].begins_with("More: raise WAR on the valve") and wb["bring_more"]["text"].contains("crypt slab"), "the tide bias reads from config: " + str(wb["bring_more"]["text"]))
 	t.ok(CardLogic.bring_more_text(2.5).contains("2.5×") and CardLogic.bring_more_text(3.0).contains("3×") and not CardLogic.bring_more_text(3.0).contains("3.0"), "no trailing .0")
 	# the pinned line and the descend dialog text
 	t.ok(CardLogic.comes_count_text({"garrison": 2, "starter": 8, "bigs": 1, "total": 11}) == "10 undead and 1 big undead come in", "the pinned count")
