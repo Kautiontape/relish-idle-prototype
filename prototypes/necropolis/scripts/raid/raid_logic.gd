@@ -6,6 +6,31 @@ extends RefCounted
 ## every function takes a cfg Dictionary (parsed configs/raid.json) so tests run headless.
 
 
+# ------------------------------------------------- warned-attack assist ----
+## "Longer warnings": an optional accessibility switch. Memory only (session lifetime, no save field): `assist_on`
+## is flipped by the legend's toggle row or the --raid-assist dev flag and read where a warned attack's tell
+## window is sized (WardenLogic.attack_tell), so a change takes effect on the next tell laid. No loot penalty.
+static var assist_on := false
+static var assist_mult := 1.5
+static var _assist_booted := false
+
+
+## What the boot applies from raid.json's `assist`: [the switch's first value or null to leave it, tell_mult].
+## `enabled` seeds the switch only on a session's first boot (a later raid keeps what the player chose).
+static func assist_boot_state(cfg: Dictionary, booted: bool) -> Array:
+	var on = null if booted else bool(cfg.get("enabled", false))
+	return [on, float(cfg.get("tell_mult", 1.5))]
+
+
+## Called as each raid is built, with raid.json's `assist` block.
+static func assist_boot(cfg: Dictionary) -> void:
+	var st := assist_boot_state(cfg, _assist_booted)
+	if st[0] != null:
+		assist_on = st[0]
+	assist_mult = st[1]
+	_assist_booted = true
+
+
 # ------------------------------------------------------------ mass mappings --
 static func enemy_count(living: float, cap: float, cfg: Dictionary) -> int:
 	var m: Dictionary = cfg.get("mass", {})

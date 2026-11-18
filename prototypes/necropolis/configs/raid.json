@@ -9,6 +9,11 @@
     "revive_iframes_s": 1.5,
     "light_radius_px": 220.0
   },
+  "assist": {
+    "_doc": "The warned-attack assist (an accessibility toggle, session memory only, no save field, no loot penalty): off by default. When on, every warned attack's tell window (warning shown to the hit landing) is multiplied by tell_mult: the Bellringer's slam rings and toll, the Huntsman's lunge, the Shieldwall's bash and rush lanes, the Pyre-priest's fire, Vei's weaves. Nothing else changes (damage, the attack beats, RNG). `enabled` is the switch's value at a session's first raid; the CONTROLS legend's LONGER WARNINGS row flips it (--raid-assist turns it on); a change applies from the next tell laid.",
+    "enabled": false,
+    "tell_mult": 1.5
+  },
   "exits": {
     "radius_px": 120.0,
     "lip_len_px": 34.0,

@@ -6,7 +6,9 @@ extends Control
 ##
 ## Mouse only: a left press on the header row (open) or on the chip (collapsed) toggles it. No key does.
 ## Only the toggling press is accepted; every other mouse event passes through to the raid (a right
-## press on the legend still starts the trance). Anchored by its bottom-left corner: it grows upward.
+## press on the legend still starts the trance). Open, a last row (44 px tall) flips the warned-attack assist,
+## LONGER WARNINGS · off / on (RaidLogic.assist_on, memory only); a left press on it is accepted too, so it
+## never moves Relish. Anchored by its bottom-left corner: it grows upward.
 ## No autoloads (Palette reads its file when the config is absent).
 
 const L_HEADER := "CONTROLS"
@@ -19,7 +21,10 @@ const L_OR := "or"
 const L_MOUSE := "RIGHT MOUSE"
 const L_SLOW := "slow time"
 const L_DRAG := "then drag a loop around essence to RAISE undead"
-const CAP_PAD := 7.0     # a key cap's side padding
+const L_ASSIST := "LONGER WARNINGS"   # the warned-attack assist's toggle row (RaidLogic.assist_on): "LONGER WARNINGS · off" / "· on"
+const L_OFF := "off"
+const L_ON := "on"
+const CAP_PAD := 7.0    # a key cap's side padding
 const CAP_VPAD := 5.0    # and its top and bottom
 const MIN_PX := 13      # nothing in the legend is set smaller
 const HDR_HIT := 44.0   # the header's hit band is at least this tall (touch floor)
@@ -32,6 +37,8 @@ var _gap := 8.0
 var _alpha := 0.97
 var _chip := Vector2(140.0, 44.0)
 var _header_rect := Rect2()
+var _assist_rect := Rect2()   # the LONGER WARNINGS row's hit band (open only): the plate's width, at least HDR_HIT tall
+var _assist_box := Rect2()    # its drawn cap
 var _rows: Array = []   # per row: [y, [[kind, text, x, w], ...]] kind "cap" or "txt"
 var _hdr_hide_x := 0.0
 var _hdr_base := 0.0   # the header label's baseline
@@ -94,9 +101,16 @@ func _fit() -> void:
 			_rows.append([y, row[0], items])
 			widest = maxf(widest, x - _gap - _pad)
 			y += float(row[0]) + _gap
+		# the assist toggle row: one cap, as tall as the touch floor; its words are the same width on or off
+		var abw := maxf(_w(_assist_text(false), _key_px), _w(_assist_text(true), _key_px)) + 2.0 * CAP_PAD
+		_assist_rect = Rect2(0.0, y, 0.0, HDR_HIT)
+		_assist_box = Rect2(_pad, y, abw, HDR_HIT)
+		widest = maxf(widest, abw)
+		y += HDR_HIT + _gap
 		var w := widest + 2.0 * _pad
 		var h := y - _gap + _pad
 		_header_rect.size.x = w
+		_assist_rect.size.x = w
 		_hdr_hide_x = w - _pad - _w(L_HIDE, _key_px)
 		size = Vector2(w, h)
 	else:
@@ -118,10 +132,26 @@ func classify(ev: InputEvent) -> bool:
 	return Rect2(Vector2.ZERO, size).has_point(mb.position)
 
 
+## True only for a left press on the LONGER WARNINGS row (open only). No key flips it.
+func classify_assist(ev: InputEvent) -> bool:
+	if not is_open or not (ev is InputEventMouseButton):
+		return false
+	var mb := ev as InputEventMouseButton
+	return mb.button_index == MOUSE_BUTTON_LEFT and mb.pressed and _assist_rect.has_point(mb.position)
+
+
+func _assist_text(on: bool) -> String:
+	return "%s · %s" % [L_ASSIST, L_ON if on else L_OFF]
+
+
 func _gui_input(ev: InputEvent) -> void:
 	if classify(ev):
 		accept_event()
 		toggle()
+	elif classify_assist(ev):
+		accept_event()   # swallowed: a left press on the row never moves Relish (the right mouse and Space still reach the trance)
+		RaidLogic.assist_on = not RaidLogic.assist_on   # memory only; applies from the next warned attack's tell
+		queue_redraw()
 
 
 func _draw() -> void:
@@ -136,6 +166,12 @@ func _draw() -> void:
 	var hy := _hdr_base
 	draw_string(font, Vector2(_pad, hy), L_HEADER, HORIZONTAL_ALIGNMENT_LEFT, -1.0, _key_px, Palette.c("text"))
 	draw_string(font, Vector2(_hdr_hide_x, hy), L_HIDE, HORIZONTAL_ALIGNMENT_LEFT, -1.0, _key_px, Palette.c("text"))
+	var on := RaidLogic.assist_on
+	if on:
+		draw_rect(_assist_box, Palette.c("text", 0.16))
+	draw_rect(_assist_box, Palette.c("text") if on else Palette.c("text_dim"), false, 1.5)
+	draw_string(font, Vector2(_assist_box.position.x + CAP_PAD, _assist_box.position.y + _assist_box.size.y * 0.5 + float(_key_px) * 0.36),
+		_assist_text(on), HORIZONTAL_ALIGNMENT_LEFT, -1.0, _key_px, Palette.c("text"))
 	for row in _rows:
 		var y: float = row[0]
 		var rh: float = row[1]

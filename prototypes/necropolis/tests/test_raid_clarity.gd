@@ -403,12 +403,31 @@ func _legend_tests(t: TestUtil) -> void:
 	t.ok(l.classify(_mouse(MOUSE_BUTTON_LEFT, on_chip)), "a left press on the chip opens it")
 	l.toggle()
 	t.ok(l.is_open and is_equal_approx(l.size.y, open_h) and is_equal_approx(l.position.y + l.size.y, bottom), "reopened to the same plate, bottom edge fixed")
+	# the LONGER WARNINGS row (the warned-attack assist): the last row, at least 44 px tall, a left press only
+	var arow := l._assist_rect
+	t.ok(arow.size.y >= 44.0 and is_equal_approx(arow.end.y + float(cfg.get("pad_px", 10)), l.size.y), "the assist row is the plate's last row, at least 44 px tall")
+	var mid_a := arow.position + arow.size * 0.5
+	t.ok(l.classify_assist(_mouse(MOUSE_BUTTON_LEFT, mid_a)) and l.classify_assist(_mouse(MOUSE_BUTTON_LEFT, arow.position + Vector2(1.0, 1.0)))
+		and l.classify_assist(_mouse(MOUSE_BUTTON_LEFT, arow.end - Vector2(1.0, 1.0))), "a left press anywhere on the assist row flips it")
+	t.ok(not l.classify(_mouse(MOUSE_BUTTON_LEFT, mid_a)) and not l.classify_assist(_mouse(MOUSE_BUTTON_LEFT, on_row2))
+		and not l.classify_assist(_mouse(MOUSE_BUTTON_LEFT, Vector2(open_w - 20.0, 14.0))), "the row and the header are separate targets")
+	var only_left := not l.classify_assist(_mouse(MOUSE_BUTTON_RIGHT, mid_a)) and not l.classify_assist(_mouse(MOUSE_BUTTON_LEFT, mid_a, false))
+	for ev2 in [_key(KEY_SPACE), _key(KEY_ENTER), accept]:
+		only_left = only_left and not l.classify_assist(ev2)
+	t.ok(only_left, "a right press (the trance), a left release, Space, Enter and ui_accept never flip it")
+	var saved_assist := RaidLogic.assist_on
+	RaidLogic.assist_on = false
+	t.ok(l._assist_text(false) == "LONGER WARNINGS · off" and l._assist_text(true) == "LONGER WARNINGS · on", "the row reads LONGER WARNINGS · off / on")
+	RaidLogic.assist_on = saved_assist
+	l.toggle()
+	t.ok(not l.classify_assist(_mouse(MOUSE_BUTTON_LEFT, mid_a)), "collapsed to the chip, the row is not there to press")
 	l.free()
 	var leg_src := FileAccess.get_file_as_string("res://scripts/raid/raid_legend.gd")
 	var gi := leg_src.find("func _gui_input")
 	var gbody := leg_src.substr(gi, leg_src.find("\nfunc ", gi + 10) - gi) if gi >= 0 else ""
 	t.ok(gi >= 0 and RegEx.create_from_string("if classify\\(ev\\):\\s*accept_event\\(\\)").search(gbody) != null
-		and gbody.count("accept_event()") == 1, "_gui_input accepts an event only inside `if classify(ev):`")
+		and RegEx.create_from_string("elif classify_assist\\(ev\\):\\s*accept_event\\(\\)").search(gbody) != null
+		and gbody.count("accept_event()") == 2, "_gui_input accepts an event only inside `if classify(ev):` or `elif classify_assist(ev):`")
 	var hud_src := FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd")
 	t.ok(hud_src.contains("Game.state.view_hud().get(\"highest_tier_flipped\", 0)"), "the HUD reads highest_tier_flipped from view_hud()")
 	var i := hud_src.find("RaidLegend.new()")

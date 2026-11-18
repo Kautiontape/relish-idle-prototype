@@ -92,7 +92,7 @@ func _on_phase_change(old: int, new: int) -> void:
 
 
 func _tell() -> float:
-	return float(spec.get("attack", {}).get("tell_beats", 1.0))
+	return WardenLogic.attack_tell(spec.get("attack", {}))
 
 
 ## The bash arc's half-width now, in degrees: the phase's front, wider by `rush_half_deg` through a rush's

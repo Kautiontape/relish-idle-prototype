@@ -169,6 +169,7 @@ func _build() -> void:
 	RaidRoute.reset_seq()   # the per-mover stagger restarts each raid (same seed, same run)
 	_standalone = get_tree().current_scene == self
 	var cfg := rcfg()
+	RaidLogic.assist_boot(cfg.get("assist", {}))   # the warned-attack assist: raid.json's tell_mult (and, the session's first raid, its switch)
 	var boss := is_boss()
 	var fort_id := str(seed_data.get("fort_id", "fort")) if boss else str(seed_data.get("fort", {}).get("id", "fort"))
 	var tier := int(seed_data.get("tier", 1)) if boss else fort_tier()

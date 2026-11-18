@@ -278,7 +278,45 @@ func run() -> int:
 	_shield_tests(t, cfg)
 	_pyre_tests(t, cfg)
 	_pack_tests(t, cfg)
+	_assist_tests(t, cfg)
 	return t.failures
+
+
+## The warned-attack assist (raid.json `assist`): every warned attack's tell window goes through
+## WardenLogic.tell_len / attack_tell. Off is the base number untouched; on is base x tell_mult.
+func _assist_tests(t: TestUtil, cfg: Dictionary) -> void:
+	t.suite("warden_assist")
+	var a: Dictionary = cfg.get("assist", {})
+	t.ok(a.has("_doc") and a.get("enabled", true) == false and float(a.get("tell_mult", 0.0)) > 1.0, "raid.json assist: documented, off by default, tell_mult above 1")
+	t.ok(WardenLogic.tell_len(1.0, false, 1.5) == 1.0 and WardenLogic.tell_len(2.0, false, 7.0) == 2.0, "assist off: the base tell, exactly, whatever the multiplier")
+	t.ok(WardenLogic.tell_len(1.0, true, 1.5) == 1.5 and WardenLogic.tell_len(2.0, true, 1.5) == 3.0, "assist on: the base tell x tell_mult")
+	var saved_on := RaidLogic.assist_on
+	var saved_mult := RaidLogic.assist_mult
+	RaidLogic.assist_on = false
+	t.ok(WardenLogic.attack_tell({"tell_beats": 1.0}) == 1.0 and WardenLogic.attack_tell({}) == 1.0, "attack_tell off: the attack's tell_beats (1 when absent)")
+	t.ok(WardenLogic.attack_tell({"first_tell_beats": 2.0}, "first_tell_beats") == 2.0, "attack_tell reads a named key")
+	RaidLogic.assist_on = true
+	RaidLogic.assist_mult = 1.5
+	t.ok(WardenLogic.attack_tell({"tell_beats": 1.0}) == 1.5 and WardenLogic.attack_tell({"first_tell_beats": 2.0}, "first_tell_beats") == 3.0, "attack_tell on: x tell_mult")
+	RaidLogic.assist_on = saved_on
+	RaidLogic.assist_mult = saved_mult
+	t.ok(RaidLogic.assist_on == false, "the assist starts off in a fresh session")
+	# the boot applies raid.json once: enabled seeds the switch the first time only, tell_mult always
+	t.ok(RaidLogic.assist_boot_state({"enabled": true, "tell_mult": 2.0}, false) == [true, 2.0], "assist_boot_state: the first boot takes `enabled` and tell_mult")
+	t.ok(RaidLogic.assist_boot_state({"enabled": false, "tell_mult": 2.0}, true) == [null, 2.0], "assist_boot_state: a later boot leaves the switch alone")
+	# every warned attack's tell length reads through the helper (the call sites), never raw
+	var sites := {
+		"res://scripts/raid/warden_bellringer.gd": 5, "res://scripts/raid/warden_huntsman.gd": 1,
+		"res://scripts/raid/warden_shieldwall.gd": 1, "res://scripts/raid/warden_pyre_priest.gd": 1,
+		"res://scripts/raid/vei.gd": 1, "res://scripts/raid/raid_autopilot.gd": 1,
+	}
+	for path in sites.keys():
+		var src := FileAccess.get_file_as_string(path)
+		var n := src.count("WardenLogic.attack_tell(")
+		t.ok(n >= int(sites[path]), "%s reads its tell through WardenLogic.attack_tell (%d sites)" % [path.get_file(), n])
+		t.ok(not src.contains("get(\"tell_beats\"") and not src.contains("float(w.get(\"first_tell_beats\""), "%s has no raw tell_beats read" % path.get_file())
+	var bell_src := FileAccess.get_file_as_string("res://scripts/raid/warden_bellringer.gd")
+	t.ok(not bell_src.contains("tell_beats\", 1.0)"), "the Bellringer's toll budget and clapper read the assisted tell")
 
 
 ## D-d/E Step 3: a warden's pack (WardenLogic.pack_*; the Huntsman's hounds).

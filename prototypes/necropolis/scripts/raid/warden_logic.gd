@@ -181,6 +181,20 @@ static func wake_phase(now_ms: float, tempo_ms: float) -> float:
 	return fposmod(now_ms / maxf(tempo_ms, 1.0), 1.0)
 
 
+## The warned-attack assist (raid.json `assist`): a tell window of `base` beats, longer by `mult` when the assist
+## is on. Off branches out and returns `base` untouched (no multiply by 1.0), so off is bit-identical.
+static func tell_len(base: float, assist_on: bool, mult: float) -> float:
+	if assist_on:
+		return base * mult
+	return base
+
+
+## An attack's tell window in beats (`key` in its spec: tell_beats, or Vei's first_tell_beats) with the session's
+## assist applied (RaidLogic.assist_on / assist_mult). EVERY warned attack's tell length reads through here.
+static func attack_tell(attack: Dictionary, key: String = "tell_beats") -> float:
+	return tell_len(float(attack.get(key, 1.0)), RaidLogic.assist_on, RaidLogic.assist_mult)
+
+
 ## True while the telegraph shows: attack_beat - tell_beats <= beat < attack_beat.
 static func is_tell(beat: float, attack_beat: float, tell_beats: float) -> bool:
 	return beat >= attack_beat - tell_beats and beat < attack_beat

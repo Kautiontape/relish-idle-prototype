@@ -113,7 +113,7 @@ func pip_lit(i: int) -> bool:
 
 
 func _tell() -> float:
-	return float(spec.get("attack", {}).get("tell_beats", 1.0))
+	return WardenLogic.attack_tell(spec.get("attack", {}))
 
 
 ## Beats until the next burn (its tell shows for the last tell_beats of them).

@@ -97,7 +97,7 @@ func weave_step(beat: float) -> void:
 	if not weaves_on or not _relish_ok():
 		return
 	var w := wcfg()
-	var tb := float(w.get("first_tell_beats" if not first_done else "tell_beats", 1.0))
+	var tb := WardenLogic.attack_tell(w, "first_tell_beats" if not first_done else "tell_beats")
 	if not tell_on and beat >= next_beat - tb:
 		_lay(beat, tb)
 	if not tell_on:

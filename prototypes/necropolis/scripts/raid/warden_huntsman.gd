@@ -86,7 +86,7 @@ func _on_pack_down() -> void:
 
 
 func _tell() -> float:
-	return float(spec.get("attack", {}).get("tell_beats", 1.0))
+	return WardenLogic.attack_tell(spec.get("attack", {}))
 
 
 func _speed_now() -> float:
