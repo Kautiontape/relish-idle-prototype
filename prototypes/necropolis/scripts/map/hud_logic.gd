@@ -100,6 +100,17 @@ static func flood_shown(hud: Dictionary) -> bool:
 	return not bool(hud.get("won", false))
 
 
+## The valve shares Covington's glyph draws (its stems and their WORK / WAR / FLOOD labels): `shares` as
+## they are, or with FLOOD at 0 once the game is won (flood_shown), so no FLOOD stem or label points at a
+## beaten Vei while the sim still runs her share (#21). The glyph and the chips' obstacles both read it.
+static func glyph_shares(shares: Dictionary, hud: Dictionary) -> Dictionary:
+	if flood_shown(hud):
+		return shares
+	var out := shares.duplicate()
+	out["flood"] = 0.0
+	return out
+
+
 ## Whether your goal shows under the strip: at every tier (V-I1 item 9), until the game is won (the
 ## won strip and the victory set piece say the rest).
 static func goal_shown(hud: Dictionary) -> bool:

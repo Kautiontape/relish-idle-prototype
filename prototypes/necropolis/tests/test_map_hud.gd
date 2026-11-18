@@ -562,6 +562,14 @@ func _status(t: TestUtil) -> void:
 	t.ok(not HudLogic.flood_shown({"won": true}) and HudLogic.flood_shown({}), "the valve's FLOOD row and corner hide once won")
 	var vsrc := FileAccess.get_file_as_string("res://scripts/map/map_valve.gd")
 	t.ok(vsrc.contains("HudLogic.flood_shown(model.hud)") and vsrc.contains("_corner_btns[\"flood\"]"), "the valve panel applies flood_shown to its row and corner")
+	# Covington's glyph: no FLOOD stem or label once won (its width 0 drops both), the other stems as they are
+	var sh := {"work": 0.4, "war": 0.45, "flood": 0.15}
+	var gw := NodeLogic.valve_widths(HudLogic.glyph_shares(sh, {"won": true}))
+	t.ok(gw["flood"] == 0.0 and gw["war"] > 0.0 and gw["work"] > 0.0 and HudLogic.glyph_shares(sh, {}) == sh and sh["flood"] == 0.15, "a won map's glyph has no FLOOD stem; before the win the shares are untouched")
+	t.ok(not NodeLogic.valve_label_layout(NodeLogic.valve_dirs(Vector2.ZERO, Vector2(-300, -100), Vector2(-100, -500)), gw, true, 1.0, {"war": 40.0, "flood": 50.0, "work": 45.0, "covington": 90.0}, 13.0).has("flood"),
+		"and no FLOOD label in the layout the glyph and the chips' obstacles read")
+	t.ok(FileAccess.get_file_as_string("res://scripts/map/map_covington.gd").contains("HudLogic.glyph_shares(s, ctx.model.hud)")
+		and FileAccess.get_file_as_string("res://scripts/map/map_fort_idle.gd").count("HudLogic.glyph_shares(") == 2, "the glyph and both chip-layout reads take glyph_shares")
 	var hsrc2 := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
 	t.ok(hsrc2.contains("HudLogic.vei_readout_shown(hud)") and hsrc2.contains("_vei_group = [odds_name, _odds, strain_name, _sign, drain_name, _drain]"),"the bar applies it to the odds group, and the tithe line is untouched")
 	t.ok(FileAccess.get_file_as_string("res://scripts/map/map_vei.gd").contains("_readout_shown()"), "Vei's node applies it to her readout")
