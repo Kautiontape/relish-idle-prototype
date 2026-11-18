@@ -46,6 +46,21 @@ func _tip_rect(t: TestUtil) -> void:
 			hit = hit or r.intersects(p)
 		t.ok(not hit and view.encloses(r) and r.size == tip, "%s: the plate clears every HUD plate and stays on screen: %s" % [case[0], str(r)])
 		t.ok(not (case[2] as Rect2).intersects(r), "%s: and the open card" % case[0])
+	# a card that really is in the way: the card-less answer lands on it, the card-aware one avoids it and the plates
+	var wide := Rect2(600, 12, 1000, 888)
+	for w in [odds, mint]:
+		var bare := HudLogic.tip_rect(w, tip, plates, vp)
+		t.ok(bare.intersects(wide), "without the card the plate would sit on it: %s" % str(bare))
+		var dodged := HudLogic.tip_rect(w, tip, plates, vp, wide)
+		var dhit := false
+		for p in plates:
+			dhit = dhit or dodged.intersects(p)
+		t.ok(not dodged.intersects(wide) and not dhit and view.encloses(dodged), "with the card passed it clears the card and every plate, on screen: %s" % str(dodged))
+	var k0 := HudLogic.tip_key(odds, tip, plates, Rect2(), vp)
+	t.ok(k0 == HudLogic.tip_key(odds, tip, plates.duplicate(), Rect2(), vp), "tip_key: equal inputs, equal key")
+	t.ok(k0 != HudLogic.tip_key(odds, tip, plates, wide, vp), "tip_key: a card opening changes it")
+	t.ok(k0 != HudLogic.tip_key(odds, tip, plates.slice(1), Rect2(), vp), "tip_key: a plate going changes it")
+	t.ok(k0 != HudLogic.tip_key(mint, tip, plates, Rect2(), vp) and k0 != HudLogic.tip_key(odds, tip, plates, Rect2(), vp + Vector2(1, 0)), "tip_key: the word or the viewport moving changes it")
 	var r2 := HudLogic.tip_rect(odds, tip, plates, vp)
 	t.ok(r2.position.x >= 560.0 and r2.position.y >= 60.0, "with the column below the goal full, it goes right of the plates under the bar, over the map: %s" % str(r2))
 	var roomy := HudLogic.tip_rect(odds, tip, [Rect2(0, 0, 860, 60)], vp)

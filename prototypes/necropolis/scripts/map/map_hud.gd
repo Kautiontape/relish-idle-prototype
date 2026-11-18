@@ -68,6 +68,8 @@ var card: Control
 var _tip_word: Label  # the bar word the cursor rests on
 var _tip_wait := 0.0  # seconds until its plate shows
 var _tip_plate: TipPlate
+var _tip_size := Vector2.ZERO  # the shown plate's size before any shrink to the viewport
+var _tip_key: Array = []  # HudLogic.tip_key of its last placement
 var _bar: VBoxContainer  # one HBoxContainer row per HudLogic.wrap_rows row
 var _cells: Array = []  # the bar items (a box per stream, then the status box), in order
 var _row_sig := ""
@@ -416,17 +418,33 @@ func _show_tip() -> void:
 	var flags := TextServer.BREAK_WORD_BOUND | TextServer.BREAK_MANDATORY
 	var limit := float(MapLogic.cfg()["clarity"]["tooltip"]["max_w_px"]) - pad * 2.0
 	var text_sz := font.get_multiline_string_size(_tip_word.tooltip_text, HORIZONTAL_ALIGNMENT_LEFT, limit, fs, -1, flags)
-	var open_card := card != null and is_instance_valid(card) and card.is_visible_in_tree()
-	var r := HudLogic.tip_rect(Rect2(_tip_word.global_position, _tip_word.size), text_sz + Vector2(pad, pad) * 2.0, _tip_plates(),
-		get_viewport_rect().size, card.get_global_rect() if open_card else Rect2())
+	_tip_size = text_sz + Vector2(pad, pad) * 2.0
 	var p := _tip_plate
 	p.text = _tip_word.tooltip_text
 	p.font = font
 	p.font_size = fs
 	p.pad = pad
-	p.text_w = r.size.x - pad * 2.0
 	p.color = st["text"]
 	p.box = MapUi.plate_box(float(MapLogic.cfg()["clarity"]["tooltip"]["plate_alpha"]), pad)
+	_tip_key = []
+	_place_tip()
+
+
+## Puts the shown plate where HudLogic.tip_rect says, only when its inputs (HudLogic.tip_key) differ from the
+## last placement: the card opening or closing, the HUD re-laying out. Called every tick while it shows.
+func _place_tip() -> void:
+	var open_card := card != null and is_instance_valid(card) and card.is_visible_in_tree()
+	var word := Rect2(_tip_word.global_position, _tip_word.size)
+	var plates := _tip_plates()
+	var card_r: Rect2 = card.get_global_rect() if open_card else Rect2()
+	var vp := get_viewport_rect().size
+	var key := HudLogic.tip_key(word, _tip_size, plates, card_r, vp)
+	if _tip_plate.visible and key == _tip_key:
+		return
+	_tip_key = key
+	var r := HudLogic.tip_rect(word, _tip_size, plates, vp, card_r)
+	var p := _tip_plate
+	p.text_w = r.size.x - p.pad * 2.0
 	p.position = r.position - global_position
 	p.size = r.size
 	p.visible = true
@@ -575,7 +593,9 @@ func tick(delta: float) -> void:
 	if _tip_word != null:  # a resting bar word: its plate after the delay, gone with the word
 		if not is_instance_valid(_tip_word) or not _tip_word.is_visible_in_tree():
 			_hide_tip()
-		elif not _tip_plate.visible:
+		elif _tip_plate.visible:
+			_place_tip()
+		else:
 			_tip_wait -= delta
 			if _tip_wait <= 0.0:
 				_show_tip()
