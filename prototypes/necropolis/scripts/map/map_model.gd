@@ -160,17 +160,16 @@ func read_projections(town: Dictionary, force := false) -> void:
 
 
 ## The store stalls view_town() reports: {mill: {starved, lever} of the Bone Mill row ("" each when it
-## is not built or not starved), queue_stall: the first queue row that reads a starved reason, else {}}.
+## is not built or not starved), queue_stall: the queue's head (queue[0]) when it reads a starved reason, else {}}.
 static func stall_from(town: Dictionary) -> Dictionary:
 	var mill_row := {"starved": "", "lever": ""}
 	for b in town.get("buildings", []):
 		if str(b.get("building_id", "")) == "bone_mill" and str(b.get("starved", "")) != "":
 			mill_row = {"starved": str(b["starved"]), "lever": str(b.get("lever", ""))}
 	var head := {}
-	for q in town.get("queue", []):
-		if str(q.get("starved", "")) != "":
-			head = q
-			break
+	var queue: Array = town.get("queue", [])
+	if not queue.is_empty() and str(queue[0].get("starved", "")) != "":
+		head = queue[0]
 	return {"mill": mill_row, "queue_stall": head}
 
 

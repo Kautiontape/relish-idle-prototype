@@ -46,7 +46,11 @@ func run() -> int:
 	var town := {"buildings": [{"building_id": "house", "starved": ""}, {"building_id": "bone_mill", "starved": "pits_first", "lever": "raise_war"}],
 		"queue": [{"building_id": "inn", "starved": "", "affordable_in_s": 40.0}, {"building_id": "well", "starved": "pits_first", "affordable_in_s": -1.0}]}
 	var st := MapModel.stall_from(town)
-	t.ok(st["mill"] == {"starved": "pits_first", "lever": "raise_war"} and st["queue_stall"]["building_id"] == "well", "the mill row and the starved queue row are read")
+	t.ok(st["mill"] == {"starved": "pits_first", "lever": "raise_war"} and st["queue_stall"].is_empty(), "the mill row is read; a starved second row is not the head")
+	var town2 := {"buildings": [], "queue": [{"building_id": "well", "starved": "pits_first", "lever": "raise_war", "affordable_in_s": -1.0}]}
+	t.ok(MapModel.stall_from(town2)["queue_stall"]["building_id"] == "well", "a starved head (queue[0]) is read")
+	var living := {"buildings": [], "queue": [{"building_id": "inn", "starved": "living_first", "lever": "raise_living", "affordable_in_s": -1.0}]}
+	t.ok(not HudLogic.pits_stalled(MapModel.stall_from(living)["mill"], MapModel.stall_from(living)["queue_stall"]), "a living_first head is not a bone stall")
 	t.ok(MapModel.stall_from({"buildings": [], "queue": []}) == {"mill": {"starved": "", "lever": ""}, "queue_stall": {}}, "no mill and no queue: no stall")
 
 	# the demo flag swaps the lanes for the synthetic set

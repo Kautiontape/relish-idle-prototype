@@ -143,6 +143,12 @@ func _bone_edge(t: TestUtil) -> void:
 	t.ok(absf(float(ValveLogic.bary_of(a, SIDE)["war"]) - 0.54) < 1e-4 and absf(float(ValveLogic.bary_of(b, SIDE)["war"]) - 0.54) < 1e-4, "both ends sit at WAR share 0.54")
 	t.ok(ValveLogic.is_inside(a, SIDE) and ValveLogic.is_inside(b, SIDE), "and on the triangle's edges")
 	t.ok(ValveLogic.bone_tick(0.0, SIDE).is_empty() and ValveLogic.bone_tick(1.0, SIDE).is_empty() and ValveLogic.bone_tick(-0.2, SIDE).is_empty(), "no edge (0, 1 or none): no tick")
+	# the edge is a new game's: marked (tick, label, drag line) only while no fort has been taken
+	t.ok(is_equal_approx(ValveLogic.bone_edge({"bone_war_share": 0.54, "highest_tier_flipped": 0}), 0.54), "no fort taken: the edge is marked")
+	t.ok(ValveLogic.bone_edge({"bone_war_share": 0.54, "highest_tier_flipped": 1}) == 0.0, "a fort taken: the edge is stale, none marked")
+	var late := ValveLogic.bone_edge({"bone_war_share": 0.54, "highest_tier_flipped": 2})
+	t.ok(ValveLogic.bone_tick(late, SIDE).is_empty() and ValveLogic.bone_readout(false, "Raise WAR", true, 0.1, late) == "", "late: no tick and no below-edge line")
+	t.ok(ValveLogic.bone_readout(true, "Raise WAR", false, 0.8, late) == "Raise WAR: the pits eat every body", "but a live stall's lever line stays, whatever the tier")
 	var lever := "Raise WAR"
 	t.ok(ValveLogic.bone_readout(true, lever, false, 0.8, 0.54) == "Raise WAR: the pits eat every body", "a live stall carries the lever line")
 	t.ok(ValveLogic.bone_readout(true, lever, true, 0.3, 0.54) == "Raise WAR: the pits eat every body", "and keeps it while dragging (one line)")

@@ -107,11 +107,11 @@ func _chips(t: TestUtil) -> void:
 	# what siege does (realm.tithe.siege_block): it blocks that share of a wave, block only, and a second adds nothing
 	var block := float(TestUtil.load_json("res://configs/realm.json")["tithe"]["siege_block"])
 	var one := CardLogic.status_chips({"siege": ["u1"]}, names, block)
-	t.ok(one.size() == 3 and one[1]["text"] == "SIEGE · Old Gristle" and one[2]["text"] == "blocks 60% of a tithe wave", "one siege: its name, then what it does: " + str(one.map(func(c): return c["text"])))
+	t.ok(one.size() == 3 and one[1]["text"] == "SIEGE · Old Gristle" and one[2]["text"] == "blocks 60% of a tithe wave; kills none", "one siege: its name, then what it does: " + str(one.map(func(c): return c["text"])))
 	t.ok(one[2]["key"] == one[1]["key"], "the line wears the siege chip's key")
 	var two := CardLogic.status_chips({"siege": ["u1", "u2"]}, names, block)
 	t.ok(two.size() == 4 and two[3]["text"] == "a second adds nothing", "two or more at one fort: a second adds nothing")
-	t.ok(two.all(func(c): return not str(c["text"]).contains("kill")), "block only: no kill power is claimed")
+	t.ok(two[2]["text"].contains("kills none"), "block only: the chip says it kills none")
 	t.ok(CardLogic.status_chips({"siege": []}, names, block).size() == 1, "no siege: no line")
 	t.ok(CardLogic.status_chips({"siege": ["u1"]}, names).size() == 2, "no block share given: the plain chip, no claim")
 	var sieged := _fort_entry()
@@ -119,7 +119,7 @@ func _chips(t: TestUtil) -> void:
 	var back := {"death": {"outcome": "unmade", "respawn_s": 0.0, "loses": ["party", "unbanked_loot", "morale"]}}
 	var ts := CardBlocksLogic.fort_card(sieged, "", back, names, _loot_cfg(), {"party": []}, TestUtil.load_json("res://configs/raid.json"),
 		TestUtil.load_json("res://configs/economy.json"), 0.0, block)
-	t.ok((ts["blocks"][0]["chips"] as Array).any(func(c): return c["text"] == "blocks 60% of a tithe wave"), "the fort card passes the block share through")
+	t.ok((ts["blocks"][0]["chips"] as Array).any(func(c): return c["text"] == "blocks 60% of a tithe wave; kills none"), "the fort card passes the block share through")
 	var sim := CardLogic.status_chips({"simulacrum_charges": 3.0}, names)
 	t.ok(sim[1]["text"] == "SIMULACRUM · 3 charges", "simulacrum charges")
 	t.ok(CardLogic.status_chips({"first_dungeon": true}, names)[1]["text"] == "YOUR FIRST DUNGEON", "first dungeon")

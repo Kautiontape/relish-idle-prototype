@@ -220,7 +220,7 @@ func refresh(force := false) -> void:
 func _bone_text(shown: Dictionary) -> String:
 	var stalled := HudLogic.pits_stalled(model.mill, model.queue_stall)
 	var lever := HudLogic.lever_text(HudLogic.stall_lever(model.mill, model.queue_stall))
-	return ValveLogic.bone_readout(stalled, lever, _dragging, float(shown["war"]), float(model.hud.get("bone_war_share", 0.0)))
+	return ValveLogic.bone_readout(stalled, lever, _dragging, float(shown["war"]), ValveLogic.bone_edge(model.hud))
 
 
 ## The payoff's parts while it shows (ValveLogic.payoff_shown), else []: Vei's differential now and
@@ -428,7 +428,7 @@ func _draw() -> void:
 	for l in NodeLogic.capped_layers(edge, edge_w, edge_glow, float(c["valve_edge_halo_max_px"])):
 		draw_polyline(tri, l[1], l[0])
 	# where bone starts: a level tick across the triangle at view_hud.bone_war_share, a tiny word past its right end
-	var tick := ValveLogic.bone_tick(float(model.hud.get("bone_war_share", 0.0)), _side)
+	var tick := ValveLogic.bone_tick(ValveLogic.bone_edge(model.hud), _side)
 	if not tick.is_empty():
 		var tick_col := Palette.c(str(c["valve_bone_tick_key"]))
 		draw_line(_origin + (tick[0] as Vector2), _origin + (tick[1] as Vector2), tick_col, float(c["valve_bone_tick_w_px"]))

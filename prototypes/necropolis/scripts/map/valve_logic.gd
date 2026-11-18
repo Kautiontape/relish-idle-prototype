@@ -343,6 +343,14 @@ static func now_ring_pos(cur: Vector2, target: Vector2) -> Vector2:
 
 # --- the bone edge ------------------------------------------------------------------
 
+## The bone edge to mark: view_hud.bone_war_share while no fort has been taken (highest_tier_flipped
+## is 0, the new game's edge); 0.0 (no edge) once the game has moved on and the edge is stale.
+static func bone_edge(hud: Dictionary) -> float:
+	if int(hud.get("highest_tier_flipped", 0)) != 0:
+		return 0.0
+	return float(hud.get("bone_war_share", 0.0))
+
+
 ## The tick that marks WAR share `edge` (view_hud.bone_war_share) in the triangle's frame: the
 ## level segment [left, right] across the triangle where WAR = edge, below it the pits eat every
 ## body. [] when there is no edge (not inside 0..1).

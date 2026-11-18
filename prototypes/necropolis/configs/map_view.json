@@ -732,7 +732,7 @@
       "tide": "tide",
       "redirect": "redirect",
       "siege_fmt": "SIEGE · %s",
-      "siege_blocks_fmt": "blocks %d%% of a tithe wave",
+      "siege_blocks_fmt": "blocks %d%% of a tithe wave; kills none",
       "siege_second": "a second adds nothing",
       "simulacrum_fmt": "SIMULACRUM · %s charges",
       "first_dungeon": "YOUR FIRST DUNGEON"
