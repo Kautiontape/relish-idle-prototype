@@ -46,7 +46,101 @@ func run() -> int:
 	_contrast(t)
 	_model(t)
 	_sources(t)
+	_chips(t)
 	return t.failures
+
+
+## The real world's forts as chip_layout items: every fort labelled (name_w 7 px a letter, a 40 px tag
+## on Old Sluice), the ids in `held` with a chip `w` px wide.
+func _chip_items(held: Array, w: float) -> Array:
+	var out: Array = []
+	for f in TestUtil.load_json("res://configs/world.json")["forts"]:
+		var id := str(f["id"])
+		out.append({"id": id, "pos": Vector2(float(f["pos"][0]), float(f["pos"][1])), "r": MapLogic.fort_radius(int(f["tier"])), "held": held.has(id),
+			"second": id == "old-sluice", "w": w if held.has(id) else 0.0, "name_w": 7.0 * str(f["name"]).length(), "tag_w": 40.0 if id == "old-sluice" else -1.0})
+	return out
+
+
+## What `rect` (fort `f`'s chip) touches that it must not: another fort's ring, name or tag plate, a
+## chip in `others` ({id: Rect2}) other than its own. Built here from the geometry, not from chip_layout.
+func _chip_hits(rect: Rect2, f: Dictionary, items: Array, others: Dictionary, z: float) -> Array:
+	var hits: Array = []
+	var off := float(NodeLogic.ncfg()["label_off_px"])
+	for g in items:
+		if g["id"] == f["id"]:
+			continue
+		var gp: Vector2 = g["pos"]
+		var gr := float(g["r"])
+		var nearest := Vector2(clampf(gp.x, rect.position.x, rect.end.x), clampf(gp.y, rect.position.y, rect.end.y))
+		if nearest.distance_to(gp) < gr:
+			hits.append("ring of " + str(g["id"]))
+		if float(g["name_w"]) >= 0.0:
+			var at := gp + Vector2(0.0, gr + off)
+			for pr in NodeLogic.fort_label_rects(float(g["name_w"]), float(g["tag_w"]), int(MapLogic.cfg()["font_label"])):
+				if rect.intersects(Rect2(at + (pr as Rect2).position / z, (pr as Rect2).size / z)):
+					hits.append("label of " + str(g["id"]))
+	for id in others:
+		if id != f["id"] and rect.intersects(others[id]):
+			hits.append("chip of " + str(id))
+	return hits
+
+
+## Held chips keep off other forts' rings, name and tag plates and chips, and stay clear of Relish's token.
+func _chips(t: TestUtil) -> void:
+	t.suite("map_idle-chip-layout")
+	var w := 148.0
+	var items := _chip_items(["ashgate", "old-sluice"], w)
+	var ash: Dictionary = items[0]
+	var slu: Dictionary = items[1]
+	t.ok(ash["id"] == "ashgate" and slu["id"] == "old-sluice", "the real world lists Ashgate then Old Sluice")
+	# the held-countdown screenshot: zoom ~0.57 (Ashgate and Old Sluice 80 px apart on screen), the chips ~148 px wide
+	var z := 0.57
+	var old_default := IdleLogic.chip_rect(ash["pos"], float(ash["r"]), z, false, w)
+	t.ok(not _chip_hits(old_default, ash, items, {}, z).is_empty(), "the regression: Ashgate's chip under its name crowds Old Sluice: " + str(_chip_hits(old_default, ash, items, {}, z)))
+	for zoom in [0.55, 0.57, 0.7, 1.0, 1.6]:
+		var lay := IdleLogic.chip_layout(items, zoom, false, Vector2.ZERO, 0.0)
+		t.ok(lay.size() == 2, "zoom %.2f: a chip for each held fort" % zoom)
+		for f in [ash, slu]:
+			var r: Rect2 = lay[f["id"]]
+			var hits := _chip_hits(r, f, items, lay, zoom)
+			t.ok(hits.is_empty(), "zoom %.2f: %s's chip touches nothing of another fort %s" % [zoom, f["id"], str(hits)])
+			var own := r.get_center().distance_to(f["pos"])
+			var nearer := true
+			for g in items:
+				if g["id"] != f["id"] and r.get_center().distance_to(g["pos"]) <= own:
+					nearer = false
+			t.ok(nearer and r.size == IdleLogic.chip_rect(f["pos"], float(f["r"]), zoom, bool(f["second"]), w).size, "zoom %.2f: %s's chip is nearer its own fort, same size" % [zoom, f["id"]])
+		t.ok(IdleLogic.chip_layout(items, zoom, false, Vector2.ZERO, 0.0) == lay, "zoom %.2f: the same input gives the same places" % zoom)
+	# the skip-time screenshot: Ashgate held, Old Sluice retaken and Greywall overrun (each with a tag line), zoom ~0.585
+	var tagged := _chip_items(["ashgate"], w)
+	tagged[2]["second"] = true
+	tagged[2]["tag_w"] = 50.0
+	for zoom in [0.55, 0.585, 0.7]:
+		var lay := IdleLogic.chip_layout(tagged, zoom, false, Vector2.ZERO, 0.0)
+		var hits := _chip_hits(lay["ashgate"], tagged[0], tagged, lay, zoom)
+		t.ok(hits.is_empty(), "zoom %.3f: Ashgate's chip, its neighbours tagged, touches nothing %s" % [zoom, str(hits)])
+	# a chip that is already clear does not move: Old Sluice alone, and Ashgate with nobody near
+	var alone := IdleLogic.chip_layout(_chip_items(["greywall"], w), 1.0, false, Vector2.ZERO, 0.0)
+	var gw: Dictionary = _chip_items(["greywall"], w)[2]
+	t.ok(alone["greywall"] == IdleLogic.chip_rect(gw["pos"], float(gw["r"]), 1.0, false, w), "a clear chip stays under its name")
+	# the token still has the chip move clear, and the chip stays clear of the forts too
+	var tok_r := 12.0
+	for f in [ash, slu]:
+		var base := IdleLogic.chip_rect(f["pos"], float(f["r"]), z, false, w)
+		var tok := base.get_center()
+		var lay := IdleLogic.chip_layout(items, z, true, tok, tok_r)
+		var r: Rect2 = lay[f["id"]]
+		var pad := float(IdleLogic.cfg()["chip_token_pad_px"]) / z
+		var trect := Rect2(tok - Vector2.ONE * (tok_r + pad), Vector2.ONE * (tok_r + pad) * 2.0)
+		t.ok(not r.intersects(trect), "%s: a token on the chip's place: the chip is clear of it" % f["id"])
+		t.ok(_chip_hits(r, f, items, lay, z).is_empty(), "%s: and clear of the other forts %s" % [f["id"], str(_chip_hits(r, f, items, lay, z))])
+	# nowhere clear: the chip keeps the least-overlapping place, not the default
+	var crowd := _chip_items(["ashgate"], 4000.0)
+	var jam := IdleLogic.chip_layout(crowd, z, false, Vector2.ZERO, 0.0)
+	t.ok(jam.has("ashgate") and (jam["ashgate"] as Rect2).size.x > 0.0, "no clear place: it still gets one")
+	# chips are placed in id order: a later chip avoids an earlier one
+	var both := IdleLogic.chip_layout(_chip_items(["ashgate", "old-sluice", "greywall"], w), z, false, Vector2.ZERO, 0.0)
+	t.ok(not (both["greywall"] as Rect2).intersects(both["ashgate"]) and not (both["old-sluice"] as Rect2).intersects(both["ashgate"]), "no two chips overlap")
 
 
 func _fort(id: String, margin: String, held := true) -> Dictionary:

@@ -180,6 +180,99 @@ static func chip_place(p: Vector2, r: float, zoom: float, second_line: bool, wid
 	return best
 
 
+## Every held fort's chip rect in world px at `zoom`, {id: Rect2}: the drawn places. `forts` is every
+## fort, each {id, pos (Vector2), r (ring radius), held, second (a tag line under the name), w (chip
+## plate width in screen px, held forts), name_w and tag_w (label text widths in screen px; -1 where
+## that label is not drawn)}. `has_token` says whether Relish's token (`token`, `token_r`) is out.
+## Chips are placed in fort-id order, so a later one avoids the earlier ones and the result is
+## stable from frame to frame. A chip first tries its default (`chip_place`: under the name,
+## clear of the token), then above its ring (chip_ring_gap_px off it: clear of the tithe ring), right
+## of it, left of it (chip_side_gap_px off it: clear of the tithe countdown and the raid word), then
+## under the name slid sideways by each of chip_slide_fracs of its width (right, left), and takes the first that overlaps no other fort's ring, name or tag plate (the plates
+## NodeLogic.fort_label_rects gives, as MapCallouts._label_rects uses them), no chip placed before
+## it and not Relish's token, and whose centre is nearer its own fort than any other. When none is
+## clear it keeps the one overlapping least.
+static func chip_layout(forts: Array, zoom: float, has_token: bool, token: Vector2, token_r: float) -> Dictionary:
+	var z := maxf(zoom, 0.001)
+	var c := cfg()
+	var gap := float(c["chip_ring_gap_px"]) / z
+	var side := float(c["chip_side_gap_px"]) / z
+	var tr := token_r + float(c["chip_token_pad_px"]) / z
+	var tok := Rect2(token - Vector2(tr, tr), Vector2(tr, tr) * 2.0) if has_token else Rect2()
+	var size := int(MapLogic.cfg()["font_label"])
+	var off := float(NodeLogic.ncfg()["label_off_px"])
+	var plates: Array = []  # {id, rect}: every fort's name and tag plate, in world px
+	var held: Array = []
+	for f in forts:
+		var p: Vector2 = f["pos"]
+		if float(f["name_w"]) >= 0.0:
+			var at := p + Vector2(0.0, float(f["r"]) + off)
+			for pr in NodeLogic.fort_label_rects(float(f["name_w"]), float(f["tag_w"]), size):
+				plates.append({"id": f["id"], "rect": Rect2(at + (pr as Rect2).position / z, (pr as Rect2).size / z)})
+		if bool(f["held"]):
+			held.append(f)
+	held.sort_custom(func(a, b): return str(a["id"]) < str(b["id"]))
+	var out := {}
+	for f in held:
+		var p: Vector2 = f["pos"]
+		var r := float(f["r"])
+		var w := float(f["w"])
+		var others: Array = []
+		for g in forts:
+			if g["id"] != f["id"]:
+				others.append(g["pos"])
+		var base := chip_rect(p, r, z, bool(f["second"]), w)
+		var cands: Array = [chip_place(p, r, z, bool(f["second"]), w, token, token_r, others) if has_token else base]
+		cands.append(Rect2(base.position.x, p.y - r - gap - base.size.y, base.size.x, base.size.y))
+		cands.append(Rect2(p.x + r + side, p.y - base.size.y * 0.5, base.size.x, base.size.y))
+		cands.append(Rect2(p.x - r - side - base.size.x, p.y - base.size.y * 0.5, base.size.x, base.size.y))
+		for frac in c["chip_slide_fracs"]:  # last: under the name, slid right then left by a share of its width
+			cands.append(Rect2(base.position + Vector2(base.size.x * float(frac), 0.0), base.size))
+			cands.append(Rect2(base.position - Vector2(base.size.x * float(frac), 0.0), base.size))
+		var best: Rect2 = cands[0]
+		var best_cost := INF
+		for cand in cands:
+			var cost := _chip_cost(cand, f, forts, plates, out, tok, has_token, others)
+			if cost < best_cost:
+				best_cost = cost
+				best = cand
+			if cost <= 0.0:
+				break
+		out[f["id"]] = best
+	return out
+
+
+## How wrong a chip place is, in world px squared: the area it overlaps other forts' rings, name and
+## tag plates, the chips already placed (`placed`, {id: Rect2}) and the token's rect (`tok`), plus
+## its whole area when its centre is not nearer its own fort than every other. 0.0 is clear.
+static func _chip_cost(rect: Rect2, f: Dictionary, forts: Array, plates: Array, placed: Dictionary, tok: Rect2, has_token: bool, others: Array) -> float:
+	var cost := 0.0
+	if has_token and rect.intersects(tok):
+		cost += rect.intersection(tok).get_area()
+	for g in forts:
+		if g["id"] == f["id"]:
+			continue
+		var gp: Vector2 = g["pos"]
+		var gr := float(g["r"])
+		if _disc_hits(rect, gp, gr):
+			cost += maxf(rect.intersection(Rect2(gp - Vector2(gr, gr), Vector2(gr, gr) * 2.0)).get_area(), 1.0)
+	for pl in plates:
+		if pl["id"] != f["id"] and rect.intersects(pl["rect"]):
+			cost += rect.intersection(pl["rect"]).get_area()
+	for id in placed:
+		if rect.intersects(placed[id]):
+			cost += rect.intersection(placed[id]).get_area()
+	if not _nearest_own(rect, f["pos"], others):
+		cost += rect.get_area()
+	return cost
+
+
+## Whether the disc at `c` (radius `r`) touches `rect`.
+static func _disc_hits(rect: Rect2, c: Vector2, r: float) -> bool:
+	var nearest := Vector2(clampf(c.x, rect.position.x, rect.end.x), clampf(c.y, rect.position.y, rect.end.y))
+	return nearest.distance_to(c) < r
+
+
 ## How much nearer its own fort `p` the rect's centre is than the nearest of `others` (negative: nearer another).
 static func _margin(rect: Rect2, p: Vector2, others: Array) -> float:
 	var own := rect.get_center().distance_to(p)

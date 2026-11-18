@@ -45,6 +45,9 @@ func _clarity(t: TestUtil) -> void:
 	var war_line := "WAR sends undead to your forts, spread by distance, with Relish's fort drawing 3× its share. FLOOD sends them into Vei's queue, which raises your odds against her."
 	t.ok(HudLogic.tip("mint") == mint_line and str(MapLogic.cfg()["clarity"]["valve_tip"]) == mint_line, "the mint and valve tips are the glossary's line verbatim")
 	t.ok(HudLogic.tip("war") == war_line and HudLogic.tip("flood") == war_line, "the WAR and FLOOD tips are the glossary's full line verbatim")
+	t.ok(HudLogic.tip("strain") == "How backed up Vei's queue is. ▲ means it's growing (FLOOD is clogging it); ▼ means she's working it down.", "the STRAIN tip is the glossary's line verbatim")
+	t.ok(HudLogic.tip("drain") == "How long until Vei's queue empties at this rate. ∞ means it isn't emptying.", "the DRAIN tip is the glossary's line verbatim")
+	t.ok(HudLogic.tip("odds") == "Your chance to beat Vei if you faced her now. It grows with time and with her clogged queue.", "the ODDS tip is the glossary's line verbatim")
 	t.ok(HudLogic.tip("work") == "WORK: your town's jobs", "the WORK tip stands")
 	# the legend: clear of the chip and the valve, collapses with no room, unchanged with plenty
 	var chip := Rect2(12, 200, 330, 35)

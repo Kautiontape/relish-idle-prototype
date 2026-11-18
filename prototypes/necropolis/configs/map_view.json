@@ -550,8 +550,8 @@
     "tips": {
       "mint": "Mint: the undead your Raising Pits make each second. The map's valve splits it into WORK (your town's jobs), WAR (your forts) and FLOOD (Vei's queue).",
       "odds": "Your chance to beat Vei if you faced her now. It grows with time and with her clogged queue.",
-      "strain": "How backed up Vei's queue is. ▲ means it is growing (FLOOD is clogging it); ▼ means she is working it down.",
-      "drain": "How long until Vei's queue empties at this rate. ∞ means it is not emptying.",
+      "strain": "How backed up Vei's queue is. ▲ means it's growing (FLOOD is clogging it); ▼ means she's working it down.",
+      "drain": "How long until Vei's queue empties at this rate. ∞ means it isn't emptying.",
       "work": "WORK: your town's jobs",
       "war": "WAR sends undead to your forts, spread by distance, with Relish's fort drawing 3× its share. FLOOD sends them into Vei's queue, which raises your odds against her.",
       "flood": "WAR sends undead to your forts, spread by distance, with Relish's fort drawing 3× its share. FLOOD sends them into Vei's queue, which raises your odds against her."
@@ -943,7 +943,10 @@
     "chip_rate_gap_px": 6.0,
     "chip_min_zoom": 0.55,
     "chip_pad_y_px": 2.0,
-    "chip_token_pad_px": 4.0
+    "chip_token_pad_px": 4.0,
+    "chip_ring_gap_px": 30.0,
+    "chip_side_gap_px": 72.0,
+    "chip_slide_fracs": [0.25, 0.5, 0.75]
   },
   "demo_away": {
     "rev": 1,
