@@ -105,8 +105,10 @@ func _retake_war_in() -> void:
 
 
 ## The step 9 review's item 5: two forts breaking inside one catch-up step each report the settled WAR their own chip read
-## before the step. The split is read once per part (RealmSim's holds), from the part's dispatch, which a retake doesn't
-## touch, so the second retake's war_in doesn't exclude the first fort and the order in `forts` can't move it.
+## before the step. Each retake reads the split from the part's dispatch (RealmSim._retaken), which a retake doesn't
+## touch, so the second retake's war_in doesn't exclude the first fort and the order in `forts` can't move it. It
+## passed on 0b2a9ec's code too, so the shared split 19e65bb threaded through the holds was dead plumbing, reverted in
+## the E4 close-out (the final review's item 1); this pins the behaviour, not the plumbing.
 func _retake_war_in_pair() -> void:
 	t.suite("wave-train-retake-war-pair")
 	var sim := _mk({"ashgate": [0.0, 200.0, 0.0], "old-sluice": [0.0, 200.0, 0.0]}, 1e9)
