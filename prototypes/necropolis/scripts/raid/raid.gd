@@ -351,10 +351,12 @@ func _cam_follow() -> void:
 		t.x = arena_size.x * 0.5
 	else:
 		t.x = clampf(t.x, view.x * 0.5 - m, arena_size.x - view.x * 0.5 + m)
-	if view.y >= arena_size.y + 2.0 * m:
-		t.y = arena_size.y * 0.5
-	else:
-		t.y = clampf(t.y, view.y * 0.5 - m, arena_size.y - view.y * 0.5 + m)
+	# the top edge may scroll down by camera.top_pad_px screen px (the top HUD band), so a warden's room at the
+	# arena's top does not sit under the HUD; the view only; the sim never reads the camera
+	var top_m := float(rcfg().get("camera", {}).get("top_pad_px", m)) / cam.zoom.x
+	var lo := view.y * 0.5 - top_m
+	var hi := arena_size.y - view.y * 0.5 + m
+	t.y = (lo + hi) * 0.5 if lo > hi else clampf(t.y, lo, hi)
 	cam.position = t
 
 

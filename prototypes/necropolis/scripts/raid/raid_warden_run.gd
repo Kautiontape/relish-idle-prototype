@@ -185,7 +185,8 @@ func last_chance() -> void:
 			lit += 1
 	# "N essence to bank": what lies loose in the room, capped by the carry room left; live while it shows
 	_raid.hud.show_banner_live(func() -> String:
-		return RaidLogic.last_chance_banner(RaidLogic.bankable(_loose_in(rect), _raid.carried_count(), _raid.rcfg())),
+		# one chunk per line: the break is made here because the live refresh assigns this text as it is
+		return RaidLogic.last_chance_banner(RaidLogic.bankable(_loose_in(rect), _raid.carried_count(), _raid.rcfg()), wc).replace(" · ", "\n"),
 		float(wc.get("last_chance_banner_s", 3.5)), "essence")
 	if _raid._standalone:
 		print("RAID_WARDEN last_chance lit=%d" % lit)

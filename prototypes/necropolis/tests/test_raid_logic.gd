@@ -2156,7 +2156,8 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(rdv.contains("take_hit(_raid.relish.hp,") and not rdv.contains("1000"), "the dev autodie blow equals her remaining hp (the STRUCK cue showed -1030)")
 	t.ok(RaidLogic.death_card_rows("a wound", {}, {}, 0)[1]["text"] == "nothing" and RaidLogic.death_card_rows("a wound", {}, {}, 0)[2]["key"] == "text_dim",
 		"a bare death says nothing banked, nothing lost (dim)")
-	t.ok(RaidLogic.last_chance_banner(2) == "LAST CHANCE before the warden · your trance is ready and this raise costs no cooldown · 2 loose essence here: walk close to pick it up" and RaidLogic.last_chance_banner(0) == "LAST CHANCE before the warden · your trance is ready and this raise costs no cooldown",
+	var lcw: Dictionary = cfg["wardens"]
+	t.ok(RaidLogic.last_chance_banner(2, lcw) == "LAST CHANCE before the warden · your trance is ready: hold Space to slow time and circle · this raise costs no cooldown · 2 loose essence here: walk close to pick it up" and RaidLogic.last_chance_banner(0, lcw) == "LAST CHANCE before the warden · your trance is ready: hold Space to slow time and circle · this raise costs no cooldown",
 		"the last-chance banner names the loose essence, never 'to bank' (banked and carried are other figures)")
 	t.ok(cfg["death"]["card_s"] > cfg["death"]["skip_after_s"], "the death card holds longer than its skip delay")
 	t.suite("raid_push_line")
@@ -2200,10 +2201,22 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(RaidLogic.exposed_tint(RaidLogic.exposed_level(0, 0.5, cfg), cfg) > 0.4 and RaidLogic.exposed_tint(RaidLogic.exposed_level(0, 0.5, cfg), cfg) < 0.6, "half hp: half way")
 	t.ok(RaidLogic.push_line(3, "N", 1, {}).contains("exit N, next room"), "one room away")
 	t.suite("raid_beat_lines")
-	t.ok(RaidLogic.last_chance_banner(10).ends_with(" · 10 loose essence here: walk close to pick it up"), "last chance names the loose essence")
-	t.ok(RaidLogic.last_chance_banner(0) == "LAST CHANCE before the warden · your trance is ready and this raise costs no cooldown", "and drops it when there is none")
-	var lc_w := ThemeDB.fallback_font.get_string_size(RaidLogic.last_chance_banner(99), HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
-	t.ok(lc_w <= 1500.0, "the longest last-chance banner (one line, 20 px) fits the 1600 px screen: %d px" % int(lc_w))
+	t.ok(RaidLogic.last_chance_banner(10, lcw).ends_with(" · 10 loose essence here: walk close to pick it up"), "last chance names the loose essence")
+	t.ok(RaidLogic.last_chance_banner(0, lcw) == "LAST CHANCE before the warden · your trance is ready: hold Space to slow time and circle · this raise costs no cooldown", "and drops it when there is none")
+	var lc_max := 0.0
+	var lc_chunks := RaidLogic.last_chance_banner(99, lcw).split(" · ")
+	for ch in lc_chunks:
+		lc_max = maxf(lc_max, ThemeDB.fallback_font.get_string_size(ch, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x)
+	t.ok(lc_chunks.size() == 4 and lc_max <= RaidLogic.BANNER_W, "every line of the longest last-chance banner (loose count 99, one chunk per line, 20 px) fits the %d px banner label: %d px" % [int(RaidLogic.BANNER_W), int(lc_max)])
+	# the banner stays off the sleeping warden's ring
+	var bview := Rect2(0, 0, 1600, 900)
+	var bplate := Rect2(400, 113, 800, 60)
+	t.near(RaidLogic.banner_clear_top(116.0, bplate, Rect2(), bview), 116.0, 0.0001, "no ring: the banner stays")
+	t.near(RaidLogic.banner_clear_top(116.0, bplate, Rect2(100, 100, 100, 100), bview), 116.0, 0.0001, "a ring that misses the plate: unchanged")
+	var bt := RaidLogic.banner_clear_top(116.0, bplate, Rect2(700, 90, 200, 200), bview)
+	t.ok(bt - 3.0 >= 290.0 and bt - 3.0 <= 300.0, "a ring across the plate: the plate moves just below it (plate top %d)" % int(bt - 3.0))
+	var bt2 := RaidLogic.banner_clear_top(700.0, Rect2(400, 697, 800, 60), Rect2(700, 600, 200, 280), bview)
+	t.ok(bt2 - 3.0 + 60.0 <= 600.0 and bt2 - 3.0 + 60.0 >= 580.0, "no room below the ring: the plate moves above it (plate bottom %d)" % int(bt2 + 57.0))
 	t.ok(RaidLogic.held_map_effect(255.0) == "on the map: counter-garrison −255", "held clear: the killed mass comes off the map")
 	t.ok(RaidLogic.held_map_effect(-3.0) == "on the map: counter-garrison −0", "never a negative count")
 

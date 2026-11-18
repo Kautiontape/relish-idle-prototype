@@ -55,6 +55,15 @@
   "hud": {
     "_doc": "The stat block (top left). plate_alpha is its backing plate: near opaque so a corpse glyph or pickup under the block never crosses its text. Every HUD plate's alpha is pinned by tests/test_raid_clarity.gd: its dimmest text must stay 4.5:1 (lines 3:1) over the brightest thing the world can put under it, so lowering one fails the suite. warden_plate_alpha backs the awake warden's block.",
     "plate_alpha": 0.96,
+    "stats": {
+      "_doc": "The stat block's reading aids (RaidHud.StatBlock). detail_px is the size of its detail lines (the ESSENCE meaning and the PHYLACT. meaning; 13 or more) drawn in full text colour; label_alpha is how bright its row labels draw (text at this alpha; the contrast test measures it). ward_head heads the four rank rows (what the player owns); living_label and the enemy / enemies values (one '%d' each) say the LIVING row counts the dungeon's enemies, not people.",
+      "detail_px": 14,
+      "label_alpha": 0.85,
+      "ward_head": "YOUR UNDEAD",
+      "living_label": "LIVING",
+      "enemy": "%d enemy",
+      "enemies": "%d enemies"
+    },
     "break_wrap_min_px": 120,
     "warden_plate_alpha": 0.96,
     "banner_plate_alpha": 0.94,
@@ -146,7 +155,10 @@
     "card_s": 4.5,
     "skip_after_s": 0.8,
     "fade_s": 0.3,
-    "after_clone": "wakes at Covington",
+    "title": "RELISH FALLS",
+    "sub": "THE RAID ENDS HERE, NOT THE GAME",
+    "foot": "click or SPACE to go on",
+    "after_clone":"wakes at Covington",
     "after_unmade": "unmade · reforms at Covington",
     "after_in": " in ",
     "after_shock": " · the town takes a morale shock"
@@ -417,6 +429,7 @@
     "zoom_min": 0.72,
     "zoom_max": 1.15,
     "view_pad_px": 120.0,
+    "top_pad_px": 150.0,
     "smoothing": 5.0
   },
   "party": {
@@ -588,6 +601,8 @@
     "phase_flash_s": 0.6,
     "wake_banner_s": 3.5,
     "last_chance_banner_s": 3.5,
+    "last_chance": "LAST CHANCE before the warden · your trance is ready: hold Space to slow time and circle · this raise costs no cooldown",
+    "last_chance_loose": " · %d loose essence here: walk close to pick it up",
     "ignite_s": 0.8,
     "glyph_ring_step": 0.2,
     "tell_ring_start": 2.6,
@@ -614,7 +629,7 @@
       "plinth_alpha": 0.55,
       "name_px": 20,
       "label_px": 13,
-      "plate_alpha": 0.8,
+      "plate_alpha": 0.92,
       "plate_gap_px": 6.0
     },
     "clapper_strike_rad": 0.5,
