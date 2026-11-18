@@ -274,8 +274,9 @@
     "banner_s": 2.5
   },
   "gap_end": {
-    "_doc": "A gap above idle.gap_s (the machine slept mid-raid) made the state end the run from its last checkpoint (run_ended, cause gap): the raid stops, shows the AWAY TOO LONG banner, and emits its one result beat_s later (a held beat so the banner can be read; the state ignores the result, the run is already ended). banner_s is how long the banner shows (past the beat: the scene is usually gone by then). banner_text is the raid's banner; banner_text_boss the Vei fight's (a boss run has no checkpoint: the state forfeits it, the party intact and Relish back at Vei's door, StateRuns.end_open), so it says the fight was called off.",
+    "_doc": "A gap above idle.gap_s (the machine slept mid-raid) made the state end the run from its last checkpoint (run_ended, cause gap): the raid stops, shows the AWAY TOO LONG banner, and emits its one result beat_s later (a held beat so the banner can be read; the state ignores the result, the run is already ended). banner_s is how long the banner shows (past the beat: the scene is usually gone by then). banner_text is the raid's banner; banner_text_boss the Vei fight's (a boss run has no checkpoint: the state forfeits it, the party intact and Relish back at Vei's door, StateRuns.end_open), so it says the fight was called off. win_card_auto_s: a won Vei fight is written back only when the win card's button runs, so the win card presses itself this many real seconds after it appears (its button counts down, vei_fight.card_button_auto): a machine that sleeps on the card keeps the win once it has passed (BossLogic.card_auto_due). The loss card waits for its press.",
     "beat_s": 2.5,
+    "win_card_auto_s": 30.0,
     "banner_s": 4.0,
     "banner_text": "AWAY TOO LONG · the raid ended at its last checkpoint",
     "banner_text_boss": "AWAY TOO LONG · the fight with Vei was called off while you were away"
@@ -369,7 +370,8 @@
     "card_party": "BIG UNDEAD LOST",
     "card_backlog": "HER QUEUE",
     "card_backlog_spent": "QUEUE WORKED DOWN",
-    "card_button": "BACK TO THE REALM"
+    "card_button": "BACK TO THE REALM",
+    "card_button_auto": "BACK TO THE REALM · %d s"
   },
   "death": {
     "_doc": "The death frame (RaidDeathCard): card_s is how long the death beat holds the card before the result goes out (the measuring bot never waits, it keeps the 0.9 s beat; 0 = no card), skip_after_s when a click or SPACE may end it early, fade_s its fade-in (none under reduced motion). The AFTER row's words (RaidLogic.death_next_row, read by the death card, the retreat panel's IF RELISH FALLS column and Vei's loss card): after_clone when a clone wakes her, after_unmade when she is unmade, after_in then the wait (' in 10 min') when the seed gives one, after_shock last for an unmade death (the town takes the morale shock). wait_* the AFTER wait's units ('%d' each). The card's geometry (RaidDeathCard and the clear card read it): card_w its width, card_pad its padding, label_w the label column, value_px / label_px / foot_px / sub_px the row, label, footer and sub-line font sizes, sub_h the sub-line's height, backdrop_a the world-dimming rect behind the card (deep enough that the card reads on its own), plate_a the card's own ground plate (the contrast test composites both over the brightest world colour). label_* are the card's row labels (label_missed is the RED TELL row's), cause_* the KILLED BY words ('%s' the warden's name), tell_* the names of the tell the killing blow showed (the same words the capture's missed_tell records: the Bellringer's slam ring, its toll, the Huntsman's line, the Shieldwall's lit arc and the Pyre-priest's marked ground are all drawn in red before they land) and missed_row the RED TELL row's sentence around one of them ('%s' the tell: what hit her, that it was marked in red first, and that stepping out of it is the answer; a pack, the living or a wound have no tell and no row), nothing / lost_bigs / shut_text the LOST, BANKED and SHUT IN texts.",

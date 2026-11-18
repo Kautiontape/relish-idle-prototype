@@ -89,7 +89,7 @@ const WORDS := [
 	"vei_fight.eta", "vei_fight.lapse", "vei_fight.rule", "vei_fight.rule_cost", "vei_fight.rule_reset",
 	"vei_fight.card_title_win", "vei_fight.card_title_lose", "vei_fight.card_sub_win", "vei_fight.card_time", "vei_fight.card_backups",
 	"vei_fight.card_of", "vei_fight.card_none", "vei_fight.card_party", "vei_fight.card_backlog", "vei_fight.card_backlog_spent",
-	"vei_fight.card_button",
+	"vei_fight.card_button", "vei_fight.card_button_auto",
 	"revive.banner", "revive.left_none", "revive.left_one", "revive.left_fmt",
 ]
 
@@ -147,6 +147,7 @@ const FORMATS := {
 	"vei_fight.lane_have": ["%d", "%d"], "vei_fight.lane_short": ["%d"], "vei_fight.safe_cue": ["%d"], "vei_fight.hud_need": ["%d"],
 	"vei_fight.hud_ferried": ["%.2f"], "vei_fight.hud_left": ["%d", "%s"], "vei_fight.hud_cracked": ["%d"], "vei_fight.eta": ["%d"],
 	"vei_fight.lapse": ["%d", "%d", "%s"], "vei_fight.rule": ["%d"], "vei_fight.rule_cost": ["%d"], "vei_fight.card_of": ["%d", "%d"],
+	"vei_fight.card_button_auto": ["%d"],
 }
 
 

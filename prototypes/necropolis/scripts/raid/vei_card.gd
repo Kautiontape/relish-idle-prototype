@@ -37,14 +37,17 @@ var _hover := false
 var _pressed := false
 var _t := 0.0
 var _skip_after := 0.8
+var _auto_after := -1.0   # the win card presses itself this many real seconds in (BossLogic.card_auto_due); -1: never
 
 
-## `words` is raid.json's `vei_fight` block (the card's words).
-func setup(info: Dictionary, cfg: Dictionary, on_back: Callable, words: Dictionary) -> void:
+## `words` is raid.json's `vei_fight` block (the card's words). `auto_s` > 0: the card presses its own button that
+## many real seconds after it appears, and the button counts down (the win card: raid.json gap_end.win_card_auto_s).
+func setup(info: Dictionary, cfg: Dictionary, on_back: Callable, words: Dictionary, auto_s := -1.0) -> void:
 	_info = info
 	_cfg = cfg
 	_words = words
 	_on_back = on_back
+	_auto_after = auto_s
 	_skip_after = float(cfg.get("skip_after_s", 0.8))
 	_rows = [] if info.is_empty() else layout_rows(rows_for(info, words), value_w(cfg), ThemeDB.fallback_font)
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
@@ -67,9 +70,12 @@ func can_skip() -> bool:
 
 func _process(delta: float) -> void:
 	var was := can_skip()
+	var left0 := BossLogic.card_auto_left(_t, _auto_after)
 	_t += delta / maxf(0.05, Engine.time_scale)
-	if can_skip() != was:
-		queue_redraw()
+	if can_skip() != was or BossLogic.card_auto_left(_t, _auto_after) != left0:
+		queue_redraw()   # the gate opened, or the countdown ticked
+	if BossLogic.card_auto_due(_t, _auto_after):
+		_press()   # once (_press is guarded): the win reaches the state before a sleep could forfeit it
 
 
 ## The width a row's value has: the plate less its side padding (a label sits in the same span).
@@ -259,7 +265,7 @@ func _draw() -> void:
 	draw_rect(b, vei if live else Palette.c("vei", 0.5), false, 3.0 if (_hover and live) else 2.0)
 	if has_focus() and live:
 		draw_rect(b.grow(5.0), Palette.c("text", 0.8), false, 1.5)
-	_txt(b.position.x, b.position.y + b.size.y * 0.5 + 7.0, str(_words.get("card_button", "")), 20, "text" if live else "text_dim", HORIZONTAL_ALIGNMENT_CENTER, b.size.x)
+	_txt(b.position.x, b.position.y + b.size.y * 0.5 + 7.0, BossLogic.card_button_text(_words, _t, _auto_after), 20, "text" if live else "text_dim", HORIZONTAL_ALIGNMENT_CENTER, b.size.x)
 
 
 ## The backups: a cracked ring per one spent, a violet diamond (phylactery) or dot (clone) per one left,

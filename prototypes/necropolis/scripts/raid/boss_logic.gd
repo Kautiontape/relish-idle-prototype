@@ -415,6 +415,30 @@ static func card_unlocked(t: float, skip_after: float) -> bool:
 	return t >= skip_after
 
 
+## card_auto_due(t, auto_s) -> bool
+##   Whether the win card, shown for `t` real seconds, presses its own button now (P7 item 4). A won fight is written
+##   back only when the button runs (the router then opens the map), and a gap with the card up (the machine slept
+##   past idle.gap_s) forfeits the open boss run: so the win card presses itself after `auto_s` (raid.json
+##   gap_end.win_card_auto_s). `auto_s` <= 0: never (the loss card waits for its press, as before).
+static func card_auto_due(t: float, auto_s: float) -> bool:
+	return auto_s > 0.0 and t >= auto_s
+
+
+## card_auto_left(t, auto_s) -> int
+##   The whole seconds before the card presses itself, rounded up (the button's countdown); -1 when it never does.
+static func card_auto_left(t: float, auto_s: float) -> int:
+	return ceili(maxf(0.0, auto_s - t)) if auto_s > 0.0 else -1
+
+
+## card_button_text(words, t, auto_s) -> String
+##   The button's words: card_button, or card_button_auto with the seconds left while the card will press itself
+##   (card_button when that word is blank or lost its %d).
+static func card_button_text(words: Dictionary, t: float, auto_s: float) -> String:
+	var left := card_auto_left(t, auto_s)
+	var auto := RaidLogic.word_fmt(words, "card_button_auto", [left]) if left >= 0 else ""
+	return auto if auto != "" else str(words.get("card_button", ""))
+
+
 ## end_card(seed, spent, party_lost, fight_t, horde0, horde) -> Dictionary
 ##   What the Vei win card prints, from the fight's own numbers: time_text, backups spent (phylactery,
 ##   clone, and of how many the run began with), big undead lost of the party, and the backlog spent

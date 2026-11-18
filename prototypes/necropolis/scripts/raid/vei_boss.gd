@@ -764,7 +764,9 @@ func _win_card() -> void:
 		info["clones_total"] = int(seed_data.get("clones_ready", 0))
 		_card = VeiCard.new()
 		hud.add_child(_card)
-		_card.setup(info, vcfg().get("card", {}), _emit.bind(true), vwords())
+		# the win card presses itself after gap_end.win_card_auto_s (BossLogic.card_auto_due): the win is written back
+		# on the press, and a sleep with the card up would forfeit the open run (RaidEndings.gap_end)
+		_card.setup(info, vcfg().get("card", {}), _emit.bind(true), vwords(), float(rcfg().get("gap_end", {}).get("win_card_auto_s", -1.0)))
 	if _bot != null and not (_bdev != null and _bdev.hold_card):
 		_emit(true)
 
