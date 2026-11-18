@@ -28,7 +28,8 @@ var _slam_tells := 0           # slam tells begun (the toll lands on every attac
 var tolls_struck := 0          # of them, those that struck her
 var toll_exit_at := Vector2.INF   # the exit WardenLogic.toll_exit found for this tell's toll (the decent player's step)
 var toll_beats := 0            # toll beats with her in the room beyond the slam's reach (telemetry: tolls / toll_beats placed)
-var toll_exit_px_max := 0.0    # the longest exit path among the tolls placed (telemetry: the worst-case margin)
+var toll_exit_px_max := 0.0    # the longest exit path among the tolls placed (telemetry: the worst case over placed tolls, a horn-cancelled one included)
+var _toll_beat_booked := false # this tell's beat is counted in toll_beats (cleared when the slam begins or a horn cancels it)
 var toll_marks := {}           # telemetry: "%.4f" slam beat of each toll placed -> "placed", "struck" or "muffled"
 var _toll_word_t := 99.0       # draw only: seconds since a toll resolved
 var _toll_word_at := Vector2.ZERO
@@ -82,9 +83,10 @@ func _contacts() -> Array:
 func _step(delta: float) -> void:
 	if _pack_step(delta):   # its pack runs: no tell until a beat after the last falls (one threat at a time)
 		_next_attack = maxf(_next_attack, ceilf(beat()) + float(spec.get("attack", {}).get("tell_beats", 1.0)) + float(spec.get("attack", {}).get("pack_rest_beats", 1.0)))
-		if toll_at != Vector2.INF:   # a horn over a toll's tell: that toll never lands, so it is not booked either (telemetry)
+		if _toll_beat_booked:   # a horn over a booked beat's tell: nothing lands, so the beat is not booked either, placed toll or not (telemetry)
 			toll_beats = maxi(0, toll_beats - 1)
 			toll_marks.erase("%.4f" % _tell_for)
+			_toll_beat_booked = false
 		toll_at = Vector2.INF   # (as the Shieldwall's _end_rush)
 		toll_exit_at = Vector2.INF
 	muffled = WardenLogic.is_muffled(spec, _contacts())
@@ -114,6 +116,7 @@ func _step(delta: float) -> void:
 		if toll_r > 0.0 and rel0 != null and is_instance_valid(rel0) and rel0.alive \
 				and room.has_point(rel0.global_position) and rel0.global_position.distance_to(global_position) > slam_reach + rel0.radius:
 			toll_beats += 1
+			_toll_beat_booked = true
 			var budget := (float(at.get("tell_beats", 1.0)) * tempo_s() - float(at.get("toll_react_s", 0.6))) * rel0.speed
 			toll_exit_at = WardenLogic.toll_exit(room, rel0.global_position, global_position, toll_r, rel0.radius,
 				slam_reach + rel0.radius, float(at.get("toll_exit_margin_px", 16.0)), budget)
@@ -123,6 +126,7 @@ func _step(delta: float) -> void:
 				toll_exit_px_max = maxf(toll_exit_px_max, toll_at.distance_to(toll_exit_at))
 	if _slam_beat < 0.0 and b >= _next_attack:
 		_slam_beat = _next_attack
+		_toll_beat_booked = false   # the slam has begun: a horn after it cancels nothing
 		_last_attack = _next_attack
 		_slam_prev_r = 0.0
 		_slam_muffled = muffled

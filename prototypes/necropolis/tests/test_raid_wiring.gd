@@ -8,7 +8,9 @@ extends RefCounted
 func run() -> int:
 	var t := TestUtil.new()
 	_checkpoint_mapping_tests(t)
+	_checkpoint_payload_tests(t)
 	_checkpoint_roundtrip_tests(t)
+	_checkpoint_effect_tests(t)
 	_checkpoint_wiring_tests(t)
 	_populate_tests(t)
 	_minor_tests(t)
@@ -55,6 +57,55 @@ func _checkpoint_mapping_tests(t: TestUtil) -> void:
 		and RaidLogic.checkpoint_outcome(RaidLogic.pending_on("nothing")) == "retreated", "pending_on's output maps through")
 
 
+## What _send_checkpoint sends (RaidLogic.checkpoint_payload): sticky in the loot as in the outcome.
+func _checkpoint_payload_tests(t: TestUtil) -> void:
+	t.suite("raid_checkpoint_payload")
+	var banked := {"relics": 1, "blueprints": [], "husks": [], "remnants": [], "essence": 2}
+	var win := {"relics": 3, "blueprints": [], "husks": [], "remnants": [], "essence": 7}
+	var death := {"relics": 1, "blueprints": [], "husks": [], "remnants": [], "essence": 2}
+	var before := RaidLogic.checkpoint_payload("", {}, banked)
+	t.ok(before["outcome"] == "retreated" and before["loot"] == banked, "before an ending: the banked loot, retreated")
+	var won := RaidLogic.checkpoint_payload("warden_beaten", win, banked)
+	t.ok(won["outcome"] == "warden_beaten" and won["loot"] == win, "after a win begins: the win's loot, not the pre-chest banked snapshot")
+	var won_later := RaidLogic.checkpoint_payload("warden_beaten", win, {"relics": 0, "blueprints": [], "husks": [], "remnants": [], "essence": 0})
+	t.ok(won_later["loot"] == win, "a later call (take_checkpoint, clamp_banked) cannot write a different loot over the win's")
+	var died := RaidLogic.checkpoint_payload("relish_died", death, banked)
+	t.ok(died["outcome"] == "relish_died" and died["loot"] == death, "after a death: the death's loot with relish_died")
+	var none := RaidLogic.checkpoint_payload("relish_died", RaidLogic.empty_loot(), {})
+	t.ok(none["loot"] == RaidLogic.empty_loot(), "a death with nothing banked sends the empty loot shape")
+	t.ok(RaidLogic.checkpoint_payload("", {}, {})["loot"] == RaidLogic.empty_loot(), "an empty banked is the empty loot shape, never {}")
+	var d := RaidLogic.checkpoint_payload("warden_beaten", win, banked)
+	(d["loot"] as Dictionary)["relics"] = 99
+	t.ok(int(win["relics"]) == 3, "the payload's loot is a copy")
+
+
+## The state side of the endings: a win flips the fort and banks the chest loot, a death is counted.
+func _checkpoint_effect_tests(t: TestUtil) -> void:
+	t.suite("raid_checkpoint_effect")
+	var loot := {"relics": 2, "blueprints": [], "husks": [], "remnants": [], "essence": 3}
+	for outcome in ["warden_beaten", "relish_died"]:
+		var s := GameState.new(TestUtil.configs())
+		s.cmd_new_game(1)
+		s.debug_enabled = true
+		s.cmd_debug_set_state({"relish_at": "old-sluice"})
+		var id := int(s.cmd_begin_dungeon("old-sluice")["run_id"])
+		var relics0 := s.relics
+		var ess0 := s.essence
+		var cp := s.cmd_run_checkpoint(id, loot, outcome)
+		var n := GameState.new(TestUtil.configs())
+		n.cmd_new_game(2)
+		var ld := n.from_dict(JSON.parse_string(JSON.stringify(s.to_dict())))
+		t.ok(cp["ok"] and ld["ok"] and n.run.is_empty(), "%s: checkpoint saved and loaded, the run ended" % outcome)
+		var f := n.view_fort("old-sluice")
+		if outcome == "warden_beaten":
+			t.ok(bool(f["held"]) and int(f["flipped_count"]) == 1 and not bool(f["first_clear"]), "a win checkpoint flips the fort (held, flipped once, cleared)")
+			t.ok(n.relics - relics0 == 2 and n.essence - ess0 == 3, "the win's relics and essence land (got +%d, +%d)" % [n.relics - relics0, n.essence - ess0])
+			t.ok(int(n.stats["deaths"]) == 0 and n.relish["state"] == "at_fort", "a win is no death")
+		else:
+			t.ok(int(n.stats["deaths"]) == 1, "a death checkpoint counts the death (stats.deaths %s)" % str(n.stats["deaths"]))
+			t.ok(not bool(f["held"]) and int(f["flipped_count"]) == 0, "a death flips nothing")
+
+
 ## The state side: the outcome a checkpoint carries is what a load ends the run with.
 func _checkpoint_roundtrip_tests(t: TestUtil) -> void:
 	var loot := {"relics": 1, "blueprints": [], "husks": [], "remnants": [], "essence": 2}
@@ -91,13 +142,27 @@ func _checkpoint_wiring_tests(t: TestUtil) -> void:
 	var re := _src("res://scripts/raid/raid_endings.gd")
 	var rc := _code(re)
 	var sc := _code(_func_src(re, "func _send_checkpoint("))
-	t.ok(sc.contains("RaidLogic.checkpoint_outcome(pending_exit)") and not sc.contains("\"retreated\""),
-		"_send_checkpoint derives its outcome from pending_exit (sticky: no later call writes retreated back)")
+	t.ok(sc.contains("RaidLogic.checkpoint_payload(pending_exit, _ending_loot, banked)") and not sc.contains("\"retreated\""),
+		"_send_checkpoint takes outcome and loot from checkpoint_payload (sticky: no later call writes retreated or the pre-ending loot back)")
+	t.ok(_code(_func_src(re, "func take_checkpoint(")).contains("if ended:") and _code(_func_src(re, "func clamp_banked(")).contains("if ended:"),
+		"take_checkpoint and clamp_banked do nothing once the raid has ended")
+	var loot_callers := 0
+	var with_arg := 0
+	for line in rc.split("\n"):
+		if line.contains("_send_checkpoint(") and not line.contains("func _send_checkpoint("):
+			loot_callers += 1
+			if not line.contains("_send_checkpoint()"):
+				with_arg += 1
+	var ce_body := _code(_func_src(re, "func checkpoint_ending("))
+	t.ok(loot_callers == 3 and with_arg == 1 and ce_body.contains("_send_checkpoint(RaidLogic.empty_loot() if l.is_empty() else l)"),
+		"checkpoint_ending is the only caller passing a loot argument to _send_checkpoint (%d callers, %d with an argument)" % [loot_callers, with_arg])
+	t.ok(not _code(_src("res://scripts/raid/raid_warden_run.gd")).contains("_send_checkpoint("), "nothing outside raid_endings sends a checkpoint")
 	t.ok(sc.contains("_raid._from_run") and not sc.contains("has_method"), "_send_checkpoint is guarded by _from_run only (the API exists)")
 	t.ok(not re.contains("TODO(api-request #4)") and not rc.contains("has_method(\"cmd_run_checkpoint\")"), "no stale api-request #4 wording or guard")
 	var ce := _code(_func_src(re, "func checkpoint_ending("))
-	t.ok(ce.contains("_raid._from_run") and ce.contains("_send_checkpoint(") and ce.contains("has_method(\"autosave\")") and ce.contains("Game.autosave()")
-		and ce.find("_send_checkpoint(") < ce.find("Game.autosave()"), "checkpoint_ending sends the checkpoint, then autosaves (guarded)")
+	t.ok(ce.contains("_raid._from_run") and ce.contains("_send_checkpoint(") and not ce.contains("has_method") and ce.contains("Game.autosave()")
+		and ce.find("_send_checkpoint(") < ce.find("Game.autosave()"), "checkpoint_ending sends the checkpoint, then autosaves (Game always has autosave: no guard)")
+	t.ok(sc.contains("_ending_loot = loot") and ce.contains("RaidLogic.empty_loot()"), "checkpoint_ending's loot is stored, and an empty banked becomes the empty loot shape")
 	var dead := _code(_func_src(re, "func on_relish_died("))
 	t.ok(dead.find("pending_exit =") >= 0 and dead.find("checkpoint_ending()") > dead.find("pending_exit ="),
 		"on_relish_died checkpoints the death after pending_exit is set")
@@ -149,5 +214,7 @@ func _minor_tests(t: TestUtil) -> void:
 	t.ok(step.contains("var slam_reach := WardenLogic.slam_edge_px(spec)"), "the toll's reach test reads the same edge")
 	# a horn-cancelled toll is not booked
 	var horn := step.substr(0, step.find("muffled = WardenLogic.is_muffled"))
-	t.ok(horn.contains("toll_beats = maxi(0, toll_beats - 1)") and horn.contains("toll_marks.erase("), "a horn over a toll's tell un-books it")
+	t.ok(horn.contains("if _toll_beat_booked:") and horn.contains("toll_beats = maxi(0, toll_beats - 1)") and horn.contains("toll_marks.erase(")
+		and not horn.contains("toll_at != Vector2.INF"), "a horn over a booked beat's tell un-books it, whether or not its toll was placed")
+	t.ok(step.contains("_toll_beat_booked = true") and step.contains("toll_exit_px_max"), "the booked flag is set where the beat is counted; the px max is the placed-toll worst case")
 	t.ok(_code(_src("res://scripts/raid/warden_huntsman.gd")).contains("var resolve: Callable = raid.resolve_walls"), "the Huntsman's wall callable is typed")

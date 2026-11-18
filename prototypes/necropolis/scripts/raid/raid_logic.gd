@@ -238,6 +238,15 @@ static func checkpoint_outcome(pending_exit: String) -> String:
 	return pending_exit if pending_exit in ["relish_died", "warden_beaten"] else "retreated"
 
 
+## What a checkpoint sends the state (RaidEndings._send_checkpoint): {outcome, loot}. Sticky in both: once an
+## ending beat has begun (`pending_exit` set) the loot is the one the ending sent (`ending_loot`: the win's,
+## or the death's banked), never the pre-ending `banked`, so no later call can write the chest back out. Before
+## an ending it is `banked` and "retreated". An empty loot is the empty loot shape (the state refuses {}). A copy.
+static func checkpoint_payload(pending_exit: String, ending_loot: Dictionary, banked: Dictionary) -> Dictionary:
+	var loot := ending_loot if (pending_exit != "" and not ending_loot.is_empty()) else banked
+	return {"outcome": checkpoint_outcome(pending_exit), "loot": empty_loot() if loot.is_empty() else loot.duplicate(true)}
+
+
 ## The exit an ending beat leaves pending when it starts: `chest_opened` (the warden's victory beat)
 ## -> warden_beaten, `relish_died` (her death beat) -> relish_died; "" for anything else.
 static func pending_on(event: String) -> String:

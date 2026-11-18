@@ -13,7 +13,8 @@ var win_result := {}    # the warden's win, built once at chest open on the clea
 var pending_exit := ""  # the exit an ending beat will emit (relish_died, warden_beaten); a close keeps it
 
 var banked := {}                 # the last checkpoint snapshot (full loot shape)
-var banked_rooms := {}           # checkpoint room index -> true once it has banked
+var _ending_loot := {}           # the loot checkpoint_ending sent for the ending (sticky: every later send repeats it)
+var banked_rooms := {}          # checkpoint room index -> true once it has banked
 var revived := 0                 # phylactery revives spent this run
 var exit_idx := -1               # index into layout.doors of the exit Relish stands at, else -1
 var left_spawn_exit := false     # Relish has been outside the spawn exit's radius once
@@ -66,6 +67,8 @@ func rooms_seen() -> int:
 
 ## Bank loot: snapshot what was found plus what is carried now (MECHANICS 7).
 func take_checkpoint(room: int, announce: bool) -> void:
+	if ended:
+		return   # an ending has begun: its checkpoint stands (belt and braces; _send_checkpoint is sticky too)
 	if not (_raid.layout.get("checkpoints", []) as Array).has(room):
 		return
 	var snap := RaidLogic.loot_snapshot(_raid.found_loot, _raid.carried_count())
@@ -80,6 +83,8 @@ func take_checkpoint(room: int, announce: bool) -> void:
 
 ## Motes circled into undead are spent: a later death must not bank them (it would mint essence).
 func clamp_banked() -> void:
+	if ended:
+		return
 	var clamped := RaidLogic.clamp_banked_essence(banked, _raid.carried_count())
 	if clamped == banked:
 		return
@@ -89,24 +94,28 @@ func clamp_banked() -> void:
 
 ## Tell the state what is banked and the exit the run would end in now (Game.state.cmd_run_checkpoint; a
 ## save written from here, or a crash, ends the run from it on the next load). The outcome comes from
-## `pending_exit` (RaidLogic.checkpoint_outcome), so it is sticky: once an ending beat has begun, no later
-## call (take_checkpoint, clamp_banked) can write "retreated" back over it. `loot` is `banked` unless the
-## victory beat passes the win's loot.
+## `pending_exit` and the loot from `_ending_loot` (RaidLogic.checkpoint_payload), so both are sticky: once an
+## ending beat has begun, no later call can write "retreated" or the pre-ending `banked` back over it.
+## `loot` (only checkpoint_ending passes one) is the ending's loot: it is stored in `_ending_loot`.
 func _send_checkpoint(loot := {}) -> void:
-	if _raid._from_run:
-		Game.state.cmd_run_checkpoint(int(_raid.seed_data.get("run_id", 0)), banked if loot.is_empty() else loot,
-			RaidLogic.checkpoint_outcome(pending_exit))
+	if not _raid._from_run:
+		return
+	if not loot.is_empty():
+		_ending_loot = loot
+	var p := RaidLogic.checkpoint_payload(pending_exit, _ending_loot, banked)
+	Game.state.cmd_run_checkpoint(int(_raid.seed_data.get("run_id", 0)), p["loot"], p["outcome"])
 
 
 ## An ending beat has begun (`pending_exit` is set): record it with the state and save now, so a crash in
 ## the beat resumes as that ending and not as a retreat (the autosave clock is 30 s of real time).
-## `loot` is `banked` (a death keeps the last checkpoint snapshot) or the win's loot.
+## `loot` is the win's loot, or `banked` for a death (it keeps the last checkpoint snapshot; with none banked,
+## the empty loot shape: the state refuses {}). It is stored, and every later send repeats it.
 func checkpoint_ending(loot := {}) -> void:
 	if not _raid._from_run:
 		return
-	_send_checkpoint(loot)
-	if Game.has_method("autosave"):
-		Game.autosave()
+	var l: Dictionary = loot if not loot.is_empty() else banked
+	_send_checkpoint(RaidLogic.empty_loot() if l.is_empty() else l)
+	Game.autosave()
 
 
 # ------------------------------------------------------------------ retreat ---
