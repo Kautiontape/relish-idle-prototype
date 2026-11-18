@@ -396,9 +396,75 @@ func _draw() -> void:
 	var col := Palette.c("vei", 1.0 if awake else float(wcfg().get("dormant_alpha", 0.32)))
 	if awake and flash > 0.0:
 		col = col.lerp(Palette.c("text"), minf(0.85, flash))
+	if not awake:
+		_draw_presence()
 	_draw_glyph(col)
 	if awake:
 		_draw_meter_row()
+
+
+## A sleeping warden must read as a boss, not a floor mark (dormant only; static, matte): a plinth
+## under the glyph, a boss ring with a tick per break pip and a dashed ring outside it, and name
+## plates. In-world sizes are screen px (divided by the zoom; the text through a scaled transform).
+func _draw_presence() -> void:
+	var pc: Dictionary = wcfg().get("presence", {})
+	var z := zoom()
+	var vei_ring := Palette.c("vei", float(pc.get("ring_alpha", 0.85)))
+	var lw := 2.0 / z
+	# plinth: a flattened ellipse the warden stands on
+	var prx := radius * float(pc.get("plinth_rx", 1.35))
+	var pry := radius * float(pc.get("plinth_ry", 0.38))
+	var pcy := radius * float(pc.get("plinth_y", 0.9))
+	var pts := PackedVector2Array()
+	var seg := 40
+	for i in seg + 1:
+		var a := TAU * float(i) / float(seg)
+		pts.append(Vector2(cos(a) * prx, pcy + sin(a) * pry))
+	draw_polyline(pts, Palette.c("vei", float(pc.get("plinth_alpha", 0.55))), lw)
+	# boss ring, a tick per break pip (meter_n) from the top, and a dashed ring outside it
+	var rr := radius * float(pc.get("ring_mult", 1.9))
+	draw_arc(Vector2.ZERO, rr, 0.0, TAU, 64, vei_ring, lw)
+	var tick := float(pc.get("tick_px", 7.0)) / z
+	for i in meter_n:
+		var d := Vector2.UP.rotated(TAU * float(i) / float(maxi(1, meter_n)))
+		draw_line(d * rr, d * (rr + tick), vei_ring, lw)
+	var dr := rr + float(pc.get("dash_gap_px", 7.0)) / z
+	var dashes := 48
+	for i in dashes:
+		var a0 := TAU * float(i) / float(dashes)
+		draw_arc(Vector2.ZERO, dr, a0, a0 + TAU / float(dashes) * 0.5, 4, vei_ring, lw)
+	# name plates, clear of the dashed ring
+	var name_px := maxi(12, int(pc.get("name_px", 20)))
+	var label_px := maxi(12, int(pc.get("label_px", 13)))
+	var plate_a := float(pc.get("plate_alpha", 0.8))
+	var clear := dr + 6.0 / z
+	var nm := str(spec.get("name", "")).to_upper()
+	_draw_plate([["WARDEN", label_px, Palette.c("vei", 0.85)], [nm, name_px, Palette.c("vei")]],
+		Vector2(0.0, -clear), true, plate_a)
+	_draw_plate([["break it to take this fort", label_px, Palette.c("text")]],
+		Vector2(0.0, clear), false, plate_a)
+
+
+## Text lines (each [text, screen px, colour]) on a dark plate sized to them, centred on x = anchor.x,
+## its bottom edge (above) or top edge (below) on the anchor. Drawn in screen px through a transform.
+func _draw_plate(lines: Array, anchor: Vector2, above: bool, plate_a: float) -> void:
+	var font := ThemeDB.fallback_font
+	var pad := 4.0
+	var w := 0.0
+	var h := 0.0
+	for ln in lines:
+		w = maxf(w, font.get_string_size(str(ln[0]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(ln[1])).x)
+		h += font.get_height(int(ln[1]))
+	var z := zoom()
+	draw_set_transform(anchor, 0.0, Vector2(1.0 / z, 1.0 / z))
+	var top := -(h + pad * 2.0) if above else 0.0
+	draw_rect(Rect2(-w * 0.5 - pad, top, w + pad * 2.0, h + pad * 2.0), Palette.c("ground", plate_a))
+	var y := top + pad
+	for ln in lines:
+		var sz := int(ln[1])
+		draw_string(font, Vector2(-w * 0.5, y + font.get_ascent(sz)), str(ln[0]), HORIZONTAL_ALIGNMENT_LEFT, w, sz, ln[2])
+		y += font.get_height(sz)
+	draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 
 ## The silhouette, centred on the warden. The base warden (an archetype with no attack yet) is one

@@ -8,7 +8,31 @@ func run() -> int:
 	Palette.configure(TestUtil.load_json("res://configs/palette.json"))
 	_retreat_panel_tests(t)
 	_retreat_line_tests(t)
+	_warden_presence_tests(t)
 	return t.failures
+
+
+## T3: a sleeping warden reads as a boss. Knobs in configs/raid.json; warden.gd needs Pulse/ConfigDb so
+## it is checked by source text.
+func _warden_presence_tests(t: TestUtil) -> void:
+	t.suite("warden_presence")
+	var w: Dictionary = TestUtil.load_json("res://configs/raid.json").get("wardens", {})
+	var pc: Dictionary = w.get("presence", {})
+	for k in ["ring_mult", "ring_alpha", "dash_gap_px", "tick_px", "plinth_y", "plinth_rx", "plinth_ry",
+			"plinth_alpha", "name_px", "label_px", "plate_alpha"]:
+		t.ok(pc.has(k) and (pc[k] is float or pc[k] is int), "presence." + k + " is a number")
+	t.ok(float(pc.get("ring_mult", 0.0)) > 1.5, "the boss ring stands well outside the body")
+	for k in ["ring_alpha", "plinth_alpha", "plate_alpha"]:
+		t.ok(float(pc.get(k, 0.0)) > 0.0 and float(pc.get(k, 0.0)) <= 1.0, k + " in (0, 1]")
+	t.ok(float(pc.get("name_px", 0)) >= 12.0 and float(pc.get("label_px", 0)) >= 12.0, "plate text at least 12 px")
+	t.ok(float(w.get("dormant_alpha", 0.0)) >= 0.6, "the sleeping glyph is not faint")
+	var src := FileAccess.get_file_as_string("res://scripts/raid/warden.gd")
+	t.ok(RegEx.create_from_string("if not awake:\\s*_draw_presence\\(\\)").search(src) != null, "_draw calls _draw_presence only while asleep")
+	var i := src.find("func _draw_presence()")
+	var body := src.substr(i, src.find("\nfunc ", i + 10) - i) if i >= 0 else ""
+	t.ok(body.contains("wcfg().get(\"presence\""), "_draw_presence reads presence from wcfg()")
+	t.ok(body.contains("\"WARDEN\"") and body.contains("break it to take this fort"), "the plates say WARDEN and what breaking it does")
+	t.ok(body.contains("zoom()"), "sizes are held in screen px by the zoom")
 
 
 func _key(code: Key, pressed := true) -> InputEventKey:
