@@ -9,7 +9,8 @@ extends RefCounted
 const COVINGTON := "covington"
 const MATTERS := ["living", "undead", "dead"]
 ## A fort's state glyph when it is not held (held forts show their margin: IdleLogic's safe / thin
-## / will_fall).
+## / will_fall), or HELD when a held fort has no margin.
+const HELD := "held"
 const HERS := "hers"
 const OVERRUN := "overrun"
 const CONTESTED := "contested"
@@ -122,8 +123,8 @@ static func controller(f: Dictionary) -> String:
 
 
 ## The one glanceable state a fort shows (its centre glyph). Held: its margin, `margin` (the
-## model's margin_of, so it always agrees with the chip): safe, thin or will_fall; "" or anything
-## else counts as safe, IdleLogic's committed fallback. Not held, a side is present at
+## model's margin_of, so it always agrees with the chip): safe, thin or will_fall. Only "safe" is
+## safe: "" or anything else is HELD, held with no margin to show (never SAFE). Not held, a side is present at
 ## state_present_frac of capacity or more (the mass that rounds to one pip):
 ##   overrun    your undead present and the living not: still Vei's (never taken in a raid), so it
 ##              draws like hers, contested and emptied: the hairline ring, no core;
@@ -134,7 +135,7 @@ static func controller(f: Dictionary) -> String:
 ## Held beats everything; overrun and contested never overlap; contested beats hers.
 static func fort_state(f: Dictionary, margin: String) -> String:
 	if bool(f.get("held", false)):
-		return margin if margin == IdleLogic.THIN or margin == IdleLogic.WILL_FALL else IdleLogic.SAFE
+		return margin if margin in [IdleLogic.SAFE, IdleLogic.THIN, IdleLogic.WILL_FALL] else HELD
 	var cap := maxf(float(f.get("cap", 0.0)), 0.0)
 	var u := float(f.get("undead", 0.0))
 	var l := float(f.get("living", 0.0))
@@ -181,7 +182,7 @@ static func has_core(state: String) -> bool:
 ## You hold the fort: held at any margin. Overrun is not yours (it is Vei's until you break its
 ## warden in a raid).
 static func yours(state: String) -> bool:
-	return state in [IdleLogic.SAFE, IdleLogic.THIN, IdleLogic.WILL_FALL]
+	return state in [IdleLogic.SAFE, IdleLogic.THIN, IdleLogic.WILL_FALL, HELD]
 
 
 ## The state glyph's alpha on the forts' beat (`w`: Pulse.wave at their hop). MapNodes sets it as
@@ -628,6 +629,19 @@ static func demo_overlay(forts: Array, vei: Dictionary, hud: Dictionary, relish:
 			f["grace_s_left"] = float(held["frac"]) * grace_total(flip, int(f["tier"]))
 			f["ship_in"] = float(held.get("ship_in", 0.0))  # the idle surfaces' pressure and garrison
 			f["undead"] = float(held.get("undead", f.get("undead", 0.0)))
+			# the view's hold readouts, written out as the economy would give them
+			f["garrison"] = f["undead"]
+			f["margin"] = str(held.get("margin", ""))
+			f["garrison_rate"] = float(held.get("garrison_rate", 0.0))
+			f["fall_s"] = float(held.get("fall_s", -1.0))
+	var supports := 0
+	var held_n := 0
+	for f in forts:
+		if bool(f.get("held", false)):
+			held_n += 1
+			if str(f.get("margin", "")) != IdleLogic.WILL_FALL:
+				supports += 1
+	hud["war_supports"] = {"n": supports, "m": held_n}
 	for mt in d.get("matter", []):  # fort state glyphs: an overrun, a contested and an emptied fort
 		if by_id.has(mt.get("fort", "")):
 			var mf: Dictionary = by_id[mt["fort"]]

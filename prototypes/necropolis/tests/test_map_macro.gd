@@ -79,8 +79,8 @@ func _states(t: TestUtil) -> void:
 		t.ok(NodeLogic.fort_state(_fort(10.0, 60.0, 0.0, 160.0, held), m) == m, "held at margin %s: %s" % [m, m])
 	t.ok(NodeLogic.fort_state(_fort(60.0, 60.0, 0.0, 160.0, held), IdleLogic.THIN) == IdleLogic.THIN, "held beats contested")
 	t.ok(NodeLogic.fort_state(_fort(0.0, 0.0, 80.0, 160.0, held), IdleLogic.WILL_FALL) == IdleLogic.WILL_FALL, "held beats emptied")
-	t.ok(NodeLogic.fort_state(_fort(10.0, 60.0, 0.0, 160.0, held), "") == IdleLogic.SAFE, "held with no margin yet: safe (IdleLogic's committed fallback)")
-	t.ok(NodeLogic.fort_state(_fort(10.0, 60.0, 0.0, 160.0, held), "bogus") == IdleLogic.SAFE, "held with an unknown margin: safe")
+	t.ok(NodeLogic.fort_state(_fort(10.0, 60.0, 0.0, 160.0, held), "") == NodeLogic.HELD, "held with no margin: held, never safe (only margin 'safe' is safe)")
+	t.ok(NodeLogic.fort_state(_fort(10.0, 60.0, 0.0, 160.0, held), "bogus") == NodeLogic.HELD, "held with an unknown margin: held, not safe")
 	t.ok(NodeLogic.fort_state(_fort(140.0, 0.0, 0.0), IdleLogic.WILL_FALL) == NodeLogic.HERS, "a margin on a fort that is not held is ignored")
 	var all := {}
 	for s in [NodeLogic.HERS, NodeLogic.OVERRUN, NodeLogic.CONTESTED, NodeLogic.EMPTIED, IdleLogic.SAFE, IdleLogic.THIN, IdleLogic.WILL_FALL]:

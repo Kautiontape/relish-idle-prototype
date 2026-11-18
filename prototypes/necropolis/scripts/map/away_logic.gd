@@ -16,31 +16,30 @@ static func cfg() -> Dictionary:
 	return MapLogic.cfg().get("idle", {}).get("away", {})
 
 
-## The report to show. `demo` (the --away=demo report) wins when given; else view_away when the
-## state has it; else nothing ({shown: false}).
-# TODO(api-request #7): view_away()
+## The report to show: `demo` (the --away=demo debug report) when given, else the state's
+## view_away(); with no state, nothing ({shown: false}).
 static func report(state, demo := {}) -> Dictionary:
 	if not demo.is_empty():
 		return demo
-	if state != null and state.has_method("view_away"):
+	if state != null:
 		return state.view_away()
 	return {"shown": false}
 
 
 ## Whether the panel opens for this report. With the real view_away, `shown` is the only
-## authority (its rev moves every substep); on the stand-in path (the demo, or a state without
-## view_away) the closed rev is compared too.
+## authority (its rev moves every substep); for the demo report (or no state) the closed rev is
+## compared too.
 static func should_open(state, demo: bool, rep: Dictionary, closed_rev: int) -> bool:
 	if not bool(rep.get("shown", false)):
 		return false
-	if demo or state == null or not state.has_method("view_away"):
+	if demo or state == null:
 		return int(rep.get("rev", 0)) != closed_rev
 	return true
 
 
-## Dismisses through the API when the state has it (a ready line acts as DISMISS does).
+## Dismisses through cmd_dismiss_away (a ready line acts as DISMISS does).
 static func dismiss(state) -> void:
-	if state != null and state.has_method("cmd_dismiss_away"):  # TODO(api-request #7)
+	if state != null:
 		state.cmd_dismiss_away()
 
 

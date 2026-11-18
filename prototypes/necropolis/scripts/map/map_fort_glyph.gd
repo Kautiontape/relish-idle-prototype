@@ -74,6 +74,8 @@ func _shape(st: String, p: Vector2, h: float, n: Dictionary) -> void:
 			pass  # the still layer's matte ring
 		IdleLogic.SAFE:
 			diamond(p, h, Palette.c("undead"))
+		NodeLogic.HELD:  # held with no margin to show: a filled diamond in the dim ink, not SAFE's green
+			diamond(p, h, Palette.c("text_dim"))
 		_:
 			var d := h - sw * 0.5
 			glow_poly(PackedVector2Array([p + Vector2(0, -d), p + Vector2(d, 0), p + Vector2(0, d), p + Vector2(-d, 0), p + Vector2(0, -d)]),

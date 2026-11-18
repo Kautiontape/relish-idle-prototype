@@ -92,9 +92,9 @@ func refresh(force := false) -> bool:
 		lanes = MapLogic.demo_lanes(forts)  # TODO(api E2): debug stand-in
 	else:
 		lanes = MapLogic.lanes_from_views(state.view_lanes().get("lanes", []))
-	margins = IdleLogic.committed_margins(forts, hud)
-	clocks = IdleLogic.committed_clocks(forts, hud)
-	supports = IdleLogic.committed_supports(hud, forts)
+	margins = IdleLogic.committed_margins(forts)
+	clocks = IdleLogic.committed_clocks(forts)
+	supports = IdleLogic.committed_supports(hud)
 	_refresh_raids()
 	_update_margin_sig()
 	return true

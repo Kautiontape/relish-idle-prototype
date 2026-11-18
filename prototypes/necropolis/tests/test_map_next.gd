@@ -8,24 +8,12 @@ extends RefCounted
 const VP := Vector2(1600, 900)
 
 
-## A GameState stand-in with api-request #13's projection: fall_s in either allowed shape.
-class FakeProj13 extends RefCounted:
-	var nested := false
-
-	func view_projection(_valve: Dictionary) -> Dictionary:
-		if nested:
-			return {"margins": {"a": {"margin": "thin", "fall_s": 1234.0}}}
-		return {"margins": {"a": "will_fall"}, "fall_s": {"a": 99.0}}
-
-
-## Projection with a real garrison_rate for fort a, in either shape.
-class FakeRate13 extends RefCounted:
-	var nested := false
-
-	func view_projection(_valve: Dictionary) -> Dictionary:
-		if nested:
-			return {"margins": {"a": {"margin": "thin", "fall_s": 1234.0, "garrison_rate": -0.7}}}
-		return {"margins": {"a": "will_fall"}, "fall_s": {"a": 99.0}, "garrison_rate": {"a": -0.7}}
+## A GameState stand-in whose view_projection is the real shape (STATE-API 5.x): fort a only.
+class FakeProj extends RefCounted:
+	func view_projection(valve: Dictionary) -> Dictionary:
+		return {"rev": 1, "valve": valve, "split": {"work": 0.0, "war": 9.0, "flood": 0.0}, "workers_steady": 4.0, "backlog_diff": -1.5,
+			"war_supports": {"n": 0, "m": 1},
+			"margins": {"a": {"margin": "thin", "margin_cause": "", "fall_s": 1234.0, "garrison_rate": -0.7, "margin_verified": false}}}
 
 
 func run() -> int:
@@ -58,8 +46,10 @@ func run() -> int:
 	return t.failures
 
 
+## A held fort as the view carries it: garrison, margin and the clock fields (garrison_rate, fall_s).
 func _held(id: String, ship_in: float, undead: float, extra := {}) -> Dictionary:
-	var f := {"id": id, "name": id.capitalize(), "held": true, "ship_in": ship_in, "undead": undead, "first_clear": false, "yield_mult": 0.5}
+	var f := {"id": id, "name": id.capitalize(), "held": true, "ship_in": ship_in, "undead": undead, "garrison": undead, "margin": "safe",
+		"garrison_rate": 0.0, "fall_s": -1.0, "first_clear": false, "yield_mult": 0.5}
 	f.merge(extra, true)
 	return f
 
@@ -73,62 +63,47 @@ func _hud(war: float, mint := 10.0) -> Dictionary:
 
 func _clocks(t: TestUtil) -> void:
 	t.suite("map_next-clock")
-	var a := _held("a", 2.0, 60.0)
-	t.near(IdleLogic.garrison_rate(a, 3.0, 2), 1.5 - 2.0, 1e-9, "stand-in rate = WAR's per-fort share - pressure")
-	t.near(IdleLogic.garrison_rate(_held("a", 2.0, 60.0, {"garrison_rate": 0.3}), 3.0, 2), 0.3, 1e-9, "view_fort.garrison_rate wins")
-	t.near(IdleLogic.garrison_rate(a, 3.0, 0), -2.0, 1e-9, "no held count: no support")
-	t.near(IdleLogic.fall_after(60.0, -0.5), 120.0, 1e-9, "fall_s = garrison / -rate")
-	t.ok(IdleLogic.fall_after(60.0, 0.0) == -1.0 and IdleLogic.fall_after(60.0, 0.4) == -1.0, "a rate >= 0 is holding (-1)")
-	t.ok(IdleLogic.fall_after(-5.0, -1.0) == 0.0, "an empty garrison falls now")
 	t.ok(IdleLogic.fmt_fall(2400.0) == "~40 min", "~40 min")
 	t.ok(IdleLogic.fmt_fall(7200.0) == "~2 h" and IdleLogic.fmt_fall(5400.0) == "~2 h", "~2 h (90 min rounds up)")
 	t.ok(IdleLogic.fmt_fall(86400.0) == "~1 d" and IdleLogic.fmt_fall(3.5 * 86400.0) == "~4 d", "~1 d, ~4 d")
 	t.ok(IdleLogic.fmt_fall(10.0) == "~1 min" and IdleLogic.fmt_fall(0.0) == "~1 min", "never under ~1 min")
 	t.ok(IdleLogic.fmt_fall(3599.0) == "~60 min" and IdleLogic.fmt_fall(3600.0) == "~1 h", "the unit changes at the hour")
 	t.ok(IdleLogic.fmt_fall(-1.0) == "", "holding has no clock")
-	var forts := [_held("a", 2.0, 60.0), _held("b", 0.0, 10.0), {"id": "c", "held": false, "ship_in": 5.0, "undead": 1.0}]
-	var ck := IdleLogic.committed_clocks(forts, _hud(3.0))
+	var forts := [_held("a", 2.0, 60.0, {"garrison_rate": -0.5, "fall_s": 120.0}), _held("b", 0.0, 10.0), {"id": "c", "held": false, "ship_in": 5.0, "undead": 1.0}]
+	var ck := IdleLogic.committed_clocks(forts)
 	t.ok(ck.size() == 2 and not ck.has("c"), "clocks cover held forts only")
-	t.near(float(ck["a"]["rate"]), -0.5, 1e-9, "a: 1.5 support - 2.0 pressure")
-	t.near(float(ck["a"]["fall_s"]), 120.0, 1e-9, "a falls in 60 / 0.5 s")
+	t.near(float(ck["a"]["rate"]), -0.5, 1e-9, "a: view_fort.garrison_rate")
+	t.near(float(ck["a"]["fall_s"]), 120.0, 1e-9, "a: view_fort.fall_s (it includes the grace left)")
 	t.ok(float(ck["b"]["fall_s"]) == -1.0, "b holds")
-	var real := IdleLogic.committed_clocks([_held("a", 2.0, 60.0, {"garrison_rate": -1.0, "fall_s": 777.0})], _hud(3.0))
-	t.ok(float(real["a"]["rate"]) == -1.0 and float(real["a"]["fall_s"]) == 777.0, "view_fort.fall_s and garrison_rate win (they include hold.break_s)")
-	var cold := {"rates": [{"id": "mint", "rate": 0.0}], "split": {"work": 0.0, "war": 0.0, "flood": 0.0}}
-	t.ok(not IdleLogic.streams_known(cold) and IdleLogic.streams_known(_hud(3.0)), "after a load the streams read 0 until the first substep")
-	var c0 := IdleLogic.committed_clocks(forts, cold)
-	t.ok(float(c0["a"]["rate"]) == 0.0 and float(c0["a"]["fall_s"]) == -1.0, "before the first substep the stand-in reads holding, not falling")
+	var src := FileAccess.get_file_as_string("res://scripts/map/idle_logic.gd")
+	t.ok(not src.contains("fall_after") and not src.contains("support_per_fort") and not src.contains("streams_known"), "the clock stand-ins are gone")
 
 
 func _projected(t: TestUtil) -> void:
 	t.suite("map_next-projection")
-	var forts := [_held("a", 2.0, 60.0), _held("b", 0.5, 10.0)]
-	var hud := _hud(3.0)
-	var same := IdleLogic.projection(null, hud, hud["valve"], forts)
-	var committed := IdleLogic.committed_clocks(forts, hud)
-	var ok := true
-	for id in committed:
-		ok = ok and is_equal_approx(float(same["clocks"][id]["rate"]), float(committed[id]["rate"]))
-	t.ok(ok, "a drag onto the current valve shifts no rate")
-	var more := IdleLogic.projection(null, hud, {"work": 0.0, "war": 1.0, "flood": 0.0}, forts)
-	var less := IdleLogic.projection(null, hud, {"work": 1.0, "war": 0.0, "flood": 0.0}, forts)
-	t.ok(float(more["clocks"]["a"]["rate"]) > float(committed["a"]["rate"]) and float(less["clocks"]["a"]["rate"]) < float(committed["a"]["rate"]), "more WAR raises the rate, less lowers it")
-	t.near(float(more["clocks"]["a"]["rate"]) - float(committed["a"]["rate"]), (10.0 - 5.0) / 2.0, 1e-6, "the shift is the change in WAR's per-fort share")
-	t.ok(float(less["clocks"]["b"]["fall_s"]) > 0.0, "with no WAR, b falls (a projected fall_s)")
-	var p13 := FakeProj13.new()
-	var flat := IdleLogic.projection(p13, hud, hud["valve"], forts)
-	t.ok(flat["margins"]["a"] == "will_fall" and float(flat["clocks"]["a"]["fall_s"]) == 99.0, "a separate fall_s dict in view_projection is used")
-	p13.nested = true
-	var nested := IdleLogic.projection(p13, hud, hud["valve"], forts)
-	t.ok(nested["margins"]["a"] == "thin" and float(nested["clocks"]["a"]["fall_s"]) == 1234.0, "{margin, fall_s} margins are read and normalised to the word")
-	var rp := FakeRate13.new()
-	var rflat := IdleLogic.projection(rp, hud, hud["valve"], forts)
-	t.ok(is_equal_approx(float(rflat["clocks"]["a"]["rate"]), -0.7) and float(rflat["clocks"]["a"]["fall_s"]) == 99.0, "a real garrison_rate dict is the chip's rate, beside the real fall_s")
-	t.ok(is_equal_approx(float(rflat["clocks"]["b"]["rate"]), float(committed["b"]["rate"])), "a fort the real rate leaves out keeps the stand-in")
-	rp.nested = true
-	var rnest := IdleLogic.projection(rp, hud, hud["valve"], forts)
-	t.ok(is_equal_approx(float(rnest["clocks"]["a"]["rate"]), -0.7) and float(rnest["clocks"]["a"]["fall_s"]) == 1234.0, "a real garrison_rate inside the margins is read too")
-	t.ok(IdleLogic.margin_words({"a": {"margin": "thin"}, "b": "safe"}) == {"a": "thin", "b": "safe"}, "margin_words takes both shapes")
+	var forts := [_held("a", 2.0, 60.0, {"garrison_rate": -0.5, "fall_s": 120.0}), _held("b", 0.5, 10.0, {"garrison_rate": 0.2})]
+	var valve := {"work": 0.0, "war": 1.0, "flood": 0.0}
+	var committed := IdleLogic.committed_clocks(forts)
+	var p := IdleLogic.projection(FakeProj.new(), valve, forts)
+	t.ok(p["margins"] == {"a": "thin"}, "the projection's margins are read as words")
+	t.ok(float(p["clocks"]["a"]["fall_s"]) == 1234.0 and is_equal_approx(float(p["clocks"]["a"]["rate"]), -0.7), "a fort the projection carries reads its garrison_rate and fall_s")
+	t.ok(p["clocks"]["b"] == committed["b"], "a held fort the projection leaves out keeps its committed clock")
+	t.ok(p["war_supports"] == {"n": 0, "m": 1} and is_equal_approx(float(p["backlog_diff"]), -1.5) and is_equal_approx(float(p["split"]["war"]), 9.0)
+		and is_equal_approx(float(p["workers_steady"]), 4.0), "split, workers_steady, war_supports and backlog_diff are the view's")
+	t.ok(IdleLogic.margin_words({"a": {"margin": "thin"}, "b": {"margin": ""}}) == {"a": "thin", "b": ""}, "margin_words keeps an empty margin empty")
+	# a real GameState: the map's numbers are the views' own
+	var gs := GameState.new(TestUtil.configs())
+	gs.debug_enabled = true
+	gs.cmd_debug_load_fixture("midgame_2flips")
+	var m0 := MapModel.new(gs)
+	m0.refresh(true)
+	var rv := gs.view_projection(ValveLogic.normalise({"work": 0.2, "war": 0.7, "flood": 0.1}))
+	var rp := IdleLogic.projection(gs, {"work": 0.2, "war": 0.7, "flood": 0.1}, m0.forts)
+	t.ok(rp["war_supports"] == rv["war_supports"] and rp["split"] == rv["split"] and is_equal_approx(float(rp["backlog_diff"]), float(rv["backlog_diff"])), "the drag projection's N of M, split and backlog_diff are view_projection's")
+	var same := true
+	for id in rv["margins"]:
+		same = same and rp["margins"][id] == rv["margins"][id]["margin"] and is_equal_approx(float(rp["clocks"][id]["fall_s"]), float(rv["margins"][id]["fall_s"]))
+	t.ok(same and rv["margins"].size() > 0, "every held fort's projected margin word and fall_s are view_projection's")
 	# the model's one accessor follows the drag
 	var s := GameState.new(TestUtil.configs())
 	s.debug_enabled = true
@@ -168,38 +143,42 @@ func _chip(t: TestUtil) -> void:
 	t.ok(IdleLogic.chip_height_px() >= 2.0 * float(IdleLogic.cfg()["chip_font"]), "two lines fit the plate")
 
 
-## The fort's horizon: the nearer of the garrison clock and the hold timer.
+## The fort's horizon: the view's fall_s alone (the hold timer is a dead stub and is not read).
 func _horizon(t: TestUtil) -> void:
 	t.suite("map_next-horizon")
 	t.ok(NextLogic.restarted(500.0, 3.0) and not NextLogic.restarted(500.0, 500.0) and not NextLogic.restarted(500.0, 900.0) and not NextLogic.restarted(-1.0, 0.0),
 		"time going backwards (and only that) starts the hysteresis memory over")
 	var f := _held("a", 0.0, 10.0, {"held_s_left": 600.0})
-	t.near(IdleLogic.fort_horizon(f, {"fall_s": 9000.0}), 600.0, 1e-6, "the timer alone is nearer")
-	t.near(IdleLogic.fort_horizon(f, {"fall_s": 300.0}), 300.0, 1e-6, "the fall clock is nearer: the minimum")
-	t.near(IdleLogic.fort_horizon(f, {"fall_s": -1.0}), 600.0, 1e-6, "the timer alone")
-	t.near(IdleLogic.fort_horizon(_held("a", 0.0, 10.0), {"fall_s": 900.0}), 900.0, 1e-6, "the fall clock alone")
-	t.near(IdleLogic.fort_horizon(_held("a", 0.0, 10.0), {"fall_s": -1.0}), -1.0, 1e-6, "neither: -1")
-	t.near(IdleLogic.fort_horizon(_held("a", 0.0, 10.0, {"held_s_left": 0.0}), {}), -1.0, 1e-6, "an empty timer does not count")
-	var sp := IdleLogic.chip_parts(f, "safe", {"rate": 0.3, "fall_s": -1.0})
-	t.ok(sp["word"] == "HOLD" and sp["fall"] == "ends in ~10 min" and sp["key"] == "select", "a SAFE chip with only a timer reads HOLD, not SAFE (%s, %s)" % [sp["word"], sp["fall"]])
-	var tp := IdleLogic.chip_parts(f, "safe", {"rate": 0.3, "fall_s": 9000.0})
-	t.ok(tp["word"] == "HOLD" and tp["fall"] == "ends in ~10 min" and tp["key"] == IdleLogic.cfg()["colors"]["hold"], "the timer nearer than the fall: HOLD in the hold colour")
+	t.near(IdleLogic.fort_horizon(f, {"fall_s": 9000.0}), 9000.0, 1e-6, "fort_horizon ignores held_s_left: the fall clock alone, even when the stub is nearer")
+	t.near(IdleLogic.fort_horizon(f, {"fall_s": 300.0}), 300.0, 1e-6, "the fall clock")
+	t.near(IdleLogic.fort_horizon(f, {"fall_s": -1.0}), -1.0, 1e-6, "not falling: -1, whatever the stub says")
+	t.near(IdleLogic.fort_horizon(f, {}), -1.0, 1e-6, "no clock: -1")
 	var fp := IdleLogic.chip_parts(f, "thin", {"rate": -0.2, "fall_s": 300.0})
-	t.ok(fp["word"] == "THIN" and fp["fall"] == "falls in ~5 min" and fp["key"] == "select", "the fall nearer than the timer keeps its margin word (%s)" % fp["fall"])
+	t.ok(fp["word"] == "THIN" and fp["fall"] == "falls in ~5 min" and fp["key"] == "select", "a THIN chip keeps its word and the fall clock (%s)" % fp["fall"])
 	t.ok(IdleLogic.chip_parts(f, "will_fall", {"rate": -0.2, "fall_s": 300.0})["word"] == "WILL FALL", "WILL FALL too")
-	var np := IdleLogic.chip_parts(_held("a", 0.0, 10.0), "safe", {"rate": 0.3, "fall_s": -1.0})
-	t.ok(np["word"] == "SAFE" and np["fall"] == "holds", "no timer: unchanged")
-	t.ok(IdleLogic.fort_horizon_parts(f, {"fall_s": 9000.0})["kind"] == "hold" and IdleLogic.fort_horizon_parts(f, {"fall_s": 300.0})["kind"] == "fall"
-		and IdleLogic.fort_horizon_parts(f, {"fall_s": 600.0})["kind"] == "fall" and IdleLogic.fort_horizon_parts(_held("a", 0.0, 10.0), {})["kind"] == "", "the kind of the winning term (a tie is the fall)")
-	var ln := {"forts": [_held("a", 0.0, 10.0, {"held_s_left": 180.0}), _held("b", 0.0, 10.0, {"held_s_left": 7200.0})],
-		"clocks": {"a": {"fall_s": -1.0}, "b": {"fall_s": -1.0}}}
-	t.ok(NextLogic.leave_text(ln) == "If you leave, A falls in ~3 min", "a near timer is a risk, not safe (%s)" % NextLogic.leave_text(ln))
-	ln["forts"] = [_held("b", 0.0, 10.0, {"held_s_left": 32400.0})]
-	t.ok(NextLogic.leave_text(ln) == "Safe to leave: first fort falls in ~9 h", "a far timer is safe (%s)" % NextLogic.leave_text(ln))
-	ln["forts"] = [_held("b", 0.0, 10.0, {"held_s_left": 3600.0})]
+	var np := IdleLogic.chip_parts(f, "safe", {"rate": 0.3, "fall_s": -1.0})
+	t.ok(np["word"] == "SAFE" and np["fall"] == "holds", "a SAFE chip with no fall clock reads SAFE · holds, never HOLD (%s)" % np["word"])
+	var ln := {"forts": [_held("a", 0.0, 10.0, {"held_s_left": 180.0})], "clocks": {"a": {"fall_s": -1.0}}}
+	t.ok(NextLogic.leave_text(ln) == "Safe to leave: every fort holds at these rates", "the leave line ignores held_s_left (%s)" % NextLogic.leave_text(ln))
+	ln["clocks"] = {"a": {"fall_s": 180.0}}
+	t.ok(NextLogic.leave_text(ln) == "If you leave, A falls in ~3 min", "a near fall_s is a risk, not safe (%s)" % NextLogic.leave_text(ln))
+	ln["clocks"] = {"a": {"fall_s": 32400.0}}
+	t.ok(NextLogic.leave_text(ln) == "Safe to leave: first fort falls in ~9 h", "a far fall_s is safe (%s)" % NextLogic.leave_text(ln))
+	ln["clocks"] = {"a": {"fall_s": 3600.0}}
 	t.ok(NextLogic.leave_text(ln).begins_with("Safe to leave"), "leave_safe_s itself is safe")
-	ln["forts"] = [_held("b", 0.0, 10.0, {"held_s_left": 3599.0})]
+	ln["clocks"] = {"a": {"fall_s": 3599.0}}
 	t.ok(NextLogic.leave_text(ln).begins_with("If you leave"), "just under it is a risk")
+	# no margin word without a margin: never SAFE, whatever the clock says
+	var blank := IdleLogic.chip_parts(f, "", {"rate": 0.3, "fall_s": -1.0})
+	t.ok(blank["word"] == "" and blank["fall"] == "", "a margin of empty shows no word and no 'holds'")
+	t.ok(NodeLogic.fort_state(f, "") == NodeLogic.HELD and NodeLogic.fort_state(f, "") != IdleLogic.SAFE and NodeLogic.yours(NodeLogic.HELD), "a held fort with no margin is held, not SAFE")
+	t.ok(NodeLogic.fort_state(f, "thin") == IdleLogic.THIN and NodeLogic.fort_state(f, "safe") == IdleLogic.SAFE and NodeLogic.fort_state(f, "will_fall") == IdleLogic.WILL_FALL, "a margin word is the state")
+	for m in ["thin", "will_fall", ""]:
+		t.ok(NodeLogic.fort_state(f, m) != IdleLogic.SAFE, "a held fort with margin '%s' never reads SAFE" % m)
+	# the sources
+	for path in ["idle_logic", "valve_logic", "away_logic", "next_logic", "map_fort_idle", "map_model", "node_logic", "card_logic"]:
+		var src := FileAccess.get_file_as_string("res://scripts/map/%s.gd" % path)
+		t.ok(not src.contains("hold_word") and not src.contains("hold_fmt") and not src.contains("fort_horizon_parts"), "%s has no hold-timer chip left" % path)
 
 
 ## The quiet state and its leave line (D2).
@@ -228,7 +207,7 @@ func _quiet(t: TestUtil) -> void:
 	t.ok(NextLogic.leave_text(fl) == "Safe to leave: first fort falls in ~9 h", "a holding fort is skipped (%s)" % NextLogic.leave_text(fl))
 	# a real view's fall_s on the fort reaches the clock and so the line
 	var real := _held("a", 0.0, 10.0, {"fall_s": 32400.0, "garrison_rate": -0.1})
-	var ck := IdleLogic.committed_clocks([real], _hud(1.0))
+	var ck := IdleLogic.committed_clocks([real])
 	t.ok(NextLogic.leave_text({"forts": [real], "clocks": ck}) == "Safe to leave: first fort falls in ~9 h", "a fort dict carrying fall_s")
 	var hud := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
 	var wm := FileAccess.get_file_as_string("res://scripts/map/world_map.gd")
@@ -771,28 +750,25 @@ func _weight(t: TestUtil) -> void:
 func _payoff(t: TestUtil) -> void:
 	t.suite("map_next-payoff")
 	var vc: Dictionary = MapLogic.cfg()["controls"]
-	var frac := float(vc["war_drain_frac"])
 	var window := float(vc["drain_window_s"])
 	var k := 12000.0
-	t.near(ValveLogic.diff_at(2.0, {"split": {"war": 6.0, "flood": 3.0}}, {"war": 4.0, "flood": 1.0}, frac), 2.0 + 2.0 + 2.0 * frac, 1e-9, "stand-in: diff_ema + dFLOOD + dWAR x war_drain_frac")
-	t.near(ValveLogic.diff_at(2.0, {"backlog_diff": -7.0, "split": {"war": 9.0}}, {}, frac), -7.0, 1e-9, "view_projection's backlog_diff wins")
+	t.near(ValveLogic.diff_at({"backlog_diff": -7.0, "split": {"war": 9.0}}), -7.0, 1e-9, "the dragged valve's differential is view_projection's backlog_diff")
 	t.near(ValveLogic.drain_at(1000.0, -10.0), 100.0, 1e-9, "drain = backlog / -diff when shrinking")
 	t.ok(ValveLogic.drain_at(1000.0, 0.0) == -1.0 and ValveLogic.drain_at(1000.0, 5.0) == -1.0, "holding or growing: ∞")
 	t.near(ValveLogic.odds_at(12000.0, 0.0, window, k), 0.5, 1e-9, "odds = b / (b + K)")
 	t.near(ValveLogic.odds_at(12000.0, 10.0, window, k), (12000.0 + 10.0 * window) / (24000.0 + 10.0 * window), 1e-9, "after the window at the diff")
 	t.ok(ValveLogic.odds_at(100.0, -1000.0, window, k) == 0.0, "a drained backlog has no odds")
 	# a drag onto the current valve: both sides identical
-	var hud := {"rates": [{"id": "mint", "rate": 20.0}], "valve": {"work": 0.4, "war": 0.45, "flood": 0.15}, "split": {"work": 8.0, "war": 9.9, "flood": 3.0}, "workers_steady": 0.0}
 	var vei := {"backlog": 18000.0, "diff_ema": 2.1}
-	var base: Dictionary = ValveLogic.project(hud, hud["valve"])["split"]
-	var same := ValveLogic.payoff(vei, ValveLogic.project(hud, hud["valve"]), base, k)
+	var base := {"work": 8.0, "war": 9.0, "flood": 3.0}
+	var same := ValveLogic.payoff(vei, {"split": base, "backlog_diff": 2.1}, base, k)
 	t.ok(same["now"] == same["then"], "dragging onto the current valve changes nothing")
-	var flood := ValveLogic.payoff(vei, ValveLogic.project(hud, {"work": 0.2, "war": 0.45, "flood": 0.35}), base, k)
+	var flood := ValveLogic.payoff(vei, {"split": {"work": 4.0, "war": 9.0, "flood": 7.0}, "backlog_diff": 6.1}, base, k)
 	t.ok(float(flood["then"]["diff"]) > float(flood["now"]["diff"]) and float(flood["then"]["odds"]) > float(flood["now"]["odds"]), "more FLOOD: a higher differential and better odds")
 	var line := ValveLogic.payoff_line(flood, 0.05)
 	t.ok(line.begins_with("Vei ▲ +2.1/s → ▲ +"), "the line compares Vei's differential now and dragged (%s)" % line)
 	t.ok(line.contains(" · odds in ") and line.contains("% → "), "growing on both sides: then the odds after the window")
-	var falling := ValveLogic.payoff({"backlog": 1000.0, "diff_ema": -2.0}, ValveLogic.project(hud, {"work": 0.6, "war": 0.4, "flood": 0.0}), base, k)
+	var falling := ValveLogic.payoff({"backlog": 1000.0, "diff_ema": -2.0}, {"split": {"work": 12.0, "war": 8.0, "flood": 0.0}, "backlog_diff": -6.0}, base, k)
 	var fl := ValveLogic.payoff_line(falling, 0.05)
 	t.ok(fl.contains(" · drain ") and fl.contains("▼"), "a shrinking queue is ▼ and shows the drain (%s)" % fl)
 	t.ok(ValveLogic.payoff_shown(true, -1.0), "shown while dragging")
@@ -823,10 +799,9 @@ func _overflow(t: TestUtil) -> void:
 
 func _workers(t: TestUtil) -> void:
 	t.suite("map_next-workers")
-	t.ok(ValveLogic.workers_kept(335.0, {}, 25, 10.0) == 35.0, "min(slots + idle_cap, steady)")
-	t.ok(ValveLogic.workers_kept(20.0, {}, 25, 10.0) == 20.0, "under the cap: steady")
-	t.ok(ValveLogic.workers_kept(335.0, {"workers_steady_kept": 31.0}, 25, 10.0) == 31.0, "view_hud.workers_steady_kept wins")
-	t.ok(ValveLogic.workers_kept(335.0, {"workers_steady_kept": 31.0}, 25, 10.0, true) == 35.0, "while dragging, the projected steady is capped")
+	t.ok(ValveLogic.workers_kept(335.0, {"workers_steady_kept": 31.0}, 25, 10.0) == 31.0, "view_hud.workers_steady_kept")
+	t.ok(ValveLogic.workers_kept(335.0, {"workers_steady_kept": 31.0}, 25, 10.0, true) == 35.0, "while dragging, the projected steady is capped: min(slots + idle_cap, steady)")
+	t.ok(ValveLogic.workers_kept(20.0, {"workers_steady_kept": 31.0}, 25, 10.0, true) == 20.0, "while dragging, under the cap: steady")
 	var cfgs := TestUtil.configs()
 	var cap := float(cfgs["economy"]["worker"]["idle_cap"])
 	for fx in [["pre_vei", 33.0, "; its vats are unstaffed, so their tend slots are closed"], ["midgame_2flips", 19.0, ""]]:
@@ -949,7 +924,7 @@ func _away(t: TestUtil) -> void:
 
 func _cards(t: TestUtil) -> void:
 	t.suite("map_next-cards")
-	var f := {"held": true, "grace_s_left": 374.0, "undead": 64.0}
+	var f := {"held": true, "grace_s_left": 374.0, "undead": 64.0, "garrison": 64.0}
 	t.ok(CardLogic.held_chip(f)["text"] == "HELD · Vei contests in 6:14", "without fort.margin: the grace countdown")
 	f["margin"] = "safe"
 	f["grace_s_left"] = 0.0

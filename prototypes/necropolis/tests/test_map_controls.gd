@@ -81,18 +81,19 @@ func _percents_and_project(t: TestUtil) -> void:
 		"valve": {"work": 0.4, "war": 0.4, "flood": 0.2}, "workers_steady": 60.0}
 	t.near(ValveLogic.mint_rate(hud), 10.0, 1e-9, "mint rate comes from the mint row")
 	t.near(ValveLogic.mint_rate({}), 0.0, 1e-9, "no rates reads 0")
-	var pr := ValveLogic.project(hud, {"work": 0.2, "war": 0.5, "flood": 0.3}, 3)
-	t.near(pr["split"]["work"], 2.0, 1e-9, "split.work = mint x share")
-	t.near(pr["split"]["war"], 5.0, 1e-9, "split.war = mint x share")
-	t.near(pr["split"]["flood"], 3.0, 1e-9, "split.flood = mint x share")
-	t.near(pr["workers_steady"], 30.0, 1e-9, "workers_steady scales by the work share ratio (0.2 / 0.4)")
-	t.ok(pr["war_supports"] == {"n": 0, "m": 3}, "war_supports is the stub {0, held}")
-	var same := ValveLogic.project(hud, hud["valve"])
-	t.near(same["workers_steady"], 60.0, 1e-9, "the committed valve projects the view's own workers_steady")
-	var zero := ValveLogic.project({"rates": [{"id": "mint", "rate": 0.0}], "valve": {"work": 0.0, "war": 1.0, "flood": 0.0}, "workers_steady": 0.0}, {"work": 0.5, "war": 0.5, "flood": 0.0})
-	t.ok(zero["workers_steady"] == 0.0 and zero["split"]["work"] == 0.0, "no mint and no committed work: zeros, no NaN")
-	var e1 := ValveLogic.project({"rates": [{"id": "mint", "rate": 0.0}], "valve": hud["valve"], "workers_steady": 6.0}, hud["valve"])
-	t.ok(ValveLogic.rows(e1, hud["valve"])[0]["rate_text"] == "+0.0/s", "at E1 mint is 0 and every rate reads +0.0/s")
+	# the projection is the view's: a real GameState's view_projection, read through IdleLogic.projection
+	var gs := GameState.new(TestUtil.configs())
+	gs.debug_enabled = true
+	gs.cmd_debug_load_fixture("midgame_2flips")
+	var valve := {"work": 0.2, "war": 0.5, "flood": 0.3}
+	var view := gs.view_projection(ValveLogic.normalise(valve))
+	var pr := IdleLogic.projection(gs, valve, IdleLogic.held_forts(gs.view_realm()["forts"]))
+	t.near(float(pr["split"]["war"]), float(view["split"]["war"]), 1e-9, "split.war is view_projection's")
+	t.near(float(pr["workers_steady"]), float(view["workers_steady"]), 1e-9, "workers_steady is view_projection's")
+	t.ok(pr["war_supports"] == view["war_supports"], "war_supports is view_projection's")
+	t.ok(not FileAccess.get_file_as_string("res://scripts/map/valve_logic.gd").contains("static func project("), "the valve's own projection stand-in is gone")
+	var rows := ValveLogic.rows(pr, valve)
+	t.ok(rows[1]["rate_text"] == MapLogic.fmt_rate(float(view["split"]["war"])), "the WAR row's rate is the view's split.war")
 
 
 func _throttle(t: TestUtil) -> void:
@@ -118,8 +119,7 @@ func _throttle(t: TestUtil) -> void:
 
 func _panel_text(t: TestUtil) -> void:
 	t.suite("map_controls-valve-text")
-	var hud := {"rates": [{"id": "mint", "rate": 5.0}], "valve": {"work": 0.4, "war": 0.4, "flood": 0.2}, "workers_steady": 61.4}
-	var pr := ValveLogic.project(hud, {"work": 0.4, "war": 0.4, "flood": 0.2}, 2)
+	var pr := {"split": {"work": 2.0, "war": 2.0, "flood": 1.0}, "workers_steady": 61.4, "war_supports": {"n": 0, "m": 2}}
 	var rows := ValveLogic.rows(pr, {"work": 0.4, "war": 0.4, "flood": 0.2})
 	t.ok(rows.map(func(r): return r["name"]) == ["WORK", "WAR", "FLOOD"], "rows run WORK, WAR, FLOOD")
 	t.ok(rows.map(func(r): return r["pct_text"]) == ["40%", "40%", "20%"], "shares are integer percentages")
@@ -127,7 +127,7 @@ func _panel_text(t: TestUtil) -> void:
 	t.ok(rows[0]["feed_text"] == "→ workforce" and rows[1]["feed_text"] == "→ the forts" and rows[2]["feed_text"] == "→ Vei's gates", "each stream says what it feeds")
 	t.ok(ValveLogic.workers_text(float(pr["workers_steady"])) == "workers → 61", "workers → 61")
 	t.ok(ValveLogic.supports_text(pr) == "WAR supports 0 of 2 held forts", "the supports line shows when forts are held")
-	t.ok(ValveLogic.supports_text(ValveLogic.project(hud, hud["valve"], 0)) == "", "and is hidden when none is held")
+	t.ok(ValveLogic.supports_text({"war_supports": {"n": 0, "m": 0}}) == "", "and is hidden when none is held")
 
 
 func _payoff_cost(t: TestUtil) -> void:
