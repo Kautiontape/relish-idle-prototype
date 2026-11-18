@@ -56,6 +56,27 @@ const WORDS := [
 	"wardens.words.counter_muffle", "wardens.words.counter_intercept", "wardens.words.counter_flank", "wardens.words.counter_snuff",
 	"wardens.words.counter_none", "wardens.words.counter_none_party", "wardens.words.counter_make", "wardens.words.counter_have",
 	"wardens.words.catch_label", "wardens.words.catch_ally", "wardens.words.join_and", "wardens.words.join_comma",
+	"wardens.words.tally_muffled", "wardens.words.tally_intercepted", "wardens.words.tally_flanked", "wardens.words.tally_snuffed",
+	"wardens.words.row_braced", "wardens.words.row_stunned", "wardens.words.row_phase", "wardens.words.row_caught",
+	"wardens.words.row_phase_n", "wardens.words.row_hunting", "wardens.words.row_acolytes", "wardens.words.row_burned",
+	"wardens.words.took_tag", "wardens.words.pack_more", "wardens.words.pack_horn_coming",
+	"hud.legend.header", "hud.legend.hide", "hud.legend.chip", "hud.legend.click", "hud.legend.move", "hud.legend.space",
+	"hud.legend.or", "hud.legend.mouse", "hud.legend.slow", "hud.legend.drag",
+	"hud.retreat.title", "hud.retreat.btn_retreat", "hud.retreat.btn_stay", "hud.retreat.foot",
+	"clear.foot", "held_door.label_unused_head", "held_door.label_unused_sub", "detour.cache_label",
+	"hud.stats.label_essence", "hud.stats.label_raised", "hud.stats.label_phyl", "hud.stats.label_banked", "hud.stats.label_unbanked",
+	"hud.stats.label_door", "hud.stats.rank_chaff", "hud.stats.rank_soldier", "hud.stats.rank_elite", "hud.stats.rank_big",
+	"hud.stats.loose", "hud.stats.none", "hud.stats.at_risk", "hud.stats.on_floor",
+	"hud.stats.key_relic", "hud.stats.key_remnant", "hud.stats.key_husk", "hud.stats.key_blueprint",
+	"hud.text.title_tier", "hud.text.raised_big", "hud.text.raised_ranks", "hud.text.checkpoint", "hud.text.trance_ready",
+	"hud.text.trance_focus", "hud.text.trance_cooldown", "hud.text.edge_exit", "hud.text.edge_warden", "hud.text.edge_loot",
+	"hud.text.exit_off", "hud.text.exit_retreat", "hud.text.exit_banks",
+]
+
+## The death card's numbers (raid.json death, read by RaidDeathCard and the clear card): each must be a number above zero.
+const NUMBERS := [
+	"death.card_w", "death.card_pad", "death.label_w", "death.value_px", "death.label_px", "death.foot_px", "death.sub_px",
+	"death.sub_h", "death.backdrop_a", "death.plate_a",
 ]
 
 ## The words the code formats, with the placeholders each must keep ("%d" words go through `%`, which throws without one).
@@ -85,6 +106,13 @@ const FORMATS := {
 	"wardens.words.takes_stunned": ["%s"], "wardens.words.takes_shield": ["%s", "%s"], "wardens.words.takes_acolyte": ["%s"],
 	"wardens.words.takes_pack": ["%s", "%s"], "wardens.words.counter_line": ["%s", "%d", "%s"], "wardens.words.counter_have": ["%d"],
 	"wardens.words.catch_label": ["%d", "%s", "%s"],
+	"wardens.words.tally_muffled": ["%d", "%d"], "wardens.words.tally_intercepted": ["%d"], "wardens.words.tally_flanked": ["%d", "%d"],
+	"wardens.words.tally_snuffed": ["%d"], "wardens.words.row_phase_n": ["%d", "%d"], "wardens.words.row_acolytes": ["%d", "%d"],
+	"wardens.words.row_burned": ["%d"], "wardens.words.took_tag": ["%d"], "wardens.words.pack_more": ["%d", "%s"],
+	"wardens.words.pack_horn_coming": ["%d", "%s"],
+	"hud.stats.loose": ["%d"], "hud.stats.on_floor": ["%d"],
+	"hud.text.title_tier": ["%s", "%d"], "hud.text.raised_big": ["%d", "%d"], "hud.text.raised_ranks": ["%d", "%d", "%d"],
+	"hud.text.checkpoint": ["%d", "%d", "%d", "%d", "%d"],
 }
 
 
@@ -156,6 +184,10 @@ static func _word_problems(raid: Dictionary) -> Array:
 		var v: Variant = _dig(raid, p)
 		if not (v is String) or (v as String) == "":
 			out.append("%s is missing or blank" % p)
+	for p in NUMBERS:
+		var v: Variant = _dig(raid, p)
+		if not (v is float or v is int) or float(v) <= 0.0:
+			out.append("%s is missing or not above zero" % p)
 	for p in FORMATS:
 		var v: Variant = _dig(raid, p)
 		for ph in FORMATS[p]:
@@ -219,6 +251,9 @@ func _proof_tests(t: TestUtil) -> void:
 	var unformatted: Dictionary = (real as Dictionary).duplicate(true)
 	unformatted["hud"]["stats"]["enemies"] = "enemies"
 	t.ok(_word_problems(unformatted).has("hud.stats.enemies lost its %d"), "a formatted word without its %d is reported")
+	var no_card_w: Dictionary = (real as Dictionary).duplicate(true)
+	no_card_w["death"].erase("card_w")
+	t.ok(_word_problems(no_card_w).has("death.card_w is missing or not above zero"), "a deleted death.card_w (the death card's width) is reported")
 	var tell_less: Dictionary = (real as Dictionary).duplicate(true)
 	tell_less["wardens"]["archetypes"]["huntsman"]["tells"] = []
 	t.ok(_word_problems(tell_less).has("wardens.archetypes.huntsman.tells is missing or empty"), "a warden with no tells is reported")

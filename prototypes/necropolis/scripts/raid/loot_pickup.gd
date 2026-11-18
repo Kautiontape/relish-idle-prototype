@@ -80,8 +80,9 @@ func _draw() -> void:
 			draw_arc(Vector2.ZERO, rr, TAU * float(k) / 16.0, TAU * (float(k) + 0.55) / 16.0, 4, Palette.c("vei", 0.85), 1.6 / z)
 		var fs := roundi(14.0 / z)
 		var font := ThemeDB.fallback_font
-		var tw := font.get_string_size("CACHE", HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-		draw_string(font, Vector2(-tw * 0.5, -rr - fs * 0.4), "CACHE", HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Palette.c("vei"))
+		var cache_word := str(ConfigDb.data.get("raid", {}).get("detour", {}).get("cache_label", ""))   # raid.json detour.cache_label
+		var tw := font.get_string_size(cache_word, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+		draw_string(font, Vector2(-tw * 0.5, -rr - fs * 0.4), cache_word, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Palette.c("vei"))
 	match str(g["shape"]):
 		"gem":
 			# a relic: a cut gem, a diamond with its table line

@@ -309,7 +309,7 @@ func _draw() -> void:
 	var lines: Array = []
 	match state:
 		"unused":
-			lines = [["HELD DOOR", "vei"], ["a big on the plate holds it · it stays behind", "text"]]
+			lines = [[str(_hc.get("label_unused_head", "")), "vei"], [str(_hc.get("label_unused_sub", "")), "text"]]
 		"sent", "held":
 			lines = [[RaidLogic.held_door_label(_hc, "held" if held else "sent", holder_name), "undead"]]
 		"shut":

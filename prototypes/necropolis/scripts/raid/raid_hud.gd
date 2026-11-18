@@ -55,6 +55,16 @@ var _boss_block: Control = null
 var boss_info: Dictionary = {}   # the boss's hud_info(), built once a frame in refresh() (BossBlock reads it)
 
 
+## raid.json hud.text: the HUD's own words (title, RAISED rows, checkpoint banner, trance meter, edge chevrons, exit plate).
+static func hud_text() -> Dictionary:
+	return ConfigDb.data.get("raid", {}).get("hud", {}).get("text", {})
+
+
+## One of them, formatted with `args` (blank when raid.json has no such word).
+static func hud_fmt(key: String, args: Array) -> String:
+	return RaidLogic.word_fmt(hud_text(), key, args)
+
+
 func build(p_raid: Node, boss_mode: bool) -> void:
 	raid = p_raid
 	layer = 10
@@ -309,7 +319,7 @@ func _process(_delta: float) -> void:
 
 
 func refresh() -> void:
-	_title.text = raid.fort_name().to_upper() if raid.is_boss() else "%s — TIER %d" % [raid.fort_name().to_upper(), raid.fort_tier()]
+	_title.text = raid.fort_name().to_upper() if raid.is_boss() else hud_fmt("title_tier", [raid.fort_name().to_upper(), raid.fort_tier()])
 	var st := _stats
 	st.living = raid.enemies.size()
 	var motes: int = raid.get_tree().get_node_count_in_group("raid_essence")   # a count, no array
@@ -324,7 +334,7 @@ func refresh() -> void:
 					party += 1
 				else:
 					raised += 1
-		st.raised_text = "%d raised · %d big undead" % [raised, party]
+		st.raised_text = hud_fmt("raised_big", [raised, party])
 		boss_info = raid.hud_info()   # once a frame; the boss block reads this copy
 		var info: Dictionary = boss_info
 		_hint.text = str(info["hint"])
@@ -342,7 +352,7 @@ func refresh() -> void:
 		st.ward[2] = int(w["elite"])
 		st.ward[3] = int(w["big"])
 		var rc: Dictionary = raid.ledger_v2.raised_counts()
-		st.raised_text = "%d chaff · %d soldier · %d elite" % [rc["chaff"], rc["soldier"], rc["elite"]]
+		st.raised_text = hud_fmt("raised_ranks", [rc["chaff"], rc["soldier"], rc["elite"]])
 	_hint.visible = not raid.first_raise_done and not raid._ended
 	if _legend != null:
 		_legend.visible = not raid._ended
@@ -548,7 +558,7 @@ func _route_text() -> String:
 		return ""
 	var goal: Vector2 = ((lay["rooms"] as Array)[wroom] as Rect2).get_center()
 	var step := LayoutLogic.waypoint(lay, rel.global_position, goal, rel.radius)
-	return RaidLogic.route_line(_goal_cfg(raid), _route_len, _hops_left,RaidLogic.compass(step - rel.global_position))
+	return RaidLogic.route_line(_goal_cfg(raid), _route_len, _hops_left, RaidLogic.compass(step - rel.global_position))
 
 
 ## Nothing to raise with: no undead alive, no loose or carried essence, no unstirred corpse pile.
@@ -770,9 +780,9 @@ func show_banner_live(provider: Callable, secs: float, color_key := "relish") ->
 ## The banner when a checkpoint room banks new loot.
 func show_checkpoint(loot: Dictionary) -> void:
 	_banner.add_theme_color_override("font_color", Palette.c("relish"))
-	_banner.text = "CHECKPOINT · loot banked\nrelics %d · blueprints %d · husks %d · remnants %d · essence %d" % [
+	_banner.text = hud_fmt("checkpoint", [
 		int(loot["relics"]), (loot["blueprints"] as Array).size(), (loot["husks"] as Array).size(),
-		(loot["remnants"] as Array).size(), int(loot["essence"])]
+		(loot["remnants"] as Array).size(), int(loot["essence"])])
 	_banner_live = Callable()
 	_banner.visible = true
 	_banner_t = float(raid.rcfg().get("checkpoint", {}).get("banner_s", 2.5))
@@ -891,7 +901,7 @@ class StatBlock:
 		words = c.get("stats", {})
 		detail_px = int(words.get("detail_px", 14))
 		label_alpha = float(words.get("label_alpha", 0.85))
-		essence_lines = RaidLogic.wrap_each(PackedStringArray([str(words.get("essence_meaning", ""))]),ThemeDB.fallback_font, detail_px, value_w())
+		essence_lines = RaidLogic.wrap_each(PackedStringArray([str(words.get("essence_meaning", ""))]), ThemeDB.fallback_font, detail_px, value_w())
 		var rows := 3.0 if boss else 14.0   # living, essence, raised | + 4 ward rows, essence meaning, phylactery, its meaning, banked, unbanked, stakes
 		custom_minimum_size = Vector2(420.0, rows * _row + 8.0)
 		if not boss:
@@ -928,7 +938,7 @@ class StatBlock:
 		if n == phyl and not phyl_meaning.is_empty():
 			return   # called every frame: nothing to rebuild while the count holds
 		phyl = n
-		phyl_meaning = RaidLogic.wrap_each(RaidLogic.phylactery_meaning(words, n),ThemeDB.fallback_font, detail_px, value_w())
+		phyl_meaning = RaidLogic.wrap_each(RaidLogic.phylactery_meaning(words, n), ThemeDB.fallback_font, detail_px, value_w())
 		var extra := phyl_meaning.size() - 1
 		if extra != phyl_extra:
 			phyl_extra = extra
@@ -955,12 +965,17 @@ class StatBlock:
 	func _draw_key(y: float) -> void:
 		var f := ThemeDB.fallback_font
 		var x := 6.0
-		for k in [["relic", "relic"], ["remnant", "remnant"], ["husk", "husk"], ["blueprint", "blueprint"]]:
+		for k in [["relic", "key_relic"], ["remnant", "key_remnant"], ["husk", "key_husk"], ["blueprint", "key_blueprint"]]:
 			var g := RaidLoot.floor_glyph(str(k[0]), false)
+			var kw := _word(str(k[1]))
 			_key_glyph(Vector2(x + 6.0, y - 4.0), str(g["shape"]), Palette.c(str(g["key"])))
-			draw_string(f, Vector2(x + 16.0, y), str(k[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Palette.c("text_dim"))
-			x += 22.0 + f.get_string_size(str(k[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+			draw_string(f, Vector2(x + 16.0, y), kw, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Palette.c("text_dim"))
+			x += 22.0 + f.get_string_size(kw, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
 		draw_string(f, Vector2(6.0, y + _row), str(words.get("key_pile", "")), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Palette.c("text_dim"))
+
+	## The stat block's word `key` (raid.json hud.stats; blank when it has none).
+	func _word(key: String) -> String:
+		return str(words.get(key, ""))
 
 	## A row label; `wide` lets it run past the label column (a header whose row has no value).
 	func _label(y: float, text: String, wide := false) -> void:
@@ -1001,7 +1016,7 @@ class StatBlock:
 		_value(lx + 4.0, y, RaidLogic.enemies_text(living, words))
 		y += _row
 		if boss:
-			_label(y, "ESSENCE")
+			_label(y, _word("label_essence"))
 			_value(_col, y, str(loose))
 			y += _row
 		else:
@@ -1009,27 +1024,27 @@ class StatBlock:
 			y += _row
 			for i in 4:
 				var n := int(ward[i])
-				_label(y, RANKS[i])
+				_label(y, _word("rank_" + RANKS[i]))
 				var r := _pip * (0.5 + 0.12 * i)
 				var shown := mini(n, _row_max)
 				var x := _pips(_col, y - 5.0, shown, shown, und, r, i == 3)
 				if n > 0:   # a zero rank is an empty row (the label stays: it teaches the chain's order)
 					_value(x + 4.0, y, ("+" if n > _row_max else "") + str(n))
 				y += _row
-			_label(y, "ESSENCE")
+			_label(y, _word("label_essence"))
 			var ex := _pips(_col, y - 5.0, carry_max, carried, Palette.c("essence"), _pip * 0.5)
 			_value(ex + 6.0, y, "%d/%d" % [carried, carry_max])
 			if loose > 0:
-				_value(ex + 6.0 + 60.0, y, "+%d loose" % loose)
+				_value(ex + 6.0 + 60.0, y, RaidLogic.word_fmt(words, "loose", [loose]))
 			y += _row
 			for el in essence_lines:
 				draw_string(ThemeDB.fallback_font, Vector2(_col, y), el, HORIZONTAL_ALIGNMENT_LEFT, -1, detail_px, Palette.c("text"))
 				y += _row
-		_label(y, "RAISED")
+		_label(y, _word("label_raised"))
 		_value(_col, y, raised_text)
 		y += _row
 		if not boss:
-			_label(y, "PHYLACT.")
+			_label(y, _word("label_phyl"))
 			var px := _pips(_col, y - 5.0, phyl, phyl, Palette.c("relish"), _pip * 0.6, true)
 			var vx := _value(px + 4.0, y, str(phyl), phyl_tone if phyl_word != "" else null)
 			if phyl_word != "":
@@ -1045,18 +1060,18 @@ class StatBlock:
 				draw_string(ThemeDB.fallback_font, Vector2(_col, y), ml, HORIZONTAL_ALIGNMENT_LEFT, -1, detail_px, Palette.c("text"))
 				y += _row
 			# zero kinds are hidden; nothing at all is one dim word; a long line wraps under itself (set_loot)
-			_label(y, "BANKED")
+			_label(y, _word("label_banked"))
 			if banked_lines.is_empty():
-				_value(_col, y, "none", Palette.c("text_dim"))
+				_value(_col, y, _word("none"), Palette.c("text_dim"))
 				y += _row
 			for ln in banked_lines:
 				_value(_col, y, ln)
 				y += _row
 			var risk := unbanked_n > 0
 			var tone := Palette.c("danger") if risk else Palette.c("text_dim")
-			_label(y, "UNBANKED")
+			_label(y, _word("label_unbanked"))
 			if unbanked_lines.is_empty():
-				_value(_col, y, "none", tone)
+				_value(_col, y, _word("none"), tone)
 				y += _row
 			for ln in unbanked_lines:
 				_value(_col, y, ln, tone)
@@ -1065,7 +1080,7 @@ class StatBlock:
 			floor_end = Vector2.INF
 			if risk or floor_n > 0:
 				var px2 := _pips(_col, y - 5.0, mini(unbanked_n, _row_max), mini(unbanked_n, _row_max), tone, _pip * 0.6, true)
-				var note := ("lost if you die" if risk else "") + ("" if floor_n <= 0 else (" · " if risk else "") + "%d on the floor" % floor_n)
+				var note := (_word("at_risk") if risk else "") + ("" if floor_n <= 0 else (" · " if risk else "") + RaidLogic.word_fmt(words, "on_floor", [floor_n]))
 				var nx := _value(px2 + 6.0, y, note, tone if risk else Palette.c("vei"))
 				if floor_n > 0:
 					floor_end = Vector2(nx + 4.0, y - 5.0)
@@ -1074,7 +1089,7 @@ class StatBlock:
 			if not door_lines.is_empty():
 				# the held door's big, on the plate: out of the WARD's big row while it is spent on the door
 				var dy := y + _row * (3.0 if show_key else 1.0)
-				_label(dy, "DOOR")
+				_label(dy, _word("label_door"))
 				for ln in door_lines:
 					draw_string(ThemeDB.fallback_font, Vector2(_col, dy), ln, HORIZONTAL_ALIGNMENT_LEFT, -1, _val, door_tone)
 					dy += _row
@@ -1107,13 +1122,13 @@ class TranceMeter:
 		var word := ""
 		var col := violet
 		if tr.state == RaidTrance.State.READY:
-			word = "TRANCE READY"
+			word = RaidHud.hud_fmt("trance_ready", [])
 			draw_rect(r, Palette.c("relish", 0.85))
 		elif tr.state == RaidTrance.State.ACTIVE:
-			word = "FOCUS"
+			word = RaidHud.hud_fmt("trance_focus", [])
 			draw_rect(Rect2(r.position, Vector2(r.size.x * tr.focus_frac(), r.size.y)), violet)
 		elif tr.state == RaidTrance.State.COOLDOWN:
-			word = "COOLDOWN"
+			word = RaidHud.hud_fmt("trance_cooldown", [])
 			col = Palette.c("cooldown")
 			_segmented(r, tr.cooldown_frac(), tr.cooldown_total, Palette.c("cooldown", 0.9))
 		elif tr.state == RaidTrance.State.LOCKOUT:
@@ -1237,13 +1252,13 @@ class WardenBlock:
 
 	## " · took n": the pips its weak-point windows took (the pips show them too, so it is the first part dropped).
 	func _took_tag(w: RaidWarden) -> String:
-		return "" if w.weak_taken <= 0 else " · took %d" % w.weak_taken
+		return "" if w.weak_taken <= 0 else RaidLogic.word_fmt(w.wwords(), "took_tag", [w.weak_taken])
 
 	## The counter row's pack count:" · +n hounds" once its counter has killed any of its pack in one blow.
 	func _pack_tag(w: RaidWarden) -> String:
 		if w.pack_broken <= 0:
 			return ""
-		return " · +%d %s" % [w.pack_broken, str((w.spec.get("pack", {}) as Dictionary).get("name", "pack"))]
+		return RaidLogic.word_fmt(w.wwords(), "pack_more", [w.pack_broken, str((w.spec.get("pack", {}) as Dictionary).get("name", "pack"))])
 
 	## A warden with a pack: HORN while it sounds, "HOUNDS n of m · it takes ×0.25" while they run, else
 	## what the pack is (WardenLogic.pack_teach).
@@ -1252,7 +1267,7 @@ class WardenBlock:
 		if pk.is_empty():
 			return
 		if w.horn_beat >= 0.0:
-			_text(x0, y, "HORN · %d %s coming" % [w.horn_pts.size(), str(pk.get("name", "pack"))], 13, "danger")
+			_text(x0, y, RaidLogic.word_fmt(w.wwords(), "pack_horn_coming", [w.horn_pts.size(), str(pk.get("name", "pack"))]), 13, "danger")
 		elif w.pack_alive() > 0:
 			_text(x0, y, WardenLogic.pack_label(w.wwords(), pk, w.pack_alive(), int(pk.get("size", 0))), 13, "vei")
 		else:
@@ -1262,6 +1277,7 @@ class WardenBlock:
 		var w := _warden()
 		if w == null:
 			return
+		var ww := w.wwords()   # raid.json wardens.words
 		draw_rect(Rect2(Vector2.ZERO, size), Palette.c("ground", float(raid.rcfg().get("hud", {}).get("warden_plate_alpha", 0.96))))
 		var x0 := 12.0
 		var px0 := 150.0
@@ -1301,23 +1317,23 @@ class WardenBlock:
 			var n := bw.slams_muffled
 			var x2 := x + 14.0
 			if bw.slams > 0:   # no slam yet: no "×0 of 0" (the PHASE row below already says what muffles it)
-				x2 = _tally(x2, y - 26.0, ["MUFFLED ×%d of %d" % [n, bw.slams], _pack_tag(w)], "undead" if n > 0 or w.pack_broken > 0 else "text_dim", 8.0 + _text_w("braced", 13) if bw.muffled else 0.0)
+				x2 = _tally(x2, y - 26.0, [RaidLogic.word_fmt(ww, "tally_muffled", [n, bw.slams]), _pack_tag(w)], "undead" if n > 0 or w.pack_broken > 0 else "text_dim", 8.0 + _text_w(str(ww.get("row_braced", "")), 13) if bw.muffled else 0.0)
 			if bw.muffled:
-				_text(x2 + 8.0, y - 26.0, "braced", 13, "undead")
-			_text(x0, y, "PHASE", 13, "text_dim")
+				_text(x2 + 8.0, y - 26.0, str(ww.get("row_braced", "")), 13, "undead")
+			_text(x0, y, str(ww.get("row_phase", "")), 13, "text_dim")
 			var x3 := _text(px0 + 6.0, y, "%d/%d" % [w.phase + 1, (w.spec.get("phases", []) as Array).size()], 15)
 			_text(x3 + 12.0, y, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")), 13, "text_dim")
 		elif hw != null:
 			var n2 := hw.intercepts
 			var x4 := x + 14.0
 			if n2 > 0 or w.pack_broken > 0:
-				x4 = _tally(x4, y - 26.0, ["INTERCEPTED ×%d" % n2, _pack_tag(w), _took_tag(w)], "undead", 8.0 + _text_w("STUNNED", 13) if win_hi > 0 else 0.0)
+				x4 = _tally(x4, y - 26.0, [RaidLogic.word_fmt(ww, "tally_intercepted", [n2]), _pack_tag(w), _took_tag(w)], "undead", 8.0 + _text_w(str(ww.get("row_stunned", "")), 13) if win_hi > 0 else 0.0)
 			else:   # no intercept yet: teach the counter in words instead of a zero (if it fits, with STUNNED after it)
-				x4 = _teach(x4, y - 26.0, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")), 8.0 + _text_w("STUNNED", 13) if win_hi > 0 else 0.0)
+				x4 = _teach(x4, y - 26.0, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")), 8.0 + _text_w(str(ww.get("row_stunned", "")), 13) if win_hi > 0 else 0.0)
 			if win_hi > 0:
-				_text(x4 + 8.0, y - 26.0, "STUNNED", 13, "undead")
+				_text(x4 + 8.0, y - 26.0, str(ww.get("row_stunned", "")), 13, "undead")
 			# row 2: the hunt, notched where catches change its phase
-			_text(x0, y, "CAUGHT", 13, "text_dim")
+			_text(x0, y, str(ww.get("row_caught", "")), 13, "text_dim")
 			var notches := WardenLogic.catch_notches(w.spec)
 			var slots := maxi(WardenLogic.catch_slots(w.spec), hw.catches)
 			var cx := px0 + 6.0
@@ -1335,36 +1351,36 @@ class WardenBlock:
 			var x5 := cx + 2.0
 			if hw.catches > 0:
 				x5 = _text(x5, y, str(hw.catches), 15, "danger")
-			x5 = _text(x5 + 12.0, y, "phase %d/%d" % [w.phase + 1, (w.spec.get("phases", []) as Array).size()], 13, "text_dim")
+			x5 = _text(x5 + 12.0, y, RaidLogic.word_fmt(ww, "row_phase_n", [w.phase + 1, (w.spec.get("phases", []) as Array).size()]), 13, "text_dim")
 			if hw.hunting_undead:
-				_text(x5 + 12.0, y, "hunting your dead", 13, "danger")
+				_text(x5 + 12.0, y, str(ww.get("row_hunting", "")), 13, "danger")
 			# row 3: what a catch costs and where the phases turn (from the spec, so it follows the config)
 			_text(x0, y + 22.0, WardenLogic.catch_label(w.wwords(), w.spec, raid.warden_run.tell_bypass), 13, "text_dim")
 		elif w is RaidShieldwall:
 			var sw := w as RaidShieldwall
 			var x6 := x + 14.0
 			if sw.flanks > 0 or w.pack_broken > 0:
-				_tally(x6, y - 26.0, ["FLANKED ×%d of %d" % [sw.flanks, sw.hits], _pack_tag(w), _took_tag(w)], "undead")
+				_tally(x6, y - 26.0, [RaidLogic.word_fmt(ww, "tally_flanked", [sw.flanks, sw.hits]), _pack_tag(w), _took_tag(w)], "undead")
 			else:   # no flank yet: teach the counter in words instead of a zero (if it fits)
 				_teach(x6, y - 26.0, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")))
-			_text(x0, y, "PHASE", 13, "text_dim")
+			_text(x0, y, str(ww.get("row_phase", "")), 13, "text_dim")
 			var x7 := _text(px0 + 6.0, y, "%d/%d" % [w.phase + 1, (w.spec.get("phases", []) as Array).size()], 15)
 			_text(x7 + 12.0, y, WardenLogic.shield_label(w.wwords(), w.spec, w.phase, WardenLogic.lever_on(int(w.spec.get("tier", 1)), bool(w.spec.get("first_dungeon", false)), w.wcfg())), 13, "text_dim")
 		elif w is RaidPyrePriest:
 			var pp := w as RaidPyrePriest
 			var x8 := x + 14.0
 			if pp.snuffs > 0 or w.pack_broken > 0:
-				_tally(x8, y - 26.0, ["SNUFFED ×%d" % pp.snuffs, _pack_tag(w), _took_tag(w)], "undead")
+				_tally(x8, y - 26.0, [RaidLogic.word_fmt(ww, "tally_snuffed", [pp.snuffs]), _pack_tag(w), _took_tag(w)], "undead")
 			else:   # no snuff yet: teach the counter in words instead of a zero (if it fits)
 				_teach(x8, y - 26.0, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")))
-			_text(x0, y, "PHASE", 13, "text_dim")
+			_text(x0, y, str(ww.get("row_phase", "")), 13, "text_dim")
 			var x9 := _text(px0 + 6.0, y, "%d/%d" % [w.phase + 1, (w.spec.get("phases", []) as Array).size()], 15)
 			var lv := pp.living()
 			if lv > 0:
-				x9 = _text(x9 + 12.0, y, "ACOLYTES %d/%d" % [lv, pp.acolytes.size()], 13, "vei")
+				x9 = _text(x9 + 12.0, y, RaidLogic.word_fmt(ww, "row_acolytes", [lv, pp.acolytes.size()]), 13, "vei")
 			x9 = _text(x9 + 12.0, y, WardenLogic.pyre_label(w.wwords(), w.spec, w.phase, lv), 13, "danger" if lv <= 0 else "text_dim")
 			if pp.essence_burned > 0:
-				_text(x9 + 12.0, y, "burned %d essence" % pp.essence_burned, 13, "danger")
+				_text(x9 + 12.0, y, RaidLogic.word_fmt(ww, "row_burned", [pp.essence_burned]), 13, "danger")
 		_pack_row(w, x0, y + (44.0 if hw != null else 22.0))
 		# the new rows sit under the last of the existing ones (the Huntsman's catch row, a pack's row)
 		var ry := y + 22.0 * ((1.0 if hw != null else 0.0) + (1.0 if w.spec.has("pack") else 0.0))
@@ -1467,9 +1483,9 @@ class Pointers:
 	func _draw() -> void:
 		var view := get_viewport_rect().size
 		if _ep != Vector2.INF:
-			_edge(_ep, view, Palette.c("relish"), "EXIT")
+			_edge(_ep, view, Palette.c("relish"), RaidHud.hud_fmt("edge_exit", []))
 		if _wp != Vector2.INF:
-			_edge(_wp, view, Palette.c("vei"), "WARDEN")
+			_edge(_wp, view, Palette.c("vei"), RaidHud.hud_fmt("edge_warden", []))
 		if _sp == Vector2.INF:
 			return
 		if Rect2(Vector2.ZERO, view).grow(-30.0).has_point(_sp):
@@ -1477,7 +1493,7 @@ class Pointers:
 				draw_dashed_line(_from, _sp, Palette.c("vei", 0.45), 1.5, 7.0)
 			draw_arc(_sp, 26.0, 0.0, TAU, 28, Palette.c("vei", 0.7), 1.5)
 		else:
-			_edge(_sp, view, Palette.c("vei"), "LOOT")
+			_edge(_sp, view, Palette.c("vei"), RaidHud.hud_fmt("edge_loot", []))
 
 
 ## The push-or-retreat line, right-aligned on a dark backing (walls run under the HUD). When it is
@@ -1565,13 +1581,13 @@ class ExitButton:
 		draw_line(d0 + Vector2(28, 18), d0 + Vector2(32, 14), vei, 2.0)
 		if not on:
 			draw_rect(r, Palette.c("ground", 0.55))   # visibly disabled
-			draw_string(ThemeDB.fallback_font, Vector2(52, size.y * 0.5 + 5), "reach an exit",
+			draw_string(ThemeDB.fallback_font, Vector2(52, size.y * 0.5 + 5), RaidHud.hud_fmt("exit_off", []),
 				HORIZONTAL_ALIGNMENT_LEFT, 96, 13, Palette.c("text_dim", 0.8))
 			return
-		draw_string(ThemeDB.fallback_font, Vector2(56, 21), "RETREAT",
+		draw_string(ThemeDB.fallback_font, Vector2(56, 21), RaidHud.hud_fmt("exit_retreat", []),
 			HORIZONTAL_ALIGNMENT_LEFT, 120, 15, Palette.c("vei", 1.0 if _hover else 0.8))
 		# what it does, always beside the button at an exit (the hint line may be teaching the circle)
-		draw_string(ThemeDB.fallback_font, Vector2(56, 38), "banks your loot",
+		draw_string(ThemeDB.fallback_font, Vector2(56, 38), RaidHud.hud_fmt("exit_banks", []),
 			HORIZONTAL_ALIGNMENT_LEFT, 130, 13, Palette.c("text", 0.85))
 
 

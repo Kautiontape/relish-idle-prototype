@@ -897,12 +897,9 @@ static func clear_card_rows(words: Dictionary, uses_words: Dictionary, warden_na
 	return rows
 
 
-## The death card's geometry (RaidDeathCard._draw reads it, and so does the clear card; the test measures the
-## widest value against it): card width, padding, the label column, the value font size.
-## label_px / foot_px: the dim label column and footer sizes; backdrop_a the world-dimming rect behind the card
-## (deep enough that the card reads on its own, not as a panel under the fight), plate_a the card's own ground
-## plate (the contrast test composites both over the brightest world colour).
-const DEATH_CARD := {"w": 560.0, "pad": 22.0, "label_w": 120.0, "value_px": 18, "label_px": 14, "foot_px": 14, "sub_px": 20, "sub_h": 30.0, "backdrop_a": 0.8, "plate_a": 0.96}
+## The death card's geometry (card_w, card_pad, label_w, value_px, label_px, foot_px, sub_px, sub_h, backdrop_a,
+## plate_a) lives in raid.json's `death` block: RaidDeathCard and the clear card read it there, and the tests
+## measure the widest value against it.
 
 
 ## The death card's rows [{label, text, key}] (key: a Palette key): who killed her, the tell she missed when

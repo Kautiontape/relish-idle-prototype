@@ -97,13 +97,15 @@ func _round2_tests(t: TestUtil) -> void:
 	t.ok(fall_ok and fall_s[1]["text"].begins_with("SHUT IN · Old Gristle"), "right, a shut-in big: LOST, SHUT IN, AFTER are the death card's rows (%s)" % str(fall_s))
 	t.ok(str(RaidLogic.retreat_fall_lines(_hr(), _dw(), 0, ub, 1, next_unmade, "")) == str(RaidLogic.retreat_fall_lines(_hr(), _dw(), 0, ub, 1, next_unmade)), "no shut-in big: the column is unchanged")
 	t.ok(RaidLogic.retreat_fall_lines(_hr(), _dw(), 1, ub, 1, next_unmade, "Old Gristle").size() == 1, "a charge left still replaces the column")
-	t.ok(RaidLogic.retreat_fall_lines(_hr(), _dw(), 0,{}, 0, next_unmade)[0]["text"].ends_with("nothing"), "nothing at stake reads nothing")
+	t.ok(RaidLogic.retreat_fall_lines(_hr(), _dw(), 0, {}, 0, next_unmade)[0]["text"].ends_with("nothing"), "nothing at stake reads nothing")
 	var rev := RaidLogic.retreat_fall_lines(_hr(), _dw(), 1, ub, 2, next_unmade)
 	t.ok(rev.size() == 1 and rev[0]["text"] == "a phylactery charge revives her here (at most once per dungeon)", "a charge left: the revive line, no LOST or AFTER")
 	t.ok(_hr()["head_keep"] == "RETREAT NOW" and _hr()["head_fall"] == "IF RELISH FALLS", "the column heads")
 	var panel_heads := RaidRetreatPanel.new()
 	panel_heads.configure(_hr())
 	t.ok(panel_heads.head_keep == "RETREAT NOW" and panel_heads.head_fall == "IF RELISH FALLS", "the panel draws the heads it is configured with")
+	t.ok(panel_heads.title == "LEAVE THE RAID?" and panel_heads.btn_retreat == "RETREAT" and panel_heads.btn_stay == "STAY"
+		and panel_heads.foot == "click to choose · Space or Esc: stay and fight", "the panel's title, buttons and footer are the ones hud.retreat gives it")
 	panel_heads.free()
 	var rl := _func_src(hsrc, "func _retreat_lines(")
 	t.ok(rl.contains("di[\"shut\"]"), "the retreat panel passes the death card's shut-in big")
@@ -172,14 +174,14 @@ func _round2_tests(t: TestUtil) -> void:
 	t.ok(float(sw["label_alpha"]) > 0.0 and float(sw["label_alpha"]) <= 1.0, "hud.stats.label_alpha is in (0, 1]")
 	# the death card's new second line: the card's text width at its size, and smaller than the title
 	var dthw: Dictionary = TestUtil.load_json("res://configs/raid.json")["death"]
-	var dcx: Dictionary = RaidLogic.DEATH_CARD
+	var dcx: Dictionary = dthw   # the card's geometry is raid.json's death block as well
 	var sub_w := fnt0.get_string_size(str(dthw["sub"]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(dcx["sub_px"])).x
-	t.ok(sub_w <= float(dcx["w"]) - 2.0 * float(dcx["pad"]), "the death card's sub-line fits the card's text width at %d px (%d of %d px)" % [int(dcx["sub_px"]), int(sub_w), int(float(dcx["w"]) - 2.0 * float(dcx["pad"]))])
+	t.ok(sub_w <= float(dcx["card_w"]) - 2.0 * float(dcx["card_pad"]), "the death card's sub-line fits the card's text width at %d px (%d of %d px)" % [int(dcx["sub_px"]), int(sub_w), int(float(dcx["card_w"]) - 2.0 * float(dcx["card_pad"]))])
 	t.ok(int(dcx["sub_px"]) > int(dcx["value_px"]) and int(dcx["sub_px"]) < 24, "the sub-line is the card's second-largest (above the %d px rows, under the 24 px title)" % int(dcx["value_px"]))
 	var ttl_w := fnt0.get_string_size(str(dthw["title"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
-	t.ok(ttl_w <= float(dcx["w"]) - 2.0 * float(dcx["pad"]) and str(dthw["sub"]).to_lower().contains("the raid ends here") and not str(dthw["sub"]).to_lower().contains("run"), "the title fits; the sub-line says the raid ends, not the game")
+	t.ok(ttl_w <= float(dcx["card_w"]) - 2.0 * float(dcx["card_pad"]) and str(dthw["sub"]).to_lower().contains("the raid ends here") and not str(dthw["sub"]).to_lower().contains("run"), "the title fits; the sub-line says the raid ends, not the game")
 	var foot_w := fnt0.get_string_size(str(dthw["foot"]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(dcx["foot_px"])).x
-	t.ok(foot_w <= float(dcx["w"]) - 2.0 * float(dcx["pad"]) and str(dthw["foot"]).contains("SPACE"), "the footer fits and names SPACE")
+	t.ok(foot_w <= float(dcx["card_w"]) - 2.0 * float(dcx["card_pad"]) and str(dthw["foot"]).contains("SPACE"), "the footer fits and names SPACE")
 	# the stat block's label brightness holds 4.5:1 over its plate on the brightest world colour
 	var hud_cfg: Dictionary = TestUtil.load_json("res://configs/raid.json")["hud"]
 	var lab_w := _worst_over(func(world: Color) -> Color: return RaidLogic.over(Palette.c("ground"), float(hud_cfg["plate_alpha"]), world), "text", float(sw["label_alpha"]))
@@ -204,8 +206,8 @@ func _round2_tests(t: TestUtil) -> void:
 	var cr := RaidLogic.clear_card_rows(_cw(), _lu(), "X", RaidLogic.loot_counts({"relics": 1}))
 	t.ok(cr.size() == 5 and cr[3]["label"] == "USE" and cr[3]["key"] == "text_dim" and cr[4]["label"] == "NEXT", "the clear card: a dim USE row after LOOT")
 	t.ok(RaidLogic.clear_card_rows(_cw(), _lu(), "X", RaidLogic.loot_counts({})).size() == 4, "nothing found: no USE row")
-	var dc: Dictionary = RaidLogic.DEATH_CARD
-	var vw := float(dc["w"]) - 2.0 * float(dc["pad"]) - float(dc["label_w"])
+	var dc: Dictionary = TestUtil.load_json("res://configs/raid.json")["death"]
+	var vw := float(dc["card_w"]) - 2.0 * float(dc["card_pad"]) - float(dc["label_w"])
 	var worst := ThemeDB.fallback_font.get_multiline_string_size(all, HORIZONTAL_ALIGNMENT_LEFT, vw, int(dc["value_px"]))
 	t.ok(worst.y <= 5.0 * float(dc["value_px"]) * 1.4, "the longest USE text wraps to at most 5 lines on the card (%.0f px tall)" % worst.y)
 
@@ -274,7 +276,9 @@ func _clear_card_tests(t: TestUtil) -> void:
 		t.ok(float(cc.get(k, 0)) > 0.0, "clear.%s > 0" % k)
 	var card_src := FileAccess.get_file_as_string("res://scripts/raid/raid_clear_card.gd")
 	var death_src := FileAccess.get_file_as_string("res://scripts/raid/raid_death_card.gd")
-	t.ok(card_src.contains("click or press Space to return to the realm") and not card_src.contains("\"click to return"), "the clear card's footer names click and Space")
+	var clear_foot := str(cc.get("foot", ""))
+	t.ok(clear_foot == "click or press Space to return to the realm" and clear_foot.contains("click") and clear_foot.contains("Space"), "the clear card's footer (raid.json clear.foot) names click and Space")
+	t.ok(card_src.contains("c.get(\"foot\", \"\")") and not card_src.contains("return to the realm"), "the clear card reads its footer from clear.foot, no literal in the code")
 	t.ok(_func_src(card_src, "func _input(").contains("RaidLogic.card_skips(ev, _t, _skip_after)")
 		and _func_src(death_src, "func _input(").contains("RaidLogic.card_skips(ev, _t, _skip_after)"), "both cards skip through the one shared rule")
 	_card_skip_tests(t)
@@ -398,7 +402,8 @@ func _goal_tests(t: TestUtil) -> void:
 	t.ok(_func_src(logic_src, "static func goal_rows(").contains("goal_line(") and _func_src(logic_src, "static func goal_rows(").contains("\"no_army_short\" if compact else \"no_army\""), "goal_rows words its rows with goal_line and hud.goal's no_army")
 	t.ok(hud_src.contains("RaidHud.break_rows(raid, w.spec, int(w.meter_n))") and hud_src.contains("break_rows(raid, sp, int(w.meter_n))"),
 		"the WardenBlock and the GoalBlock take their break rows with the warden node's meter_n")
-	t.ok(hud_src.contains("\"WARDEN\")") and hud_src.contains("_edge(_wp, view, Palette.c(\"vei\"), \"WARDEN\")"), "the Pointers class draws a WARDEN edge chevron")
+	t.ok(str(_rj()["hud"]["text"]["edge_warden"]) == "WARDEN" and hud_src.contains("_edge(_wp, view, Palette.c(\"vei\"), RaidHud.hud_fmt(\"edge_warden\", []))"),
+		"the Pointers class draws a WARDEN edge chevron (the word is raid.json's hud.text.edge_warden)")
 	var gb := FileAccess.get_file_as_string("res://scripts/raid/raid_goal_block.gd")
 	t.ok(gb.contains("class_name RaidGoalBlock") and not gb.contains("ConfigDb") and not gb.contains("Game."), "the goal block names no autoload")
 	var gcfg: Dictionary = cfg.get("hud", {}).get("goal", {})
@@ -544,8 +549,28 @@ func _legend_tests(t: TestUtil) -> void:
 	t.ok(gi >= 0 and RegEx.create_from_string("if classify\\(ev\\):\\s*accept_event\\(\\)").search(gbody) != null
 		and RegEx.create_from_string("elif classify_assist\\(ev\\):\\s*accept_event\\(\\)").search(gbody) != null
 		and gbody.count("accept_event()") == 2, "_gui_input accepts an event only inside `if classify(ev):` or `elif classify_assist(ev):`")
+	var leg_code := _code(leg_src)
+	t.ok(cfg.get("click") == "LEFT CLICK" and cfg.get("move") == "move Relish" and cfg.get("space") == "HOLD SPACE" and cfg.get("or") == "or"
+		and cfg.get("mouse") == "RIGHT MOUSE" and cfg.get("slow") == "slow time" and cfg.get("header") == "CONTROLS" and cfg.get("hide") == "hide"
+		and cfg.get("chip") == "? CONTROLS" and cfg.get("drag") == "then drag a loop around essence to RAISE undead",
+		"hud.legend holds the legend's words, as they were in the script")
+	t.ok(leg_code.contains("_words = cfg") and leg_code.contains("_word(\"drag\")") and not leg_code.contains("LEFT CLICK") and not leg_code.contains("CONTROLS"),
+		"the legend draws its words from hud.legend, no literal left in the code")
 	var hud_src := FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd")
 	t.ok(hud_src.contains("Game.state.view_hud().get(\"highest_tier_flipped\", 0)"), "the HUD reads highest_tier_flipped from view_hud()")
+	# the HUD's raid-side words live in raid.json (hud.text, hud.stats, wardens.words): none is left as a literal in the code
+	var hud_code := _code(hud_src)
+	var left_lits: Array = []
+	for lit in ["TRANCE READY", "\"FOCUS\"", "\"COOLDOWN\"", "\"WARDEN\"", "\"EXIT\"", "\"LOOT\"", "reach an exit", "banks your loot", "\"RETREAT\"",
+			"CHECKPOINT", "TIER %d", "big undead", "chaff ·", "\"ESSENCE\"", "\"RAISED\"", "\"PHYLACT.\"", "\"BANKED\"", "\"UNBANKED\"", "\"DOOR\"",
+			"lost if you die", "on the floor", "+%d loose", "MUFFLED", "INTERCEPTED", "FLANKED", "SNUFFED", "ACOLYTES", "STUNNED", "\"PHASE\"",
+			"\"CAUGHT\"", "\"braced\"", "hunting your dead", "burned %d", "took %d", "HORN ·"]:
+		if hud_code.contains(lit):
+			left_lits.append(lit)
+	t.ok(left_lits.is_empty(), "no raid-side word is left as a literal in raid_hud.gd: %s" % [left_lits])
+	t.ok(hud_code.contains("hud_fmt(\"trance_ready\"") and hud_code.contains("hud_fmt(\"checkpoint\"") and hud_code.contains("hud_fmt(\"title_tier\"")
+		and hud_code.contains("\"tally_muffled\"") and hud_code.contains("\"row_phase\"") and hud_code.contains("\"label_banked\"") and hud_code.contains("\"exit_banks\""),
+		"the HUD reads those words by their raid.json keys")
 	var i := hud_src.find("RaidLegend.new()")
 	t.ok(i > 0 and hud_src.substr(maxi(0, i - 400), 400).contains("if not boss_mode:"), "RaidLegend is built only when not boss_mode")
 	t.ok(RegEx.create_from_string("_legend\\.visible = not raid\\._ended").search(hud_src) != null, "the legend hides once the run has ended")
@@ -747,24 +772,25 @@ func _row1_widest(a: String, sp: Dictionary, n: int, notches: int, pack_name: St
 	var x := 156.0 + n * 16.0 + notches * 9.0 + 2.0
 	x += f.get_string_size("%d/%d" % [n, n], HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
 	x += 14.0
-	var pk := " · +9 %s" % pack_name if sp.has("pack") else ""
-	var took := " · took %d" % n
+	var ww := _ww()   # the tallies' and rows' words are raid.json's wardens.words
+	var pk := RaidLogic.word_fmt(ww, "pack_more", [9, pack_name]) if sp.has("pack") else ""
+	var took := RaidLogic.word_fmt(ww, "took_tag", [n])
 	var label := str((sp.get("weak_point", {}) as Dictionary).get("label", ""))
 	var tail := 0.0
 	var parts: Array = []
 	var has_label := true
 	match a:
 		"bellringer":
-			parts = ["MUFFLED ×30 of 30", pk]
-			tail = 8.0 + f.get_string_size("braced", HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+			parts = [RaidLogic.word_fmt(ww, "tally_muffled", [30, 30]), pk]
+			tail = 8.0 + f.get_string_size(str(ww["row_braced"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
 			has_label = false
 		"huntsman":
-			parts = ["INTERCEPTED ×30", pk, took]
-			tail = 8.0 + f.get_string_size("STUNNED", HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+			parts = [RaidLogic.word_fmt(ww, "tally_intercepted", [30]), pk, took]
+			tail = 8.0 + f.get_string_size(str(ww["row_stunned"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
 		"shieldwall":
-			parts = ["FLANKED ×30 of 30", pk, took]
+			parts = [RaidLogic.word_fmt(ww, "tally_flanked", [30, 30]), pk, took]
 		"pyre_priest":
-			parts = ["SNUFFED ×30", pk, took]
+			parts = [RaidLogic.word_fmt(ww, "tally_snuffed", [30]), pk, took]
 	var block_w := float(_rj()["hud"]["warden_block_w"])
 	var widest := x + f.get_string_size(RaidLogic.fit_parts(parts, f, 15, x, tail, block_w), HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x + tail
 	var w_label := f.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
@@ -996,7 +1022,7 @@ func _contrast_tests(t: TestUtil) -> void:
 	var a_stat := float(hud.get("plate_alpha", 0.0))
 	var a_warden := float(hud.get("warden_plate_alpha", 0.0))
 	var a_retreat := float(hud.get("retreat", {}).get("plate_alpha", 0.0))
-	var dc: Dictionary = RaidLogic.DEATH_CARD
+	var dc: Dictionary = raid_cfg.get("death", {})
 	var plate := func(alpha: float) -> Callable:
 		return func(world: Color) -> Color: return RaidLogic.over(Palette.c("ground"), alpha, world)
 	var card_bg := func(world: Color) -> Color:
@@ -1086,7 +1112,7 @@ func _contrast_tests(t: TestUtil) -> void:
 	for r in drows + RaidLogic.clear_card_rows(_cw(), _lu(), "X", sample):
 		worst_label = maxf(worst_label, f.get_string_size(str(r["label"]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(dc["label_px"])).x)
 	t.ok(int(dc["label_px"]) >= 14 and worst_label <= float(dc["label_w"]) - 8.0, "card labels are 14 px and fit their column (%.0f px of %.0f)" % [worst_label, float(dc["label_w"]) - 8.0])
-	t.ok(f.get_string_size(_hs()["key_pile"],HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x <= 420.0 - 12.0, "the floor key's second line fits the StatBlock's plate at 13 px")
+	t.ok(f.get_string_size(_hs()["key_pile"], HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x <= 420.0 - 12.0, "the floor key's second line fits the StatBlock's plate at 13 px")
 
 	# no raid HUD text under 13 px: every literal size in a draw_string / font_size override
 	var small := PackedStringArray()

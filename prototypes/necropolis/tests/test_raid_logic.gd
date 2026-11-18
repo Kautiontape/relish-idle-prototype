@@ -790,8 +790,8 @@ func _held_door_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(pr.contains("shut in until the warden falls") and pr.contains("a retreat or a death loses it"), "the plate's prompt names the whole trade before she commits")
 	t.ok(RaidLogic.held_door_row(_hd(), "shut", "X").begins_with("SHUT IN · X") and RaidLogic.held_door_row(_hd(), "unused", "") == "", "the HUD row shows the shut-in big, and nothing with none spent")
 	var crow := RaidLogic.held_door_card_row(_dw(), "Gristle the Patient Ones")
-	var dcg: Dictionary = RaidLogic.DEATH_CARD
-	var col_w: float = float(dcg["w"]) - 2.0 * float(dcg["pad"]) - float(dcg["label_w"])
+	var dcg: Dictionary = TestUtil.load_json("res://configs/raid.json")["death"]
+	var col_w: float = float(dcg["card_w"]) - 2.0 * float(dcg["card_pad"]) - float(dcg["label_w"])
 	var cw := ThemeDB.fallback_font.get_string_size(crow["text"], HORIZONTAL_ALIGNMENT_LEFT, -1, int(dcg["value_px"])).x
 	t.ok(crow["label"] == "SHUT IN" and str(crow["text"]).contains("lost at the cache") and cw <= col_w,
 		"the death card lists the shut-in big as lost at the cache, on its own row; a 24-letter name fits (%d px of %d)" % [int(cw), int(col_w)])
@@ -2105,8 +2105,8 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 		and trow[1]["text"] == "the ring at your feet" and trow[2]["label"] == "BANKED" and trow[3]["label"] == "LOST",
 		"a death by a tell-attack: KILLED BY the attack, then MISSED its tell, on its own row")
 	# every value the KILLED BY and MISSED rows can hold fits the card's value column at its font size
-	var dcg: Dictionary = RaidLogic.DEATH_CARD
-	var col_w: float = float(dcg["w"]) - 2.0 * float(dcg["pad"]) - float(dcg["label_w"])
+	var dcg: Dictionary = TestUtil.load_json("res://configs/raid.json")["death"]
+	var col_w: float = float(dcg["card_w"]) - 2.0 * float(dcg["card_pad"]) - float(dcg["label_w"])
 	var widest := ""
 	var widest_px := 0.0
 	var fnt := ThemeDB.fallback_font
@@ -2131,7 +2131,8 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(nx_600["text"] == "unmade · reforms at Covington in 10 min · the town takes a morale shock", "unmade at 600 s: reforms at Covington in 10 min, the town takes a morale shock (%s)" % nx_600["text"])
 	t.ok(RaidLogic.phylactery_word(_hs(), 0).contains("the raid") and not RaidLogic.phylactery_word(_hs(), 0).contains("the run") and RaidLogic.phylactery_word(_hs(), 1) == "", "the PHYLACT. word says a death ends the raid, not the run")
 	var hud_cfg: Dictionary = TestUtil.load_json("res://configs/raid.json")["hud"]
-	t.ok(int(hud_cfg["break_row_px"]) >= 15 and RaidLogic.BREAK_ROW_KEY == "text" and float(hud_cfg["break_row_step"]) >= float(hud_cfg["break_row_px"]), "the win line (break / takes / counter rows) is at least 15 px in the text key")	# no player-facing string in the raid scripts calls a death the end of "the run" (code names and comments stay)
+	t.ok(int(hud_cfg["break_row_px"]) >= 15 and RaidLogic.BREAK_ROW_KEY == "text" and float(hud_cfg["break_row_step"]) >= float(hud_cfg["break_row_px"]), "the win line (break / takes / counter rows) is at least 15 px in the text key")
+	# no player-facing string in the raid scripts calls a death the end of "the run" (code names and comments stay)
 	var run_words: Array = []
 	for fn in DirAccess.get_files_at("res://scripts/raid"):
 		if not fn.ends_with(".gd"):

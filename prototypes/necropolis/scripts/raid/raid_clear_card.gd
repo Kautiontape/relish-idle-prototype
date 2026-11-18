@@ -14,6 +14,8 @@ var _t := 0.0
 var _skip_after := 0.8
 var _fade := 0.3
 var _skipped := false
+var _foot := ""   # raid.json clear.foot
+var _dc: Dictionary = {}   # raid.json `death`: the card's geometry (card_w, card_pad, label_w, value_px, label_px, foot_px, backdrop_a, plate_a)
 
 
 func setup(p_title: String, p_rows: Array) -> void:
@@ -22,6 +24,8 @@ func setup(p_title: String, p_rows: Array) -> void:
 	var c: Dictionary = ConfigDb.data.get("raid", {}).get("clear", {})
 	_skip_after = float(c.get("skip_after_s", 0.8))
 	_fade = float(c.get("fade_s", 0.3))
+	_foot = str(c.get("foot", ""))
+	_dc = ConfigDb.data.get("raid", {}).get("death", {})
 	mouse_filter = Control.MOUSE_FILTER_IGNORE   # a child of the HUD's CanvasLayer has no parent Control: it sizes itself (_draw reads the viewport)
 	set_process(true)
 	queue_redraw()
@@ -57,12 +61,12 @@ func _input(ev: InputEvent) -> void:
 func _draw() -> void:
 	var f := ThemeDB.fallback_font
 	var a := _alpha()
-	var dc: Dictionary = RaidLogic.DEATH_CARD
-	var w: float = dc["w"]
-	var pad: float = dc["pad"]
-	var lw: float = dc["label_w"]
+	var dc := _dc
+	var w := float(dc.get("card_w", 0.0))
+	var pad := float(dc.get("card_pad", 0.0))
+	var lw := float(dc.get("label_w", 0.0))
 	var vw := w - pad * 2.0 - lw
-	var vpx := int(dc["value_px"])
+	var vpx := int(dc.get("value_px", 0))
 	var heights: Array = []   # a long value wraps to a second line: its row grows (never clipped)
 	var total := 0.0
 	for r in rows:
@@ -73,8 +77,8 @@ func _draw() -> void:
 	var h := pad * 2.0 + 44.0 + total + 30.0
 	var vs := get_viewport_rect().size
 	var o := (vs - Vector2(w, h)) * 0.5
-	draw_rect(Rect2(Vector2.ZERO, vs), Palette.c("ground", float(dc["backdrop_a"]) * a))
-	draw_rect(Rect2(o, Vector2(w, h)), Palette.c("ground", float(dc["plate_a"]) * a))
+	draw_rect(Rect2(Vector2.ZERO, vs), Palette.c("ground", float(dc.get("backdrop_a", 0.0)) * a))
+	draw_rect(Rect2(o, Vector2(w, h)), Palette.c("ground", float(dc.get("plate_a", 0.0)) * a))
 	draw_rect(Rect2(o, Vector2(w, h)), Palette.c("vei", 0.8 * a), false, 2.0)
 	var x := o.x + pad
 	var y := o.y + pad + 22.0
@@ -82,8 +86,8 @@ func _draw() -> void:
 	y += 40.0
 	for i in rows.size():
 		var r: Dictionary = rows[i]
-		draw_string(f, Vector2(x, y), str(r["label"]), HORIZONTAL_ALIGNMENT_LEFT, lw - 8.0, int(dc["label_px"]), Palette.c("text_dim", a))
+		draw_string(f, Vector2(x, y), str(r["label"]), HORIZONTAL_ALIGNMENT_LEFT, lw - 8.0, int(dc.get("label_px", 0)), Palette.c("text_dim", a))
 		draw_multiline_string(f, Vector2(x + lw, y), str(r["text"]), HORIZONTAL_ALIGNMENT_LEFT, vw, vpx, -1, Palette.c(str(r["key"]), a))
 		y += float(heights[i])
 	if can_skip():
-		draw_string(f, Vector2(x, y + 4.0), "click or press Space to return to the realm", HORIZONTAL_ALIGNMENT_LEFT, -1, int(dc["foot_px"]), Palette.c("text_dim", a))
+		draw_string(f, Vector2(x, y + 4.0), _foot, HORIZONTAL_ALIGNMENT_LEFT, -1, int(dc.get("foot_px", 0)), Palette.c("text_dim", a))

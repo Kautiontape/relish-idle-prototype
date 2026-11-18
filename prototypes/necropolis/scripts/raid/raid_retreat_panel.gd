@@ -30,7 +30,10 @@ var plate_alpha := 0.97   # the panel's ground plate; a test holds its dim text 
 
 var head_keep := ""     # the column heads (hud.retreat head_keep / head_fall), set by configure
 var head_fall := ""
-var title := "LEAVE THE RAID?"
+var title := ""         # the title, the two buttons' words and the footer (hud.retreat title / btn_retreat / btn_stay / foot), set by configure
+var btn_retreat := ""
+var btn_stay := ""
+var foot := ""
 var cols: Array = [[], []]
 var _retreat_rect := Rect2()
 var _stay_rect := Rect2()
@@ -59,6 +62,10 @@ func configure(c: Dictionary) -> void:
 	plate_alpha = float(c.get("plate_alpha", plate_alpha))
 	head_keep = str(c.get("head_keep", head_keep))
 	head_fall = str(c.get("head_fall", head_fall))
+	title = str(c.get("title", title))
+	btn_retreat = str(c.get("btn_retreat", btn_retreat))
+	btn_stay = str(c.get("btn_stay", btn_stay))
+	foot = str(c.get("foot", foot))
 
 
 ## Show the panel with `p_cols` = [left, right] (RaidLogic.retreat_keep_lines, retreat_fall_lines), sized to
@@ -209,9 +216,9 @@ func _draw() -> void:
 			y += _line_cost(tx)
 	var mid := pad + cw + col_gap * 0.5
 	draw_line(Vector2(mid, top + 4.0), Vector2(mid, _retreat_rect.position.y - 14.0), Palette.c("text_dim", 0.8), 1.0)
-	_button(_retreat_rect, "RETREAT", Palette.c("relish", 1.0 if _hover == "retreat" else 0.7), Palette.c("vei"))
-	_button(_stay_rect, "STAY", Palette.c("text_dim", 1.0 if _hover == "stay" else 0.7), Palette.c("text"))
-	draw_string(font, Vector2(0.0, size.y - pad), "click to choose · Space or Esc: stay and fight",
+	_button(_retreat_rect, btn_retreat, Palette.c("relish", 1.0 if _hover == "retreat" else 0.7), Palette.c("vei"))
+	_button(_stay_rect, btn_stay, Palette.c("text_dim", 1.0 if _hover == "stay" else 0.7), Palette.c("text"))
+	draw_string(font, Vector2(0.0, size.y - pad), foot,
 		HORIZONTAL_ALIGNMENT_CENTER, w, 13, Palette.c("text_dim"))
 
 
