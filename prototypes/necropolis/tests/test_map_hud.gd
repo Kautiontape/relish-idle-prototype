@@ -348,6 +348,10 @@ func _clarity(t: TestUtil) -> void:
 	t.ok(key_w + 380.0 + float(MapLogic.cfg()["topbar_gap_px"]) <= float(MapLogic.cfg()["topbar_max_w_px"]), "the key (%.0f px) fits beside day 1's status on one row" % key_w)
 	t.ok(HudLogic.bar_cue({"highest_tier_flipped": 1}) == HudLogic.hover_cue() and HudLogic.bar_cue({"highest_tier_flipped": 0, "won": true}) == HudLogic.hover_cue(), "a fort taken (or won): the hover cue")
 	t.ok(HudLogic.bar_key_shown({}) and not HudLogic.bar_key_shown({"highest_tier_flipped": 2}), "the key keys off highest_tier_flipped (no seen flag)")
+	# the cue says every word explains itself: every readout on the bar has its hover line (WORKERS counts undead, not people)
+	for id in GameState.HUD_RATE_IDS + ["odds", "strain", "drain"]:
+		t.ok(HudLogic.tip(id) != "", "the %s readout has a hover line" % id)
+	t.ok(HudLogic.tip("workers").contains("undead") and HudLogic.tip("living").contains("Market") and HudLogic.tip("bodies").contains("Raising Pit") and HudLogic.tip("bone").contains("Bone Mill") and HudLogic.tip("gold").contains("Market"), "the town words say what they are in the glossary's terms")
 	t.ok(hs.contains("var cue_text := HudLogic.bar_cue(hud)") and hs.contains("_cue.text = cue_text"), "refresh sets the bar's last cell from bar_cue")
 	# the tooltip's own plate: opaque, and its text reads on it
 	var ts := HudLogic.tooltip_style()

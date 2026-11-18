@@ -321,7 +321,8 @@ static func comes_in(fort: Dictionary, party: Dictionary, raid_cfg: Dictionary, 
 	var garrison := clampi(int(float(fort.get("undead", 0.0)) / float(mass.get("garrison_mass_div", 10.0))), 0, int(mass.get("garrison_max", 12)))
 	var starter := int(econ_cfg.get("opening", {}).get("starter_party", 0)) if bool(fort.get("first_dungeon", false)) else 0
 	var bigs := (party.get("party", []) as Array).size()
-	return {"garrison": garrison, "starter": starter, "bigs": bigs, "total": garrison + starter + bigs}
+	return {"garrison": garrison, "starter": starter, "bigs": bigs, "total": garrison + starter + bigs,
+		"war_here": maxf(float(fort.get("undead", 0.0)), 0.0), "garrison_max": int(mass.get("garrison_max", 12))}
 
 
 ## The standard party of tier `tier` (clamped 1..4): {undead, bigs}, from raid autopilot.party_profiles.
@@ -372,19 +373,28 @@ static func comes_plain_text(ci: Dictionary) -> String:
 
 
 ## Who they are, in one plain sentence (the glossary's "Who comes into a raid"; the plain line above
-## has the count): each source that sends any, then what you raise inside, and a note when the WAR
-## stream sends none. Day 1: "They're your 8 starter undead, plus any you raise inside; none come from
-## your WAR stream yet." Nobody: "None come from your WAR stream yet, and your Party has no big undead."
+## has the count): each source that sends any, then what you raise inside. The fort's WAR undead come
+## in one per 10 (at most garrison_max), the rule comes_in counts by, so the sentence names the fort's
+## own number as its HELD chip shows it ("2 from the 22 WAR undead here (one per 10)"), and says when
+## they are too few to send one. Day 1: "They're your 8 starter undead, plus any you raise inside; none
+## come from your WAR stream yet."
 static func comes_in_text(ci: Dictionary) -> String:
 	var c := _c()
 	var g := int(ci.get("garrison", 0))
 	var s := int(ci.get("starter", 0))
 	var b := int(ci.get("bigs", 0))
+	var here := roundf(float(ci.get("war_here", 0.0)))
+	var here_s := MapLogic.fmt_mass(here)
+	var war_note := ""
+	if g == 0:
+		war_note = str(c.get("comes_who_few_fmt", "%s")) % here_s if here > 0.0 else str(c.get("comes_who_no_war", ""))
 	if g + s + b == 0:
-		return str(c.get("comes_who_none", ""))
+		return (str(c.get("comes_who_none_few_fmt", "%s")) % here_s) if here > 0.0 else str(c.get("comes_who_none", ""))
 	var parts: Array = []
 	if g > 0:
-		parts.append(str(c.get("comes_who_garrison_fmt", "%d")) % g)
+		var capped := g >= int(ci.get("garrison_max", 12)) and here >= float(g + 1) * 10.0
+		parts.append((str(c.get("comes_who_garrison_cap_fmt", "%d %s %d")) % [g, here_s, int(ci.get("garrison_max", 12))]) if capped
+			else (str(c.get("comes_who_garrison_fmt", "%d %s")) % [g, here_s]))
 	if s > 0:
 		parts.append(str(c.get("comes_who_starter_fmt", "%d")) % s)
 	if b > 0:
@@ -392,7 +402,7 @@ static func comes_in_text(ci: Dictionary) -> String:
 	var who := str(parts[0])
 	for i in range(1, parts.size()):
 		who += str(c.get("comes_who_and" if i == parts.size() - 1 else "comes_who_sep", ", ")) + str(parts[i])
-	return str(c.get("comes_who_fmt", "%s%s")) % [who, str(c.get("comes_who_no_war", "")) if g == 0 else ""]
+	return str(c.get("comes_who_fmt", "%s%s")) % [who, war_note]
 
 
 ## The tide bias as the card says it: 3.0 reads "3", 2.5 reads "2.5".
