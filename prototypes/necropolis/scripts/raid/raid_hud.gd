@@ -12,6 +12,7 @@ var raid: Node = null
 var _title: Label
 var _stats: StatBlock
 var _hint: Label
+var _hint2: Label      # the idle hint's second line (dungeon only)
 var _meter: Control
 var _exit_btn: Control = null       # dungeon only
 var _retreat: RaidRetreatPanel = null   # dungeon only: the retreat choice (mouse only; Space never confirms)
@@ -125,6 +126,16 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	_hint.offset_left = -380.0
 	_hint.offset_right = 380.0
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# the idle hint's second line (RaidLogic.hint_sub_text): under the first, dim, until the first raise
+	_hint2 = _mk_label(self, 15, Palette.c("text_dim"))
+	_hint2.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_hint2.anchor_top = 1.0
+	_hint2.offset_top = -24.0
+	_hint2.offset_bottom = -4.0
+	_hint2.offset_left = -380.0
+	_hint2.offset_right = 380.0
+	_hint2.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_hint2.visible = false
 
 	_meter = TranceMeter.new()
 	_meter.raid = p_raid
@@ -185,6 +196,7 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		_push.offset_bottom = 88.0
 
 		_retreat = RaidRetreatPanel.new()
+		_retreat.configure(raid.rcfg().get("hud", {}).get("retreat", {}))
 		_retreat.chosen.connect(func(go: bool) -> void:
 			if go:
 				raid.endings.try_retreat("click"))
@@ -364,6 +376,8 @@ func refresh() -> void:
 		_hint.text = RaidLogic.hint_text(raid.trance_active, at_exit)
 		if at_exit:
 			_hint.visible = true
+		_hint2.text = RaidLogic.hint_sub_text(raid.trance_active, at_exit, raid.first_raise_done)
+		_hint2.visible = _hint.visible and _hint2.text != ""
 		# the "your undead fight on their own" cue (once per run)
 		if not _undead_cue_shown:
 			var alive := 0
@@ -464,10 +478,9 @@ static func break_rows(raid: Node, sp: Dictionary, meter_n := -1) -> Array:
 	if tk != "":
 		rows.append(tk)
 	var stat := str((sp.get("weak_point", {}) as Dictionary).get("stat", ""))
-	var vals: Array = []
-	for a in raid.allies:
-		if is_instance_valid(a) and a.alive and a.role == "party":
-			vals.append(RaidLogic.unit_stat(a, stat))
+	# the bigs the warden's own counter checks count (RaidLogic.counter_party_values): not the one spent on the door's plate
+	var hd = raid.held_door
+	var vals: Array = RaidLogic.counter_party_values(raid.allies, stat, hd.holder if hd != null and hd.committed() else null)
 	rows.append(WardenLogic.counter_line(sp, vals))
 	return rows
 
@@ -709,11 +722,14 @@ func open_exit_dialog() -> void:
 
 ## The retreat panel's lines now: what a retreat pays (found loot and carried essence) and what stays. A big
 ## spent on the held door is lost, said by its state (on the plate, or shut in at the cache).
-func _retreat_lines() -> PackedStringArray:
+func _retreat_lines() -> Array:
 	var hd = raid.held_door
 	var keep := RaidLogic.loot_counts(RaidLogic.loot_snapshot(raid.found_loot, raid.carried_count()))
-	return RaidLogic.retreat_lines(raid.held, keep,
-		RaidLogic.held_door_retreat_line(hd.state, hd.holder_name) if hd != null else "")
+	# the right column reads what the death card reads (RaidEndings.death_inputs, death_next_row, the revive rule)
+	var di: Dictionary = raid.endings.death_inputs()
+	return [RaidLogic.retreat_keep_lines(raid.held, keep,
+			RaidLogic.held_door_retreat_line(hd.state, hd.holder_name) if hd != null else ""),
+		RaidLogic.retreat_fall_lines(raid.endings.phylactery_left(), di["unbanked"], int(di["party_n"]), RaidLogic.death_next_row(raid.seed_data))]
 
 
 ## The retreat panel shows (the raid closes it on a stay key: Space, right mouse, Esc).
@@ -785,7 +801,7 @@ class StatBlock:
 		_val = int(c.get("value_px", 15))
 		_row_max = int(c.get("pip_row_max", 24))
 		plate_alpha = float(c.get("plate_alpha", 0.86))
-		var rows := 3.0 if boss else 13.0   # living, essence, raised | + 4 ward rows, essence meaning, phylactery, banked, unbanked, stakes
+		var rows := 3.0 if boss else 14.0   # living, essence, raised | + 4 ward rows, essence meaning, phylactery, its meaning, banked, unbanked, stakes
 		custom_minimum_size = Vector2(420.0, rows * _row + 8.0)
 
 	## The floor-loot key (two rows under the stakes) shows while something lies on the floor.
@@ -806,7 +822,7 @@ class StatBlock:
 		return 420.0 - _col - 8.0
 
 	func _fit() -> void:
-		custom_minimum_size = Vector2(420.0, (13.0 + (2.0 if show_key else 0.0) + float(door_lines.size())) * _row + 8.0)
+		custom_minimum_size = Vector2(420.0, (14.0 + (2.0 if show_key else 0.0) + float(door_lines.size())) * _row + 8.0)
 
 	## A floor glyph as the pickups draw it (RaidLoot.floor_glyph shapes), small, at `p`.
 	func _key_glyph(p: Vector2, shape: String, col: Color) -> void:
@@ -906,6 +922,9 @@ class StatBlock:
 				var hx := _value(vx + 10.0, y, head, phyl_tone)
 				if cut >= 0:
 					draw_string(ThemeDB.fallback_font, Vector2(hx, y), phyl_word.substr(cut), HORIZONTAL_ALIGNMENT_LEFT, -1, _lab, Palette.c("text_dim"))
+			y += _row
+			# what a phylactery charge is (RaidLogic.phylactery_meaning), dim, as the ESSENCE row's meaning line
+			draw_string(ThemeDB.fallback_font, Vector2(_col, y), RaidLogic.phylactery_meaning(phyl), HORIZONTAL_ALIGNMENT_LEFT, -1, _lab, Palette.c("text_dim"))
 			y += _row
 			# zero kinds are hidden; nothing at all is one dim word
 			_label(y, "BANKED")

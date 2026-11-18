@@ -222,14 +222,24 @@ func _finish_death() -> void:
 	finish(_raid._death_result())
 
 
+## What a death costs her right now, the one source for the death card and the retreat panel's IF RELISH FALLS
+## column: the unbanked loot, the big shut in at the held door (D-e task 6: lost too, on a row of its own apart
+## from the party that fell) and the party's big count without it.
+func death_inputs() -> Dictionary:
+	var ub: Dictionary = RaidLogic.unbanked(_raid.found_loot, _raid.carried_count(), banked)
+	var shut: String = _raid.held_door.shut_name() if _raid.held_door != null else ""
+	var party_n := (_raid.seed_data.get("party", []) as Array).size() - (1 if shut != "" else 0)
+	return {"unbanked": ub, "shut": shut, "party_n": party_n}
+
+
 ## The death card's rows: what killed her, what the last checkpoint banked, what is lost.
 func death_rows() -> Array:
 	var wname: String = _raid.warden_run.warden_name if _raid.warden_run != null else ""
 	var cause := RaidLogic.death_cause(_raid.relish.last_hit_src, wname)
-	var ub: Dictionary = RaidLogic.unbanked(_raid.found_loot, _raid.carried_count(), banked)
-	# a big shut in at the held door (D-e task 6) is lost too, on a row of its own apart from the party that fell
-	var shut: String = _raid.held_door.shut_name() if _raid.held_door != null else ""
-	var party_n := (_raid.seed_data.get("party", []) as Array).size() - (1 if shut != "" else 0)
+	var di := death_inputs()
+	var ub: Dictionary = di["unbanked"]
+	var shut: String = di["shut"]
+	var party_n: int = di["party_n"]
 	return RaidLogic.death_rows_with_shut(RaidLogic.death_card_rows(cause, RaidLogic.loot_counts(banked), ub, party_n,
 		RaidLogic.death_tell(_raid.relish.last_hit_src), RaidLogic.death_next_row(_raid.seed_data)), shut)
 

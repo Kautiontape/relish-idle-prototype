@@ -690,12 +690,12 @@ static func counter_line(sp: Dictionary, party_values: Array) -> String:
 			verb = "snuffs an acolyte in one blow"
 	var s := "COUNTER · a big undead with %s %d+ %s" % [str(wp.get("stat", "")), int(thr), verb]
 	if party_values.is_empty():
-		return s + " · you have none: raise more undead"
+		return s + " · you have none: make one at the Crypt slab"   # circles raise chaff to elites; only the slab makes bigs
 	var k := 0
 	for v in party_values:
 		if float(v) >= thr:
 			k += 1
-	return s + (" · none in your party" if k == 0 else " · %d in your party" % k)
+	return s + (" · none in your party: make one at the Crypt slab" if k == 0 else " · %d in your party" % k)
 
 
 # ------------------------------------------------------------- pyre-priest ---

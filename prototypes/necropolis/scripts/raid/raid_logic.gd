@@ -625,12 +625,16 @@ static func clear_card_title(fort_name: String) -> String:
 ## pays (`loot` = loot_counts of RaidLogic.result_loot("warden_beaten", ...)), and what comes next.
 static func clear_card_rows(warden_name: String, loot: Dictionary) -> Array:
 	var ll := loot_line(loot)
-	return [
+	var rows: Array = [
 		{"label": "BROKEN", "text": warden_name, "key": "vei"},
 		{"label": "TAKEN", "text": "its living become your dead · it joins your realm as a held fort", "key": "text"},
 		{"label": "LOOT", "text": ll if ll != "" else "nothing this time", "key": "text"},
-		{"label": "NEXT", "text": "Vei contests it once its grace runs out · send WAR there to hold it", "key": "text_dim"},
 	]
+	var uses := loot_uses_line(loot)
+	if uses != "":
+		rows.append({"label": "USE", "text": uses, "key": "text_dim"})
+	rows.append({"label": "NEXT", "text": "Vei contests it once its grace runs out · send WAR there to hold it", "key": "text_dim"})
+	return rows
 
 
 ## The death card's geometry (RaidDeathCard._draw reads it, and so does the clear card; the test measures the
@@ -726,6 +730,15 @@ static func hint_text(trance_active: bool, at_exit: bool) -> String:
 	return HINT_IDLE
 
 
+## The idle hint's second line (dim, under HINT_IDLE): shown while nothing has been raised yet, and only
+## when the idle line itself shows (the trance's and the exit's instructions stand alone).
+const HINT_IDLE_SUB := "your undead fight on their own · keep Relish safe and raise more"
+
+
+static func hint_sub_text(trance_active: bool, at_exit: bool, raised_any: bool) -> String:
+	return "" if (trance_active or at_exit or raised_any) else HINT_IDLE_SUB
+
+
 ## The "your undead fight on their own" cue is due once: an undead stands and (a living has died or
 ## `delay_s` scene seconds have passed).
 static func undead_cue_due(shown: bool, kills: int, scene_s: float, delay_s: float, allies_alive: int) -> bool:
@@ -760,6 +773,12 @@ static func exposed_tint(level: float, cfg: Dictionary) -> float:
 ## whatever her hp: the chain and her hp still stand between her and it).
 static func phylactery_word(phyl_left: int) -> String:
 	return "" if phyl_left > 0 else "NO REVIVE · death ends the run"
+
+
+## The PHYLACT. row's dim sub-line (glossary jargon: "revives Relish in place, at most once per dungeon"; its
+## "The Ossuary Tower crafts it from essence" clause is cut to fit the stat block). The same whatever the count.
+static func phylactery_meaning(_phyl_left: int) -> String:
+	return "revives Relish in place, at most once per dungeon"
 
 
 ## Sacrifice chain (MECHANICS 5.0): rank 0 chaff tier (raised chaff, garrison, starters),
@@ -1267,14 +1286,63 @@ static func death_rows_with_shut(rows: Array, shut: String) -> Array:
 ## (`keep` is loot_counts of what a retreat pays: everything found plus the carried essence, as
 ## result_loot builds it), and what stays: the fort stays Vei's (a held fort stays yours). `door_line`
 ## is held_door_retreat_line's text, its leading newline dropped ("" for none).
-static func retreat_lines(held: bool, keep: Dictionary, door_line: String) -> PackedStringArray:
-	var out := PackedStringArray(["You keep everything you found and all carried essence."])
+## The panel's left column ("RETREAT NOW"), lines [{text, key}]: what a retreat keeps, its counts, what
+## the loot is for (dim, only with something found), then what stays.
+static func retreat_keep_lines(held: bool, keep: Dictionary, door_line: String) -> Array:
+	var out: Array = [{"text": "You keep everything you found and all carried essence.", "key": "text"}]
 	var now := loot_line(keep)
-	out.append("  now: " + (now if now != "" else "nothing yet"))
-	out.append("The fort stays yours." if held else "The fort stays Vei's · you can come back and break its warden.")
+	out.append({"text": "  " + (now if now != "" else "nothing found yet"), "key": "text"})
+	var uses := loot_uses_line(keep)
+	if uses != "":
+		out.append({"text": uses, "key": "text_dim"})
+	out.append({"text": "The fort stays yours." if held else "The fort stays Vei's · you can come back and break its warden.", "key": "text"})
 	var d := door_line.strip_edges()
 	if d != "":
-		out.append(d)
+		out.append({"text": d, "key": "text"})
+	return out
+
+
+const RETREAT_HEAD := "RETREAT NOW"
+const FALL_HEAD := "IF RELISH FALLS"
+
+
+## The panel's right column ("IF RELISH FALLS"), lines [{text, key}], from the death card's own pieces:
+## `revive_left` phylactery charges spendable now (the once-per-dungeon rule applied: RaidEndings.phylactery_left),
+## the unbanked loot and party big count the card's LOST row reads (death_lost_line), and its AFTER row
+## (death_next_row). With a charge left a death revives her in place, so LOST and AFTER would not apply.
+static func retreat_fall_lines(revive_left: int, unbanked: Dictionary, party_n: int, next_row: Dictionary) -> Array:
+	if revive_left > 0:
+		return [{"text": "a phylactery charge revives her here (once this raid)", "key": "relish"}]
+	var lost := death_lost_line(unbanked, party_n)
+	return [
+		{"text": "LOST · " + lost, "key": "danger" if lost != "nothing" else "text_dim"},
+		{"text": "AFTER · " + str(next_row.get("text", "")), "key": str(next_row.get("key", "text"))},
+	]
+
+
+## What each kind of loot in `counts` (loot_counts) is for, in the glossary's words: "" when none applies.
+## Blueprints have no use line.
+static func loot_uses_line(counts: Dictionary) -> String:
+	var parts: PackedStringArray = []
+	if int(counts.get("relics", 0)) > 0:
+		parts.append("relics are spent when you build")
+	if int(counts.get("husks", 0)) > 0:
+		parts.append("husks: the frame a big undead is raised in, on the crypt slab")
+	if int(counts.get("remnants", 0)) > 0:
+		parts.append("remnants: slotted into a husk to shape it")
+	if int(counts.get("essence", 0)) > 0:
+		parts.append("essence pays for backups (Ossuary Tower)")
+	return " · ".join(parts)
+
+
+## The big undead whose stat the COUNTER line counts: alive, a big (kind), in the party (role), and not the
+## one spent on the held door (`holder`: its plate-bound big stays in raid.allies until it is shut in, but
+## the warden's own counter checks must not see it as standing). Their `stat` values (unit_stat), in order.
+static func counter_party_values(allies: Array, stat: String, holder = null) -> Array:
+	var out: Array = []
+	for a in allies:
+		if is_instance_valid(a) and a.alive and a.kind == "big" and a.role == "party" and a != holder:
+			out.append(unit_stat(a, stat))
 	return out
 
 

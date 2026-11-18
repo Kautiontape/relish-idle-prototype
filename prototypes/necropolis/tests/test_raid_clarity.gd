@@ -13,7 +13,103 @@ func run() -> int:
 	_hint_cue_tests(t)
 	_goal_tests(t)
 	_clear_card_tests(t)
+	_round2_tests(t)
 	return t.failures
+
+
+## A stand-in for a RaidUnit (the fields the counter filter reads).
+class FakeUnit:
+	extends RefCounted
+	var alive := true
+	var kind := "big"
+	var role := "party"
+	var beef := 0.0
+	var speed_stat := 0.0
+	var wits := 0.0
+	var power := 0.0
+
+
+func _fake(kind := "big", role := "party", beef := 0.0, alive := true) -> FakeUnit:
+	var u := FakeUnit.new()
+	u.kind = kind
+	u.role = role
+	u.beef = beef
+	u.alive = alive
+	return u
+
+
+## Clarity round 2, task A: the counter advice, the retreat panel's two columns, the undead hint, the uses line,
+## the PHYLACT. explanation.
+func _round2_tests(t: TestUtil) -> void:
+	t.suite("raid_clarity_r2")
+	# A1: the counter line sends a player with no big to the Crypt slab, never to "raise more undead"
+	var sp := {"weak_point": {"stat": "beef", "threshold": 6.0, "effect": "muffle"}}
+	t.ok(WardenLogic.counter_line(sp, []).ends_with(" · you have none: make one at the Crypt slab"), "no bigs: make one at the Crypt slab")
+	t.ok(WardenLogic.counter_line(sp, [5.0]).ends_with(" · none in your party: make one at the Crypt slab"), "bigs but none meets it: make one at the Crypt slab")
+	t.ok(WardenLogic.counter_line(sp, [6.0, 2.0]).ends_with(" · 1 in your party") and not WardenLogic.counter_line(sp, [6.0]).contains("Crypt"), "k meet it: the count, no advice")
+	t.ok(not WardenLogic.counter_line(sp, []).contains("raise more undead"), "the counter line never says raise more undead")
+	var holder := _fake("big", "party", 9.0)
+	var pool := [_fake("big", "party", 7.0), _fake("chaff", "party", 99.0), _fake("big", "raised", 99.0), _fake("big", "party", 8.0, false), holder, _fake("big", "party", 3.0)]
+	var vals := RaidLogic.counter_party_values(pool, "beef", holder)
+	t.ok(vals == [7.0, 3.0], "counter pool: living party bigs only, not a non-big, a raised big, a dead one or the door's holder (%s)" % str(vals))
+	t.ok(RaidLogic.counter_party_values(pool, "beef", null).size() == 3, "no holder: the holder counts")
+	var hsrc := FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd")
+	t.ok(_func_src(hsrc, "static func break_rows(").contains("RaidLogic.counter_party_values("), "break_rows reads the counter pool helper")
+	# A2: the retreat panel's two columns
+	var keep := RaidLogic.loot_counts({"relics": 2, "husks": [{}], "essence": 5})
+	var left := RaidLogic.retreat_keep_lines(false, keep, "")
+	t.ok(left[0]["text"] == "You keep everything you found and all carried essence." and left[1]["text"].contains("relics 2") and left[1]["text"].contains("essence 5"), "left: what you keep, as counts")
+	t.ok(left[left.size() - 1]["text"] == "The fort stays Vei's · you can come back and break its warden.", "left: the fort stays Vei's")
+	var empty := RaidLogic.retreat_keep_lines(true, RaidLogic.loot_counts(RaidLogic.empty_loot()), "\nBone Knight is on the plate · lost if you retreat.")
+	t.ok(empty.size() == 4 and empty[1]["text"].contains("nothing found yet") and not empty[1]["text"].contains("now:"), "nothing found: plain words, no uses line")
+	t.ok(empty[2]["text"] == "The fort stays yours." and empty[3]["text"].begins_with("Bone Knight is on the plate"), "a held raid: the fort stays yours, then the door line")
+	t.ok(left[2]["text"] == RaidLogic.loot_uses_line(keep) and left[2]["key"] == "text_dim", "the uses line sits under the counts, dim")
+	var ub := {"relics": 1, "essence": 4}
+	var next_unmade := RaidLogic.death_next_row({"death_ends": {"outcome": "unmade", "respawn_s": 600.0}})
+	var fall := RaidLogic.retreat_fall_lines(0, ub, 2, next_unmade)
+	var card := RaidLogic.death_card_rows("x", {}, ub, 2, "", next_unmade)
+	t.ok(fall.size() == 2 and fall[0]["text"].ends_with(card[card.size() - 2]["text"]) and fall[1]["text"].ends_with(card[card.size() - 1]["text"]) and fall[1]["text"].contains("unmade · reforms in 10:00"),
+		"right: LOST and AFTER are the death card's own rows (%s)" % str(fall))
+	t.ok(RaidLogic.retreat_fall_lines(0, {}, 0, next_unmade)[0]["text"].ends_with("nothing"), "nothing at stake reads nothing")
+	var rev := RaidLogic.retreat_fall_lines(1, ub, 2, next_unmade)
+	t.ok(rev.size() == 1 and rev[0]["text"] == "a phylactery charge revives her here (once this raid)", "a charge left: the revive line, no LOST or AFTER")
+	t.ok(RaidLogic.RETREAT_HEAD == "RETREAT NOW" and RaidLogic.FALL_HEAD == "IF RELISH FALLS", "the column heads")
+	var rl := _func_src(hsrc, "func _retreat_lines(")
+	t.ok(rl.contains("RaidLogic.retreat_fall_lines(") and rl.contains("death_inputs()") and rl.contains("RaidLogic.retreat_keep_lines("), "the HUD builds both columns from the endings' own death inputs")
+	var esrc := FileAccess.get_file_as_string("res://scripts/raid/raid_endings.gd")
+	t.ok(_func_src(esrc, "func death_rows(").contains("death_inputs()") and _func_src(esrc, "func death_inputs(").contains("RaidLogic.unbanked("), "the death card reads the same death_inputs")
+	var rcfg: Dictionary = TestUtil.load_json("res://configs/raid.json").get("hud", {}).get("retreat", {})
+	t.ok(rcfg.has("_doc") and float(rcfg.get("btn_h", 0)) >= 44.0 and int(rcfg.get("line_px", 0)) >= 13, "hud.retreat: doc, 44 px buttons, no text under 13 px")
+	var p := RaidRetreatPanel.new()
+	p.configure(rcfg)
+	p.open([left, fall])
+	t.ok(p.size.x >= 700.0 and p.retreat_rect().size.y >= 44.0 and p.retreat_rect().end.y <= p.size.y, "two columns: the panel is wide, its buttons stay inside")
+	var h_fall := p.size.y
+	p.open([_cl(["a"]), rev])
+	t.ok(p.size.y < h_fall, "a shorter pair of columns: a shorter plate (%.0f vs %.0f)" % [p.size.y, h_fall])
+	p.free()
+	# A3: the undead line under the idle hint until the first raise
+	t.ok(RaidLogic.hint_sub_text(false, false, false) == RaidLogic.HINT_IDLE_SUB and RaidLogic.HINT_IDLE_SUB == "your undead fight on their own · keep Relish safe and raise more", "idle, no raise yet: the second line")
+	t.ok(RaidLogic.hint_sub_text(false, false, true) == "", "after the first raise: one line")
+	t.ok(RaidLogic.hint_sub_text(true, false, false) == "" and RaidLogic.hint_sub_text(false, true, false) == "", "the trance and exit hints take the line alone")
+	t.ok(hsrc.contains("RaidLogic.hint_sub_text(raid.trance_active, at_exit, raid.first_raise_done)"), "the HUD picks the second line with the helper")
+	# A4: PHYLACT. explanation and the loot uses
+	for n in [0, 1, 3]:
+		var m := RaidLogic.phylactery_meaning(n)
+		t.ok(m == "revives Relish in place, at most once per dungeon", "PHYLACT. meaning (%d): the glossary's jargon line, clause cut: %s" % [n, m])
+		t.ok(ThemeDB.fallback_font.get_string_size(m, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x <= 320.0, "PHYLACT. meaning (%d) fits the value column at 13 px" % n)
+	t.ok(RaidLogic.loot_uses_line(RaidLogic.loot_counts({})) == "", "no loot: no uses line")
+	t.ok(RaidLogic.loot_uses_line(RaidLogic.loot_counts({"blueprints": [{}]})) == "", "blueprints alone: no use line")
+	var all := RaidLogic.loot_uses_line(RaidLogic.loot_counts({"relics": 1, "husks": [{}], "remnants": [{}], "essence": 2}))
+	t.ok(all == "relics are spent when you build · husks: the frame a big undead is raised in, on the crypt slab · remnants: slotted into a husk to shape it · essence pays for backups (Ossuary Tower)", "every kind: its use (%s)" % all)
+	t.ok(RaidLogic.loot_uses_line(RaidLogic.loot_counts({"husks": [{}]})) == "husks: the frame a big undead is raised in, on the crypt slab", "husks alone: the glossary's husk line")
+	var cr := RaidLogic.clear_card_rows("X", RaidLogic.loot_counts({"relics": 1}))
+	t.ok(cr.size() == 5 and cr[3]["label"] == "USE" and cr[3]["key"] == "text_dim" and cr[4]["label"] == "NEXT", "the clear card: a dim USE row after LOOT")
+	t.ok(RaidLogic.clear_card_rows("X", RaidLogic.loot_counts({})).size() == 4, "nothing found: no USE row")
+	var dc: Dictionary = RaidLogic.DEATH_CARD
+	var vw := float(dc["w"]) - 2.0 * float(dc["pad"]) - float(dc["label_w"])
+	var worst := ThemeDB.fallback_font.get_multiline_string_size(all, HORIZONTAL_ALIGNMENT_LEFT, vw, int(dc["value_px"]))
+	t.ok(worst.y <= 5.0 * float(dc["value_px"]) * 1.4, "the longest USE text wraps to at most 5 lines on the card (%.0f px tall)" % worst.y)
 
 
 ## T5: the clear card's words (RaidLogic) and the warden run's wiring (source text: raid_warden_run.gd names RaidAutopilot).
@@ -34,7 +130,7 @@ func _clear_card_tests(t: TestUtil) -> void:
 		var tx := str(r["text"])
 		if tx.contains("banked") and tx.contains("lost"):
 			no_contradiction = false
-	t.ok(labels == ["BROKEN", "TAKEN", "LOOT", "NEXT"], "the four rows in order")
+	t.ok(labels == ["BROKEN", "TAKEN", "LOOT", "USE", "NEXT"], "the rows in order (USE: what the loot is for)")
 	t.ok(rows[0]["text"] == "The Bellringer" and rows[0]["key"] == "vei", "BROKEN names the warden")
 	t.ok(rows[2]["text"] == RaidLogic.loot_line(won) and str(rows[2]["text"]).contains("relics 2"), "LOOT reads the counts")
 	t.ok(RaidLogic.clear_card_rows("X", RaidLogic.loot_counts(RaidLogic.empty_loot()))[2]["text"] == "nothing this time", "empty loot reads 'nothing this time'")
@@ -140,8 +236,8 @@ func _goal_tests(t: TestUtil) -> void:
 			var wp: Dictionary = ac["weak_point"]
 			var thr := int(wp["threshold"])
 			var base := "COUNTER · a big undead with %s %d+ %s" % [str(wp["stat"]), thr, verbs[a]]
-			t.ok(WardenLogic.counter_line(sp, []) == base + " · you have none: raise more undead", "%s: the counter line, no bigs" % tag)
-			t.ok(WardenLogic.counter_line(sp, [thr - 1, 0]) == base + " · none in your party", "%s: the counter line, none meets it" % tag)
+			t.ok(WardenLogic.counter_line(sp, []) == base + " · you have none: make one at the Crypt slab", "%s: the counter line, no bigs" % tag)
+			t.ok(WardenLogic.counter_line(sp, [thr - 1, 0]) == base + " · none in your party: make one at the Crypt slab", "%s: the counter line, none meets it" % tag)
 			t.ok(WardenLogic.counter_line(sp, [thr, thr + 3, thr - 1]) == base + " · 2 in your party", "%s: the counter line, 2 of 3 meet it" % tag)
 	var hud_src := FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd")
 	var build_src := _func_src(hud_src, "func build(")
@@ -449,10 +545,18 @@ func _mouse(button: MouseButton, pos: Vector2, pressed := true) -> InputEventMou
 ## Item 8: the cac5a17 ConfirmationDialog focused its OK button, and Space (the trance key) is also
 ## ui_accept, so one Space press confirmed a retreat. The panel takes no focus and only a left click on
 ## RETREAT confirms.
+## A column of plain lines for the panel: [{text, key}].
+func _cl(texts: Array) -> Array:
+	var out: Array = []
+	for s in texts:
+		out.append({"text": str(s), "key": "text"})
+	return out
+
+
 func _retreat_panel_tests(t: TestUtil) -> void:
 	t.suite("raid_retreat_panel")
 	var p := RaidRetreatPanel.new()
-	p.open(PackedStringArray(["a", "b", "c"]))
+	p.open([_cl(["a", "b", "c"]), _cl(["d"])])
 	var got := []
 	p.chosen.connect(func(go: bool) -> void: got.append(go))
 	t.ok(p.focus_mode == Control.FOCUS_NONE, "the panel never takes focus")
@@ -477,7 +581,7 @@ func _retreat_panel_tests(t: TestUtil) -> void:
 	t.ok(p.classify(_mouse(MOUSE_BUTTON_LEFT, p.stay_rect().get_center())) == "stay", "a left click on STAY stays")
 	p.apply(p.classify(_mouse(MOUSE_BUTTON_LEFT, p.stay_rect().get_center())))
 	t.ok(got == [false] and not p.is_open(), "STAY closes the panel and says stay")
-	p.open(PackedStringArray(["a"]))
+	p.open([_cl(["a"]), _cl(["b"])])
 	p.apply(p.classify(_mouse(MOUSE_BUTTON_LEFT, p.retreat_rect().get_center())))
 	t.ok(got == [false, true] and not p.is_open(), "a left click on RETREAT is the one way to retreat")
 	p.apply("retreat")
@@ -487,22 +591,22 @@ func _retreat_panel_tests(t: TestUtil) -> void:
 	t.ok(not RaidRetreatPanel.is_stay_key(_key(KEY_SPACE, false)) and not RaidRetreatPanel.is_stay_key(_mouse(MOUSE_BUTTON_LEFT, Vector2.ZERO)),
 		"a release, or a left click, is not a stay key")
 	# the plate fits its lines each time it opens: a 3-line open after a 4-line one is shorter
-	p.open(PackedStringArray(["a", "b", "c", "d"]))
+	p.open([_cl(["a", "b", "c", "d"]), _cl(["e"])])
 	var h4 := p.size.y
-	p.open(PackedStringArray(["a", "b", "c"]))
-	t.ok(p.size.y < h4 and is_equal_approx(h4 - p.size.y, RaidRetreatPanel.LINE_H), "open with 4 lines then 3: the plate shrinks by a line (%.0f -> %.0f)" % [h4, p.size.y])
+	p.open([_cl(["a", "b", "c"]), _cl(["e"])])
+	t.ok(p.size.y < h4 and is_equal_approx(h4 - p.size.y, p.line_h), "open with 4 lines then 3: the plate shrinks by a line (%.0f -> %.0f)" % [h4, p.size.y])
 	t.ok(p.retreat_rect().end.y <= p.size.y and p.stay_rect().end.y <= p.size.y, "the buttons stay inside the shrunk plate")
 	# its lines follow a pickup while it shows (the HUD calls this 4 times a second), and only when they change
-	p.refresh_lines(PackedStringArray(["a", "b", "c", "d"]))
+	p.refresh_lines([_cl(["a", "b", "c", "d"]), _cl(["e"])])
 	t.ok(is_equal_approx(p.size.y, h4), "refreshed with a 4th line: the plate grows to fit")
 	var same_rect := p.retreat_rect()
-	p.refresh_lines(PackedStringArray(["a", "b", "c", "d"]))
-	t.ok(p.retreat_rect() == same_rect and p.lines.size() == 4, "the same lines change nothing")
+	p.refresh_lines([_cl(["a", "b", "c", "d"]), _cl(["e"])])
+	t.ok(p.retreat_rect() == same_rect and (p.cols[0] as Array).size() == 4, "the same lines change nothing")
 	p.close()
-	p.refresh_lines(PackedStringArray(["x"]))
-	t.ok(p.lines.size() == 4, "a closed panel ignores a refresh")
+	p.refresh_lines([_cl(["x"]), _cl(["y"])])
+	t.ok((p.cols[0] as Array).size() == 4, "a closed panel ignores a refresh")
 	# hover clears when the mouse leaves the plate
-	p.open(PackedStringArray(["a"]))
+	p.open([_cl(["a"]), _cl(["b"])])
 	var mv := InputEventMouseMotion.new()
 	mv.position = p.stay_rect().get_center()
 	p._gui_input(mv)
@@ -544,14 +648,14 @@ func _retreat_panel_tests(t: TestUtil) -> void:
 func _retreat_line_tests(t: TestUtil) -> void:
 	t.suite("raid_retreat_lines")
 	var keep := RaidLogic.loot_counts(RaidLogic.loot_snapshot({"relics": 2, "husks": [{"kind": "skeleton"}]}, 5))
-	var l := RaidLogic.retreat_lines(false, keep, "")
-	t.ok(l[0] == "You keep everything you found and all carried essence.", "first: what you keep")
-	t.ok(l[1].contains("relics 2") and l[1].contains("husks 1") and l[1].contains("essence 5"), "then the counts a retreat pays")
-	t.ok(l[2].begins_with("The fort stays Vei's") and l.size() == 3, "then what stays: the fort stays Vei's")
-	var e := RaidLogic.retreat_lines(true, RaidLogic.loot_counts(RaidLogic.empty_loot()), "\nBone Knight is on the plate · lost if you retreat.")
-	t.ok(e[1].contains("nothing yet"), "nothing found: 'nothing yet'")
-	t.ok(e[2] == "The fort stays yours.", "a held fort stays yours")
-	t.ok(e.size() == 4 and e[3] == "Bone Knight is on the plate · lost if you retreat.", "the held door's line, without its newline")
+	var l := RaidLogic.retreat_keep_lines(false, keep, "")
+	t.ok(l[0]["text"] == "You keep everything you found and all carried essence.", "first: what you keep")
+	t.ok(l[1]["text"].contains("relics 2") and l[1]["text"].contains("husks 1") and l[1]["text"].contains("essence 5"), "then the counts a retreat pays")
+	t.ok(l[l.size() - 1]["text"].begins_with("The fort stays Vei's") and l.size() == 4, "then what stays: the fort stays Vei's (the uses line sits between)")
+	var e := RaidLogic.retreat_keep_lines(true, RaidLogic.loot_counts(RaidLogic.empty_loot()), "\nBone Knight is on the plate · lost if you retreat.")
+	t.ok(e[1]["text"].contains("nothing found yet"), "nothing found: 'nothing found yet'")
+	t.ok(e[2]["text"] == "The fort stays yours.", "a held fort stays yours")
+	t.ok(e.size() == 4 and e[3]["text"] == "Bone Knight is on the plate · lost if you retreat.", "the held door's line, without its newline")
 	var paid := RaidLogic.loot_counts(RaidLogic.result_loot("retreated", false, {"relics": 2, "husks": [{"kind": "skeleton"}]}, 5, {}))
 	t.ok(paid["relics"] == keep["relics"] and paid["husks"] == keep["husks"] and paid["essence"] == keep["essence"],
 		"the counts shown are what result_loot pays a retreat")
