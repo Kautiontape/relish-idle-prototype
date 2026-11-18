@@ -91,6 +91,46 @@ static func pip_angle(i: int) -> float:
 	return -PI * 0.5 + (i + 0.5) * TAU / pip_slots()
 
 
+## The dead pile a fort's ring draws eases to its model value instead of snapping, so the sim's
+## Σdead catch-up lag (a few mass per pile at once) reads as a settle, not a jump. `st` is
+## {from, to, t} ({} the first time: no ease, the pile starts at `target`). A target within
+## pile_ease_min_jump of the last one is live drift: the ease follows it. A bigger move starts an ease from
+## the value shown now over pile_ease_s (smoothstep). Reduced motion (or a zero time): straight to
+## `target`.
+static func pile_ease(st: Dictionary, target: float, dt: float, reduced: bool) -> Dictionary:
+	var secs := _n("pile_ease_s")
+	if st.is_empty() or reduced or secs <= 0.0:
+		return {"from": target, "to": target, "t": maxf(secs, 0.0)}
+	var out := {"from": float(st["from"]), "to": float(st["to"]), "t": float(st["t"])}
+	var d := target - float(out["to"])
+	if absf(d) > _n("pile_ease_min_jump"):
+		out = {"from": pile_value(st), "to": target, "t": 0.0}
+	else:
+		out["from"] = float(out["from"]) + d
+		out["to"] = target
+	out["t"] = minf(float(out["t"]) + maxf(dt, 0.0), secs)
+	return out
+
+
+## The mass an ease state shows now.
+static func pile_value(st: Dictionary) -> float:
+	var secs := _n("pile_ease_s")
+	var k := 1.0 if secs <= 0.0 else clampf(float(st["t"]) / secs, 0.0, 1.0)
+	return lerpf(float(st["from"]), float(st["to"]), k * k * (3.0 - 2.0 * k))
+
+
+## An ease still moving (the ring needs redrawing as it goes).
+static func pile_easing(st: Dictionary) -> bool:
+	return not st.is_empty() and (float(st["t"]) < _n("pile_ease_s")) and not is_equal_approx(float(st["from"]), float(st["to"]))
+
+
+## `f` with its dead mass replaced by `dead` (what the ring draws while a pile eases).
+static func with_dead(f: Dictionary, dead: float) -> Dictionary:
+	var g := f.duplicate()
+	g["dead"] = dead
+	return g
+
+
 ## Each matter's share of the circle (mass / cap), scaled down together if they sum past 1.
 static func arc_fracs(f: Dictionary) -> Dictionary:
 	var out := {"living": 0.0, "undead": 0.0, "dead": 0.0}

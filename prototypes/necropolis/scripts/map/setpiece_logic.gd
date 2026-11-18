@@ -101,6 +101,19 @@ static func segment_arc(i: int, n: int) -> Vector2:
 	return Vector2(-PI * 0.5 + w * i, -PI * 0.5 + w * (i + 1))
 
 
+## What the set pieces keep from events, after a catch-up (away_report; its events went into the report
+## and replay nothing). `taken_ids` are the forts whose fort_flipped the map heard: a fort Vei retook
+## inside the catch-up is no longer one the player took, so only those still held stay. `victory`: the
+## realm is won now, which the swallowed vei_result would have played, and it hasn't (`won_played`).
+## Returns {taken_ids, victory}.
+static func after_away(taken_ids: Array, forts: Array, won_played: bool, hud_won: bool) -> Dictionary:
+	var held := {}
+	for f in forts:
+		if bool(f.get("held", false)):
+			held[str(f.get("id", ""))] = true
+	return {"taken_ids": taken_ids.filter(func(id): return held.has(str(id))), "victory": hud_won and not won_played}
+
+
 ## Whether `fort_id`'s flip is the game's first: no other fort has ever flipped and this one at most
 ## once. That holds whether the views already count this flip or not yet.
 static func first_flip(fort_id: String, forts: Array) -> bool:
@@ -167,7 +180,7 @@ static func return_text(kind: String, fort_name: String) -> String:
 # origin), so a ring's radius, a label plate (screen px around its anchor) and a chip share a unit.
 
 ## `text` split at its first callout_split (": ") into its two lines, the colon kept on line one
-## ("Old Sluice stays Vei's:" / "you kept everything you found"); [] when it has none to split at.
+## ("Old Sluice stays Vei's:" / "you kept all you found"); [] when it has none to split at.
 static func split_text(text: String) -> Array:
 	var sep := _s("callout_split")
 	var i := text.find(sep)

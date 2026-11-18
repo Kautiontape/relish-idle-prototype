@@ -71,6 +71,12 @@ func _fire_debug() -> void:
 ## Opens on the first tithe warning ever seen (the router's held events arrive here too). What it
 ## shows is Vei's own target from the view, never the event's fort: an event can be a past warning's.
 func on_event(ev: Dictionary) -> void:
+	if str(ev.get("type", "")) == "away_report":
+		# a catch-up swallowed the warning event: open from the state, as a warning pending at mount does
+		model.refresh(true)  # the event can land before the map's own refresh this frame
+		if OpeningLogic.explain_after_away(seen.has(MapSeen.TITHE), model.vei.get("tithe", {})):
+			open_pending()
+		return
 	if str(ev.get("type", "")) != "tithe_warning" or seen.has(MapSeen.TITHE):
 		return
 	_shown_text = ""
@@ -81,7 +87,7 @@ func on_event(ev: Dictionary) -> void:
 ## A warning already pending when the map mounts (the event fired before it): after the model's
 ## first refresh, the explanation opens for the fort Vei is targeting, as the event path does.
 func open_pending() -> void:
-	if str(model.vei.get("tithe", {}).get("target", "")) != "":
+	if OpeningLogic.tithe_pending(model.vei.get("tithe", {})):
 		on_event({"type": "tithe_warning"})
 
 

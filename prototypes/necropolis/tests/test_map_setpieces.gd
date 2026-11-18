@@ -30,8 +30,25 @@ func run() -> int:
 	_victory(t, c)
 	_reduced(t, c)
 	_debug(t, c)
+	_after_away(t)
 	_sources(t)
 	return t.failures
+
+
+## A catch-up swallowed the events: what the set pieces kept from them is re-read from the views.
+func _after_away(t: TestUtil) -> void:
+	var forts := [{"id": "a", "held": true}, {"id": "b", "held": false}, {"id": "c", "held": true}]
+	var r := SetpieceLogic.after_away(["a", "b"], forts, false, false)
+	t.ok(r["taken_ids"] == ["a"] and not bool(r["victory"]), "a fort Vei retook inside the catch-up is no longer a taken one; no victory")
+	t.ok(bool(SetpieceLogic.after_away([], forts, false, true)["victory"]), "a won realm that never played its victory plays it now")
+	t.ok(not bool(SetpieceLogic.after_away([], forts, true, true)["victory"]), "but only once")
+	t.ok(SetpieceLogic.after_away(["gone"], forts, false, false)["taken_ids"] == [], "an unknown fort is dropped")
+	var src := FileAccess.get_file_as_string("%s/map_setpieces.gd" % MAP_DIR)
+	var ev := src.substr(src.find("func on_event("), src.find("func _after_away(") - src.find("func on_event("))
+	t.ok(ev.contains("\"away_report\":") and ev.contains("_after_away()"), "the away_report branch calls the resync")
+	var a0 := src.find("func _after_away(")
+	var aa := src.substr(a0, src.find("\nfunc ", a0 + 5) - a0)
+	t.ok(aa.contains("SetpieceLogic.after_away(") and aa.contains("model.refresh(true)") and not aa.contains("_add(SetpieceLogic.FLIP") and not aa.contains("for "), "the resync re-reads the views and replays no flip set pieces")
 
 
 func _clock(t: TestUtil) -> void:

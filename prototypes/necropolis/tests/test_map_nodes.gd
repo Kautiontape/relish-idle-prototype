@@ -35,9 +35,46 @@ func run() -> int:
 	_contrast(t)
 	_lit_gutter(t)
 	_trim(t)
+	_piles(t)
 	_sources(t)
 	p.free()
 	return t.failures
+
+
+## The dead pile a fort's ring draws eases after a catch-up's Σdead jump (NodeLogic.pile_ease).
+func _piles(t: TestUtil) -> void:
+	var secs := float(NodeLogic.ncfg()["pile_ease_s"])
+	t.ok(secs > 0.0 and float(NodeLogic.ncfg()["pile_ease_min_jump"]) > 0.0, "pile_ease_s and pile_ease_min_jump are configured")
+	var st := NodeLogic.pile_ease({}, 5.0, 0.016, false)
+	t.near(NodeLogic.pile_value(st), 5.0, 1e-9, "the first read starts at the model value (no ease on mount)")
+	t.ok(not NodeLogic.pile_easing(st), "and is not easing")
+	st = NodeLogic.pile_ease(st, 5.3, 0.016, false)
+	t.near(NodeLogic.pile_value(st), 5.3, 1e-6, "live drift under the jump threshold is followed, never lagged")
+	st = NodeLogic.pile_ease(st, 8.3, 0.0, false)  # a catch-up's +3
+	t.near(NodeLogic.pile_value(st), 5.3, 1e-9, "a jump starts from the value shown (it does not snap)")
+	t.ok(NodeLogic.pile_easing(st), "and eases")
+	var last := NodeLogic.pile_value(st)
+	var elapsed := 0.0
+	var monotone := true
+	while elapsed < secs - 1e-6:
+		st = NodeLogic.pile_ease(st, 8.3, 0.05, false)
+		elapsed += 0.05
+		var v := NodeLogic.pile_value(st)
+		monotone = monotone and v >= last - 1e-9 and v <= 8.3 + 1e-9
+		last = v
+	t.ok(monotone, "the value rises toward the target without overshoot")
+	st = NodeLogic.pile_ease(st, 8.3, 0.05, false)
+	t.near(NodeLogic.pile_value(st), 8.3, 1e-9, "and lands on it within pile_ease_s")
+	t.ok(not NodeLogic.pile_easing(st), "then settles")
+	var down := NodeLogic.pile_ease(st, 4.0, 0.0, false)
+	t.near(NodeLogic.pile_value(NodeLogic.pile_ease(down, 4.0, secs * 0.5, false)), lerpf(8.3, 4.0, 0.5), 1e-6, "halfway through the time it is halfway (smoothstep) down too")
+	t.near(NodeLogic.pile_value(NodeLogic.pile_ease(st, 11.0, 0.016, true)), 11.0, 1e-9, "under reduced motion a jump snaps")
+	t.ok(not NodeLogic.pile_easing(NodeLogic.pile_ease(st, 11.0, 0.016, true)), "and is not easing")
+	t.near(float(NodeLogic.arc_fracs(NodeLogic.with_dead(_fort(20.0, 0.0, 0.0, 2.0), 6.0))["dead"]), 0.3, 1e-9, "the ring draws the eased dead through with_dead")
+	var ring := FileAccess.get_file_as_string("%s/map_fort_ring.gd" % MAP_DIR)
+	t.ok(ring.contains("NodeLogic.with_dead(") and ring.contains("ctx.dead_shown"), "the fort ring draws the eased pile")
+	var nodes := FileAccess.get_file_as_string("%s/map_nodes.gd" % MAP_DIR)
+	t.ok(nodes.contains("NodeLogic.pile_ease(") and nodes.contains("Pulse.reduced_motion"), "MapNodes eases the piles and reads reduced motion")
 
 
 func _fort(cap: float, living: float, undead: float, dead: float, tier := 2) -> Dictionary:

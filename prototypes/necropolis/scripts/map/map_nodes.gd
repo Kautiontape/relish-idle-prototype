@@ -32,6 +32,7 @@ var _glyph_beat: MapFortGlyph
 var _glyph_still: MapFortGlyph
 var _siege: MapSiege
 var _idle: MapFortIdle
+var _piles := {}  # fort id -> its dead pile's ease state (NodeLogic.pile_ease)
 var _sigs := {}  # static layer -> its static_sig at its last redraw
 var _vsig: Array = []  # the villages' owners at their last redraw
 var _forts_p: MapFortRing
@@ -164,7 +165,23 @@ func _exit_tree() -> void:
 		print("NODES_MS mode=%s n=%d mean=%.4f max=%.4f" % [mode, a.size(), sum / maxf(a.size(), 1.0), mx])
 
 
-func _process(_delta: float) -> void:
+## Each fort's dead pile as its ring draws it: eased to the model's value (NodeLogic.pile_ease), so the
+## Σdead a catch-up adds at once settles over pile_ease_s. Under reduced motion it snaps. True while
+## any pile is still moving, or one moved this frame.
+func _step_piles(delta: float, rm: bool) -> bool:
+	var moving := false
+	for f in model.forts:
+		var id := str(f["id"])
+		var st := NodeLogic.pile_ease(_piles.get(id, {}), float(f.get("dead", 0.0)), delta, rm)
+		var v := NodeLogic.pile_value(st)
+		if not is_equal_approx(v, float(ctx.dead_shown.get(id, -1.0))):
+			moving = true
+		_piles[id] = st
+		ctx.dead_shown[id] = v
+	return moving
+
+
+func _process(delta: float) -> void:
 	var t0 := Time.get_ticks_usec()  # lint-ok: bench timing
 	_record_last_frame()
 	if model == null or model.realm.is_empty() or not is_visible_in_tree():
@@ -186,7 +203,8 @@ func _process(_delta: float) -> void:
 	_update_relish(rm)
 	if not rm:
 		_vei_s.spin(fposmod(ctx.now_s * NodeLogic.vei_spin(ctx.r_vei), TAU))
-	if refreshed or _dirty or margins_changed:
+	var piles_moved := _step_piles(delta, rm)
+	if refreshed or _dirty or margins_changed or piles_moved:
 		_vei_s.sync_rings()
 		for l: MapNodeLayer in _statics:
 			var sig = l.static_sig()

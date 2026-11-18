@@ -102,8 +102,21 @@ func on_event(ev: Dictionary) -> void:
 		"vei_result":
 			if bool(ev.get("won", false)):
 				_add(SetpieceLogic.VICTORY, "")
+		"away_report":
+			_after_away()
 		"building_done":
 			_note_build({"lot_id": str(ev.get("lot_id", "")), "building_id": str(ev.get("building_id", "")), "level": int(ev.get("level", 1))})
+
+
+## A catch-up ended (away_report): the events it ran went into the report, so nothing replays as a set
+## piece. What this keeps from events is re-read from the views (SetpieceLogic.after_away): the taken
+## forts that are still held, and a victory the swallowed vei_result would have played.
+func _after_away() -> void:
+	model.refresh(true)  # the event can land before the map's own refresh this frame
+	var r := SetpieceLogic.after_away(_taken_ids, model.forts, _won, bool(model.hud.get("won", false)))
+	_taken_ids = r["taken_ids"]
+	if bool(r["victory"]):
+		_add(SetpieceLogic.VICTORY, "")
 
 
 ## The map mounted: the builds that finished while it was not up (model.mount_rises, found by its first

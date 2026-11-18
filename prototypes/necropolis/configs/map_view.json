@@ -362,6 +362,8 @@
     "wake_jump_px": 150.0,
     "zoom_redraw_eps": 0.002,
     "static_sig_steps": 512,
+    "pile_ease_s": 0.9,
+    "pile_ease_min_jump": 1.0,
     "label_plate_alpha": 0.9,
     "label_plate_radius_px": 3.0,
     "relish_min_core_px": 8.0,

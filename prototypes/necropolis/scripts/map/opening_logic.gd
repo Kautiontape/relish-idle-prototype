@@ -153,6 +153,18 @@ static func tithe_text(fort_name: String, eta_s: float) -> String:
 	return str(cfg()["tithe_text_fmt"]) % [fort_name, eta_text(eta_s)]
 
 
+## A tithe warning (or wave) stands now: view_vei().tithe has a target.
+static func tithe_pending(vei_tithe: Dictionary) -> bool:
+	return str(vei_tithe.get("target", "")) != ""
+
+
+## After a catch-up the tithe_warning event is gone (it went into the away report), so the first-ever
+## explanation opens from the state: when none has been seen and a target stands. A tithe that came
+## and went inside the catch-up is the report's, so nothing opens for it.
+static func explain_after_away(seen_tithe: bool, vei_tithe: Dictionary) -> bool:
+	return not seen_tithe and tithe_pending(vei_tithe)
+
+
 ## Vei's own target, from view_vei().tithe: {fort_id, eta_s}. The warned (or waving) fort while
 ## `target` is set, with tithe.eta_s; else the fort the rule would pick now (`next_target`), with
 ## `next_s`; else {fort_id: "", eta_s: -1.0}.

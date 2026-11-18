@@ -26,6 +26,7 @@ var valve_shares := {}  # Covington's stem shares: the committed valve, or a swi
 var valve_bright := 0.0  # 0..1: how much brighter the stems draw (the swing's beat)
 var valve_cue := 0.0  # 0..1: the opening's pulse on Covington's valve glyph (MapOpening); the stems brighten like the swing's
 var reink := {}  # fort id -> {switched, total, from}: its ring re-inking; the glyph keeps `from` till done
+var dead_shown := {}  # fort id -> the dead mass its ring draws now (MapNodes eases it, NodeLogic.pile_ease); a fort not here draws its model value
 var chip_fx := {}  # fort id -> the chip's line two: {text, key, squash} or {live, squash} (SetpieceLogic.garrison)
 
 

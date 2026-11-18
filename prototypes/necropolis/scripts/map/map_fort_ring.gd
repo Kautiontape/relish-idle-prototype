@@ -24,14 +24,21 @@ var fort_id := ""
 func _draw_static() -> void:
 	var f: Dictionary = ctx.model.fort(fort_id)
 	if not f.is_empty():
-		_static_fort(f)
+		_static_fort(_piled(f))
+
+
+## The fort with the dead pile it draws now (eased after a catch-up, ctx.dead_shown).
+func _piled(f: Dictionary) -> Dictionary:
+	if not ctx.dead_shown.has(fort_id):
+		return f
+	return NodeLogic.with_dead(f, float(ctx.dead_shown[fort_id]))
 
 
 ## What this fort's rings draw (NodeLogic.fort_static_sig), its selection and Relish's light. With
 ## the zoom and tier (a redraw on their own), MapNodes redraws it only when this changes.
 func static_sig():
 	var f: Dictionary = ctx.model.fort(fort_id)
-	return [NodeLogic.fort_static_sig(f, ctx.flip, _state(f), ctx.model.raid_why(fort_id), ctx.tier), ctx.selected_id == fort_id, ctx.lit.has(fort_id),
+	return [NodeLogic.fort_static_sig(_piled(f), ctx.flip, _state(f), ctx.model.raid_why(fort_id), ctx.tier), ctx.selected_id == fort_id, ctx.lit.has(fort_id),
 		ctx.reink.get(fort_id, {})]
 
 
