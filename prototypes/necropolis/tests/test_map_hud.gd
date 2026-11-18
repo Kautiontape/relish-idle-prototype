@@ -48,14 +48,16 @@ func _tip_rect(t: TestUtil) -> void:
 		t.ok(not (case[2] as Rect2).intersects(r), "%s: and the open card" % case[0])
 	# a card that really is in the way: the card-less answer lands on it, the card-aware one avoids it and the plates
 	var wide := Rect2(600, 12, 1000, 888)
-	for w in [odds, mint]:
-		var bare := HudLogic.tip_rect(w, tip, plates, vp)
-		t.ok(bare.intersects(wide), "without the card the plate would sit on it: %s" % str(bare))
-		var dodged := HudLogic.tip_rect(w, tip, plates, vp, wide)
-		var dhit := false
-		for p in plates:
-			dhit = dhit or dodged.intersects(p)
-		t.ok(not dodged.intersects(wide) and not dhit and view.encloses(dodged), "with the card passed it clears the card and every plate, on screen: %s" % str(dodged))
+	var sparse: Array = [Rect2(0, 0, 860, 60)]
+	var far := Rect2(500, 34, 68, 22)
+	var bare := HudLogic.tip_rect(far, tip, sparse, vp)
+	t.ok(bare.intersects(wide), "without the card the plate would sit on it: %s" % str(bare))
+	var dodged := HudLogic.tip_rect(far, tip, sparse, vp, wide)
+	t.ok(not dodged.intersects(wide) and not dodged.intersects(sparse[0]) and view.encloses(dodged), "with the card passed it clears the card and the plate, on screen: %s" % str(dodged))
+	# the full column and a card across the map: nothing is clear, so the fallback applies (least overlap, clamped on screen)
+	var cramped := HudLogic.tip_rect(odds, tip, plates, vp, wide)
+	t.ok(HudLogic.tip_rect(odds, tip, plates, vp).intersects(wide) and view.encloses(cramped) and cramped.size == tip, "no clear place: the least-overlapping candidate, still on screen: %s" % str(cramped))
+	t.ok(not cramped.intersects(plates[0]) and not cramped.intersects(plates[6]), "and that fallback keeps off the HUD's text plates: %s" % str(cramped))
 	var k0 := HudLogic.tip_key(odds, tip, plates, Rect2(), vp)
 	t.ok(k0 == HudLogic.tip_key(odds, tip, plates.duplicate(), Rect2(), vp), "tip_key: equal inputs, equal key")
 	t.ok(k0 != HudLogic.tip_key(odds, tip, plates, wide, vp), "tip_key: a card opening changes it")
