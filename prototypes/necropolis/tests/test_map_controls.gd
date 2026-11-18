@@ -251,7 +251,7 @@ func _eta_and_chip(t: TestUtil) -> void:
 	t.ok(RelishLogic.chip_inline(200.0, [], 6.0, 8.0, 100.0) == false, "chip: a name wider than the room does not claim to fit")
 	t.ok(RelishLogic.chip_inline(100.0, [], 6.0, 8.0, 490.0), "chip: no buttons, one row")
 	t.ok(not RelishLogic.chip_inline(290.0, [100.0, 100.0], 6.0, 8.0, 490.0), "chip: a long travelling name with two buttons wraps")
-	t.near(RelishLogic.chip_row_w(200.0, [100.0, 80.0], 6.0, 8.0), 416.0, 1e-9, "chip row width: pad both sides + name + each button and its gap")
+	t.near(RelishLogic.chip_row_w(200.0, [100.0, 80.0], 6.0, 8.0), 408.0, 1e-9, "chip row width: pad both sides + name + each button and its gap")
 	t.ok(RelishLogic.chip_inline(250.0, [100.0, 100.0], 6.0, 8.0, 490.0) == (16.0 + 250.0 + 212.0 <= 490.0), "chip: inline iff the row width is within max")
 
 
