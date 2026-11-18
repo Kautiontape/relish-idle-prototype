@@ -72,11 +72,23 @@ func _round2_tests(t: TestUtil) -> void:
 	var card := RaidLogic.death_card_rows("x", {}, ub, 2, "", next_unmade)
 	t.ok(fall.size() == 2 and fall[0]["text"].ends_with(card[card.size() - 2]["text"]) and fall[1]["text"].ends_with(card[card.size() - 1]["text"]) and fall[1]["text"].contains("unmade · reforms in 10:00"),
 		"right: LOST and AFTER are the death card's own rows (%s)" % str(fall))
+	# I2: a big shut in at the cache is the death card's own SHUT IN row, before AFTER
+	var fall_s := RaidLogic.retreat_fall_lines(0, ub, 1, next_unmade, "Old Gristle")
+	var card_s := RaidLogic.death_rows_with_shut(RaidLogic.death_card_rows("x", {}, ub, 1, "", next_unmade), "Old Gristle")
+	var fall_ok := fall_s.size() == 3 and card_s.size() >= 3
+	for i in mini(fall_s.size(), 3):
+		var cr: Dictionary = card_s[card_s.size() - 3 + i]   # the card's LOST, SHUT IN, AFTER rows
+		fall_ok = fall_ok and str(fall_s[i]["text"]).ends_with(str(cr["text"])) and fall_s[i]["key"] == cr["key"]
+	fall_ok = fall_ok and str(fall_s[1]["text"]) == "SHUT IN · " + str(card_s[card_s.size() - 2]["text"])
+	t.ok(fall_ok and fall_s[1]["text"].begins_with("SHUT IN · Old Gristle"), "right, a shut-in big: LOST, SHUT IN, AFTER are the death card's rows (%s)" % str(fall_s))
+	t.ok(str(RaidLogic.retreat_fall_lines(0, ub, 1, next_unmade, "")) == str(RaidLogic.retreat_fall_lines(0, ub, 1, next_unmade)), "no shut-in big: the column is unchanged")
+	t.ok(RaidLogic.retreat_fall_lines(1, ub, 1, next_unmade, "Old Gristle").size() == 1, "a charge left still replaces the column")
 	t.ok(RaidLogic.retreat_fall_lines(0, {}, 0, next_unmade)[0]["text"].ends_with("nothing"), "nothing at stake reads nothing")
 	var rev := RaidLogic.retreat_fall_lines(1, ub, 2, next_unmade)
 	t.ok(rev.size() == 1 and rev[0]["text"] == "a phylactery charge revives her here (at most once per dungeon)", "a charge left: the revive line, no LOST or AFTER")
 	t.ok(RaidLogic.RETREAT_HEAD == "RETREAT NOW" and RaidLogic.FALL_HEAD == "IF RELISH FALLS", "the column heads")
 	var rl := _func_src(hsrc, "func _retreat_lines(")
+	t.ok(rl.contains("di[\"shut\"]"), "the retreat panel passes the death card's shut-in big")
 	t.ok(rl.contains("RaidLogic.retreat_fall_lines(") and rl.contains("death_inputs()") and rl.contains("RaidLogic.retreat_keep_lines("), "the HUD builds both columns from the endings' own death inputs")
 	var esrc := FileAccess.get_file_as_string("res://scripts/raid/raid_endings.gd")
 	t.ok(_func_src(esrc, "func death_rows(").contains("death_inputs()") and _func_src(esrc, "func death_inputs(").contains("RaidLogic.unbanked("), "the death card reads the same death_inputs")
@@ -244,6 +256,21 @@ func _goal_tests(t: TestUtil) -> void:
 			t.ok(WardenLogic.counter_line(sp, []) == base + " · you have none: make one at the Crypt slab", "%s: the counter line, no bigs" % tag)
 			t.ok(WardenLogic.counter_line(sp, [thr - 1, 0]) == base + " · none in your party: make one at the Crypt slab", "%s: the counter line, none meets it" % tag)
 			t.ok(WardenLogic.counter_line(sp, [thr, thr + 3, thr - 1]) == base + " · 2 in your party", "%s: the counter line, 2 of 3 meet it" % tag)
+			# I1: every wrapped break row fits the awake block's plate (680 px less its 12 px insets), at 13 px
+			var inner := RaidLogic.WARDEN_BLOCK_W - 2.0 * RaidLogic.WARDEN_BLOCK_INSET
+			for vals in [[], [thr - 1], [thr]]:
+				var rows: Array = [WardenLogic.break_line(sp, shown)]
+				if tk != "":
+					rows.append(tk)
+				rows.append(WardenLogic.counter_line(sp, vals))
+				var wrapped := RaidLogic.wrap_break_rows(rows, ThemeDB.fallback_font, RaidLogic.BREAK_ROW_PX, inner)
+				var widest := 0.0
+				for ln in wrapped:
+					widest = maxf(widest, ThemeDB.fallback_font.get_string_size(ln, HORIZONTAL_ALIGNMENT_LEFT, -1, RaidLogic.BREAK_ROW_PX).x)
+				t.ok(wrapped.size() >= rows.size() and widest <= inner, "%s %s: wrapped break rows fit the plate (%d lines, widest %.0f of %.0f px)" % [tag, str(vals), wrapped.size(), widest, inner])
+	t.ok(RaidLogic.wrap_break_rows(["a", "b"], ThemeDB.fallback_font, 13, 600.0) == PackedStringArray(["a", "b"]), "short break rows stay one line each")
+	t.ok(RaidLogic.wrap_break_rows(["COUNTER · a big undead with beef 6+ snuffs an acolyte in one blow · you have none: make one at the Crypt slab"], ThemeDB.fallback_font, 13, 656.0).size() >= 2,
+		"the long Pyre-priest counter row wraps")
 	var hud_src := FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd")
 	var build_src := _func_src(hud_src, "func build(")
 	t.ok(RegEx.create_from_string("if not boss_mode:\\s*_warden_block = WardenBlock\\.new\\(\\)").search(build_src) != null
@@ -320,6 +347,17 @@ func _func_src(src: String, head: String) -> String:
 	if i < 0:
 		return ""
 	var j := src.find("\nfunc ", i + 10)
+	return src.substr(i, (j if j >= 0 else src.length()) - i)
+
+
+## An inner-class method's source (one tab in): up to the next method, inner or top-level, or `stop` at most.
+func _inner_src(src: String, head: String, from := 0) -> String:
+	var i := src.find(head, from)
+	if i < 0:
+		return ""
+	var j1 := src.find("\n\tfunc ", i + 10)
+	var j2 := src.find("\nfunc ", i + 10)
+	var j := j1 if j2 < 0 or (j1 >= 0 and j1 < j2) else j2
 	return src.substr(i, (j if j >= 0 else src.length()) - i)
 
 
@@ -780,7 +818,26 @@ func _contrast_tests(t: TestUtil) -> void:
 	var dng: Dictionary = raid_cfg.get("danger", {})
 	var frame_inner := float(dng.get("edge_inset_px", 5.0)) + float(dng.get("edge_width_px", 5.0))
 	t.ok(float(hint_cfg.get("bottom_px", 0)) >= 20.0 and float(hint_cfg.get("bottom_px", 0)) >= frame_inner + 10.0, "the hint's plate sits at least 20 px above the bottom and clear of the danger frame's inner edge (%.0f px)" % frame_inner)
+	# M3: the plate's stacking arithmetic (RaidLogic.hint_plate_layout): two lines, one line, and bottom_px moves it all
+	var L2 := RaidLogic.hint_plate_layout(24.0, 14.0, 4.0, 500.0, 26.0, 300.0, 20.0)
+	var L1 := RaidLogic.hint_plate_layout(24.0, 14.0, 4.0, 500.0, 26.0, 0.0, 0.0)
+	var L2b := RaidLogic.hint_plate_layout(40.0, 14.0, 4.0, 500.0, 26.0, 300.0, 20.0)
+	t.ok(L2["plate_bottom"] == -24.0 and L2["sub_bottom"] == -28.0 and L2["sub_top"] == -48.0 and L2["hint_bottom"] == -48.0 and L2["hint_top"] == -74.0 and L2["plate_top"] == -78.0,
+		"two lines: the sub-line 4 px over the plate's bottom, the hint over it, the plate 4 px over that (%s)" % str(L2))
+	t.ok(L2["plate_left"] == -264.0 and L2["plate_right"] == 264.0, "the plate is the wider line plus the pad each side")
+	t.ok(L1["plate_bottom"] == -24.0 and L1["hint_bottom"] == -28.0 and L1["hint_top"] == -54.0 and L1["plate_top"] == -58.0, "one line: no sub-line row (%s)" % str(L1))
+	t.ok(L2b["plate_bottom"] == -40.0 and L2b["plate_top"] == L2["plate_top"] - 16.0 and L2b["hint_top"] == L2["hint_top"] - 16.0 and L2b["sub_top"] == L2["sub_top"] - 16.0,
+		"bottom_px moves the whole stack: 16 px more lifts every edge 16 px")
 	var hsrc := _code(hs)
+	var fit_src := _func_src(hsrc, "func _fit_hint_plate(")
+	t.ok(fit_src.contains("RaidLogic.hint_plate_layout(") and fit_src.contains("\"bottom_px\"") and fit_src.contains("\"font_px\"") and fit_src.contains("\"sub_font_px\"") and fit_src.contains("\"gap_px\"")
+		and not fit_src.contains("-1, 19)") and not fit_src.contains("-1, 15)") and not fit_src.contains("var key"), "the fit reads its sizes and gaps from hud.hint and builds no key string")
+	t.ok(fit_src.contains("_door_prompt.offset_bottom = ") and fit_src.contains("door_gap_px") and not hsrc.contains("offset_top = -132.0"), "the door prompt sits over the fitted plate's top")
+	t.ok(hint_cfg.has("font_px") and hint_cfg.has("sub_font_px") and hint_cfg.has("gap_px") and hint_cfg.has("door_gap_px"), "hud.hint holds the font sizes and gaps")
+	var phyl_src := _inner_src(hsrc, "func set_phyl(")
+	var stat_draw := _inner_src(hsrc, "func _draw()", hsrc.find("class StatBlock:"))
+	t.ok(phyl_src.contains("return") and phyl_src.contains("phyl_meaning = ") and stat_draw.contains("phyl_meaning") and not stat_draw.contains("phylactery_meaning("),
+		"set_phyl returns early on an unchanged count and keeps the meaning lines; the StatBlock's _draw reads them")
 	t.ok(hsrc.contains("func _fit_hint_plate(") and hsrc.contains("_hint_plate") and hsrc.contains("hud\", {}).get(\"banner_plate_alpha\"") and not hsrc.contains("Palette.c(\"ground\", 0.72)"), "the HUD fits a hint plate and reads the banner's alpha from raid.json")
 	# the death and clear cards at full alpha: the plate over the backdrop over the world
 	var sample := RaidLogic.loot_counts({"relics": 1, "husks": [{}], "essence": 2})

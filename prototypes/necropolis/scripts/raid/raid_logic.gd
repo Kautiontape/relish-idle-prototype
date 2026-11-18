@@ -532,6 +532,66 @@ static func over(top: Color, alpha: float, under: Color) -> Color:
 ## what the block is taller than its TOP_BLOCK_BASE_H base (`block_h` is its height).
 const TOP_BLOCK_BASE_H := 62.0   # the awake WardenBlock's height with no extra rows
 
+const WARDEN_BLOCK_W := 680.0    # the awake WardenBlock's plate width
+const WARDEN_BLOCK_INSET := 12.0   # its text's inset each side
+const BREAK_ROW_PX := 13           # the break / takes / counter rows' font size
+const BREAK_ROW_STEP := 20.0       # one wrapped line's height
+
+
+## `text` in lines no wider than `max_w` at `font_px`: whole " · " chunks where they fit, a long chunk
+## broken at spaces (draw only: the StatBlock's DOOR row and the WardenBlock's break rows wrap on their plates).
+static func wrap_chunks(text: String, font: Font, font_px: int, max_w: float) -> PackedStringArray:
+	var out := PackedStringArray()
+	if text == "":
+		return out
+	var words := PackedStringArray()
+	var chunks := text.split(" · ")
+	for i in chunks.size():
+		var ws := chunks[i].split(" ")
+		for j in ws.size():
+			words.append(ws[j] + (" ·" if j == ws.size() - 1 and i < chunks.size() - 1 else ""))
+	var line := ""
+	for wd in words:
+		var trial := wd if line == "" else line + " " + wd
+		if line != "" and font.get_string_size(trial, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x > max_w:
+			out.append(line)
+			line = wd
+		else:
+			line = trial
+	if line != "":
+		out.append(line)
+	return out
+
+
+## The awake WardenBlock's break rows (break / takes / counter) wrapped to `max_w`, as the lines it draws.
+static func wrap_break_rows(rows: Array, font: Font, font_px: int, max_w: float) -> PackedStringArray:
+	var out := PackedStringArray()
+	for r in rows:
+		out.append_array(wrap_chunks(str(r), font, font_px, max_w))
+	return out
+
+
+## The hint's plate stacked up from `bottom_px` above the screen bottom (offsets from the bottom edge, negative
+## up): the sub-line (height `sub_h`, 0 for none) `gap` over the plate's bottom, the hint line over it, the plate
+## `gap` over the hint and `pad` wider than the wider line each side.
+static func hint_plate_layout(bottom_px: float, pad: float, gap: float, hint_w: float, hint_h: float, sub_w: float, sub_h: float) -> Dictionary:
+	var bottom := -bottom_px
+	var y := bottom - gap
+	var d := {"plate_bottom": bottom}
+	if sub_h > 0.0:
+		d["sub_bottom"] = y
+		y -= sub_h
+		d["sub_top"] = y
+	d["hint_bottom"] = y
+	y -= hint_h
+	d["hint_top"] = y
+	var w := maxf(hint_w, sub_w if sub_h > 0.0 else 0.0)
+	d["plate_left"] = -w * 0.5 - pad
+	d["plate_right"] = w * 0.5 + pad
+	d["plate_top"] = y - gap
+	return d
+
+
 static func banner_top(base: float, block_visible: bool, block_h: float) -> float:
 	if not block_visible:
 		return base
@@ -1369,14 +1429,17 @@ const FALL_HEAD := "IF RELISH FALLS"
 ## `revive_left` phylactery charges spendable now (the once-per-dungeon rule applied: RaidEndings.phylactery_left),
 ## the unbanked loot and party big count the card's LOST row reads (death_lost_line), and its AFTER row
 ## (death_next_row). With a charge left a death revives her in place, so LOST and AFTER would not apply.
-static func retreat_fall_lines(revive_left: int, unbanked: Dictionary, party_n: int, next_row: Dictionary) -> Array:
+static func retreat_fall_lines(revive_left: int, unbanked: Dictionary, party_n: int, next_row: Dictionary, shut := "") -> Array:
 	if revive_left > 0:
 		return [{"text": "a phylactery charge revives her here (at most once per dungeon)", "key": "relish"}]
 	var lost := death_lost_line(unbanked, party_n)
-	return [
-		{"text": "LOST · " + lost, "key": "danger" if lost != "nothing" else "text_dim"},
-		{"text": "AFTER · " + str(next_row.get("text", "")), "key": str(next_row.get("key", "text"))},
-	]
+	var out: Array = [{"text": "LOST · " + lost, "key": "danger" if lost != "nothing" else "text_dim"}]
+	if shut != "":
+		# the big shut in at the cache (`shut`, its name) is lost too: the death card's own row, before AFTER
+		var sr := held_door_card_row(shut)
+		out.append({"text": "%s · %s" % [sr["label"], sr["text"]], "key": sr["key"]})
+	out.append({"text": "AFTER · " + str(next_row.get("text", "")), "key": str(next_row.get("key", "text"))})
+	return out
 
 
 ## What each kind of loot in `counts` (loot_counts) is for, in the glossary's words: "" when none applies.

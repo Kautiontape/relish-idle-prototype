@@ -14,7 +14,10 @@ var _stats: StatBlock
 var _hint: Label
 var _hint2: Label      # the idle hint's second line (dungeon only)
 var _hint_plate: ColorRect = null   # the hint's ground plate, bottom-centre, inside the danger frame
-var _hint_key := ""
+var _hp_fitted := false   # the hint plate's cached fit: what it was fitted to (show flag, hint text, sub-line text)
+var _hp_show := false
+var _hp_text := ""
+var _hp_sub := ""
 var _meter: Control
 var _exit_btn: Control = null       # dungeon only
 var _retreat: RaidRetreatPanel = null   # dungeon only: the retreat choice (mouse only; Space never confirms)
@@ -71,8 +74,7 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		_door_prompt = _mk_label(self, 17, Palette.c("text"))
 		_door_prompt.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 		_door_prompt.anchor_top = 1.0
-		_door_prompt.offset_top = -132.0   # above the hint's plate (up to two lines, 24 px off the bottom)
-		_door_prompt.offset_bottom = -104.0
+		# its top and bottom come from the hint's fitted plate (_fit_hint_plate), which refits it with the plate
 		_door_prompt.offset_left = 0.0
 		_door_prompt.offset_right = 0.0
 		_door_prompt.grow_horizontal = Control.GROW_DIRECTION_BOTH   # sized to its text, centred
@@ -126,7 +128,8 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	add_child(_hint_plate)
 	_hint_plate.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	_hint_plate.anchor_top = 1.0
-	_hint = _mk_label(self, 19, Palette.c("text"))
+	var hint_cfg: Dictionary = raid.rcfg().get("hud", {}).get("hint", {})
+	_hint = _mk_label(self, int(hint_cfg.get("font_px", 19)), Palette.c("text"))
 	_hint.text = RaidLogic.HINT_IDLE
 	_hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	_hint.anchor_top = 1.0
@@ -136,7 +139,7 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	_hint.offset_right = 380.0
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	# the idle hint's second line (RaidLogic.hint_sub_text): under the first, dim, until the first raise
-	_hint2 = _mk_label(self, 15, Palette.c("text_dim"))
+	_hint2 = _mk_label(self, int(hint_cfg.get("sub_font_px", 15)), Palette.c("text_dim"))
 	_hint2.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	_hint2.anchor_top = 1.0
 	_hint2.offset_top = -24.0
@@ -603,30 +606,38 @@ func _fit_hint_plate() -> void:
 		return
 	var show := _hint.visible and _hint.text != ""
 	var sub := show and _hint2.visible and _hint2.text != ""
-	var key := "%s|%s|%s" % [show, _hint.text, _hint2.text if sub else ""]
-	if key == _hint_key:
+	var sub_text := _hint2.text if sub else ""
+	if _hp_fitted and show == _hp_show and _hint.text == _hp_text and sub_text == _hp_sub:
 		return
-	_hint_key = key
+	_hp_fitted = true
+	_hp_show = show
+	_hp_text = _hint.text
+	_hp_sub = sub_text
 	_hint_plate.visible = show
-	if not show:
-		return
 	var hc: Dictionary = raid.rcfg().get("hud", {}).get("hint", {})
-	var bottom := -float(hc.get("bottom_px", 24))
-	var pad := float(hc.get("pad_px", 14))
-	var f := ThemeDB.fallback_font
-	var w := f.get_string_size(_hint.text, HORIZONTAL_ALIGNMENT_LEFT, -1, 19).x
-	var y := bottom - 4.0
-	if sub:
-		w = maxf(w, f.get_string_size(_hint2.text, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x)
-		_hint2.offset_bottom = y
-		_hint2.offset_top = y - _hint2.get_line_height()
-		y = _hint2.offset_top
-	_hint.offset_bottom = y
-	_hint.offset_top = y - _hint.get_line_height()
-	_hint_plate.offset_left = -w * 0.5 - pad
-	_hint_plate.offset_right = w * 0.5 + pad
-	_hint_plate.offset_top = _hint.offset_top - 4.0
-	_hint_plate.offset_bottom = bottom
+	var bottom_px := float(hc.get("bottom_px", 24))
+	var top := -bottom_px   # the plate's top (its bottom while the hint is hidden): the held door's prompt sits over it
+	if show:
+		var f := ThemeDB.fallback_font
+		var hpx := int(hc.get("font_px", 19))
+		var spx := int(hc.get("sub_font_px", 15))
+		var L := RaidLogic.hint_plate_layout(bottom_px, float(hc.get("pad_px", 14)), float(hc.get("gap_px", 4)),
+			f.get_string_size(_hint.text, HORIZONTAL_ALIGNMENT_LEFT, -1, hpx).x, _hint.get_line_height(),
+			f.get_string_size(sub_text, HORIZONTAL_ALIGNMENT_LEFT, -1, spx).x if sub else 0.0, _hint2.get_line_height() if sub else 0.0)
+		if sub:
+			_hint2.offset_bottom = L["sub_bottom"]
+			_hint2.offset_top = L["sub_top"]
+		_hint.offset_bottom = L["hint_bottom"]
+		_hint.offset_top = L["hint_top"]
+		_hint_plate.offset_left = L["plate_left"]
+		_hint_plate.offset_right = L["plate_right"]
+		_hint_plate.offset_top = L["plate_top"]
+		_hint_plate.offset_bottom = L["plate_bottom"]
+		top = L["plate_top"]
+	if _door_prompt != null:
+		# over the plate (not a hand-computed offset): refitted whenever the plate is
+		_door_prompt.offset_bottom = top - float(hc.get("door_gap_px", 8))
+		_door_prompt.offset_top = _door_prompt.offset_bottom - float(hc.get("door_prompt_h", 28))
 
 
 ## The banner's plate: the widest line plus a margin, as tall as its lines, centred under it.
@@ -751,26 +762,7 @@ func exit_enabled() -> bool:
 ## `text` in lines no wider than `max_w` at `font_px`: whole " · " chunks where they fit, a long chunk
 ## broken at spaces (draw only: the StatBlock's DOOR row wraps on its plate).
 static func wrap_chunks(text: String, font: Font, font_px: int, max_w: float) -> PackedStringArray:
-	var out := PackedStringArray()
-	if text == "":
-		return out
-	var words := PackedStringArray()
-	var chunks := text.split(" · ")
-	for i in chunks.size():
-		var ws := chunks[i].split(" ")
-		for j in ws.size():
-			words.append(ws[j] + (" ·" if j == ws.size() - 1 and i < chunks.size() - 1 else ""))
-	var line := ""
-	for wd in words:
-		var trial := wd if line == "" else line + " " + wd
-		if line != "" and font.get_string_size(trial, HORIZONTAL_ALIGNMENT_LEFT, -1, font_px).x > max_w:
-			out.append(line)
-			line = wd
-		else:
-			line = trial
-	if line != "":
-		out.append(line)
-	return out
+	return RaidLogic.wrap_chunks(text, font, font_px, max_w)   # the one wrap, headless-testable in RaidLogic
 
 
 func open_exit_dialog() -> void:
@@ -788,7 +780,7 @@ func _retreat_lines() -> Array:
 	var di: Dictionary = raid.endings.death_inputs()
 	return [RaidLogic.retreat_keep_lines(raid.held, keep,
 			RaidLogic.held_door_retreat_line(hd.state, hd.holder_name) if hd != null else ""),
-		RaidLogic.retreat_fall_lines(raid.endings.phylactery_left(), di["unbanked"], int(di["party_n"]), RaidLogic.death_next_row(raid.seed_data))]
+		RaidLogic.retreat_fall_lines(raid.endings.phylactery_left(), di["unbanked"], int(di["party_n"]), RaidLogic.death_next_row(raid.seed_data), str(di["shut"]))]
 
 
 ## The retreat panel shows (the raid closes it on a stay key: Space, right mouse, Esc).
@@ -834,6 +826,7 @@ class StatBlock:
 	var ward := [0, 0, 0, 0]
 	var raised_text := ""
 	var phyl := 0
+	var phyl_meaning := PackedStringArray()   # its dim meaning rows (RaidLogic.phylactery_meaning), kept by set_phyl
 	var phyl_extra := 0      # rows its meaning takes beyond one
 	var phyl_word := ""      # "NO REVIVE · death ends the run" at 0 charges (RaidLogic.phylactery_word)
 	var phyl_tone: Color = Palette.c("danger")   # the NO REVIVE words: `danger` whenever no charge is left
@@ -883,8 +876,11 @@ class StatBlock:
 
 	## The PHYLACT. count: its meaning is one row, or two with none left (RaidLogic.phylactery_meaning).
 	func set_phyl(n: int) -> void:
+		if n == phyl and not phyl_meaning.is_empty():
+			return   # called every frame: nothing to rebuild while the count holds
 		phyl = n
-		var extra := RaidLogic.phylactery_meaning(n).size() - 1
+		phyl_meaning = RaidLogic.phylactery_meaning(n)
+		var extra := phyl_meaning.size() - 1
 		if extra != phyl_extra:
 			phyl_extra = extra
 			_fit()
@@ -992,7 +988,7 @@ class StatBlock:
 					draw_string(ThemeDB.fallback_font, Vector2(hx, y), phyl_word.substr(cut), HORIZONTAL_ALIGNMENT_LEFT, -1, _lab, Palette.c("text_dim"))
 			y += _row
 			# what a phylactery charge is (RaidLogic.phylactery_meaning), dim, as the ESSENCE row's meaning line
-			for ml in RaidLogic.phylactery_meaning(phyl):
+			for ml in phyl_meaning:
 				draw_string(ThemeDB.fallback_font, Vector2(_col, y), ml, HORIZONTAL_ALIGNMENT_LEFT, -1, _lab, Palette.c("text_dim"))
 				y += _row
 			# zero kinds are hidden; nothing at all is one dim word
@@ -1093,6 +1089,8 @@ class WardenBlock:
 	var _key3 := -1
 	var _rows_t := 1.0
 	var break_rows: Array = []   # T4: the break / takes / counter lines (RaidHud.break_rows), drawn under the existing rows
+	var break_lines := PackedStringArray()   # those rows wrapped to the plate (RaidLogic.wrap_break_rows): what is drawn and counted in extra_h
+	var _wrap_w := -1.0
 
 	func _warden() -> RaidWarden:
 		if raid == null or raid.warden_run == null:
@@ -1117,11 +1115,14 @@ class WardenBlock:
 		if _rows_t >= 0.25:
 			_rows_t = 0.0
 			var nr := RaidHud.break_rows(raid, w.spec, int(w.meter_n))
-			if nr != break_rows:
+			if nr != break_rows or size.x != _wrap_w:
+				# the rows wrap to the plate's inner width, once per change (not per frame)
 				break_rows = nr
+				_wrap_w = size.x
+				break_lines = RaidLogic.wrap_break_rows(nr, ThemeDB.fallback_font, RaidLogic.BREAK_ROW_PX, size.x - 2.0 * RaidLogic.WARDEN_BLOCK_INSET)
 				_key = -1
 		var eh := (20.0 if w is RaidHuntsman else 0.0) + (20.0 if w.spec.has("pack") else 0.0) \
-			+ (20.0 * break_rows.size() + 6.0 if not break_rows.is_empty() else 0.0)
+			+ (RaidLogic.BREAK_ROW_STEP * break_lines.size() + 6.0 if not break_lines.is_empty() else 0.0)
 		if eh != extra_h:
 			extra_h = eh
 			offset_bottom = offset_top + RaidLogic.TOP_BLOCK_BASE_H + eh
@@ -1287,9 +1288,9 @@ class WardenBlock:
 		_pack_row(w, x0, y + (44.0 if hw != null else 22.0))
 		# the new rows sit under the last of the existing ones (the Huntsman's catch row, a pack's row)
 		var ry := y + 22.0 * ((1.0 if hw != null else 0.0) + (1.0 if w.spec.has("pack") else 0.0))
-		for line in break_rows:
-			ry += 20.0
-			_text(x0, ry, str(line), 13, "text_dim")
+		for line in break_lines:
+			ry += RaidLogic.BREAK_ROW_STEP
+			_text(x0, ry, str(line), RaidLogic.BREAK_ROW_PX, "text_dim")
 
 
 ## Screen-space pointers over the world (a Node2D: it takes no input). The loot pointer: a faint
