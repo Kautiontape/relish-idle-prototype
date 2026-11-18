@@ -1062,6 +1062,8 @@ func _cards(t: TestUtil) -> void:
 	t.ok(str(cards["vei_odds_label"]).to_lower().contains("your odds") and str(cards["vei_sign_label"]).contains("STRAIN (▲ = rising)"), "the Vei card says whose odds and what ▲ means")
 	var sb := FileAccess.get_file_as_string("res://scripts/map/map_sidebar.gd")
 	t.ok(sb.contains("CardLogic.pinned_odds("), "the odds are pinned in the actions, beside BEGIN")
+	t.ok(sb.contains("if HudLogic.vei_readout_shown(model.hud):  # P7: no odds pinned beside a beaten Vei\n\t\t\tacts.insert("),
+		"P7: the pinned odds go with Vei's other readouts once she is beaten (map_sidebar.gd needs the autoloads: a source check)")
 
 
 func _demo_eta(t: TestUtil) -> void:

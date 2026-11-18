@@ -113,7 +113,8 @@ func refresh() -> void:
 			ConfigDb.data.get("vei", {}), model.big_undead))
 		var acts := RelishLogic.vei_actions(model.vei, model.relish)
 		var at := acts.find_custom(func(i): return str(i["act"]) == "begin")
-		acts.insert(maxi(at, 0), {"kind": "line", "text": CardLogic.pinned_odds(model.readout()), "act": "", "enabled": true})
+		if HudLogic.vei_readout_shown(model.hud):  # P7: no odds pinned beside a beaten Vei
+			acts.insert(maxi(at, 0), {"kind": "line", "text": CardLogic.pinned_odds(model.readout()), "act": "", "enabled": true})
 		_flush_actions(acts)
 	elif model.forts_by_id.has(selected_id):
 		var f := model.fort(selected_id)
