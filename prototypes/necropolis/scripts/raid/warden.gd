@@ -456,8 +456,21 @@ func _draw_plate(lines: Array, anchor: Vector2, above: bool, plate_a: float) -> 
 		w = maxf(w, font.get_string_size(str(ln[0]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(ln[1])).x)
 		h += font.get_height(int(ln[1]))
 	var z := zoom()
-	draw_set_transform(anchor, 0.0, Vector2(1.0 / z, 1.0 / z))
 	var top := -(h + pad * 2.0) if above else 0.0
+	# keep the plate on screen and clear of the HUD's top-left block (screen px, then back to world)
+	var pc: Dictionary = wcfg().get("presence", {})
+	var margin := float(pc.get("view_margin_px", 8.0))
+	var hud: Array = pc.get("hud_block_px", [430.0, 340.0])
+	var view := get_viewport_rect().size
+	var sp := get_global_transform_with_canvas() * anchor
+	var box := Rect2(sp.x - w * 0.5 - pad, sp.y + top, w + pad * 2.0, h + pad * 2.0)
+	var shift := Vector2.ZERO
+	if box.intersects(Rect2(Vector2.ZERO, Vector2(float(hud[0]), float(hud[1])))):
+		shift.x = float(hud[0]) + margin - box.position.x
+	box.position += shift
+	shift.x += maxf(0.0, margin - box.position.x) - maxf(0.0, box.end.x - (view.x - margin))
+	shift.y += maxf(0.0, margin - box.position.y) - maxf(0.0, box.end.y - (view.y - margin))
+	draw_set_transform(anchor + shift / z, 0.0, Vector2(1.0 / z, 1.0 / z))
 	draw_rect(Rect2(-w * 0.5 - pad, top, w + pad * 2.0, h + pad * 2.0), Palette.c("ground", plate_a))
 	var y := top + pad
 	for ln in lines:

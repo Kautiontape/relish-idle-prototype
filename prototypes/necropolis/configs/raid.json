@@ -520,7 +520,7 @@
     "label_px": 15,
     "dormant_alpha": 0.8,
     "presence": {
-      "_doc": "A sleeping warden reads as a boss (warden.gd _draw_presence, dormant only): a plinth (flattened ellipse under the glyph, centre radius*plinth_y down, half-axes radius*plinth_rx by radius*plinth_ry, plinth_alpha), a boss ring of radius*ring_mult in ring_alpha with meter_n outward ticks tick_px long and a dashed second ring dash_gap_px outside it, and name plates (WARDEN, the name, and 'break it to take this fort') on ground at plate_alpha. name_px and label_px are the plates' text sizes and the _px knobs are all screen px (divided by the zoom).",
+      "_doc": "A sleeping warden reads as a boss (warden.gd _draw_presence, dormant only): a plinth (flattened ellipse under the glyph, centre radius*plinth_y down, half-axes radius*plinth_rx by radius*plinth_ry, plinth_alpha), a boss ring of radius*ring_mult in ring_alpha with meter_n outward ticks tick_px long and a dashed second ring dash_gap_px outside it, and name plates (WARDEN, the name, and 'break it to take this fort') on ground at plate_alpha. name_px and label_px are the plates' text sizes and the _px knobs are all screen px (divided by the zoom). A plate is kept view_margin_px inside the screen and out of the HUD's top-left block (hud_block_px, screen px).",
       "ring_mult": 1.9,
       "ring_alpha": 0.85,
       "dash_gap_px": 7.0,
@@ -531,7 +531,9 @@
       "plinth_alpha": 0.55,
       "name_px": 20,
       "label_px": 13,
-      "plate_alpha": 0.8
+      "plate_alpha": 0.8,
+      "view_margin_px": 8.0,
+      "hud_block_px": [430.0, 340.0]
     },
     "clapper_strike_rad": 0.5,
     "clapper_hold_beats": 0.25,

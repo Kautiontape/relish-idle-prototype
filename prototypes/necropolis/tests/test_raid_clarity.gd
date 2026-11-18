@@ -19,7 +19,7 @@ func _warden_presence_tests(t: TestUtil) -> void:
 	var w: Dictionary = TestUtil.load_json("res://configs/raid.json").get("wardens", {})
 	var pc: Dictionary = w.get("presence", {})
 	for k in ["ring_mult", "ring_alpha", "dash_gap_px", "tick_px", "plinth_y", "plinth_rx", "plinth_ry",
-			"plinth_alpha", "name_px", "label_px", "plate_alpha"]:
+			"plinth_alpha", "name_px", "label_px", "plate_alpha", "view_margin_px"]:
 		t.ok(pc.has(k) and (pc[k] is float or pc[k] is int), "presence." + k + " is a number")
 	t.ok(float(pc.get("ring_mult", 0.0)) > 1.5, "the boss ring stands well outside the body")
 	for k in ["ring_alpha", "plinth_alpha", "plate_alpha"]:
