@@ -332,7 +332,11 @@ func _update(refs: Dictionary, blk: Dictionary) -> void:
 			if refs.get("mark_key", "") != mark_key:
 				refs["mark_key"] = mark_key
 				MapType.style_label(refs["mark"], mark_key, _body_size())
-			_put(refs["who"], str(blk["assigned"]))
+			var lines: Array = [str(blk["assigned"])]
+			for k in ["also", "queue"]:
+				if str(blk.get(k, "")) != "":
+					lines.append(str(blk[k]))
+			_put(refs["who"], "\n".join(lines))
 		"assign":
 			_put(refs["name"], str(blk["name"]))
 			_put(refs["sub"], str(blk["sub"]))

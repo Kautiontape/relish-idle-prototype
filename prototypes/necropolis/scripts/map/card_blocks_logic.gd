@@ -113,8 +113,10 @@ static func fort_card(fort: Dictionary, desc: String, backups: Dictionary, names
 
 ## Vei's card: the war at a glance, the fronts, the composition. `party` is view_party().party,
 ## `names` maps big-undead uids to names. `readout` is MapModel.readout(): the odds, sign and drain
-## the top bar and Vei's node also draw (an empty backlog reads "queue empty", not "0s").
-static func vei_card(vei: Dictionary, desc: String, party: Array, names: Dictionary, readout: Dictionary) -> Dictionary:
+## the top bar and Vei's node also draw (an empty backlog reads "queue empty", not "0s"). `vei_cfg` is
+## configs/vei.json and `bigs` maps uids to view_big_undead entries: they give a front row its queue part.
+static func vei_card(vei: Dictionary, desc: String, party: Array, names: Dictionary, readout: Dictionary,
+		vei_cfg: Dictionary = {}, bigs: Dictionary = {}) -> Dictionary:
 	var c := _c()
 	var st := HudLogic.status(readout)
 	var sign := int(st["sign"])
@@ -127,9 +129,9 @@ static func vei_card(vei: Dictionary, desc: String, party: Array, names: Diction
 	blocks.append(_row("drain", str(c.get("vei_drain_label", "")), str(st["drain_text"]), "mass"))
 	blocks.append(_head("fronts_head", str(c.get("fronts_head", ""))))
 	blocks.append(_para("fronts_hint", str(c.get("fronts_hint", "")), "text_dim"))
-	for r in CardLogic.front_rows(vei.get("fronts", []), names):
+	for r in CardLogic.front_rows(vei.get("fronts", []), names, vei_cfg, bigs):
 		blocks.append({"kind": "front", "id": "front_%s" % r["id"], "name": r["name"], "count": "%s / %s" % [r["have"], r["need"]],
-			"mark": r["mark"], "cleared": r["cleared"], "assigned": r["assigned"]})
+			"mark": r["mark"], "cleared": r["cleared"], "assigned": r["assigned"], "also": r["also"], "queue": r["queue"]})
 	blocks.append(_para("fronts_met", CardLogic.fronts_met_text(vei), "text", "mass"))
 	blocks.append(_head("composition_head", str(c.get("composition_head", ""))))
 	if party.is_empty():

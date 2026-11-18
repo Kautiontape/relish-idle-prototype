@@ -185,6 +185,7 @@ func _vei(t: TestUtil) -> void:
 	t.ok(rows.size() == 2 and rows[0]["name"] == "Giants" and rows[0]["have"] == "27" and rows[0]["need"] == "24", "front row: name, have, need")
 	t.ok(rows[0]["mark"] == "✓ met" and rows[1]["mark"] == "✗ open", "the met mark has a glyph and words")
 	t.ok(rows[0]["assigned"] == "assigned: Old Gristle" and rows[1]["assigned"] == "no one assigned", "assigned names")
+	_vei_counted(t)
 	t.ok(CardLogic.front_name("carvers") == "Carvers" and CardLogic.front_name("raw") == "Raw", "front display names")
 	t.ok(CardLogic.fronts_met_text({"fronts_met": 3, "fronts_required": 3}) == "fronts met 3 of 3 required", "met count text")
 	var win := CardLogic.confirm_text({"odds": 0.61, "sign": 1, "drain_s": 200.0})
@@ -193,6 +194,32 @@ func _vei(t: TestUtil) -> void:
 	t.ok(hold.contains("50%") and hold.contains("holding") and hold.contains("∞"), "confirm for a holding war: " + hold)
 	var lose := CardLogic.confirm_text({"odds": 0.2, "sign": -1, "drain_s": 70.0})
 	t.ok(lose.contains("▼") and lose.contains("1m 10s"), "confirm for a losing war: " + lose)
+
+
+## `counted` beyond `assigned` is named; a queue front shows her queue's part (have less the counted units' stat).
+func _vei_counted(t: TestUtil) -> void:
+	var names := {"u1": "Old Gristle", "u2": "Pale Ann"}
+	var vcfg := {"fronts": {
+		"giants": {"stat": "wits", "per_stat": 1, "per_backlog": 0, "per_q": 0},
+		"swarm": {"stat": "presence", "per_stat": 1, "per_backlog": 0.5, "per_q": 0},
+		"carvers": {"stat": "beef", "per_stat": 1, "per_backlog": 0, "per_q": 3}}}
+	var bigs := {"u1": {"stats": {"wits": 6.0, "presence": 1.0, "beef": 2.0}}, "u2": {"stats": {"wits": 1.0, "presence": 4.0, "beef": 2.0}}}
+	var fr := [
+		{"id": "giants", "need": 14.0, "have": 7.0, "assigned": ["u1"], "counted": ["u1", "u2"]},
+		{"id": "swarm", "need": 14.0, "have": 14.0, "assigned": [], "counted": ["u2"]},
+		{"id": "carvers", "need": 9.0, "have": 8.0, "assigned": ["u1"], "counted": ["u1"]},
+		{"id": "raw", "need": 9.0, "have": 3.0, "assigned": []}]
+	var rows := CardLogic.front_rows(fr, names, vcfg, bigs)
+	t.ok(rows[0]["also"] == "also counts: Pale Ann (not assigned: its best front)", "counted beyond assigned is named: " + str(rows[0]["also"]))
+	t.ok(rows[2]["also"] == "", "counted == assigned: no also line")
+	t.ok(rows[3]["also"] == "" and rows[3]["queue"] == "", "an old-shape row (no counted) has no also line and no crash")
+	t.ok(rows[0]["queue"] == "", "a front without a queue part shows none")
+	t.ok(rows[1]["queue"] == "+ her queue: 10" and rows[2]["queue"] == "+ her queue: 6", "queue fronts show have less the counted stat: %s, %s" % [rows[1]["queue"], rows[2]["queue"]])
+	var named := CardLogic.front_rows(fr, names, vcfg, {})
+	t.ok(named[1]["queue"] == "+ her queue", "no stats for a counted unit: the queue is only named")
+	t.ok(CardLogic.front_rows(fr, names)[1]["queue"] == "", "no vei config: no queue line")
+	var blk: Dictionary = CardBlocksLogic.vei_card({"fronts": fr}, "", [], names, {}, vcfg, bigs)["blocks"].filter(func(b): return b["id"] == "front_swarm")[0]
+	t.ok(blk["queue"] == "+ her queue: 10" and blk["also"] == "also counts: Pale Ann (not assigned: its best front)", "the card block carries both lines")
 
 
 func _readout(vei: Dictionary) -> Dictionary:
@@ -284,7 +311,7 @@ func _blocks(t: TestUtil) -> void:
 	t.ok(by["odds"]["value"] == "61%" and by["sign"]["value"] == "▲" and by["diff"]["value"] == "+6.1/s" and by["drain"]["value"] == "∞", "odds, sign, differential, drain (holding is ∞)")
 	t.ok(by["diff"]["vkind"] == "rate" and by["odds"]["vkind"] == "mass", "the differential is a rate, odds a mass")
 	t.ok(by.has("front_giants") and by["fronts_met"]["text"] == "fronts met 1 of 3 required", "front row and the met count")
-	t.ok(by["fronts_hint"]["text"] == "A front is one part of Vei's final test. Your big undead on it (pick them below) and, for some fronts, her clogged queue must add up to what it needs.", "the fronts hint names the units and the queue")
+	t.ok(by["fronts_hint"]["text"] == "Front: one part of Vei's final test. The big undead you put on it (picked on the Vei card), plus Vei's own queue for some fronts (Swarm and Raw count her backlog, Carvers her digest queue), must add up to what the front needs.", "the fronts hint is the glossary's Front line")
 	t.ok(by.has("party_empty") and by["party_empty"]["text"].contains("crypt slab"), "an empty party says where to raise them")
 	var party := [{"uid": "u1", "name": "Old Gristle", "kind": "hulk", "role": "brute", "front": "giants"}]
 	var vp := CardBlocksLogic.vei_card({"fronts": [{"id": "giants"}, {"id": "swarm"}, {"id": "carvers"}, {"id": "raw"}]}, "", party, {}, {})

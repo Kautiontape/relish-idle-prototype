@@ -831,7 +831,7 @@
     "vei_diff_label": "DIFFERENTIAL",
     "vei_drain_label": "DRAINS IN",
     "fronts_head": "FRONTS",
-    "fronts_hint": "A front is one part of Vei's final test. Your big undead on it (pick them below) and, for some fronts, her clogged queue must add up to what it needs.",
+    "fronts_hint": "Front: one part of Vei's final test. The big undead you put on it (picked on the Vei card), plus Vei's own queue for some fronts (Swarm and Raw count her backlog, Carvers her digest queue), must add up to what the front needs.",
     "front_names": {
       "giants": "Giants",
       "swarm": "Swarm",
@@ -842,6 +842,9 @@
     "front_open": "✗ open",
     "front_assigned_fmt": "assigned: %s",
     "front_unassigned": "no one assigned",
+    "front_also_fmt": "also counts: %s (not assigned: its best front)",
+    "front_queue": "+ her queue",
+    "front_queue_fmt": "+ her queue: %s",
     "fronts_met_fmt": "fronts met %d of %d required",
     "composition_head": "COMPOSITION",
     "party_empty": "No big undead in the party. Raise them at the crypt slab in Covington.",
