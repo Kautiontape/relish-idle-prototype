@@ -766,6 +766,8 @@ func _win_card() -> void:
 		hud.add_child(_card)
 		# the win card presses itself after gap_end.win_card_auto_s (BossLogic.card_auto_due): the win is written back
 		# on the press, and a sleep with the card up would forfeit the open run (RaidEndings.gap_end)
+		# TODO(api-request #22): record the win in the open boss run here, as the card appears, so a gap or a load
+		# before the press resolves as the win; the press (or its self-press) must not apply it twice.
 		_card.setup(info, vcfg().get("card", {}), _emit.bind(true), vwords(), float(rcfg().get("gap_end", {}).get("win_card_auto_s", -1.0)))
 	if _bot != null and not (_bdev != null and _bdev.hold_card):
 		_emit(true)
