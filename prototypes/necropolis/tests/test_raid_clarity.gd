@@ -771,6 +771,17 @@ func _contrast_tests(t: TestUtil) -> void:
 	_check_plate(t, "retreat panel", plate.call(a_retreat), ["vei", "relish", "danger", "text", "text_dim"],
 		[["relish", 0.8], ["relish", 0.7], ["text_dim", 0.7], ["text_dim", 0.8]])
 	_guard_keys(t, "retreat panel", rsrc.call("raid_retreat_panel.gd"), ["vei", "relish", "danger", "text", "text_dim"])
+	# the bottom-centre hint (idle / trance / exit lines and the dim sub-line), the banner (cues and wake lines in
+	# their colours) and the held door's prompt
+	var hint_cfg: Dictionary = hud.get("hint", {})
+	_check_plate(t, "hint plate", plate.call(float(hint_cfg.get("plate_alpha", 0.0))), ["text", "text_dim"], [])
+	_check_plate(t, "banner plate", plate.call(float(hud.get("banner_plate_alpha", 0.0))), ["relish", "vei", "danger", "essence", "undead"], [])
+	_check_plate(t, "door prompt plate", plate.call(float(hud.get("door_plate_alpha", 0.0))), ["text"], [])
+	var dng: Dictionary = raid_cfg.get("danger", {})
+	var frame_inner := float(dng.get("edge_inset_px", 5.0)) + float(dng.get("edge_width_px", 5.0))
+	t.ok(float(hint_cfg.get("bottom_px", 0)) >= 20.0 and float(hint_cfg.get("bottom_px", 0)) >= frame_inner + 10.0, "the hint's plate sits at least 20 px above the bottom and clear of the danger frame's inner edge (%.0f px)" % frame_inner)
+	var hsrc := _code(hs)
+	t.ok(hsrc.contains("func _fit_hint_plate(") and hsrc.contains("_hint_plate") and hsrc.contains("hud\", {}).get(\"banner_plate_alpha\"") and not hsrc.contains("Palette.c(\"ground\", 0.72)"), "the HUD fits a hint plate and reads the banner's alpha from raid.json")
 	# the death and clear cards at full alpha: the plate over the backdrop over the world
 	var sample := RaidLogic.loot_counts({"relics": 1, "husks": [{}], "essence": 2})
 	var drows := RaidLogic.death_card_rows("a wound", sample, sample, 2, "the ring", RaidLogic.death_next_row({}))
@@ -814,7 +825,7 @@ func _contrast_tests(t: TestUtil) -> void:
 	var living_src := _func_src(us, "func _draw_living(")
 	var undead_src := _func_src(us, "func _draw_undead(")
 	undead_src = undead_src.substr(0, undead_src.find("\nconst "))   # up to the living's constants that follow it
-	t.ok(living_src.contains("for i in LIVING_DASHES") and living_src.contains("LineGlow.arc(") and living_src.contains("LineGlow.ring("), "the living's bow is dashed LineGlow arcs, the hollow ring head kept")
+	t.ok(living_src.contains("for i in LIVING_DASHES") and living_src.contains("LineGlow.layers(") and living_src.contains("draw_arc(") and living_src.contains("LineGlow.ring("), "the living's bow is dashed LineGlow arcs, the hollow ring head kept")
 	t.ok(not undead_src.contains("LIVING_DASHES") and undead_src.contains("draw_line("), "the undead's strokes stay solid")
 	var sweep := 3.0 * 0.56 + 2.0 * 0.36
 	t.ok(us.contains("const LIVING_DASHES := 3") and us.contains("const LIVING_DASH_SWEEP := 0.56") and us.contains("const LIVING_GAP_SWEEP := 0.36") and sweep <= 2.45, "three dashes and their gaps span the bow's 2.4 rad")

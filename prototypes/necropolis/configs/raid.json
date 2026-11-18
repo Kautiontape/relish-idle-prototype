@@ -51,6 +51,14 @@
     "_doc": "The stat block (top left). plate_alpha is its backing plate: near opaque so a corpse glyph or pickup under the block never crosses its text. Every HUD plate's alpha is pinned by tests/test_raid_clarity.gd: its dimmest text must stay 4.5:1 (lines 3:1) over the brightest thing the world can put under it, so lowering one fails the suite. warden_plate_alpha backs the awake warden's block.",
     "plate_alpha": 0.96,
     "warden_plate_alpha": 0.96,
+    "banner_plate_alpha": 0.94,
+    "door_plate_alpha": 0.86,
+    "hint": {
+      "_doc": "The bottom-centre hint (the idle, trance and exit lines, and the idle sub-line) on a ground plate fitted to its lines: plate_alpha backs it, bottom_px is the plate's gap above the screen bottom (the danger frame's inner edge is 10 px in, so at least 20), pad_px its side margin. banner_plate_alpha backs the cue and wake banners, door_plate_alpha the held door's prompt.",
+      "plate_alpha": 0.96,
+      "bottom_px": 24,
+      "pad_px": 14
+    },
     "pip_row_max": 24,
     "pip_px": 8.0,
     "label_px": 13,

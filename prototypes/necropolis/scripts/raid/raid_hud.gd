@@ -13,6 +13,8 @@ var _title: Label
 var _stats: StatBlock
 var _hint: Label
 var _hint2: Label      # the idle hint's second line (dungeon only)
+var _hint_plate: ColorRect = null   # the hint's ground plate, bottom-centre, inside the danger frame
+var _hint_key := ""
 var _meter: Control
 var _exit_btn: Control = null       # dungeon only
 var _retreat: RaidRetreatPanel = null   # dungeon only: the retreat choice (mouse only; Space never confirms)
@@ -69,15 +71,15 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		_door_prompt = _mk_label(self, 17, Palette.c("text"))
 		_door_prompt.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 		_door_prompt.anchor_top = 1.0
-		_door_prompt.offset_top = -92.0
-		_door_prompt.offset_bottom = -64.0
+		_door_prompt.offset_top = -132.0   # above the hint's plate (up to two lines, 24 px off the bottom)
+		_door_prompt.offset_bottom = -104.0
 		_door_prompt.offset_left = 0.0
 		_door_prompt.offset_right = 0.0
 		_door_prompt.grow_horizontal = Control.GROW_DIRECTION_BOTH   # sized to its text, centred
 		_door_prompt.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		# its own dark plate, as the banner has: the map's walls never run through the trade it names
 		var pplate := StyleBoxFlat.new()
-		pplate.bg_color = Palette.c("ground", 0.86)
+		pplate.bg_color = Palette.c("ground", float(raid.rcfg().get("hud", {}).get("door_plate_alpha", 0.86)))
 		pplate.content_margin_left = 10.0
 		pplate.content_margin_right = 10.0
 		pplate.content_margin_top = 3.0
@@ -100,7 +102,7 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		_legend.offset_top = -54.0 - lsz.y
 
 	_banner_plate = ColorRect.new()
-	_banner_plate.color = Palette.c("ground", 0.72)
+	_banner_plate.color = Palette.c("ground", float(raid.rcfg().get("hud", {}).get("banner_plate_alpha", 0.94)))
 	_banner_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_banner_plate.visible = false
 	add_child(_banner_plate)
@@ -117,6 +119,13 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	_banner.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_banner.visible = false
 
+	_hint_plate = ColorRect.new()   # fitted to the hint's visible lines by _fit_hint_plate
+	_hint_plate.color = Palette.c("ground", float(raid.rcfg().get("hud", {}).get("hint", {}).get("plate_alpha", 0.96)))
+	_hint_plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hint_plate.visible = false
+	add_child(_hint_plate)
+	_hint_plate.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_hint_plate.anchor_top = 1.0
 	_hint = _mk_label(self, 19, Palette.c("text"))
 	_hint.text = RaidLogic.HINT_IDLE
 	_hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
@@ -248,6 +257,7 @@ func _process(_delta: float) -> void:
 		return
 	_scene_s += _delta
 	refresh()
+	_fit_hint_plate()
 	_tick_cues()
 	if _warden_block != null:
 		if _goal_block != null:
@@ -584,6 +594,39 @@ func _push_room() -> float:
 		var goal_right := _goal_block.global_position.x + _goal_block.size.x
 		room = minf(room, _push.global_position.x + _push.size.x - goal_right - 12.0)
 	return maxf(160.0, room)
+
+
+## The hint's plate: the visible hint lines stacked up from `hint.bottom_px` above the screen bottom (clear of the
+## danger frame's inner edge, 10 px in), a ground plate fitted to them. Refit only when what shows changes.
+func _fit_hint_plate() -> void:
+	if _hint_plate == null:
+		return
+	var show := _hint.visible and _hint.text != ""
+	var sub := show and _hint2.visible and _hint2.text != ""
+	var key := "%s|%s|%s" % [show, _hint.text, _hint2.text if sub else ""]
+	if key == _hint_key:
+		return
+	_hint_key = key
+	_hint_plate.visible = show
+	if not show:
+		return
+	var hc: Dictionary = raid.rcfg().get("hud", {}).get("hint", {})
+	var bottom := -float(hc.get("bottom_px", 24))
+	var pad := float(hc.get("pad_px", 14))
+	var f := ThemeDB.fallback_font
+	var w := f.get_string_size(_hint.text, HORIZONTAL_ALIGNMENT_LEFT, -1, 19).x
+	var y := bottom - 4.0
+	if sub:
+		w = maxf(w, f.get_string_size(_hint2.text, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x)
+		_hint2.offset_bottom = y
+		_hint2.offset_top = y - _hint2.get_line_height()
+		y = _hint2.offset_top
+	_hint.offset_bottom = y
+	_hint.offset_top = y - _hint.get_line_height()
+	_hint_plate.offset_left = -w * 0.5 - pad
+	_hint_plate.offset_right = w * 0.5 + pad
+	_hint_plate.offset_top = _hint.offset_top - 4.0
+	_hint_plate.offset_bottom = bottom
 
 
 ## The banner's plate: the widest line plus a margin, as tall as its lines, centred under it.

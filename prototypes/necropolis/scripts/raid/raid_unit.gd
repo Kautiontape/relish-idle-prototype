@@ -458,9 +458,12 @@ func _draw_living(off: Vector2) -> void:
 	var width := maxf(2.6, radius * (0.3 if kind == "brute" else 0.24))
 	# the bow is DASHED (VISUAL-LANGUAGE dash rhythm): three strokes with gaps, so living and undead part in greyscale
 	# too, where both bright cores read near-white. Undead strokes stay solid.
+	var layers := LineGlow.layers(col, width, 0.4, core)   # the stroke stack once for all three dashes
+	var seg := LineGlow.segments(r, LIVING_DASH_SWEEP)
 	for i in LIVING_DASHES:
 		var da := a0 + float(i) * (LIVING_DASH_SWEEP + LIVING_GAP_SWEEP)
-		LineGlow.arc(self, c, r, da, da + LIVING_DASH_SWEEP, col, width, 0.4, core)
+		for l in layers:
+			draw_arc(c, r, da, da + LIVING_DASH_SWEEP, seg, l[1], l[0])
 	LineGlow.ring(self, c + _facing * r, radius * 0.45, col, maxf(1.8, width * 0.6), 0.0, core)   # a thin stroke: the head stays visibly hollow
 	if kind == "guard":
 		LineGlow.ring(self, off, radius * 1.6, Palette.c("vei"), 2.2, 0.5)
