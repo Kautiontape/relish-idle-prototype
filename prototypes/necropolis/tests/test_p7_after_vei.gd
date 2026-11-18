@@ -27,8 +27,81 @@ func run() -> int:
 	_after_21()
 	_won_away()
 	_won_queue()
+	_won_overflow()
+	_won_valve()
+	_odds_tip()
 	_clean()
 	return t.failures
+
+
+## Ruling 4 (Session 3's open 4): the ODDS hover adds "with your raids" (test_map_hud pins both lines verbatim). On
+## pre_vei the bar's ODDS word carries the backups line (view_hud reports backups), raids and all; once won the ODDS
+## readout is hidden (HudLogic.vei_readout_shown), so there is no won ODDS hover to word.
+func _odds_tip() -> void:
+	MapLogic.configure(cfg["map_view"])
+	var s := GameState.new(cfg)
+	s.debug_enabled = true
+	s.cmd_debug_load_fixture("pre_vei")
+	var m := MapModel.new(s)
+	m.refresh(true)
+	var id := HudLogic.odds_tip_id(int(m.readout()["backups"]))
+	t.ok(id == "odds_backups" and HudLogic.tip(id, m.hud).contains("with your raids and with your backups"), "pre_vei: the bar's ODDS hover names your raids: '%s'" % HudLogic.tip(id, m.hud))
+	t.ok(not HudLogic.vei_readout_shown(_won_state().view_hud()), "won: no ODDS readout, so no ODDS hover")
+
+
+## Rulings 2 and 3 on the real valve (built headless, as test_map_hud's tips-on-nodes): pre_vei's valve, not won,
+## carries the glossary's WAR / FLOOD line; the same valve after the flip (cmd_debug_set_state won, then a refresh)
+## re-tips its WAR and FLOOD names and corners with the won line, and its overflow label, with WAR overflowing, reads
+## the won words. Revert proofs: the valve's re-tip loop off; overflow_parts ignoring the hud.
+func _won_valve() -> void:
+	MapLogic.configure(cfg["map_view"])
+	var war_line := str(cfg["map_view"]["clarity"]["tips"]["war"])
+	var war_won := "WAR sends undead to your forts, spread by distance, with Relish's fort drawing 3× its share."
+	var s := GameState.new(cfg)
+	s.debug_enabled = true
+	s.cmd_debug_load_fixture("pre_vei")
+	var m := MapModel.new(s)
+	m.refresh(true)
+	var v := MapValve.new()
+	v.model = m
+	v._ready()  # not in a tree: the scene's own build, run by hand
+	var tips := func() -> Array:
+		var out: Array = []
+		for k in ["war", "flood"]:
+			out.append((v._rows[k]["name"] as Label).tooltip_text)
+			out.append((v._corner_btns[k] as Control).tooltip_text)
+		return out
+	t.ok((tips.call() as Array).all(func(x): return x == war_line), "the control: not won, the valve's WAR and FLOOD names and corners carry the glossary's line")
+	s.cmd_debug_set_state({"won": true})
+	for i in 10:
+		s.tick(60.0, s.max_substeps_per_frame())
+	s.drain_events()
+	m.refresh(true)
+	v.refresh()
+	t.ok(bool(m.hud.get("won", false)) and (tips.call() as Array).all(func(x): return x == war_won), "won: the same valve re-tips them with the won line (%s)" % str(tips.call()[0]))
+	t.ok(float(m.hud.get("war_overflow", 0.0)) > 0.0 and v._over_rate.text == MapLogic.fmt_rate(float(m.hud["war_overflow"])) and v._over_text.text == "lost: your forts are full",
+		"won: the valve's overflow line reads '%s %s'" % [v._over_rate.text, v._over_text.text])
+	v.free()
+
+
+## Ruling 2 (Session 3's open 2): on a won map the valve's WAR overflow line keeps its rate and reads "lost: your
+## forts are full" (valve_overflow_text_won), not "overflows to Vei". On the won pre_vei 10 min on, WAR has no
+## target and view_hud.war_overflow is above 0 (the sim's sink, unchanged); the same rate with a not-won hud is
+## the control. Revert proof: overflow_parts ignoring the hud.
+func _won_overflow() -> void:
+	MapLogic.configure(cfg["map_view"])
+	var s := _won_state()
+	for i in 10:
+		s.tick(60.0, s.max_substeps_per_frame())
+	s.drain_events()
+	var hud := s.view_hud()
+	var over := ValveLogic.war_overflow(hud, {}, false)
+	var won_p := ValveLogic.overflow_parts(over, hud)
+	t.ok(bool(hud.get("won", false)) and over > 0.0 and str(won_p.get("rate", "")) == MapLogic.fmt_rate(over) and str(won_p.get("text", "")) == "lost: your forts are full",
+		"won: WAR's overflow (%s) keeps its rate and reads '%s'" % [MapLogic.fmt_rate(over), won_p.get("text", "")])
+	t.ok(str(ValveLogic.overflow_parts(over, {"won": false}).get("text", "")) == "overflows to Vei", "the control: not won, the same rate overflows to Vei")
+	t.ok(FileAccess.get_file_as_string("res://scripts/map/map_valve.gd").contains("ValveLogic.overflow_parts(ValveLogic.war_overflow(model.hud, proj, _dragging), model.hud)"),
+		"the valve passes its view_hud")
 
 
 ## Ruling 1 (Session 3's open 1): once won, Vei's queue stack is drawn from no backlog: no rings, no "+N", and no

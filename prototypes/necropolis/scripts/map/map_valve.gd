@@ -209,7 +209,7 @@ func refresh(force := false) -> void:
 		model.set_projection(proj)  # the fort chips and "N of M" follow the handle
 	var pay_parts := _payoff_parts_for(proj)
 	var payoff := " | ".join(PackedStringArray(pay_parts.map(func(q): return q["text"])))
-	var over := ValveLogic.overflow_parts(ValveLogic.war_overflow(model.hud, proj, _dragging))
+	var over := ValveLogic.overflow_parts(ValveLogic.war_overflow(model.hud, proj, _dragging), model.hud)  # its won words once won
 	var bone := _bone_text(shown)
 	var explain_on := HudLogic.valve_explain_shown(model.hud) and pay_parts.is_empty()
 	var flood_on := HudLogic.flood_shown(model.hud)
@@ -236,6 +236,9 @@ func refresh(force := false) -> void:
 	(_rows["flood"]["box"] as Control).visible = flood_on  # won: the FLOOD row and its corner go
 	(_corner_btns["flood"] as Control).visible = flood_on
 	tooltip_text = HudLogic.tip("mint", model.hud)  # won (flood_on is in the sig): the mint's won line, no FLOOD
+	for k in ValveLogic.KEYS:  # and WAR's and FLOOD's won line (no FLOOD sentence), on the names and the corners
+		HudLogic.apply_tip(_rows[k]["name"], k, model.hud)
+		(_corner_btns[k] as Control).tooltip_text = HudLogic.tip(k, model.hud)
 	_payoff_rows(pay_parts)
 	queue_redraw()
 
