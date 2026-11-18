@@ -176,6 +176,7 @@ func _build_ui() -> void:
 	sidebar.toast.connect(hud.show_toast)
 	layer.add_child(sidebar)
 	callouts_view.card = sidebar  # the callouts keep off the open card
+	nodes_view.card = sidebar  # the node labels shift clear of it, or hide
 	hud.next_chosen.connect(_act_on)
 	opening = MapOpening.new()
 	opening.model = model

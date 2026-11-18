@@ -27,6 +27,7 @@ func run() -> int:
 	_relish(t)
 	_wake(t)
 	_labels(t)
+	_card_shift(t)
 	_relish_clock(t)
 	_light(t)
 	_misc(t)
@@ -265,6 +266,69 @@ func _relish_clock(t: TestUtil) -> void:
 
 
 ## Real positions: Covington, the forts' centroid, Vei (configs/world.json).
+## NodeLogic.label_dx and the layers that share it: no label is drawn partly under the open card.
+func _card_shift(t: TestUtil) -> void:
+	t.suite("map_nodes-card-shift")
+	var m := 14.0
+	var own := 10.0
+	var left := 1000.0
+	var r := Rect2(880.0, 100.0, 100.0, 20.0)  # a label whose right edge (980) is 20 px clear
+	var s := NodeLogic.label_dx(930.0, r, left, m, own)
+	t.ok(float(s["dx"]) == 0.0 and not bool(s["hidden"]), "a label clear of the card does not move")
+	r = Rect2(950.0, 100.0, 100.0, 20.0)  # runs 50 px under it
+	s = NodeLogic.label_dx(985.0, r, left, m, own)
+	t.ok(is_equal_approx(float(s["dx"]), (left - m) - 1050.0) and not bool(s["hidden"]), "a label crossing the card shifts left to clear it by the margin")
+	t.ok(is_equal_approx(r.end.x + float(s["dx"]), left - m), "its right edge ends exactly margin short of the card")
+	s = NodeLogic.label_dx(1100.0, r, left, m, own)
+	t.ok(float(s["dx"]) == 0.0 and not bool(s["hidden"]), "a label whose node is under the card stays (the card covers it whole)")
+	var wide := Rect2(990.0, 100.0, 100.0, 20.0)  # node at 990: the shifted label ends at 986, 4 px left of it: within own
+	t.ok(not bool(NodeLogic.label_dx(990.0, wide, left, m, own)["hidden"]), "a label that still reaches its node within the own margin shifts")
+	var far := Rect2(1010.0, 100.0, 100.0, 20.0)
+	t.ok(bool(NodeLogic.label_dx(998.0, far, left, m, own)["hidden"]), "a label that cannot stay on its own node is hidden (its node 12 px short of the card, the label would end at 986)")
+	s = NodeLogic.label_dx(998.0, far, INF, m, own)
+	t.ok(float(s["dx"]) == 0.0 and not bool(s["hidden"]), "the card closed: no shift")
+	# the layers: closed they are as before, open they follow label_dx
+	var size := int(MapLogic.cfg()["font_label"])
+	var closed := NodeLogic.fort_label_rects(90.0, 140.0, size)
+	t.ok(NodeLogic.fort_label_rects(90.0, 140.0, size, 500.0, NodeLogic.panel_closed()) == closed and NodeLogic.fort_label_rects(90.0, 140.0, size, 500.0, {}) == closed,
+		"fort_label_rects with the card closed is unchanged")
+	var panel := NodeLogic.panel_of(1262.0, 0.0, 1.0, 1600.0)  # a fort at world x 400: screen 1200
+	var open := NodeLogic.fort_label_rects(90.0, 140.0, size, NodeLogic.panel_sx(panel, 400.0, 1.0), panel)
+	var mg := float(NodeLogic.ncfg()["label_panel_margin_px"])
+	t.ok(open.size() == 2 and closed[0] == open[0] and is_equal_approx(NodeLogic.panel_sx(panel, 400.0, 1.0) + (open[1] as Rect2).end.x, 1262.0 - mg),
+		"a name that clears the card stays, a tag that crosses it ends margin short of it")
+	for rr in open:
+		t.ok(NodeLogic.panel_sx(panel, 400.0, 1.0) + (rr as Rect2).end.x <= 1262.0 - mg + 0.001, "no fort plate ends under the card")
+	var sh := NodeLogic.fort_label_shifts(90.0, 140.0, size, NodeLogic.panel_sx(panel, 400.0, 1.0), panel)
+	t.ok(float(sh[0]["dx"]) == 0.0 and float(sh[1]["dx"]) < 0.0, "the drawing's shifts (fort_label_shifts) are the rects' own")
+	t.ok(IdleLogic.chip_layout([], 1.0, false, Vector2.ZERO, 0.0, [], panel).is_empty(), "chip_layout takes the card")
+	# Covington's labels and Vei's name
+	var lay := NodeLogic.valve_label_layout({"war": Vector2.RIGHT, "flood": Vector2.UP, "work": Vector2.LEFT}, {"war": 4.0, "flood": 3.0, "work": 2.0}, true, 1.0,
+		{"war": 30.0, "flood": 44.0, "work": 38.0, "covington": 88.0}, float(size))
+	var cp := NodeLogic.panel_of(1262.0, 0.0, 1.0, 1600.0)
+	var sx := 1250.0  # Covington's screen x: just left of the card
+	var shifted := NodeLogic.shift_valve_labels(lay, sx, cp)
+	for k in shifted:
+		t.ok(sx + (shifted[k]["rect"] as Rect2).end.x <= 1262.0 - mg + 0.001, "Covington's %s label ends clear of the card" % k)
+		t.ok(is_equal_approx((shifted[k]["off"] as Vector2).x - (lay[k]["off"] as Vector2).x, (shifted[k]["rect"] as Rect2).position.x - (lay[k]["rect"] as Rect2).position.x), "its %s text moves with its plate" % k)
+	t.ok(NodeLogic.shift_valve_labels(lay, sx, {}).size() == lay.size() and NodeLogic.shift_valve_labels(lay, sx, {})["war"]["rect"] == lay["war"]["rect"], "the card closed: Covington's labels as laid out")
+	var vs := NodeLogic.vei_name_shift(1500.0, 60.0, 50.0, size, 1.0, NodeLogic.panel_of(1262.0, 0.0, 1.0, 1600.0))
+	t.ok(float(vs["dx"]) == 0.0 and not bool(vs["hidden"]), "Vei under the card keeps her name")
+	# the caches key on the card
+	var base_pk := NodeLogic.panel_key(NodeLogic.panel_closed())
+	var open_pk := NodeLogic.panel_key(panel)
+	t.ok(base_pk.is_empty() and not open_pk.is_empty(), "the card's key is empty closed and filled open")
+	t.ok(NodeLogic.panel_key(NodeLogic.panel_of(1100.0, 0.0, 1.0, 1600.0)) != open_pk and NodeLogic.panel_key(NodeLogic.panel_of(1262.0, 30.0, 1.0, 1600.0)) != open_pk,
+		"the card moving, or the camera under it, changes the key")
+	t.ok(HudLogic.label_key(3, 1.0, "mid", 5, open_pk) != HudLogic.label_key(3, 1.0, "mid", 5, base_pk) and HudLogic.label_key(3, 1.0, "mid", 5) == HudLogic.label_key(3, 1.0, "mid", 5, base_pk),
+		"the label cache key changes when the card opens")
+	t.ok(HudLogic.label_key(3, 1.0, "mid", 5, open_pk) != HudLogic.label_key(3, 1.0, "mid", 5, NodeLogic.panel_key(NodeLogic.panel_of(1100.0, 0.0, 1.0, 1600.0))), "and when it moves")
+	var ck := func(pk: Array): return SetpieceLogic.callout_key("x", 1.0, Vector2.ZERO, Vector2(1600, 900), "mid", 3, Vector2.ZERO, [], pk)
+	t.ok(ck.call(base_pk) != ck.call(open_pk) and ck.call(open_pk) != ck.call(NodeLogic.panel_key(NodeLogic.panel_of(1100.0, 0.0, 1.0, 1600.0))), "the set-piece callout key changes when the card opens or moves")
+	var src := FileAccess.get_file_as_string("res://scripts/map/map_fort_idle.gd")
+	t.ok(src.contains("NodeLogic.panel_key(ctx.panel)"), "the chip layout's key carries the card")
+
+
 func _labels(t: TestUtil) -> void:
 	t.suite("map_nodes-labels")
 	var world := TestUtil.load_json("res://configs/world.json")

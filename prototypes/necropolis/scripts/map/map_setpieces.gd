@@ -338,8 +338,8 @@ func _callout(id: String, text: String, alpha: float, key := "undead") -> Array:
 	var tok := ctx.relish_pos * ctx.zoom
 	# what the placement depends on (not the frame): the line, the zoom and camera, the viewport, her token on
 	# the callouts' grid, and the model's rev (the held set, the chips)
-	var sig := [text, roundi(ctx.zoom * 1000.0), roundi(cp.x), roundi(cp.y), get_viewport().get_visible_rect().size, ctx.tier,
-		model.rev, roundi(tok.x / grid), roundi(tok.y / grid), HudLogic.rects_key(callouts.drawn_rects()) if callouts != null else []]
+	var sig := SetpieceLogic.callout_key(text, ctx.zoom, cp, get_viewport().get_visible_rect().size, ctx.tier, model.rev,
+		Vector2(roundi(tok.x / grid), roundi(tok.y / grid)), HudLogic.rects_key(callouts.drawn_rects()) if callouts != null else [], NodeLogic.panel_key(ctx.panel))
 	var ck := "%s|%s" % [id, text]
 	var hit: Dictionary = _placed.get(ck, {})
 	if hit.is_empty() or hit["sig"] != sig:
@@ -387,7 +387,7 @@ func _place_callout(id: String, text: String, prev: Dictionary) -> Dictionary:
 			if not tag.is_empty() and ctx.tier != "far":
 				tag_w = font.get_string_size(str(tag["text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, NodeLogic.tag_size()).x
 			var name_w := font.get_string_size(str(g["name"]), HORIZONTAL_ALIGNMENT_LEFT, -1, label_size).x
-			bucket.append_array(SetpieceLogic.fort_plates(MapModel.to_vec(g["pos"]), tier, name_w, tag_w, z))
+			bucket.append_array(SetpieceLogic.fort_plates(MapModel.to_vec(g["pos"]), tier, name_w, tag_w, z, ctx.panel))
 		if bool(g.get("held", false)) and IdleLogic.chip_shown(ctx.tier, z):
 			var r := nodes.chip_world_rect(g)
 			bucket.append(Rect2(r.position * z, r.size * z))

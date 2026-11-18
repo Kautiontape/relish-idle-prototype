@@ -157,7 +157,7 @@ func _relayout() -> void:
 	_obj_plate.position = Vector2(0.0, _bar_plate.size.y)
 	_obj_plate.size = Vector2(_objective.position.x + osz.x + pad, osz.y + pad)
 	var inset := _obj_plate.position.y + _obj_plate.size.y
-	# The run's goal, under the strip while no fort has been taken; its room is in the inset only then
+	# Your goal, under the strip while no fort has been taken; its room is in the inset only then
 	var goal_on := HudLogic.goal_shown(model.hud)
 	_goal.visible = goal_on
 	_goal_plate.visible = goal_on

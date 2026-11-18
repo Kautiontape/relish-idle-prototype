@@ -88,7 +88,7 @@ func _layout(c: Dictionary) -> Dictionary:
 			wlist.append(w)
 	var key := IdleLogic.layout_key({"rev": ctx.model.rev, "zoom": ctx.zoom, "tier": ctx.tier, "forts": ctx.forts.size(), "has_token": has_token, "cell": cell,
 		"margin_sig": ctx.model.margin_sig, "shares": shares, "backlog": float(ctx.vei.get("backlog", 0.0)), "vei_radius": ctx.vei_radius,
-		"cov_pos": ctx.cov_pos, "vei_pos": ctx.vei_pos, "widths": wlist})
+		"cov_pos": ctx.cov_pos, "vei_pos": ctx.vei_pos, "widths": wlist, "panel": NodeLogic.panel_key(ctx.panel)})
 	if key == _layout_key:
 		return _layout_cache
 	var size := int(MapLogic.cfg()["font_label"])
@@ -107,7 +107,7 @@ func _layout(c: Dictionary) -> Dictionary:
 			"name_w": font.get_string_size(str(g["name"]), HORIZONTAL_ALIGNMENT_LEFT, -1, size).x if shown else -1.0, "tag_w": tag_w})
 	var tr := float(NodeLogic.relish_radii(ctx.zoom)["halo"]) + ctx.px(float(NodeLogic.ncfg()["relish_halo_max_px"]) * 0.5) + float(tok["pad"])
 	var token: Vector2 = tok["pos"]
-	_layout_cache = IdleLogic.chip_layout(items, ctx.zoom, has_token, token, tr, node_obstacles())
+	_layout_cache = IdleLogic.chip_layout(items, ctx.zoom, has_token, token, tr, node_obstacles(), ctx.panel)
 	_layout_key = key
 	return _layout_cache
 
@@ -122,7 +122,7 @@ func node_obstacles() -> Array:
 	var text_w := {}
 	for k in names:
 		text_w[k] = font.get_string_size(names[k], HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
-	return IdleLogic.node_obstacles(ctx.cov_pos, ctx.vei_pos, ctx.vei_radius, float(ctx.vei.get("backlog", 0.0)), shares, NodeLogic.fort_centroid(ctx.forts), ctx.zoom, ctx.tier != "far", text_w)
+	return IdleLogic.node_obstacles(ctx.cov_pos, ctx.vei_pos, ctx.vei_radius, float(ctx.vei.get("backlog", 0.0)), shares, NodeLogic.fort_centroid(ctx.forts), ctx.zoom, ctx.tier != "far", text_w, ctx.panel)
 
 
 ## The garrison counted out: GlyphLogic.garrison_fill of the chip's units over the fort's slots.

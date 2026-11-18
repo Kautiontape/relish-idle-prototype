@@ -197,7 +197,7 @@ static func chip_place(p: Vector2, r: float, zoom: float, second_line: bool, wid
 ## obstacles (`node_obstacles`: Covington and Vei), each {pos, r (disc radius), rects (world-px
 ## plates)}. When none is free it takes the least hard overlap, then the least soft; when none is
 ## attached, the default.
-static func chip_layout(forts: Array, zoom: float, has_token: bool, token: Vector2, token_r: float, nodes := []) -> Dictionary:
+static func chip_layout(forts: Array, zoom: float, has_token: bool, token: Vector2, token_r: float, nodes := [], panel := {}) -> Dictionary:
 	var z := maxf(zoom, 0.001)
 	var c := cfg()
 	var tr := token_r + float(c["chip_token_pad_px"]) / z
@@ -210,7 +210,7 @@ static func chip_layout(forts: Array, zoom: float, has_token: bool, token: Vecto
 		var p: Vector2 = f["pos"]
 		if float(f["name_w"]) >= 0.0:
 			var at := p + Vector2(0.0, float(f["r"]) + off)
-			for pr in NodeLogic.fort_label_rects(float(f["name_w"]), float(f["tag_w"]), size):
+			for pr in NodeLogic.fort_label_rects(float(f["name_w"]), float(f["tag_w"]), size, NodeLogic.panel_sx(panel, p.x, z), panel):  # shifted as drawn
 				plates.append({"id": f["id"], "rect": Rect2(at + (pr as Rect2).position / z, (pr as Rect2).size / z)})
 		if bool(f["held"]):
 			held.append(f)
@@ -319,23 +319,27 @@ static func _chip_cost(rect: Rect2, f: Dictionary, forts: Array, plates: Array, 
 ## (NodeLogic.vei_reach) and her "VEI'S DOMAIN" plate (right-aligned, left of her stack, as MapVei
 ## draws it). `shares` is the valve's {work, war, flood}; `centroid` the forts' mean position;
 ## `text_w` the label widths in screen px keyed war / flood / work / covington / vei; `labels_on`:
-## the stream labels show (not at far zoom).
-static func node_obstacles(cov: Vector2, vei: Vector2, vei_radius: float, backlog: float, shares: Dictionary, centroid: Vector2, zoom: float, labels_on: bool, text_w: Dictionary) -> Array:
+## the stream labels show (not at far zoom). `panel` (NodeLogic.panel_of; {} closed): the open card, which
+## shifts or hides the labels as they are drawn (NodeLogic.shift_valve_labels, vei_name_shift).
+static func node_obstacles(cov: Vector2, vei: Vector2, vei_radius: float, backlog: float, shares: Dictionary, centroid: Vector2, zoom: float, labels_on: bool, text_w: Dictionary, panel := {}) -> Array:
 	var z := maxf(zoom, 0.001)
 	var n := NodeLogic.ncfg()
 	var size := int(MapLogic.cfg()["font_label"])
 	var rects: Array = []
 	var lay := NodeLogic.valve_label_layout(NodeLogic.valve_dirs(cov, centroid, vei), NodeLogic.valve_widths(shares), labels_on, z, text_w, float(size))
+	lay = NodeLogic.shift_valve_labels(lay, NodeLogic.panel_sx(panel, cov.x, z), panel)
 	for k in lay:
 		var r: Rect2 = lay[k]["rect"]
 		rects.append(Rect2(cov + r.position / z, r.size / z))
 	var b := NodeLogic.backlog_rings(backlog)
 	var r_out := NodeLogic.vei_struct_radius(vei_radius) + float(n["backlog_first_gap_px"]) + maxi(int(b["rings"]) - 1, 0) * float(n["backlog_step_px"])
-	var vw := float(text_w["vei"])
-	var vp := NodeLogic.label_plate(-vw, vw, size, size * float(n["text_mid_ratio"]))
-	var at := Vector2(vei.x - r_out - float(n["odds_gap_px"]), vei.y)
+	var vs := NodeLogic.vei_name_shift(vei.x, r_out, float(text_w["vei"]), size, z, panel)
+	var vp: Rect2 = vs["plate"]
+	var vrects: Array = []
+	if not bool(vs["hidden"]):
+		vrects.append(Rect2(vei + (vp.position + Vector2(float(vs["dx"]), 0.0)) / z, vp.size / z))
 	return [{"pos": cov, "r": float(n["cov_half_px"]), "rects": rects},
-		{"pos": vei, "r": NodeLogic.vei_reach(vei_radius, backlog), "rects": [Rect2(at + vp.position / z, vp.size / z)]}]
+		{"pos": vei, "r": NodeLogic.vei_reach(vei_radius, backlog), "rects": vrects}]
 
 
 ## Whether the disc at `c` (radius `r`) touches `rect`.
@@ -455,7 +459,8 @@ static func layout_token(pos: Vector2, travelling: bool, cell: float) -> Diction
 ## What MapFortIdle._layout's result depends on, as a cache key: every input that can change it
 ## between frames. `inp`: zoom, tier, rev, forts (count), cell (layout_token's key, [] with no token),
 ## has_token, margin_sig, shares (the valve shares node_obstacles gets), backlog, vei_radius,
-## cov_pos, vei_pos, widths (each held fort's chip width, in order: its clock ticks between revs).
+## cov_pos, vei_pos, widths (each held fort's chip width, in order: its clock ticks between revs), panel
+## (NodeLogic.panel_key: the open card's left edge and the world's screen offset, [] closed: the labels shift).
 static func layout_key(inp: Dictionary) -> Array:
 	return [inp["rev"], inp["zoom"], inp["tier"], inp["forts"], inp["has_token"], inp["cell"], inp["margin_sig"], inp["shares"],
-		inp["backlog"], inp["vei_radius"], inp["cov_pos"], inp["vei_pos"], inp["widths"]]
+		inp["backlog"], inp["vei_radius"], inp["cov_pos"], inp["vei_pos"], inp["widths"], inp["panel"]]

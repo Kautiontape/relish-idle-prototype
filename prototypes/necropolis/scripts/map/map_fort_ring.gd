@@ -136,10 +136,18 @@ func _static_fort(f: Dictionary) -> void:
 	if NodeLogic.fort_label_shown(ctx.tier, tier):
 		var at := p + Vector2(0.0, r + float(n["label_off_px"]))
 		var size := int(MapLogic.cfg()["font_label"])
-		text(at, str(f["name"]), size, Palette.c(NodeLogic.fort_label_key(ctx.tier), float(MapLogic.cfg()["node_label_dim_alpha"])), ALIGN_CENTER, size)
 		var tag := NodeLogic.name_tag(f)
+		var name_s := str(f["name"])
+		var tag_w := -1.0
 		if not tag.is_empty() and ctx.tier != "far":
-			text(at, str(tag["text"]), NodeLogic.tag_size(), Palette.c(str(tag["key"])), ALIGN_CENTER, size + float(n["label_line_px"]))
+			tag_w = ThemeDB.fallback_font.get_string_size(str(tag["text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, NodeLogic.tag_size()).x
+		# the open card: a label that would run under it shifts left or hides (NodeLogic.fort_label_shifts, as the layers' rects)
+		var sh := NodeLogic.fort_label_shifts(ThemeDB.fallback_font.get_string_size(name_s, HORIZONTAL_ALIGNMENT_LEFT, -1, size).x, tag_w, size,
+			NodeLogic.panel_sx(ctx.panel, p.x, ctx.zoom), ctx.panel)
+		if not bool(sh[0]["hidden"]):
+			text(at + Vector2(ctx.px(float(sh[0]["dx"])), 0.0), name_s, size, Palette.c(NodeLogic.fort_label_key(ctx.tier), float(MapLogic.cfg()["node_label_dim_alpha"])), ALIGN_CENTER, size)
+		if tag_w >= 0.0 and not bool(sh[1]["hidden"]):
+			text(at + Vector2(ctx.px(float(sh[1]["dx"])), 0.0), str(tag["text"]), NodeLogic.tag_size(), Palette.c(str(tag["key"])), ALIGN_CENTER, size + float(n["label_line_px"]))
 
 
 ## The flip's re-ink: `total` segments of the outer ring from 12 o'clock clockwise, the first

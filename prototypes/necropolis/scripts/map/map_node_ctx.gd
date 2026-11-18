@@ -21,6 +21,7 @@ var lit := {}  # fort id -> true: inside Relish's light
 var flip := {}  # realm.json "flip"
 var r_vei := 0.0  # realm.json R_vei
 var now_s := 0.0  # Pulse's clock, seconds
+var panel := NodeLogic.panel_closed()  # the open card as the labels see it (NodeLogic.panel_of): they shift clear of it or hide
 # The set pieces' hooks (MapSetpieces writes them, the layers read them):
 var valve_shares := {}  # Covington's stem shares: the committed valve, or a swing's tween ({}: the view's valve_target)
 var valve_bright := 0.0  # 0..1: how much brighter the stems draw (the swing's beat)

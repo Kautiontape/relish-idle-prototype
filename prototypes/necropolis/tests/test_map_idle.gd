@@ -57,13 +57,13 @@ func _layout_key(t: TestUtil) -> void:
 	t.suite("map_idle-layout-key")
 	var grid := float(MapLogic.cfg()["callouts"]["token_key_px"])
 	var base := {"rev": 4, "zoom": 1.0, "tier": "mid", "forts": 6, "has_token": true, "cell": IdleLogic.layout_token(Vector2(100, 50), true, grid)["key"], "margin_sig": "a",
-		"shares": {"work": 0.2, "war": 0.8}, "backlog": 3.0, "vei_radius": 40.0, "cov_pos": Vector2(1, 2), "vei_pos": Vector2(3, 4), "widths": [120.0, 130.0]}
+		"shares": {"work": 0.2, "war": 0.8}, "backlog": 3.0, "vei_radius": 40.0, "cov_pos": Vector2(1, 2), "vei_pos": Vector2(3, 4), "widths": [120.0, 130.0], "panel": []}
 	var k0 := IdleLogic.layout_key(base)
 	t.ok(IdleLogic.layout_key(base.duplicate(true)) == k0, "the same inputs give the same key on two calls (no frame number)")
 	var src := FileAccess.get_file_as_string("res://scripts/map/map_fort_idle.gd")
 	t.ok(not src.contains("get_process_frames"), "map_fort_idle.gd keys its layout on no frame number")
 	var changes := {"rev": 5, "zoom": 1.5, "tier": "near", "forts": 7, "has_token": false, "margin_sig": "b", "shares": {"work": 0.5, "war": 0.5},
-		"backlog": 4.0, "vei_radius": 41.0, "cov_pos": Vector2(9, 2), "vei_pos": Vector2(3, 9), "widths": [120.0, 131.0],
+		"backlog": 4.0, "vei_radius": 41.0, "cov_pos": Vector2(9, 2), "vei_pos": Vector2(3, 9), "widths": [120.0, 131.0], "panel": [1262, 800],
 		"cell": IdleLogic.layout_token(Vector2(100 + grid * 2.0, 50), true, grid)["key"]}
 	for k in changes:
 		var v := base.duplicate(true)

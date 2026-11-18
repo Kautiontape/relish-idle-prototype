@@ -189,12 +189,20 @@ static func split_text(text: String) -> Array:
 	return [text.substr(0, i) + sep.rstrip(" "), text.substr(i + sep.length())]
 
 
+## What a set-piece callout's placement (MapSetpieces._callout) depends on, as a cache key: the line, the zoom and
+## camera, the viewport, the tier, the model's rev, her token on the callouts' grid (`token_cell`), the lane
+## callouts as drawn (`drawn_key`), and the open card (`panel`: NodeLogic.panel_key: the labels shift clear of it).
+static func callout_key(text: String, zoom: float, cam_pos: Vector2, viewport: Vector2, tier: String, rev: int, token_cell: Vector2, drawn_key: Array, panel: Array) -> Array:
+	return [text, roundi(zoom * 1000.0), roundi(cam_pos.x), roundi(cam_pos.y), viewport, tier, rev, token_cell, drawn_key, panel]
+
+
 ## A fort's name and tag plates in the frame (`zoom` x world): NodeLogic.fort_label_rects at the label
 ## anchor MapFortRing draws them from. `tag_w` < 0: no tag line. The same plates the lane callouts keep clear of.
-static func fort_plates(pos: Vector2, tier: int, name_w: float, tag_w: float, zoom: float) -> Array:
+## `panel` (NodeLogic.panel_of; {} closed): the open card, which shifts or hides the plates as they are drawn.
+static func fort_plates(pos: Vector2, tier: int, name_w: float, tag_w: float, zoom: float, panel := {}) -> Array:
 	var at := (pos + Vector2(0.0, MapLogic.fort_radius(tier) + float(NodeLogic.ncfg()["label_off_px"]))) * zoom
 	var out: Array = []
-	for r in NodeLogic.fort_label_rects(name_w, tag_w, int(MapLogic.cfg()["font_label"])):
+	for r in NodeLogic.fort_label_rects(name_w, tag_w, int(MapLogic.cfg()["font_label"]), NodeLogic.panel_sx(panel, pos.x, zoom), panel):
 		out.append(Rect2(at + (r as Rect2).position, (r as Rect2).size))
 	return out
 

@@ -380,8 +380,10 @@ static func place(options: Array, max_count: int, gap: float, occupied: Array = 
 
 ## What the fort labels' rects (MapCallouts._label_rects) depend on: the rev (names, tags), the
 ## zoom in thousandths, the tier and the fort count. Equal keys, equal rects.
-static func label_key(rev: int, zoom: float, tier: String, forts: int) -> Array:
-	return [rev, roundi(zoom * 1000.0), tier, forts]
+## `panel`: NodeLogic.panel_key (the open card's left edge and the world's screen offset; [] closed): the
+## labels shift clear of the card.
+static func label_key(rev: int, zoom: float, tier: String, forts: int, panel := []) -> Array:
+	return [rev, roundi(zoom * 1000.0), tier, forts, panel]
 
 
 ## What MapLegend.refresh depends on: its parent's size, whether it is open (and the player's

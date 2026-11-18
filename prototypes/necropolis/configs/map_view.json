@@ -273,6 +273,8 @@
     "label_off_px": 30.0,
     "label_far_min_tier": 3,
     "label_line_px": 18.0,
+    "label_panel_margin_px": 14.0,
+    "label_own_margin_px": 10.0,
     "label_tag_px": 14,
     "label_tag_keys": {"first": "relish", "retaken": "danger", "overrun": "text"},
     "label_shadow_px": 1.0,
