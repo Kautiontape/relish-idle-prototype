@@ -14,10 +14,14 @@ signal closed  # hidden after being shown (dismissed, or a clicked line acted); 
 static var _closed_rev := -1  # the report revision closed this session (the stand-in's dismiss)
 
 var model: MapModel
+var hud: MapHud  # the panel stays under the top bar's plate (AwayLogic.panel_fit); null: the full height
 var demo := false  # --away=demo: the stand-in report from map_view.json "demo_away"
 
 var _panel: PanelContainer
+var _centre: CenterContainer
+var _scroll: ScrollContainer
 var _body: VBoxContainer
+var _fit_sig := []
 var _frame: Control
 var _rev := -1
 var _tithe_box: VBoxContainer
@@ -33,15 +37,21 @@ func _ready() -> void:
 	centre.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	centre.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(centre)
+	_centre = centre
 	var c := AwayLogic.cfg()
 	_panel = PanelContainer.new()
 	_panel.custom_minimum_size.x = float(c["width_px"])
 	_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	_panel.add_theme_stylebox_override("panel", MapUi.plate_box(float(c["plate_alpha"]), int(c["pad_px"])))
 	centre.add_child(_panel)
+	_scroll = ScrollContainer.new()  # the body scrolls only when it is taller than the room under the bar
+	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	_scroll.mouse_filter = Control.MOUSE_FILTER_PASS
+	_panel.add_child(_scroll)
 	_body = VBoxContainer.new()
 	_body.add_theme_constant_override("separation", int(c["sep_px"]))
-	_panel.add_child(_body)
+	_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_scroll.add_child(_body)
 	_frame = Control.new()  # the glowing frame, over the plate's own hairline
 	_frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_frame.draw.connect(_draw_frame)
@@ -105,6 +115,26 @@ func _open(rep: Dictionary) -> void:
 	b.pressed.connect(_dismiss)
 	_body.add_child(b)
 	visible = true
+	_fit_sig = []
+	_fit()
+
+
+## Sizes the panel to the room under the top bar (AwayLogic.panel_fit): the centring box starts below the
+## bar's plate, and the body's scroll is its own height, or the room left when that is less. Runs on open
+## and whenever the viewport, the bar or the body's height changes.
+func _fit() -> void:
+	var c := AwayLogic.cfg()
+	var vp := get_viewport_rect().size
+	var bar := hud.bar_bottom() if hud != null and is_instance_valid(hud) else 0.0
+	var body_h := _body.get_combined_minimum_size().y
+	var sig := [vp, bar, body_h]
+	if sig == _fit_sig:
+		return
+	_fit_sig = sig
+	var f := AwayLogic.panel_fit(vp.y, bar, body_h, float(c["pad_px"]), float(c["top_gap_px"]))
+	_centre.offset_top = float(f["top"])
+	_centre.offset_bottom = -float(f["bottom"])
+	_scroll.custom_minimum_size.y = float(f["body_h"])
 
 
 ## The tithe telegraph line, its own row after the sections: a button like a ready line whose text
@@ -141,6 +171,8 @@ func _build_tithe_row(gap: int) -> void:
 func _process(_delta: float) -> void:
 	if visible and _tithe_box != null:
 		_refresh_tithe()
+	if visible:
+		_fit()
 
 
 ## Reads the telegraph from the model (not the report), so the ETA ticks while the panel is open.

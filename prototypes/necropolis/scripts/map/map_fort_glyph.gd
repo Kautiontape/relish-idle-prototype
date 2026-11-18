@@ -10,6 +10,8 @@ extends MapNodeLayer
 ##   emptied    a matte dead ring (never glows, never pulses);
 ##   held       a diamond: solid (safe), hollow (thin), hollow struck through by a danger
 ##              stroke (will fall). Its margin is the model's, the same one the chip shows.
+## A fort Vei took back (NodeLogic.retaken) is cracked: a ground-coloured cut corner to corner through its
+## shape, on the still layer, so VEI'S and RETAKEN differ by shape and not only by the name tag's colour.
 ## A tithe on the way adds a living triangle badge at the upper right, over any state.
 ## Two instances: the beating one (`beating`) draws the glowing shapes, and MapNodes sets its
 ## modulate alpha on the forts' beat (NodeLogic.state_alpha); the still one, above it, draws the
@@ -32,6 +34,8 @@ func _draw_static() -> void:
 			if st == NodeLogic.EMPTIED:
 				var sw := ctx.px(float(n["state_stroke_px"]))
 				LineGlow.matte_ring(self, p, h - sw * 0.5, Palette.c("dead"), sw)
+			if NodeLogic.retaken(f):
+				draw_retaken(self, p, h, ctx.px(float(n["retaken_crack_px"])), n)
 			if NodeLogic.tithe_badge(f):
 				_badge(p + Vector2(h, -h), n)
 			elif NodeLogic.tithe_next(f):
@@ -46,6 +50,7 @@ func static_sig():
 		out.append(_state_of(f))
 		if not beating:
 			out.append(NodeLogic.tithe_mode(f))
+			out.append(NodeLogic.retaken(f))
 	return out
 
 
@@ -90,6 +95,14 @@ static func draw_state(ci: CanvasItem, st: String, p: Vector2, h: float, sw: flo
 			if st == IdleLogic.WILL_FALL:
 				var e := Vector2(h, h) * float(n["state_slash_ext"])
 				glow_poly_on(ci, PackedVector2Array([p - e, p + e]), Palette.c("danger"), slash_w, glow, cap)
+
+
+## The retaken mark on `ci`: NodeLogic.crack through a glyph `h` from `p` to its edge, `w` wide in
+## retaken_crack_key (the ground: a cut). Steady and matte. The fort layer draws it in world px; the legend
+## in screen px.
+static func draw_retaken(ci: CanvasItem, p: Vector2, h: float, w: float, n: Dictionary) -> void:
+	var c := NodeLogic.crack(p, h, float(n["retaken_crack_ext"]))
+	ci.draw_line(c[0], c[1], Palette.c(str(n["retaken_crack_key"])), w)
 
 
 ## Vei's next tithe pick: the same triangle drawn hollow (an outline, no fill, no backing), at low

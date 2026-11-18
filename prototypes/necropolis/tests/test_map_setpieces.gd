@@ -33,8 +33,25 @@ func run() -> int:
 	_debug(t, c)
 	_after_away(t)
 	_callout_cache(t)
+	_callout_clear(t)
 	_sources(t)
 	return t.failures
+
+
+## V-I1 item 6: the return line never prints over the first dungeon's pulse or another label. Its own ring is
+## the pulse at full reach there, and when no place near the fort is clear of hard marks it is the HUD toast.
+func _callout_clear(t: TestUtil) -> void:
+	var n := NodeLogic.ncfg()
+	var outer := NodeLogic.outer_radius("fort", 1, 0.0)
+	var fr := MapLogic.fort_radius(1)
+	var pulse := fr + float(n["first_reach_px"]) + float(n["first_halo_max_px"]) * 0.5
+	t.ok(is_equal_approx(SetpieceLogic.callout_own_r(outer, fr, true, float(n["first_reach_px"]), float(n["first_halo_max_px"])), maxf(outer, pulse)), "the first dungeon: the pulse at full reach is the fort's own ring")
+	t.ok(is_equal_approx(SetpieceLogic.callout_own_r(outer, fr, false, float(n["first_reach_px"]), float(n["first_halo_max_px"])), outer), "any other fort: its outer ring")
+	t.ok(pulse > outer, "the pulse reaches past the outer ring (%.1f > %.1f), which is why the line sat on it" % [pulse, outer])
+	t.ok(not SetpieceLogic.callout_to_toast(0.0) and SetpieceLogic.callout_to_toast(0.5) and SetpieceLogic.callout_to_toast(36.0), "a clear place stays on the map; any hard overlap goes to the toast")
+	var src := FileAccess.get_file_as_string("res://scripts/map/map_setpieces.gd")
+	t.ok(src.contains("SetpieceLogic.callout_own_r(") and src.contains("NodeLogic.first_dungeon_pulse(f)"), "the placement passes the fort's pulse")
+	t.ok(src.contains("SetpieceLogic.callout_to_toast(float(made[\"hard\"]))") and src.contains("hud.show_toast(text)") and src.contains("if bool(hit[\"toast\"]):\n\t\treturn []"), "a line with no clear place is shown once as the toast and not drawn on the map")
 
 
 ## A catch-up swallowed the events: what the set pieces kept from them is re-read from the views.
@@ -352,6 +369,7 @@ func _shot_scene(c: Dictionary, z: float, cam_pos: Vector2, shot_z: float, shot_
 	var rings: Array = []
 	var fp := Vector2.ZERO
 	var ring_r := 0.0
+	var own_r := 0.0
 	var pos_list: Array = []
 	for f in forts:
 		pos_list.append({"pos": f["pos"]})
@@ -367,6 +385,8 @@ func _shot_scene(c: Dictionary, z: float, cam_pos: Vector2, shot_z: float, shot_
 		if str(f["id"]) == "old-sluice":
 			fp = p * z
 			ring_r = r
+			own_r = SetpieceLogic.callout_own_r(NodeLogic.outer_radius("fort", tier, 0.0), MapLogic.fort_radius(tier), true,
+				float(n["first_reach_px"]), float(n["first_halo_max_px"])) * z  # MapSetpieces: the first dungeon's pulse is its own
 			own.append_array(plates)
 		else:
 			rings.append(Vector3(p.x * z, p.y * z, r))
@@ -386,7 +406,7 @@ func _shot_scene(c: Dictionary, z: float, cam_pos: Vector2, shot_z: float, shot_
 	var soft: Array = []
 	for s in [Rect2(524.6368, 696.5007, 274.0, 28.0), Rect2(939.8651, 704.0345, 243.0, 28.0)]:  # as MapCallouts drew them (zoomed frame at the shot zoom)
 		soft.append(Rect2((s as Rect2).position / shot_z * z, (s as Rect2).size))
-	return {"fp": fp, "ring_r": ring_r, "own": own, "rings": rings, "rects": rects + (hard["rects"] as Array), "tok": tok, "halo": halo,
+	return {"fp": fp, "ring_r": own_r, "own": own, "rings": rings, "rects": rects + (hard["rects"] as Array), "tok": tok, "halo": halo,
 		"circles": [Vector3(tok.x, tok.y, halo)] + (hard["circles"] as Array), "soft": soft,
 		"bounds": SetpieceLogic.screen_bounds(vp, cam_pos, z, 62.0, 848.0), "z": z}
 
