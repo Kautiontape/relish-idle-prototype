@@ -546,15 +546,15 @@
     ],
     "goal_gap_px": 0.0,
     "valve_line": "WORK: your town's jobs · WAR: your forts · FLOOD: Vei's queue",
-    "valve_tip": "The valve splits your new undead into WORK (your town's jobs), WAR (your forts) and FLOOD (Vei's queue).\nWAR sends undead to your forts, spread by distance, with Relish's fort drawing 3× its share. FLOOD sends them into Vei's queue, which raises your odds against her.",
+    "valve_tip": "Mint: the undead your Raising Pits make each second. The map's valve splits it into WORK (your town's jobs), WAR (your forts) and FLOOD (Vei's queue).",
     "tips": {
-      "mint": "MINT: the undead your Raising Pits make each second. The map's valve splits it into WORK (your town's jobs), WAR (your forts) and FLOOD (Vei's queue).",
+      "mint": "Mint: the undead your Raising Pits make each second. The map's valve splits it into WORK (your town's jobs), WAR (your forts) and FLOOD (Vei's queue).",
       "odds": "Your chance to beat Vei if you faced her now. It grows with time and with her clogged queue.",
       "strain": "How backed up Vei's queue is. ▲ means it is growing (FLOOD is clogging it); ▼ means she is working it down.",
       "drain": "How long until Vei's queue empties at this rate. ∞ means it is not emptying.",
       "work": "WORK: your town's jobs",
-      "war": "WAR sends undead to your forts, spread by distance, with Relish's fort drawing 3× its share.",
-      "flood": "FLOOD sends undead into Vei's queue, which raises your odds against her."
+      "war": "WAR sends undead to your forts, spread by distance, with Relish's fort drawing 3× its share. FLOOD sends them into Vei's queue, which raises your odds against her.",
+      "flood": "WAR sends undead to your forts, spread by distance, with Relish's fort drawing 3× its share. FLOOD sends them into Vei's queue, which raises your odds against her."
     },
     "legend": {
       "open_text": "Legend −",
@@ -563,6 +563,7 @@
       "word_w_px": 76.0,
       "pad_px": 10.0,
       "row_gap_px": 8.0,
+      "compact_row_gap_px": 2.0,
       "glyph_px": 34.0,
       "glyph_gap_px": 10.0,
       "ring_r_px": 14.0,

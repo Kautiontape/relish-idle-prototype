@@ -105,6 +105,31 @@ static func legend_open(hud: Dictionary, user: int) -> bool:
 	return goal_shown(hud) if user < 0 else user == 1
 
 
+## Where the fort legend sits and how it shows, from the real rects. `chip` and `valve` are their
+## panels' rects; the legend is `w` wide at left edge `x`, bottom-aligned `gap` above the valve.
+## `h_full`, `h_compact` (rows closer together) and `h_closed` (the button) are its heights.
+## `want_open`: it would show expanded (the game's default or the player's click); `user_open`: the
+## player clicked it open. The Relish chip (when it overlaps the legend's columns) bounds the top:
+## the legend's top is at least the chip's bottom plus `gap`. A default-open legend that does not fit
+## at full height shows collapsed; one the player opened shows compact if that fits, else collapsed.
+## Returns {mode: "full"|"compact"|"closed", rect: Rect2}.
+static func legend_place(chip: Rect2, valve: Rect2, x: float, w: float, h_full: float, h_compact: float, h_closed: float,
+		want_open: bool, user_open: bool, gap: float) -> Dictionary:
+	var bottom := valve.position.y - gap
+	var floor_y := -INF
+	if chip.size.y > 0.0 and chip.position.x < x + w and chip.end.x > x:
+		floor_y = chip.end.y + gap
+	var avail := bottom - floor_y
+	var mode := "closed"
+	if want_open:
+		if h_full <= avail:
+			mode = "full"
+		elif user_open and h_compact <= avail:
+			mode = "compact"
+	var h := h_full if mode == "full" else (h_compact if mode == "compact" else h_closed)
+	return {"mode": mode, "rect": Rect2(x, bottom - h, w, h)}
+
+
 ## The fort state a legend row draws: Vei's and retaken are both a fort of hers (a living square;
 ## the map tells a retaken one by its danger tag), held draws safe (a diamond), overrun its hollow square.
 static func legend_glyph_state(id: String) -> String:

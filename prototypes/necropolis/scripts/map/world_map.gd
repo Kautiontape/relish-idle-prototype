@@ -152,6 +152,7 @@ func _build_ui() -> void:
 	legend.valve = valve
 	layer.add_child(legend)
 	chip = MapRelishChip.new()
+	legend.chip = chip
 	chip.model = model
 	chip.hud = hud
 	hud.chip = chip

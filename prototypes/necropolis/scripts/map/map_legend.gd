@@ -9,6 +9,7 @@ extends PanelContainer
 
 var model: MapModel
 var valve: Control  # the legend sits just above it
+var chip: Control  # the Relish chip: the legend stays below its bottom edge (HudLogic.legend_place)
 
 var _open_user := -1  # -1: follow the game (open until a fort is taken), 0 closed, 1 open by the player's click
 var _head: Button
@@ -114,16 +115,36 @@ func refresh() -> void:
 		return
 	var cfg := MapLogic.cfg()
 	var lc: Dictionary = cfg["clarity"]["legend"]
-	_shown_open = is_open()
+	var want := is_open()
+	var pad := 2.0 * float(lc["pad_px"])
+	var head_h := _head.get_combined_minimum_size().y
+	var rows_h := 0.0
+	for r in _rows.get_children():
+		rows_h += (r as Control).get_combined_minimum_size().y
+	var n := _rows.get_child_count()
+	var h_full := pad + head_h + float(lc["row_gap_px"]) * float(n) + rows_h
+	var h_compact := pad + head_h + float(lc["compact_row_gap_px"]) * float(n) + rows_h
+	var x := offset_left
+	var w := float(lc["width_px"])
+	var gap := float(lc["gap_above_valve_px"])
+	var vrect := valve.get_global_rect() if valve != null else Rect2(0.0, get_parent_area_size().y + gap, w, 0.0)
+	var crect := chip.get_global_rect() if chip != null and is_instance_valid(chip) else Rect2()
+	var p := HudLogic.legend_place(crect, vrect, x, w, h_full, h_compact, pad + head_h, want, _open_user == 1, gap)
+	var mode := str(p["mode"])
+	_shown_open = mode != "closed"
 	if _rows.visible != _shown_open:
 		_rows.visible = _shown_open
+	var sep := int(lc["compact_row_gap_px"] if mode == "compact" else lc["row_gap_px"])
+	if _rows.get_theme_constant("separation") != sep:
+		_rows.add_theme_constant_override("separation", sep)
+		(_rows.get_parent() as VBoxContainer).add_theme_constant_override("separation", sep)
 	var txt := str(lc["open_text" if _shown_open else "closed_text"])
 	if _head.text != txt:
 		_head.text = txt
-	offset_right = offset_left + float(lc["width_px"])
-	if valve != null:
-		offset_bottom = valve.offset_top - float(lc["gap_above_valve_px"])
-	offset_top = offset_bottom - get_combined_minimum_size().y
+	var rect: Rect2 = p["rect"]
+	offset_right = offset_left + w
+	offset_bottom = rect.end.y - get_parent_area_size().y
+	offset_top = offset_bottom - rect.size.y
 
 
 func _toggle() -> void:

@@ -41,6 +41,27 @@ func _clarity(t: TestUtil) -> void:
 		t.ok(HudLogic.tip(id) != "", "%s has a tooltip line" % id)
 	t.ok(HudLogic.tip("nothing") == "", "an unknown word has none")
 	t.ok(HudLogic.tip("mint").contains("Raising Pit"), "MINT says where undead come from")
+	var mint_line := "Mint: the undead your Raising Pits make each second. The map's valve splits it into WORK (your town's jobs), WAR (your forts) and FLOOD (Vei's queue)."
+	var war_line := "WAR sends undead to your forts, spread by distance, with Relish's fort drawing 3× its share. FLOOD sends them into Vei's queue, which raises your odds against her."
+	t.ok(HudLogic.tip("mint") == mint_line and str(MapLogic.cfg()["clarity"]["valve_tip"]) == mint_line, "the mint and valve tips are the glossary's line verbatim")
+	t.ok(HudLogic.tip("war") == war_line and HudLogic.tip("flood") == war_line, "the WAR and FLOOD tips are the glossary's full line verbatim")
+	t.ok(HudLogic.tip("work") == "WORK: your town's jobs", "the WORK tip stands")
+	# the legend: clear of the chip and the valve, collapses with no room, unchanged with plenty
+	var chip := Rect2(12, 200, 330, 35)
+	var valve := Rect2(12, 512, 400, 300)
+	var roomy := HudLogic.legend_place(chip, valve, 12.0, 490.0, 240.0, 200.0, 40.0, true, false, 10.0)
+	t.ok(roomy["mode"] == "full" and is_equal_approx((roomy["rect"] as Rect2).end.y, 502.0) and (roomy["rect"] as Rect2).position.y >= chip.end.y + 10.0, "plenty of room: full, just above the valve, under the chip")
+	var tight := HudLogic.legend_place(chip, valve, 12.0, 490.0, 330.0, 250.0, 40.0, true, false, 10.0)
+	t.ok(tight["mode"] == "closed" and not (tight["rect"] as Rect2).intersects(chip) and not (tight["rect"] as Rect2).intersects(valve), "no room for full: collapsed, clear of both")
+	var clicked := HudLogic.legend_place(chip, valve, 12.0, 490.0, 330.0, 250.0, 40.0, true, true, 10.0)
+	t.ok(clicked["mode"] == "compact" and (clicked["rect"] as Rect2).position.y >= chip.end.y + 10.0 and (clicked["rect"] as Rect2).end.y <= valve.position.y - 10.0, "a click expands it compactly, clear of both")
+	var nohope := HudLogic.legend_place(chip, valve, 12.0, 490.0, 330.0, 280.0, 40.0, true, true, 10.0)
+	t.ok(nohope["mode"] == "closed", "not even compact fits: collapsed")
+	var tall_chip := HudLogic.legend_place(Rect2(12, 200, 330, 120), valve, 12.0, 490.0, 300.0, 250.0, 40.0, true, false, 10.0)
+	t.ok(tall_chip["mode"] == "closed", "a taller chip takes the room: collapsed")
+	var far_chip := HudLogic.legend_place(Rect2(900, 200, 330, 120), valve, 12.0, 490.0, 300.0, 250.0, 40.0, true, false, 10.0)
+	t.ok(far_chip["mode"] == "full", "a chip beside the legend's columns does not bound it")
+	t.ok(HudLogic.legend_place(chip, valve, 12.0, 490.0, 300.0, 250.0, 40.0, false, false, 10.0)["mode"] == "closed", "not wanted open: the button")
 	t.ok(not JSON.stringify(MapLogic.cfg().get("opening", {})).to_lower().contains("drown"), "the opening's lines do not say drown")
 	# the card rises to the screen's top only where the HUD's plates leave it room
 	t.ok(HudLogic.sidebar_top(1600.0, 338.0, 1000.0, 12.0, 150.0, 12.0) == 12.0, "1600 wide, plates end at 1000: the card starts at the top")
