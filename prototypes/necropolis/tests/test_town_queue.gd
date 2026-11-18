@@ -30,7 +30,8 @@ func run() -> int:
 	return t.failures
 
 
-## P2's queue fields when present (queue_slots, queue_list_max), today's count as the fallback (TODO(P2 merge)).
+## P2's queue fields (queue_slots, queue_list_max), read directly: a gated entry holds no slot, and the list caps at
+## queue_list_max.
 func _p2_counts() -> void:
 	var rows := [{"status": "skipped_gate"}, {"status": "next"}, {"status": "queued"}]
 	var p2 := {"queue": rows, "queue_max": 2, "queue_slots": 2, "queue_list_max": 4}
@@ -38,14 +39,17 @@ func _p2_counts() -> void:
 	p2["queue"] = rows + [{"status": "skipped_gate"}]
 	t.ok(BuildSort.queue_list_full(p2), "P2: the list at queue_list_max is full")
 	t.ok(BuildSort.queue_slots_text(p2, vcfg) == "2 of 2 slots", "P2: the title counts slot-holding rows (%s)" % BuildSort.queue_slots_text(p2, vcfg))
-	var old := {"queue": rows, "queue_max": 3}
-	t.ok(BuildSort.queue_list_full(old) and BuildSort.queue_slots_text(old, vcfg) == "3 of 3 slots",
-		"today (no P2 fields): every row counts toward queue_max")
-	t.ok(not BuildSort.queue_list_full({"queue": rows}) and BuildSort.queue_slots_text({"queue": rows}, vcfg) == "",
-		"no queue_max in the view: never full by our count, no slots text")
+	var no_p2 := {"queue": rows, "queue_max": 3}
+	t.ok(not BuildSort.queue_list_full(no_p2) and BuildSort.queue_slots_text(no_p2, vcfg) == "",
+		"a view without P2's fields: no count of ours (the old every-row rule is gone)")
+	var ws := {"status": "skipped_gate", "reason": "wait_slot", "building_id": "house", "lot_id": "lot-05"}
+	t.ok(BuildSort.is_gate_wait(ws, vcfg) and BuildSort.skip_text(ws, {}, {}, cfg["buildings_view"], vcfg) == "queued: waits for a slot",
+		"P3's wait_slot reads as a wait in its place: '%s'" % BuildSort.skip_text(ws, {}, {}, cfg["buildings_view"], vcfg))
+	t.ok(String(BuildSort.ghosts([ws], {}, {}, cfg["buildings_view"], vcfg)[0]["shape"]) == "plain", "a slot wait's ghost is plain, not struck")
 	var s := _state("day1")
 	var town := s.view_town()
-	t.ok(town.has("queue_max") and BuildSort.queue_slots_text(town, vcfg) == "0 of %d slots" % int(town["queue_max"]),
+	t.ok(town.has("queue_slots") and town.has("queue_list_max"), "the live view has P2's fields")
+	t.ok(BuildSort.queue_slots_text(town, vcfg) == "0 of %d slots" % int(town["queue_max"]) and not BuildSort.queue_list_full(town),
 		"the live view: '%s'" % BuildSort.queue_slots_text(town, vcfg))
 
 

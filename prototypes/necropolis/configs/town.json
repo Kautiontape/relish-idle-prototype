@@ -539,7 +539,7 @@
       "join": " · ", "button": "To the realm"
     },
     "queue_text": {
-      "_doc": "The Build tab's queue (view_town().queue and its commands). A gated entry waits in its place (IDLE §5): gate_wait words its gate, `skipped` any other skip (lot_taken and the like). affordable_in_s (R2) sets the start: 0 now, > 0 a wait, -1 never at today's income (with the row's starved/lever, starved_why). queued_ok reports a queued entry's own affordable_in_s.",
+      "_doc": "The Build tab's queue (view_town().queue and its commands). A gated entry waits in its place (IDLE §5): gate_wait words its gate (wait_slot: a buildable entry past the first queue_max slot-holders, waiting for one), `skipped` any other skip (lot_taken and the like). affordable_in_s (R2) sets the start: 0 now, > 0 a wait, -1 never at today's income (with the row's starved/lever, starved_why). queued_ok reports a queued entry's own affordable_in_s.",
       "title": "Queue: builds start on their own, in order, while you're away too",
       "not_queued": "Not queued: {why}.",
       "queue_moved": "The queue moved on (that entry started or changed place): nothing was sent. Look again.",
@@ -548,7 +548,8 @@
         "lot_locked": "queued: waits for its lot to open at a higher tier",
         "needs_blueprint": "queued: waits for the {label} blueprint (dungeon loot)",
         "needs_building": "queued: waits for a {building}",
-        "no_relics": "queued: waits for {n} {unit}: raid a fort"
+        "no_relics": "queued: waits for {n} {unit}: raid a fort",
+        "wait_slot": "queued: waits for a slot"
       },
       "skipped": "skipped: {why}",
       "afford_in": "affordable in ~{t}",
@@ -708,6 +709,7 @@
       "to_party": "Party",
       "to_foreman": "Foreman at…",
       "to_siege": "Siege…",
+      "siege_line": "Siege: blocks {pct}% of a tithe wave here, no kills; a second adds nothing",
       "held": "held",
       "lot_option": "{label} · {lot}",
       "taken": "{label} · foreman {name}",

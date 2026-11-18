@@ -365,6 +365,11 @@ static func remnant_label(r: Dictionary, sep := " · ") -> String:
 	return "%s %d%s%s" % [String(r.get("aspect", "")), int(r.get("magnitude", 0)), sep, String(r.get("rarity", ""))]
 
 
+## What a siege does (crypt texts' siege_line, {pct} the share of a tithe wave one siege blocks, `block` 0..1).
+static func siege_line(texts: Dictionary, block: float) -> String:
+	return String(texts.get("siege_line", "")).format({"pct": roundi(block * 100.0)})
+
+
 ## The siege choices: forts [{id, name, held}], held ones first, world order kept within each.
 static func siege_forts(forts: Array) -> Array:
 	var held: Array = []

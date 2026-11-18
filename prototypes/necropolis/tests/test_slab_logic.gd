@@ -353,6 +353,11 @@ func _place(t: TestUtil, texts: Dictionary) -> void:
 	t.ok(CryptLogic.place_text("fort:greywall", lots, forts, texts) == String(p["fort"]).format({"name": "Greywall"}),
 		"an unnamed fort falls back to its capitalised id")
 	t.ok(CryptLogic.place_text("void", lots, forts, texts) == "void", "anything else shows as it is")
+	var block := float(TestUtil.configs()["realm"]["tithe"]["siege_block"])
+	var sl := CryptLogic.siege_line(texts, block)
+	t.ok(sl == "Siege: blocks %d%% of a tithe wave here, no kills; a second adds nothing" % roundi(block * 100.0),
+		"the Siege menu's line reads its share from realm.json tithe.siege_block (as the map's chip does): '%s'" % sl)
+	t.ok(CryptLogic.siege_line(texts, 0.25).contains("blocks 25%"), "the share follows the config, never a fixed 60")
 
 
 # --- names ---------------------------------------------------------------------

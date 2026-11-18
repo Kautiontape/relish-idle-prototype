@@ -126,6 +126,12 @@ func _tx(key: String) -> String:
 	return String(_t.get(key, key))
 
 
+## What a siege does, the map's chip in the town's words: "Siege: blocks 60% of a tithe wave here, no kills; a second
+## adds nothing", the share read from realm.json tithe.siege_block.
+func _siege_line() -> String:
+	return CryptLogic.siege_line(_t, float(ConfigDb.data.get("realm", {}).get("tithe", {}).get("siege_block", 0.0)))
+
+
 ## The glossary's one line for "husk" (view.guide.jargon), the tooltip wherever the word first shows in this tab.
 func _husk_gloss() -> String:
 	return String(_vcfg_view.get("guide", {}).get("jargon", {}).get("husk", ""))
@@ -774,6 +780,8 @@ func _make_row(uid: String) -> Dictionary:
 		var b := TownUI.button(_tx(pair[1]))
 		b.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		b.pressed.connect(_on_place_btn.bind(uid, pair[0]))
+		if pair[0] == "siege":
+			b.tooltip_text = _siege_line()
 		btns.add_child(b)
 		row[pair[0]] = b
 	col.add_child(note)
@@ -813,7 +821,10 @@ func _update_row(row: Dictionary, e: Dictionary, place_ctx: Array) -> void:
 		CryptLogic.place_text(place, place_ctx[0], _views.get("fort_names", {}), _t)]
 	var placed_note := CryptLogic.place_note(place, _t)  # a foreman's boost is "coming": said on its placed line too
 	(row["info"] as Label).text = _tx("sep").join(parts) + ("\n" + placed_note if placed_note != "" else "")
-	(row["note"] as Control).visible = row["mode"] == "foreman"
+	var note: Label = row["note"]  # what the open chooser's choice does: a foreman's boost, or a siege's block
+	note.visible = row["mode"] in ["foreman", "siege"]
+	if note.visible:
+		note.text = _tx("foreman_coming") if row["mode"] == "foreman" else _siege_line()
 	var st: Array = []
 	for s in SlabLogic.STATS:
 		st.append("%s %s" % [s, CryptLogic.fmt_stat(float(e.get("stats", {}).get(s, 0.0)))])
