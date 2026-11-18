@@ -82,6 +82,8 @@ var _bar_plate: ColorRect
 var _obj_plate: ColorRect
 var _items: Array = []  # [{box, name, rate, stock, cap}] per stream, built on the first read
 var _odds: Label
+var _odds_name: Label  # the ODDS word, whose tip follows whether the game reports backups
+var _odds_tip := ""  # the tip id on _odds_name now, so a refresh re-applies only on a change
 var _sign: Label
 var _drain: Label
 var _tithe: Label
@@ -349,6 +351,8 @@ func _build_bar(items: Array) -> void:
 	MapType.style_label(odds_name)
 	odds_name.text = str(cfg["cards"]["vei_odds_label"])
 	HudLogic.apply_tip(odds_name, "odds")
+	_odds_name = odds_name
+	_odds_tip = "odds"
 	_odds = _bar_label(status)
 	MapType.style_mass(_odds)
 	# the ▲/▼ is the backlog's sign, labelled as her strain: the odds are mostly time and can climb on a ▼
@@ -494,8 +498,13 @@ func refresh(force := false) -> void:
 			if warn.text != line:
 				warn.text = line
 				warn.visible = line != ""
-	var st := HudLogic.status(model.readout())
+	var ro := model.readout()
+	var st := HudLogic.status(ro)
 	_odds.text = st["odds_text"]
+	var odds_tip := HudLogic.odds_tip_id(int(ro["backups"]))
+	if odds_tip != _odds_tip:
+		_odds_tip = odds_tip
+		HudLogic.apply_tip(_odds_name, odds_tip)
 	_sign.text = st["sign_text"]
 	_sign.add_theme_color_override("font_color", Palette.c(_sign_key(int(st["sign"]))))
 	_drain.text = st["drain_text"]

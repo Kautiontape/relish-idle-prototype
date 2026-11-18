@@ -184,7 +184,7 @@ func _tips_on_nodes(t: TestUtil) -> void:
 	# the helper the bar's words use, on real nodes
 	for node in [Label.new(), Button.new()]:
 		node.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		for id in ["mint", "odds", "strain", "drain"]:
+		for id in ["mint", "odds", "odds_backups", "strain", "drain"]:
 			HudLogic.apply_tip(node, id)
 			t.ok(node.tooltip_text == HudLogic.tip(id) and node.tooltip_text != "" and node.mouse_filter == Control.MOUSE_FILTER_PASS, "apply_tip(%s, %s): the glossary line, hover passed on" % [node.get_class(), id])
 		var plain: Control = node.duplicate()
@@ -219,7 +219,7 @@ func _clarity(t: TestUtil) -> void:
 	t.ok(hits.is_empty(), "no map_view.json string calls the whole game 'the run': %s" % str(hits))
 	t.ok(JSON.stringify(MapLogic.cfg()).contains("\"busy\":\"A raid is already open\""), "a busy refusal says raid")
 	t.ok(not goal.to_lower().contains("drown"), "no 'drown Vei' on the goal line")
-	for id in ["mint", "odds", "strain", "drain", "work", "war", "flood"]:
+	for id in ["mint", "odds", "odds_backups", "strain", "drain", "work", "war", "flood"]:
 		t.ok(HudLogic.tip(id) != "", "%s has a tooltip line" % id)
 	t.ok(HudLogic.tip("nothing") == "", "an unknown word has none")
 	t.ok(HudLogic.tip("mint").contains("Raising Pit"), "MINT says where undead come from")
@@ -231,7 +231,12 @@ func _clarity(t: TestUtil) -> void:
 	t.ok(HudLogic.tip("war") == war_line and HudLogic.tip("flood") == war_line, "the WAR and FLOOD tips are the glossary's full line verbatim")
 	t.ok(HudLogic.tip("strain") == "How backed up Vei's queue is. ▲ means it's growing (FLOOD is clogging it); ▼ means she's working it down.", "the STRAIN tip is the glossary's line verbatim")
 	t.ok(HudLogic.tip("drain") == "How long until Vei's queue empties at this rate. ∞ means it isn't emptying.", "the DRAIN tip is the glossary's line verbatim")
-	t.ok(HudLogic.tip("odds") == "Your chance to beat Vei if you faced her now. It grows with time, with her clogged queue and with your backups.", "the ODDS tip is the glossary's line verbatim")
+	t.ok(HudLogic.tip("odds") == "Your chance to beat Vei if you faced her now. It grows with time and with her clogged queue.", "the ODDS tip is the pre-P3 line verbatim")
+	t.ok(HudLogic.tip("odds_backups") == "Your chance to beat Vei if you faced her now. It grows with time, with her clogged queue and with your backups.", "the ODDS-with-backups tip is the glossary's line verbatim")
+	t.ok(not HudLogic.tip("odds").contains("backups"), "the plain ODDS tip never names backups")
+	t.ok(HudLogic.odds_tip_id(-1) == "odds" and HudLogic.odds_tip_id(0) == "odds_backups" and HudLogic.odds_tip_id(4) == "odds_backups", "odds_tip_id: backups unknown (-1) is the plain tip, any reported count the backups one")
+	var odds_src := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
+	t.ok(odds_src.contains("HudLogic.odds_tip_id(int(ro[\"backups\"]))") and odds_src.contains("HudLogic.apply_tip(_odds_name, odds_tip)"), "map_hud.gd re-applies the ODDS tip from odds_tip_id on a refresh")
 	t.ok(HudLogic.tip("work") == "WORK: your town's jobs", "the WORK tip stands")
 	# the legend: clear of the chip and the valve, collapses with no room, unchanged with plenty
 	var chip := Rect2(12, 200, 330, 35)

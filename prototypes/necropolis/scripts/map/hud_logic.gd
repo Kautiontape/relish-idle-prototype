@@ -182,6 +182,12 @@ static func tip(id: String) -> String:
 	return str(MapLogic.cfg().get("clarity", {}).get("tips", {}).get(id, ""))
 
 
+## Which ODDS tip the bar shows: "odds_backups" once view_hud reports backups (economy P3; `backups` is
+## MapModel.readout()'s, -1 when unknown), else "odds", which doesn't claim the odds count them.
+static func odds_tip_id(backups: int) -> String:
+	return "odds_backups" if backups >= 0 else "odds"
+
+
 ## The hover line `id` on a Label or Button: its tooltip is tip(id) and it passes the mouse on (a Control
 ## that ignores the mouse shows no tooltip). A word with no line is left as it was.
 static func apply_tip(c: Control, id: String) -> void:

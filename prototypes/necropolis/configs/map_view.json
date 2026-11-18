@@ -563,7 +563,8 @@
     "tooltip": {"plate_alpha": 0.97, "pad_px": 6, "size_px": 14, "text_key": "text", "gap_px": 6, "margin_px": 8, "delay_s": 0.5, "max_w_px": 420, "z_index": 100},
     "tips": {
       "mint": "Mint: the undead your Raising Pits make each second. The map's valve splits it into WORK (your town's jobs), WAR (your forts) and FLOOD (Vei's queue).",
-      "odds": "Your chance to beat Vei if you faced her now. It grows with time, with her clogged queue and with your backups.",
+      "odds": "Your chance to beat Vei if you faced her now. It grows with time and with her clogged queue.",
+      "odds_backups": "Your chance to beat Vei if you faced her now. It grows with time, with her clogged queue and with your backups.",
       "strain": "How backed up Vei's queue is. ▲ means it's growing (FLOOD is clogging it); ▼ means she's working it down.",
       "drain": "How long until Vei's queue empties at this rate. ∞ means it isn't emptying.",
       "work": "WORK: your town's jobs",
