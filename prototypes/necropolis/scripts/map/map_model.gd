@@ -263,12 +263,20 @@ func _update_margin_sig() -> void:
 
 ## Whether they are winning: the one reading the top bar and Vei's node both draw. Odds, sign and
 ## drain_s come from view_hud, the backlog from view_vei; the demo overlay writes the same two.
+## (Her queue stack is drawn from drawn_backlog, not this backlog.)
 ## `odds` is what the player reads (Phase I P3: the first-attempt estimate); `readiness` is what decisions read (the old
 ## win odds; view_hud's `odds` when it has no `readiness`, before P3); `backups` is view_hud's, -1 when unknown.
 func readout() -> Dictionary:
 	return {"odds": float(hud.get("odds", 0.0)), "readiness": float(hud.get("readiness", hud.get("odds", 0.0))),
 		"backups": int(hud.get("backups", -1)), "sign": int(hud.get("sign", 0)),
 		"drain_s": float(hud.get("drain_s", -1.0)), "backlog": float(vei.get("backlog", 0.0))}
+
+
+## The backlog Vei's queue stack is drawn from, and every place that keeps room for it (her rings and "+N",
+## her name, her reach, the lanes' ends at her, the chips' obstacles, the camera fit): 0 once won
+## (NodeLogic.drawn_backlog).
+func drawn_backlog() -> float:
+	return NodeLogic.drawn_backlog(float(vei.get("backlog", 0.0)), hud)
 
 
 static func to_vec(a) -> Vector2:
@@ -344,7 +352,7 @@ func content_rect() -> Rect2:
 ## Vei with her whole backlog stack, grown by fit_pad_px, and her reading either side (world px).
 func _vei_rect() -> Rect2:
 	var cfg := MapLogic.cfg()
-	var r := NodeLogic.outer_radius("vei", 0, float(realm["vei"].get("radius", 0.0)), float(vei.get("backlog", 0.0))) + float(cfg["fit_pad_px"])
+	var r := NodeLogic.outer_radius("vei", 0, float(realm["vei"].get("radius", 0.0)), drawn_backlog()) + float(cfg["fit_pad_px"])
 	var read := float(cfg["fit_vei_reading_px"])
 	return Rect2(node_pos(VEI) - Vector2(r + read, r), Vector2((r + read) * 2.0, r * 2.0))
 

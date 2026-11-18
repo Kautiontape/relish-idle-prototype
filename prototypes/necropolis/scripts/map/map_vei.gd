@@ -26,7 +26,7 @@ func _draw_static() -> void:
 	var ro := NodeLogic.vei_struct_radius(ctx.vei_radius)
 	draw_circle(vp, float(n["vei_core_px"]), Palette.c("vei"))
 
-	var b := NodeLogic.backlog_rings(float(ctx.vei.get("backlog", 0.0)))
+	var b := NodeLogic.backlog_rings(ctx.model.drawn_backlog())
 	var first := ro + float(n["backlog_first_gap_px"])
 	var step := float(n["backlog_step_px"])
 	for i in int(b["rings"]):
@@ -64,7 +64,7 @@ func static_sig():
 		var size := int(MapLogic.cfg()["font_label"])
 		var vname := str(NodeLogic.node_names()["vei"])
 		lsig = NodeLogic.vei_label_sig(ctx.vei_pos.x, _r_out(), MapNodeLayer.label_width(vname, size, false), _readout_widths(), size, ctx.zoom, ctx.panel)
-	return [NodeLogic.backlog_rings(float(ctx.vei.get("backlog", 0.0))), ctx.vei_radius,
+	return [NodeLogic.backlog_rings(ctx.model.drawn_backlog()), ctx.vei_radius,
 		NodeLogic.fmt_odds(float(r.get("odds", 0.0))), int(r.get("sign", 0)),
 		NodeLogic.drain_line(float(r.get("backlog", 0.0)), float(r.get("drain_s", -1.0))), ctx.selected_id == "vei", lsig, _readout_shown()]
 
@@ -77,7 +77,7 @@ func _readout_shown() -> bool:
 ## The outer ring of her backlog stack (world px): where the readout and her name start.
 func _r_out() -> float:
 	var n := NodeLogic.ncfg()
-	var b := NodeLogic.backlog_rings(float(ctx.vei.get("backlog", 0.0)))
+	var b := NodeLogic.backlog_rings(ctx.model.drawn_backlog())
 	return NodeLogic.vei_struct_radius(ctx.vei_radius) + float(n["backlog_first_gap_px"]) + maxi(int(b["rings"]) - 1, 0) * float(n["backlog_step_px"])
 
 

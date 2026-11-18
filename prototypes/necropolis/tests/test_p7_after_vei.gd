@@ -26,8 +26,50 @@ func run() -> int:
 	_catalog_rows_refresh()
 	_after_21()
 	_won_away()
+	_won_queue()
 	_clean()
 	return t.failures
+
+
+## Ruling 1 (Session 3's open 1): once won, Vei's queue stack is drawn from no backlog: no rings, no "+N", and no
+## room kept for them. The control is pre_vei before the win (her stack drawn from her backlog); won and 10 min on,
+## her queue is still past a ring (#21: it grows) but MapModel.drawn_backlog is 0, so her reach is her structure's
+## and beat ring's alone. Every site that drew the stack or kept room for it reads drawn_backlog (source pins: the
+## scenes can't load headless). Revert proof: vei_queue_shown always true.
+func _won_queue() -> void:
+	MapLogic.configure(cfg["map_view"])
+	var c := GameState.new(cfg)
+	c.debug_enabled = true
+	c.cmd_debug_load_fixture("pre_vei")
+	var cm := MapModel.new(c)
+	cm.refresh(true)
+	var cb := NodeLogic.backlog_rings(cm.drawn_backlog())
+	t.ok(cm.drawn_backlog() == float(cm.vei["backlog"]) and int(cb["rings"]) > 0,
+		"the control: before the win her stack is drawn from her backlog (%d rings, +%d)" % [cb["rings"], cb["overflow"]])
+	var s := _won_state()
+	for i in 10:
+		s.tick(60.0, s.max_substeps_per_frame())
+	s.drain_events()
+	var m := MapModel.new(s)
+	m.refresh(true)
+	var backlog := float(m.vei["backlog"])
+	var full := NodeLogic.backlog_rings(backlog)
+	var b := NodeLogic.backlog_rings(m.drawn_backlog())
+	t.ok(bool(m.hud.get("won", false)) and int(full["rings"]) > 0 and m.drawn_backlog() == 0.0 and int(b["rings"]) == 0 and int(b["overflow"]) == 0,
+		"won: her queue (%.0f: %d rings, +%d) is drawn from 0: no rings, no '+N'" % [backlog, full["rings"], full["overflow"]])
+	var r := float(m.realm["vei"]["radius"])
+	t.ok(NodeLogic.vei_reach(r, m.drawn_backlog()) == NodeLogic.vei_reach(r, 0.0) and NodeLogic.vei_reach(r, 0.0) < NodeLogic.vei_reach(r, backlog),
+		"won: her reach keeps no room for the stack (%.1f, not %.1f)" % [NodeLogic.vei_reach(r, 0.0), NodeLogic.vei_reach(r, backlog)])
+	var sites := {"map_vei": 3, "map_fort_idle": 2, "map_nodes": 1, "map_routes": 1, "map_setpieces": 1}
+	var missed: Array = []
+	for f in sites:
+		var src := FileAccess.get_file_as_string("res://scripts/map/%s.gd" % f)
+		if src.count("drawn_backlog()") != int(sites[f]) or src.contains("vei.get(\"backlog\"") or src.contains("vei[\"backlog\"]"):
+			missed.append(f)
+	var model_src := FileAccess.get_file_as_string("res://scripts/map/map_model.gd")
+	if not model_src.contains("float(realm[\"vei\"].get(\"radius\", 0.0)), drawn_backlog()) + float(cfg[\"fit_pad_px\"])"):
+		missed.append("map_model (_vei_rect)")
+	t.ok(missed.is_empty(), "every site that draws her stack or keeps room for it reads drawn_backlog (missed: %s)" % str(missed))
 
 
 ## The away panel on a won game (handoff-10 item 1; reports/screens/after/p7-map-reload-vei.png had "Vei's queue ▲
