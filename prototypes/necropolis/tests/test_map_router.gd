@@ -35,7 +35,8 @@ func _stale(t: TestUtil) -> void:
 	t.ok(int(s.view_relish()["run_id"]) == rid and not RouterLogic.result_stale("raid", s.view_relish()), "(i) the run is open: a raid result is not stale")
 	t.ok(not RouterLogic.result_stale("boss", s.view_relish()), "(iii) a boss result is never stale by this rule (open run)")
 	# a VALID raid result for the open run, built before the gap (a bare stand-in fails Results.validate first)
-	var valid := StateRuns.end_result(s.run, {}, "retreated")
+	var valid := StateRuns.end_result(s.run, StateRuns.empty_loot(), "retreated")
+	t.ok(Results.validate("raid", valid).is_empty(), "the stand-in built before the gap passes Results.validate")
 	# a gap above idle.gap_s ends the run inside its frame (IDLE I5)
 	var gap := float(TestUtil.configs()["economy"]["idle"]["gap_s"]) * 4.0
 	s.tick(gap, s.max_substeps_per_frame())
