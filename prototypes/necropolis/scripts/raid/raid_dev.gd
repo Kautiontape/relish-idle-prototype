@@ -5,8 +5,13 @@ extends RefCounted
 ## Flags: --raid-fixture=<fixture>,<fort_id> (needs --new-game: all worktrees share user://),
 ## --raid-stress=N [--raid-stress-door] (the crowd pushed through a doorway), --raid-perf, --raid-autoexit=<frames>, --raid-autodie=<frames>,
 ## --raid-held-shot=<png> (with --raid-held and the autopilot: a screenshot 0.3 s into the clear set piece), --raid-motes=N, --raid-trance-hold (open the trance at start), --raid-held, --raid-warden (Relish starts in the antechamber),
+## --raid-trace-demo=<frac> (with --raid-trance-hold and --raid-motes=N: a scripted loop is drawn through the trance's real tracing path, one point per frame,
+##   around the motes with a slight wobble; frac of a turn: under 1 it stops mid-draw and holds, 1 or more releases it; prints TRACE_DEMO frame= score= motes= tier= released=),
 ## --raid-greyscale (the greyscale check over the screen), --raid-autodie-src=<slam|lunge|bash|fire|living> (who the autodie hit names on the death card),
-## --raid-clones=<n> / --raid-death-ends=<clone|unmade>:<respawn_s> (the death card's AFTER row: clones_ready, or the injected seed key),
+## --raid-held-fight=<px> (with --raid-held: prints HELD_DEMO frame=<f> ... the first frame a living foe is within px of Relish, an ally beside her),
+## --raid-phylactery=<n> (the standalone seed's phylactery charges: with --raid-autodie=<frames> she is struck down and revived in place;
+##   prints REVIVE_DEMO frame=<f> charges_left=<n> when a revive happens),
+## --raid-clones=<n> (also on a fixture's run seed) / --raid-death-ends=<clone|unmade>:<respawn_s> (the death card's AFTER row: clones_ready, or the injected seed key),
 ## --raid-archetype=<id> (demo seed's warden), --raid-big-speed=<n> (demo party big undead),
 ## --raid-ding-chance=<p> (every tier's ding chance, to see dings), --raid-warden-go (with it: Relish walks into the warden room, then to the chest),
 ## --raid-warden-fell=<frames> (the warden falls that many frames after it wakes: with --raid-warden-go, the clear beat's shots),
@@ -30,7 +35,9 @@ var _stress := 0                # --raid-stress=N
 var _autoexit := -1             # --raid-autoexit=<frames>
 var _autodie := -1              # --raid-autodie=<frames>
 var _go := false                # --raid-warden-go autopilot
-var _run_ended := -1            # --raid-run-ended=<frames>: the frame a synthetic run_ended goes out (-1 off)
+var _held_fight := 0            # --raid-held-fight=<px>: print HELD_DEMO once a living foe is within px of Relish (0 off)
+var _demo_frac := -1.0          # --raid-trace-demo=<frac> (-1 off)
+var _run_ended := -1           # --raid-run-ended=<frames>: the frame a synthetic run_ended goes out (-1 off)
 var _fell := -1               # --raid-warden-fell=<frames>: frames after the wake, the warden falls (the clear card's shots)
 var _woke_at := -1
 var _ap: RaidAutopilot = null   # --raid-autopilot=<score>: the headless measuring bot
@@ -119,6 +126,23 @@ static func profile_seed(cfg: Dictionary) -> Dictionary:
 	return {}
 
 
+## `--raid-phylactery=<n>` (DEV, the backup-saves-Relish shot): the standalone seed carries n phylactery charges
+## (and a max_per_dungeon of at least n, so n of them can be spent). Applies to a fixture's run seed and the demo seed
+## alike; returns a copy, or `sd` itself without the flag. Pair with --raid-autodie=<frames>.
+static func apply_phylactery(sd: Dictionary) -> Dictionary:
+	var p := cli_value("--raid-phylactery=")
+	var cl := cli_value("--raid-clones=")   # also on a fixture's run seed (the demo seed gets it in apply_demo_overrides)
+	if (p == "" and cl == "") or sd.is_empty():
+		return sd
+	var out := sd.duplicate(true)
+	if p != "":
+		out["phylactery_charges"] = maxi(0, int(p))
+		out["phylactery_max_per_dungeon"] = maxi(int(out.get("phylactery_max_per_dungeon", 1)), int(p))
+	if cl != "":
+		out["clones_ready"] = maxi(0, int(cl))
+	return out
+
+
 ## Standalone demo seed overrides: `--raid-archetype=<id>` swaps the warden archetype and
 ## `--raid-big-speed=<n>` sets the party big undead's speed stat (to test the Huntsman's intercept).
 static func apply_demo_overrides(sd: Dictionary) -> void:
@@ -152,11 +176,15 @@ func start() -> void:
 	_autoexit = int(cli_value("--raid-autoexit=")) if cli_value("--raid-autoexit=") != "" else -1
 	_autodie = int(cli_value("--raid-autodie=")) if cli_value("--raid-autodie=") != "" else -1
 	_run_ended = int(cli_value("--raid-run-ended=")) if cli_value("--raid-run-ended=") != "" else -1
+	if cli_value("--raid-trace-demo=") != "" and not _raid.is_boss():
+		_demo_frac = float(cli_value("--raid-trace-demo="))
 	if cli_flag("--raid-warden") and not _raid.is_boss():
 		_place_in_antechamber()
 	if cli_flag("--raid-assist"):
 		RaidLogic.assist_on = true
 	_go = cli_flag("--raid-warden-go")
+	if cli_value("--raid-held-fight=") != "" and _raid.held and not _raid.is_boss():
+		_held_fight = maxi(1, int(cli_value("--raid-held-fight=")))
 	_fell = int(cli_value("--raid-warden-fell=")) if cli_value("--raid-warden-fell=") != "" else -1
 	if RaidAutopilot.enabled() and not _raid.is_boss():
 		_ap = RaidAutopilot.new(_raid)
@@ -203,12 +231,16 @@ func tick() -> void:
 			"kind": "boss" if _raid.is_boss() else "raid", "outcome": "retreated", "cause": "gap"})
 	if _autodie > 0 and frame > 0 and frame % _autodie == 0 and not _raid._ended and not _raid.is_boss():   # not at frame 0: the first hit at frame N
 		_autodie_hit()
+	if _held_fight > 0 and not _raid._ended:
+		_held_fight_tick(frame)
 	if _perf:
 		_perf_sample(frame)
 	if _go and not _raid._ended:
 		_autopilot()
 	if _fell >= 0 and not _raid._ended:
 		_fell_tick(frame)
+	if _demo_frac >= 0.0 and _demo_f != -2 and not _raid._ended:
+		_demo_tick(_demo_frac)
 
 
 ## Hook 3: every physics frame of a live run (the measuring bot's think step).
@@ -275,6 +307,28 @@ func _fell_tick(frame: int) -> void:
 		w.take_hit(w.max_hp * 1000.0)   # past any ward or pack multiplier
 
 
+## --raid-held-fight=<px> (a held raid): once, the first frame Relish stands with an ally beside her and a living foe of the
+## counter-garrison within px of her, print `HELD_DEMO frame=<f> nearest_px=<d> living_left=<m> on_screen=<k> allies=<a> hp=<h>`:
+## the frame to shoot a re-raid mid-fight (the goal block says YOUR FORT the whole run). Reads only; touches nothing.
+func _held_fight_tick(frame: int) -> void:
+	if not _raid.relish.alive or _raid.allies.is_empty():
+		return
+	var view := _raid.get_viewport().get_visible_rect()
+	var on_screen := 0
+	var left := 0
+	var nearest := INF
+	for e in _raid.enemies:
+		if is_instance_valid(e) and e.alive:
+			left += 1
+			nearest = minf(nearest, (e as Node2D).global_position.distance_to(_raid.relish.global_position))
+			if view.has_point((e as Node2D).get_global_transform_with_canvas().origin):
+				on_screen += 1
+	if nearest <= float(_held_fight):
+		_held_fight = 0
+		print("HELD_DEMO frame=%d nearest_px=%d living_left=%d on_screen=%d allies=%d hp=%.1f" % [
+			frame, int(nearest), left, on_screen, _raid.allies.size(), _raid.relish.hp])
+
+
 ## Kill every ally and deal Relish a lethal hit (a revive, then the run's end).
 func _autodie_hit() -> void:
 	for a in _raid.allies.duplicate():
@@ -299,6 +353,75 @@ func _spawn_loot_sample() -> void:
 		pk.position = _raid.resolve_walls(_raid.relish.position + Vector2(-105.0 + 70.0 * i, -120.0), 10.0)
 		_raid.units_root.add_child(pk)
 		i += 1
+
+
+## --raid-trace-demo=<frac>: once the trance is open, a scripted loop through the trance's real tracing path
+## (synthetic left-button and mouse-motion events in screen coordinates into trance.handle_input), one point per
+## frame, centred on Relish and wide enough to enclose the dev motes, with a deterministic wobble (a soldier-band
+## score). `frac` of a full turn: under 1 it stops mid-draw and holds, 1 or more it goes on to the release.
+const DEMO_TURN_FRAMES := 90
+const DEMO_WOBBLE := 0.09
+const DEMO_MARGIN_PX := 28.0
+var _demo_f := -1               # frames drawn so far (-1 not started, -2 done)
+var _demo_c := Vector2.ZERO
+var _demo_r := 0.0
+
+
+func _demo_world(f: int) -> Vector2:
+	var th := -PI / 2.0 + TAU * float(f) / float(DEMO_TURN_FRAMES)
+	return _demo_c + Vector2(_demo_r * (1.0 + DEMO_WOBBLE * sin(3.0 * th + 0.7)), 0.0).rotated(th)
+
+
+func _demo_event(pos_world: Vector2, kind: String, pressed := true) -> void:
+	var xf: Transform2D = _raid.get_canvas_transform()
+	var ev: InputEvent
+	if kind == "motion":
+		ev = InputEventMouseMotion.new()
+	else:
+		ev = InputEventMouseButton.new()
+		ev.button_index = MOUSE_BUTTON_LEFT
+		ev.pressed = pressed
+	ev.position = xf * pos_world
+	_raid.trance.handle_input(ev)
+
+
+func _demo_report(released: bool) -> void:
+	var tr: RaidTrance = _raid.trance
+	var g := CircleScorer.grade(tr.trace) if tr.trace.size() >= 3 else {"valid": false, "score": 0}
+	var n := 0
+	if g["valid"]:
+		n = _raid.raiser.motes_inside(g["center"], float(g["radius"])).size()
+	print("TRACE_DEMO frame=%d score=%d motes=%d tier=%s released=%s" % [Engine.get_process_frames(), int(g["score"]), n,
+		RaidLogic.score_class(int(g["score"]), _raid.rcfg()), str(released).to_lower()])
+
+
+func _demo_tick(frac: float) -> void:
+	var tr: RaidTrance = _raid.trance
+	if _demo_f == -1:
+		if tr.state != RaidTrance.State.ACTIVE:
+			return
+		var far := 0.0
+		_demo_c = _raid.relish.global_position
+		for e in _raid.get_tree().get_nodes_in_group("raid_essence"):
+			far = maxf(far, e.global_position.distance_to(_demo_c))
+		_demo_r = maxf(far, 40.0) + DEMO_MARGIN_PX
+		_demo_event(_demo_world(0), "button")
+		_demo_f = 0
+		return
+	if _demo_f < 0:
+		return
+	var total := int(round(frac * DEMO_TURN_FRAMES))
+	if _demo_f < total:
+		_demo_f += 1
+		_demo_event(_demo_world(_demo_f), "motion")
+		return
+	if frac >= 1.0:
+		_demo_report(true)   # graded as the release will grade it
+		_demo_event(_demo_world(_demo_f), "button", false)
+		print("TRACE_DEMO raises=%d" % _raid.raises)
+	else:
+		_demo_report(false)
+	_demo_f = -2
 
 
 ## N fresh motes (mass 1) around Relish.

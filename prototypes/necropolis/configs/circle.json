@@ -12,7 +12,7 @@
   "seal_arc_deg": 270,
   "tail_weight": 0.15,
   "tail_penalty_at_frac": 0.6,
-  "feedback_hold_s": 0.7,
+  "feedback_hold_s": 1.4,
   "absorb_start_speed_px": 90,
   "absorb_accel_px": 2400,
   "grow_time_s": 0.5,

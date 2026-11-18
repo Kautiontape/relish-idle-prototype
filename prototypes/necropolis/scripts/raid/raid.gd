@@ -137,6 +137,8 @@ func _resolve_seed(args: Dictionary) -> Dictionary:
 		_from_run = false
 	else:
 		_from_run = true
+	if standalone:
+		sd = RaidDev.apply_phylactery(sd)   # dev: --raid-phylactery=<n> (a run seed too, not only the demo seed)
 	if standalone and RaidAutopilot.enabled():
 		RaidAutopilot.apply_seed(sd)
 	for e in Results.validate("raid_seed", sd):

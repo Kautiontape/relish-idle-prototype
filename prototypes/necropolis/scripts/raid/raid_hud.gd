@@ -9,6 +9,8 @@ extends CanvasLayer
 
 var raid: Node = null
 
+var trace_overlay: RaidTraceOverlay = null   # the loop's screen-space readouts (the trance and the feedback feed it)
+
 var _title: Label
 var _stats: StatBlock
 var _hint: Label
@@ -262,6 +264,21 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	if not boss_mode:
 		_banner.offset_top = 116.0   # its own row under the push line (up to two lines), so neither can run into the other
 	_banner_top = _banner.offset_top
+	# the loop's readouts (RaidTraceOverlay): drawn over every HUD control above, under the retreat panel and under
+	# the death, clear and Vei cards (added to this layer later, so after it)
+	trace_overlay = RaidTraceOverlay.new()
+	trace_overlay.raid = raid
+	trace_overlay.hud = self
+	add_child(trace_overlay)
+	if _retreat != null:
+		move_child(trace_overlay, _retreat.get_index())
+
+
+## The hint plate's screen rect (empty while it is hidden): the loop's readouts keep off it when they can.
+func hint_plate_rect() -> Rect2:
+	if _hint_plate == null or not _hint_plate.visible:
+		return Rect2()
+	return Rect2(_hint_plate.global_position, _hint_plate.size)
 
 
 func _mk_label(parent: Node, size: int, color: Color) -> Label:
@@ -551,7 +568,9 @@ static func break_rows(raid: Node, sp: Dictionary, meter_n := -1, compact := fal
 	# the bigs the warden's own counter checks count (RaidLogic.counter_party_values): not the one spent on the door's plate
 	var hd = raid.held_door
 	var vals: Array = RaidLogic.counter_party_values(raid.allies, stat, hd.holder if hd != null and hd.committed() else null)
-	rows.append(WardenLogic.counter_line(words, sp, vals, compact))
+	var cl := WardenLogic.counter_line(words, sp, vals, compact)
+	if cl != "":   # "" when the counter changes nothing in this fight (WardenLogic.counter_role)
+		rows.append(cl)
 	return rows
 
 
@@ -910,6 +929,7 @@ class StatBlock:
 	var detail_px := 14                     # the detail lines' size, drawn in full `text`
 	var label_alpha := 0.85                 # the row labels' brightness (text at this alpha)
 	var essence_lines := PackedStringArray()   # hud.stats essence_meaning wrapped to value_w() at detail_px (setup)
+	var key_pile_lines := PackedStringArray()   # hud.stats key_pile wrapped to the plate's inner width at detail_px (setup)
 	var plate_alpha := 0.96
 	var show_key := false
 	var door_lines := PackedStringArray()   # D-e task 6: the held door's DOOR row, wrapped (empty: no row)
@@ -927,9 +947,11 @@ class StatBlock:
 		_plate_w = float(words.get("plate_w", _plate_w))
 		_col = float(words.get("label_col", _col))
 		_val_pad = float(words.get("value_pad", _val_pad))
+		_row = float(words.get("row_px", _row))
 		detail_px = int(words.get("detail_px", 14))
 		label_alpha = float(words.get("label_alpha", 0.85))
 		essence_lines = RaidLogic.wrap_each(PackedStringArray([str(words.get("essence_meaning", ""))]), ThemeDB.fallback_font, detail_px, value_w())
+		key_pile_lines = RaidLogic.wrap_each(PackedStringArray([str(words.get("key_pile", ""))]), ThemeDB.fallback_font, detail_px, _plate_w - 12.0)
 		var rows := 3.0 if boss else 14.0   # living, essence, raised | + 4 ward rows, essence meaning, phylactery, its meaning, banked, unbanked, stakes
 		custom_minimum_size = Vector2(_plate_w, rows * _row + 8.0)
 		if not boss:
@@ -975,7 +997,7 @@ class StatBlock:
 	func _fit() -> void:
 		var loot_extra := maxi(0, banked_lines.size() - 1) + maxi(0, unbanked_lines.size() - 1)
 		var ess_extra := maxi(0, essence_lines.size() - 1)
-		custom_minimum_size = Vector2(_plate_w, (14.0 + float(ess_extra + phyl_extra + loot_extra) +(2.0 if show_key else 0.0) + float(door_lines.size())) * _row + 8.0)
+		custom_minimum_size = Vector2(_plate_w, RaidLogic.stat_block_height(_row, ess_extra, phyl_extra, loot_extra, 1 + key_pile_lines.size() if show_key else 0, door_lines.size()))
 
 	## A floor glyph as the pickups draw it (RaidLoot.floor_glyph shapes), small, at `p`.
 	func _key_glyph(p: Vector2, shape: String, col: Color) -> void:
@@ -997,9 +1019,10 @@ class StatBlock:
 			var g := RaidLoot.floor_glyph(str(k[0]), false)
 			var kw := _word(str(k[1]))
 			_key_glyph(Vector2(x + 6.0, y - 4.0), str(g["shape"]), Palette.c(str(g["key"])))
-			draw_string(f, Vector2(x + 16.0, y), kw, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Palette.c("text_dim"))
-			x += 22.0 + f.get_string_size(kw, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
-		draw_string(f, Vector2(6.0, y + _row), str(words.get("key_pile", "")), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Palette.c("text_dim"))
+			draw_string(f, Vector2(x + 16.0, y), kw, HORIZONTAL_ALIGNMENT_LEFT, -1, detail_px, Palette.c("text"))
+			x += 22.0 + f.get_string_size(kw, HORIZONTAL_ALIGNMENT_LEFT, -1, detail_px).x
+		for i in key_pile_lines.size():
+			draw_string(f, Vector2(6.0, y + _row * float(i + 1)), key_pile_lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, detail_px, Palette.c("text"))
 
 	## The stat block's word `key` (raid.json hud.stats; blank when it has none).
 	func _word(key: String) -> String:
@@ -1116,7 +1139,7 @@ class StatBlock:
 				_draw_key(y + _row)
 			if not door_lines.is_empty():
 				# the held door's big, on the plate: out of the WARD's big row while it is spent on the door
-				var dy := y + _row * (3.0 if show_key else 1.0)
+				var dy := y + _row * (2.0 + float(key_pile_lines.size()) if show_key else 1.0)
 				_label(dy, _word("label_door"))
 				for ln in door_lines:
 					draw_string(ThemeDB.fallback_font, Vector2(_col, dy), ln, HORIZONTAL_ALIGNMENT_LEFT, -1, _val, door_tone)
@@ -1205,6 +1228,8 @@ class WardenBlock:
 	var break_lines := PackedStringArray()   # those rows wrapped to the plate (RaidLogic.wrap_break_rows): what is drawn and counted in extra_h
 	var _wrap_w := -1.0
 	var _row_step := -1.0   # hud.break_row_step, read once on first use (the _process and the draw both use it)
+	var note_lines := PackedStringArray()   # the note under row 2, wrapped to the plate (break_row_px, WARDEN_NOTE_KEY): counted in extra_h
+	var note_key := RaidLogic.WARDEN_NOTE_KEY
 
 	func _step() -> float:
 		if _row_step < 0.0:
@@ -1233,6 +1258,13 @@ class WardenBlock:
 		_rows_t += d / maxf(0.05, Engine.time_scale)
 		if _rows_t >= 0.25:
 			_rows_t = 0.0
+			var nl := RaidLogic.wrap_chunks(_note_text(w), ThemeDB.fallback_font, int(raid.rcfg().get("hud", {}).get("break_row_px", 15)),
+				RaidLogic.break_wrap_width(size.x, RaidLogic.WARDEN_BLOCK_INSET, float(raid.rcfg().get("hud", {}).get("break_wrap_min_px", 120.0))))
+			var nk: String = "danger" if w is RaidPyrePriest and (w as RaidPyrePriest).living() <= 0 else RaidLogic.WARDEN_NOTE_KEY
+			if nl != note_lines or nk != note_key:
+				note_lines = nl
+				note_key = nk
+				_key = -1
 			var nr := RaidHud.break_rows(raid, w.spec, int(w.meter_n))
 			if nr != break_rows or size.x != _wrap_w:
 				# the rows wrap to the plate's inner width, once per change (not per frame)
@@ -1241,8 +1273,7 @@ class WardenBlock:
 				break_lines = RaidLogic.wrap_break_rows(nr, ThemeDB.fallback_font, int(raid.rcfg().get("hud", {}).get("break_row_px", 15)),
 					RaidLogic.break_wrap_width(size.x, RaidLogic.WARDEN_BLOCK_INSET, float(raid.rcfg().get("hud", {}).get("break_wrap_min_px", 120.0))))
 				_key = -1
-		var eh := (20.0 if w is RaidHuntsman else 0.0) + (20.0 if w.spec.has("pack") else 0.0) \
-			+ (_step() * break_lines.size() + 6.0 if not break_lines.is_empty() else 0.0)
+		var eh: float = RaidLogic.warden_rows_layout(note_lines.size(), w.spec.has("pack"), break_lines.size(), _step())["extra_h"]
 		if eh != extra_h:
 			extra_h = eh
 			offset_bottom = offset_top + RaidLogic.TOP_BLOCK_BASE_H + eh
@@ -1269,6 +1300,17 @@ class WardenBlock:
 			_key2 = k2
 			_key3 = k3
 			queue_redraw()
+
+	## The note under row 2 (WardenLogic words, read from the spec so it follows the config): what a Huntsman catch
+	## costs and where its hunt speeds up, the Shieldwall's shield, the Pyre-priest's fires, the Bellringer's muffle.
+	func _note_text(w: RaidWarden) -> String:
+		if w is RaidHuntsman:
+			return WardenLogic.catch_label(w.wwords(), w.spec, raid.warden_run.tell_bypass)
+		if w is RaidShieldwall:
+			return WardenLogic.shield_label(w.wwords(), w.spec, w.phase, WardenLogic.lever_on(int(w.spec.get("tier", 1)), bool(w.spec.get("first_dungeon", false)), w.wcfg()))
+		if w is RaidPyrePriest:
+			return WardenLogic.pyre_label(w.wwords(), w.spec, w.phase, (w as RaidPyrePriest).living())
+		return str((w.spec.get("weak_point", {}) as Dictionary).get("label", ""))
 
 	func _text(x: float, y: float, text: String, px: int, key := "text") -> float:
 		var f := ThemeDB.fallback_font
@@ -1364,8 +1406,7 @@ class WardenBlock:
 			if bw.muffled:
 				_text(x2 + 8.0, y - 26.0, str(ww.get("row_braced", "")), 13, "undead")
 			_text(x0, y, str(ww.get("row_phase", "")), 13, "text_dim")
-			var x3 := _text(px0 + 6.0, y, "%d/%d" % [w.phase + 1, (w.spec.get("phases", []) as Array).size()], 15)
-			_text(x3 + 12.0, y, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")), 13, "text_dim")
+			_text(px0 + 6.0, y, "%d/%d" % [w.phase + 1, (w.spec.get("phases", []) as Array).size()], 15)   # (its note, the weak point's words, is the note row under this one)
 		elif hw != null:
 			var n2 := hw.intercepts
 			var x4 := x + 14.0
@@ -1397,8 +1438,6 @@ class WardenBlock:
 			x5 = _text(x5 + 12.0, y, RaidLogic.word_fmt(ww, "row_phase_n", [w.phase + 1, (w.spec.get("phases", []) as Array).size()]), 13, "text_dim")
 			if hw.hunting_undead:
 				_text(x5 + 12.0, y, str(ww.get("row_hunting", "")), 13, "danger")
-			# row 3: what a catch costs and where the phases turn (from the spec, so it follows the config)
-			_text(x0, y + 22.0, WardenLogic.catch_label(w.wwords(), w.spec, raid.warden_run.tell_bypass), 13, "text_dim")
 		elif w is RaidShieldwall:
 			var sw := w as RaidShieldwall
 			var x6 := x + 14.0
@@ -1407,8 +1446,7 @@ class WardenBlock:
 			else:   # no flank yet: teach the counter in words instead of a zero (if it fits)
 				_teach(x6, y - 26.0, str((w.spec.get("weak_point", {}) as Dictionary).get("label", "")))
 			_text(x0, y, str(ww.get("row_phase", "")), 13, "text_dim")
-			var x7 := _text(px0 + 6.0, y, "%d/%d" % [w.phase + 1, (w.spec.get("phases", []) as Array).size()], 15)
-			_text(x7 + 12.0, y, WardenLogic.shield_label(w.wwords(), w.spec, w.phase, WardenLogic.lever_on(int(w.spec.get("tier", 1)), bool(w.spec.get("first_dungeon", false)), w.wcfg())), 13, "text_dim")
+			_text(px0 + 6.0, y, "%d/%d" % [w.phase + 1, (w.spec.get("phases", []) as Array).size()], 15)
 		elif w is RaidPyrePriest:
 			var pp := w as RaidPyrePriest
 			var x8 := x + 14.0
@@ -1421,12 +1459,16 @@ class WardenBlock:
 			var lv := pp.living()
 			if lv > 0:
 				x9 = _text(x9 + 12.0, y, RaidLogic.word_fmt(ww, "row_acolytes", [lv, pp.acolytes.size()]), 13, "vei")
-			x9 = _text(x9 + 12.0, y, WardenLogic.pyre_label(w.wwords(), w.spec, w.phase, lv), 13, "danger" if lv <= 0 else "text_dim")
 			if pp.essence_burned > 0:
 				_text(x9 + 12.0, y, RaidLogic.word_fmt(ww, "row_burned", [pp.essence_burned]), 13, "danger")
-		_pack_row(w, x0, y + (44.0 if hw != null else 22.0))
-		# the new rows sit under the last of the existing ones (the Huntsman's catch row, a pack's row)
-		var ry := y + 22.0 * ((1.0 if hw != null else 0.0) + (1.0 if w.spec.has("pack") else 0.0))
+		# the note under row 2 (what a catch costs, what the shield does...): the break rows' size and tone, wrapped to the plate
+		var lay := RaidLogic.warden_rows_layout(note_lines.size(), w.spec.has("pack"), break_lines.size(), _step())
+		var npx := int(raid.rcfg().get("hud", {}).get("break_row_px", 15))
+		for i in note_lines.size():
+			_text(x0, y + 22.0 + _step() * float(i), note_lines[i], npx, note_key)
+		_pack_row(w, x0, y + float(lay["pack_dy"]))
+		# the new rows sit under the last of the existing ones (the note, a pack's row)
+		var ry := y + float(lay["break_dy"])
 		for line in break_lines:
 			ry += _step()
 			_text(x0, ry, str(line), int(raid.rcfg().get("hud", {}).get("break_row_px", 15)), RaidLogic.BREAK_ROW_KEY)

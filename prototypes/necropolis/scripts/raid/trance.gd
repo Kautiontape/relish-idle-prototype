@@ -18,6 +18,7 @@ var trace := PackedVector2Array()
 var free_next := false   # the antechamber's last chance: the next completed raise starts no cooldown
 
 var _trace_line: Line2D = null
+var _live: RaidTraceOverlay = null   # the HUD's overlay that draws the readout beside the pen while tracing
 var _tracing := false
 var _button_held := false
 
@@ -88,8 +89,32 @@ func handle_input(ev: InputEvent) -> bool:
 			trace.append(w)
 			if _trace_line != null:
 				_trace_line.points = trace
+			_update_live()
 		return true
 	return false
+
+
+## The readout beside the pen (RaidTraceLive): one grade per appended point, once the trace is long enough to
+## be an attempt (_finish_trace's own gate). The motes inside are counted by the rule `perform` raises by.
+func _update_live() -> void:
+	if _live == null or not is_instance_valid(_live) or raid.raiser == null:
+		return
+	var ccfg: Dictionary = ConfigDb.data.get("circle", {})
+	if trace.size() < int(ccfg.get("min_points", 8)):
+		return
+	var length := 0.0
+	for i in range(1, trace.size()):
+		length += trace[i].distance_to(trace[i - 1])
+	if length < float(ccfg.get("min_path_length_px", 110)):
+		return
+	var g := CircleScorer.grade(trace)
+	var valid: bool = g["valid"]
+	var score := int(g["score"])
+	var n := 0
+	if valid:
+		n = raid.raiser.motes_inside(g["center"], float(g["radius"])).size()
+	var words: Dictionary = ConfigDb.data.get("raid", {}).get("trace_notch", {})
+	_live.show_live(trace[trace.size() - 1], RaidLogic.loop_readout(words, valid, score, n, raid.rcfg(), ccfg), valid, score)
 
 
 func _button_down() -> void:
@@ -197,6 +222,8 @@ func _make_trace_line() -> void:
 	_trace_line.default_color = Palette.c("relish")
 	_trace_line.z_index = 70
 	raid.fx_root.add_child(_trace_line)
+	if raid.hud != null:
+		_live = raid.hud.get("trace_overlay") as RaidTraceOverlay
 
 
 func _clear_trace() -> void:
@@ -204,6 +231,9 @@ func _clear_trace() -> void:
 	if _trace_line != null and is_instance_valid(_trace_line):
 		_trace_line.queue_free()
 	_trace_line = null
+	if _live != null and is_instance_valid(_live):
+		_live.clear_live()
+	_live = null
 
 
 func cooldown_frac() -> float:

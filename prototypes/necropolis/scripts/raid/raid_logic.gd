@@ -499,6 +499,14 @@ static func revives_left(revived: int, seed: Dictionary) -> int:
 	return maxi(0, mini(int(seed.get("phylactery_charges", 0)), int(seed.get("phylactery_max_per_dungeon", 0))) - revived)
 
 
+## The banner when a phylactery charge revives Relish in a raid: `words` is raid.json's `revive` block, `left`
+## the charges still spendable after this one (revives_left). The glossary's terms: a phylactery charge revives
+## Relish in place, at most once per dungeon.
+static func revive_banner(words: Dictionary, left: int) -> String:
+	var tail := str(words.get("left_none", "")) if left <= 0 else (str(words.get("left_one", "")) if left == 1 else word_fmt(words, "left_fmt", [left]))
+	return word_fmt(words, "banner", [tail])
+
+
 ## A BANKED / UNBANKED line from loot_counts / unbanked: the non-zero kinds only ("relics 1 ·
 ## remnants 2 · essence 5"); "" when every kind is zero (the HUD shows one dim word then).
 static func loot_line(c: Dictionary) -> String:
@@ -697,6 +705,26 @@ static func row1_fits(x: float, w: float, reserve: float, plate_w: float) -> boo
 ## (The break / takes / counter rows' font size is raid.json hud.break_row_px, at least 15 as the win line, and one
 ## wrapped line's height hud.break_row_step: the font's height at 15 is 17, plus 5.)
 const BREAK_ROW_KEY := "text"      # the break / takes / counter rows' colour key (full value tone)
+## The left stat block's height: its 14 base rows (living, the YOUR UNDEAD header and four ranks, essence and its
+## meaning, raised, phylactery and its meaning, banked, unbanked, the stakes) plus the extra wrapped lines of the
+## essence meaning (`ess_extra`), the phylactery meaning (`phyl_extra`) and the loot lines (`loot_extra`), the floor
+## key's rows (`key_rows`, 0 while nothing lies on the floor) and the held door's lines (`door_n`), at `row` px each
+## and 8 px of padding.
+static func stat_block_height(row: float, ess_extra: int, phyl_extra: int, loot_extra: int, key_rows: int, door_n: int) -> float:
+	return (14.0 + float(ess_extra + phyl_extra + loot_extra + key_rows + door_n)) * row + 8.0
+
+
+const WARDEN_NOTE_KEY := "text"    #the awake WardenBlock's note under the pip rows (what a catch costs, what the shield does...): full tone
+
+## The awake WardenBlock's rows under row 2, by what they hold: `note_n` note lines (the Huntsman's catch cost, the
+## Shieldwall's shield, the Pyre-priest's fires, the Bellringer's muffle), a pack row when `has_pack`, `break_n`
+## wrapped break lines of `step` px each. extra_h is how much taller the block is than TOP_BLOCK_BASE_H; pack_dy
+## and break_dy are where the pack row's baseline and the break rows' start sit under row 2's baseline.
+static func warden_rows_layout(note_n: int, has_pack: bool, break_n: int, step: float) -> Dictionary:
+	return {
+		"extra_h": (20.0 + float(note_n - 1) * step if note_n > 0 else 0.0) + (20.0 if has_pack else 0.0) + (step * float(break_n) + 6.0 if break_n > 0 else 0.0),
+		"pack_dy": 22.0 + step * float(note_n),
+		"break_dy": step * float(note_n) + (22.0 if has_pack else 0.0)}
 
 
 ## `text` in lines no wider than `max_w` at `font_px`, greedy over its " · " chunks: a chunk that fits on the
@@ -917,7 +945,7 @@ static func death_card_rows(words: Dictionary, cause: String, banked_counts: Dic
 	var nothing := str(words.get("nothing", ""))
 	var rows: Array = [{"label": str(words.get("label_killed_by", "")), "text": cause, "key": "danger"}]
 	if missed != "":
-		rows.append({"label": str(words.get("label_missed", "")), "text": missed, "key": "danger"})
+		rows.append({"label": str(words.get("label_missed", "")), "text": word_fmt(words, "missed_row", [missed]), "key": "danger"})   # V-I1: the tell's name in a plain sentence (the capture's missed_tell stays the bare name)
 	rows.append({"label": str(words.get("label_banked", "")), "text": bl if bl != "" else nothing, "key": "text" if bl != "" else "text_dim"})
 	rows.append({"label": str(words.get("label_lost", "")), "text": lost, "key": "danger" if lost != nothing else "text_dim"})
 	if not after.is_empty():
@@ -1022,10 +1050,29 @@ static func hint_text(words: Dictionary, trance_active: bool, at_exit: bool) -> 
 	return str(words.get("idle_text", ""))
 
 
-## The idle hint's second line (dim, under the idle line): shown while nothing has been raised yet, and only
-## when the idle line itself shows (the trance's and the exit's instructions stand alone).
+## The hint's second line (dim, under the first): until the first raise, the trance's line says what a loop
+## decides (trance_sub_text: stat_mult and RaidRaise.motes_inside), the idle line's says what the undead do
+## (idle_sub_text, only when the idle line itself shows). The exit's instruction stands alone.
 static func hint_sub_text(words: Dictionary, trance_active: bool, at_exit: bool, raised_any: bool) -> String:
-	return "" if (trance_active or at_exit or raised_any) else str(words.get("idle_sub_text", ""))
+	if raised_any:
+		return ""
+	if trance_active:
+		return str(words.get("trance_sub_text", ""))
+	return "" if at_exit else str(words.get("idle_sub_text", ""))
+
+
+## The readout beside the pen while a loop is drawn (RaidTraceLive): [head, tail, ladder] for a ring the trace
+## fits (the tier it would make by score_class, the strength by stat_mult, the motes RaidRaise.motes_inside
+## finds), [none, ladder] when it fits none. The ladder's numbers are raise.soldier/elite_min_score.
+## `words` is raid.json's `trace_notch` block.
+static func loop_readout(words: Dictionary, valid: bool, score: int, motes_in: int, cfg: Dictionary, circle_cfg: Dictionary) -> Array:
+	var r: Dictionary = cfg.get("raise", {})
+	var ladder := word_fmt(words, "live_ladder", [int(r.get("soldier_min_score", 60)), int(r.get("elite_min_score", 90))])
+	if not valid:
+		return [str(words.get("live_none", "")), ladder]
+	var strength := "%.2f" % stat_mult(score, circle_cfg)
+	return [word_fmt(words, "live_head", [score, score_class(score, cfg).to_upper()]),
+		word_fmt(words, "live_tail", [motes_in, strength]), ladder]
 
 
 ## The "your undead fight on their own" cue is due once: an undead stands and (a living has died or
@@ -1954,3 +2001,145 @@ static func capture_count(tally: Dictionary, kind: String, outcome: String, show
 		k["shown"] = int(k["shown"]) + 1
 	if k.has(outcome):
 		k[outcome] = int(k[outcome]) + 1
+
+
+## --- Screen placement of the loop's readouts (RaidTraceOverlay) -------------------------------------------
+## `view` is the viewport's size, `margin` the gap every plate keeps from its edges, `avoid` rects a plate
+## should not cover (the hint plate) when it can move clear without leaving the screen.
+
+## True when `r` lies inside the viewport inset by `margin`.
+static func rect_inside_view(r: Rect2, view: Vector2, margin: float) -> bool:
+	return r.position.x >= margin - 0.01 and r.position.y >= margin - 0.01 \
+		and r.end.x <= view.x - margin + 0.01 and r.end.y <= view.y - margin + 0.01
+
+
+static func _rect_hits_any(r: Rect2, avoid: Array) -> bool:
+	for a in avoid:
+		if (a as Rect2).has_area() and r.intersects(a):
+			return true
+	return false
+
+
+## `r` moved the least that puts it inside the viewport inset by `margin` (pinned to the top-left when it is
+## bigger than the viewport).
+static func clamp_rect_to_view(r: Rect2, view: Vector2, margin: float) -> Rect2:
+	var out := r
+	out.position.x = clampf(r.position.x, margin, maxf(margin, view.x - margin - r.size.x))
+	out.position.y = clampf(r.position.y, margin, maxf(margin, view.y - margin - r.size.y))
+	return out
+
+
+## `r` slid sideways only, to stay inside the viewport's margin.
+static func slide_rect_x(r: Rect2, view: Vector2, margin: float) -> Rect2:
+	var out := r
+	out.position.x = clampf(r.position.x, margin, maxf(margin, view.x - margin - r.size.x))
+	return out
+
+
+## The first candidate that fits the viewport as it stands and clears `avoid`; else the first that clears
+## `avoid` once clamped inside without covering `anchor` (the pen tip; pass a far point for none); else the first
+## that clears `avoid` once clamped; else the first that fits as it stands; else the first, clamped.
+static func pick_plate_rect(cands: Array, view: Vector2, margin: float, avoid: Array, anchor := Vector2(-1e9, -1e9)) -> Rect2:
+	for c in cands:
+		if rect_inside_view(c, view, margin) and not _rect_hits_any(c, avoid):
+			return c
+	for c in cands:
+		var k := clamp_rect_to_view(c, view, margin)
+		if not _rect_hits_any(k, avoid) and not k.has_point(anchor):
+			return k
+	for c in cands:
+		var k2 := clamp_rect_to_view(c, view, margin)
+		if not _rect_hits_any(k2, avoid):
+			return k2
+	for c in cands:
+		if rect_inside_view(c, view, margin):
+			return c
+	return clamp_rect_to_view(cands[0], view, margin)
+
+
+## The live readout's plate (size `size`) beside the pen tip `tip` (screen px): `gap` right and below it, else
+## flipped across the tip to the left, above, or both (in that order of preference), and kept off `avoid`.
+static func live_plate_rect(size: Vector2, tip: Vector2, gap: float, view: Vector2, margin: float, avoid: Array) -> Rect2:
+	var cands: Array = []
+	for y in [tip.y + gap, tip.y - gap - size.y]:
+		for x in [tip.x + gap, tip.x - gap - size.x]:
+			cands.append(Rect2(Vector2(x, y), size))
+	return pick_plate_rect(cands, view, margin, avoid, tip)
+
+
+## The fitted ring's head and tail plates (sizes `head_size`, `tail_size`; a zero-width `tail_size` has no tail)
+## around a ring at screen `center` / `radius`: head `gap` above the ring's top, tail `gap` under its bottom, each
+## centred on the ring and slid sideways to stay inside the viewport. Where the tail would leave the screen (a ring
+## near the bottom edge) both stack above the ring, the tail over the head; where the head would (a ring near the
+## top) both go under it, the head over the tail. An arrangement must fit the viewport and clear `avoid` to win;
+## failing all, the first that fits, else the first clamped. Returns {head: Rect2, tail: Rect2}.
+static func result_plate_rects(head_size: Vector2, tail_size: Vector2, center: Vector2, radius: float, gap: float,
+		stack_gap: float, view: Vector2, margin: float, avoid: Array) -> Dictionary:
+	var has_tail := tail_size.x > 0.0
+	var top := center.y - radius - gap
+	var bottom := center.y + radius + gap
+	var ys: Array = [
+		[top - head_size.y, bottom],                                              # A: head above, tail under
+		[top - head_size.y, top - head_size.y - stack_gap - tail_size.y],         # B: both above, the tail over the head
+		[bottom + (tail_size.y + stack_gap if has_tail else 0.0), bottom]]        # C: both under, the head under the tail
+	var made: Array = []
+	for a in ys:
+		var h := slide_rect_x(Rect2(Vector2(center.x - head_size.x * 0.5, a[0]), head_size), view, margin)
+		var tl := Rect2()
+		if has_tail:
+			tl = slide_rect_x(Rect2(Vector2(center.x - tail_size.x * 0.5, a[1]), tail_size), view, margin)
+		made.append({"head": h, "tail": tl})
+	for m in made:
+		if rect_inside_view(m["head"], view, margin) and (not has_tail or rect_inside_view(m["tail"], view, margin)) \
+				and not _rect_hits_any(m["head"], avoid) and not (has_tail and _rect_hits_any(m["tail"], avoid)):
+			return m
+	for m in made:
+		if rect_inside_view(m["head"], view, margin) and (not has_tail or rect_inside_view(m["tail"], view, margin)):
+			return m
+	var m0: Dictionary = made[0]
+	m0["head"] = clamp_rect_to_view(m0["head"], view, margin)
+	if has_tail:
+		m0["tail"] = clamp_rect_to_view(m0["tail"], view, margin)
+	return m0
+
+
+## True when `r` and the disc at `c` of radius `rad` overlap.
+static func rect_hits_circle(r: Rect2, c: Vector2, rad: float) -> bool:
+	var nearest := Vector2(clampf(c.x, r.position.x, r.end.x), clampf(c.y, r.position.y, r.end.y))
+	return nearest.distance_to(c) < rad
+
+
+## Where a hit word (STRUCK −4, SOAKED, TOLLED, MUFFLED: a plate of `size`) is drawn, in world units: its `home`
+## rect when that is clear, else the nearest clear spot round the hub (Relish: the disc at `hub` of radius `hub_r`,
+## her body and ring), tried above, below, right, left, then the four corners, at `gap` and then at three times
+## `gap` from the disc. Clear means: inside `bounds` (the screen, in world units), off the hub's disc, and off
+## every rect in `avoid` (the warden's meter row of pips and label, its body). When no spot is clear the home rect,
+## pulled inside `bounds`, stands.
+static func hit_word_rect(size: Vector2, home: Rect2, hub: Vector2, hub_r: float, gap: float, avoid: Array, bounds: Rect2) -> Rect2:
+	if _hit_word_clear(home, hub, hub_r, avoid, bounds):
+		return home
+	for g in [gap, gap * 3.0]:
+		var d: float = hub_r + g
+		var k: float = d * 0.7071
+		var cands: Array = [
+			Rect2(Vector2(hub.x - size.x * 0.5, hub.y - d - size.y), size),                 # above
+			Rect2(Vector2(hub.x - size.x * 0.5, hub.y + d), size),                          # below
+			Rect2(Vector2(hub.x + d, hub.y - size.y * 0.5), size),                          # right
+			Rect2(Vector2(hub.x - d - size.x, hub.y - size.y * 0.5), size),                 # left
+			Rect2(Vector2(hub.x + k, hub.y - k - size.y), size),                            # above right
+			Rect2(Vector2(hub.x - k - size.x, hub.y - k - size.y), size),                   # above left
+			Rect2(Vector2(hub.x + k, hub.y + k), size),                                     # below right
+			Rect2(Vector2(hub.x - k - size.x, hub.y + k), size)]                            # below left
+		for c in cands:
+			if _hit_word_clear(c, hub, hub_r, avoid, bounds):
+				return c
+	var out := home
+	out.position.x = clampf(home.position.x, bounds.position.x, maxf(bounds.position.x, bounds.end.x - home.size.x))
+	out.position.y = clampf(home.position.y, bounds.position.y, maxf(bounds.position.y, bounds.end.y - home.size.y))
+	return out
+
+
+static func _hit_word_clear(r: Rect2, hub: Vector2, hub_r: float, avoid: Array, bounds: Rect2) -> bool:
+	if not bounds.encloses(r) or rect_hits_circle(r, hub, hub_r):
+		return false
+	return not _rect_hits_any(r, avoid)

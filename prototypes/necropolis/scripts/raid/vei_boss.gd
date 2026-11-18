@@ -520,10 +520,7 @@ func perform_raise(g: Dictionary) -> void:
 		return
 	var center: Vector2 = g["center"]
 	var radius: float = g["radius"]
-	var picked: Array = []
-	for e in get_tree().get_nodes_in_group("raid_essence"):
-		if is_instance_valid(e) and not e.absorbing and e.global_position.distance_to(center) <= radius:
-			picked.append(e)
+	var picked: Array = raiser.motes_inside(center, radius)
 	if picked.is_empty():
 		return
 	for e in picked:
@@ -542,6 +539,7 @@ func perform_raise(g: Dictionary) -> void:
 	if fb != null and is_instance_valid(fb):
 		fb.raised_n = n
 		fb.raised_tier = tier
+		fb.raised_mult = mult
 	var vc := vcfg()
 	if phase == Phase.FRONTS:
 		var li := BossLogic.nearest_lane(center, lanes)
@@ -653,7 +651,7 @@ func try_phylactery() -> bool:
 	hud.show_banner(RaidLogic.word_fmt(vw, "banner_crack", [str(vw.get("crack_phyl", "")) if kind == "phylactery" else str(vw.get("crack_clone", "")), left,
 		"" if left == 1 else str(vw.get("plural", ""))]), float(bc.get("banner_s", 2.2)), "relish" if left > 0 else "danger")
 	if _standalone:
-		print("BOSS_BACKUP kind=%s deaths=%d left=%d t=%.1f" % [kind, deaths, left, fight_t])
+		print("BOSS_BACKUP kind=%s deaths=%d left=%d t=%.1f frame=%d" % [kind, deaths, left, fight_t, Engine.get_process_frames()])
 	return true
 
 
@@ -785,6 +783,7 @@ func _lose_card() -> void:
 		info["cause"] = BossLogic.loss_cause(end_reason, {"last_hit_src": relish.last_hit_src if relish != null else "", "streak_max": streak_max,
 			"break_beats": int(vcfg().get("break_beats", 8)), "fronts_cleared": _cleared_now(), "fronts_required": VeiFronts.required(vcfg())}, lw)
 		info["pressure_row"] = BossLogic.pressure_row(pressure, float(seed_data.get("living_pool", 0.0)), lw) if phase1_s >= 0.0 else {}
+		info["change"] = BossLogic.loss_change(end_reason, {"last_hit_src": relish.last_hit_src if relish != null else "", "fronts_cleared": _cleared_now()}, lw)
 		info["phyl_total"] = int(seed_data.get("phylactery_charges", 0))
 		info["clones_total"] = int(seed_data.get("clones_ready", 0))
 		_card = VeiCard.new()

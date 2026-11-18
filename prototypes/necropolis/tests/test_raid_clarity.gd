@@ -19,7 +19,249 @@ func run() -> int:
 	_lost_agreement_tests(t)
 	_contrast_tests(t)
 	_goal_compact_tests(t)
+	_hit_word_tests(t)
+	_warden_note_tests(t)
+	_stat_block_tests(t)
+	_revive_banner_tests(t)
 	return t.failures
+
+
+## A phylactery revive in a raid says so (RaidLogic.revive_banner, raid.json revive words).
+func _revive_banner_tests(t: TestUtil) -> void:
+	t.suite("raid_revive_banner")
+	var rv: Dictionary = TestUtil.load_json("res://configs/raid.json")["revive"]
+	var sd := {"phylactery_charges": 1, "phylactery_max_per_dungeon": 1}
+	t.ok(RaidLogic.revive_banner(rv, RaidLogic.revives_left(1, sd)) == "A PHYLACTERY CRACKS · Relish stands again · no revive left in this dungeon", "the one charge spent: none left: " + RaidLogic.revive_banner(rv, 0))
+	t.ok(RaidLogic.revive_banner(rv, 1) == "A PHYLACTERY CRACKS · Relish stands again · 1 more revive left in this dungeon", "one more: said in the singular")
+	t.ok(RaidLogic.revive_banner(rv, 2).ends_with("2 more revives left in this dungeon"), "two more")
+	t.ok(RaidLogic.revive_banner({}, 0) == "", "a missing word stays blank, never a throw")
+	t.ok(float(rv["banner_s"]) >= 3.0, "it holds long enough to read")
+	for s in [RaidLogic.revive_banner(rv, 0), RaidLogic.revive_banner(rv, 1)]:
+		t.ok(not s.contains("the run") and not s.contains("backup"), "glossary words (no 'the run'): " + s)
+
+
+## The loop's screen-space plates (RaidLogic.live_plate_rect / result_plate_rects): always inside the viewport by
+## the margin, flipped where a side would leave it, off the hint plate when they can be.
+func _readout_place_tests(t: TestUtil) -> void:
+	var view := Vector2(1600, 900)
+	var m := 8.0
+	var hint := Rect2(Vector2(420, 806), Vector2(760, 76))   # the bottom hint plate
+	# the live plate: middle of the screen: right and below the pen tip
+	var psz := Vector2(300, 90)
+	var r := RaidLogic.live_plate_rect(psz, Vector2(800, 400), 26.0, view, m, [hint])
+	t.ok(r.position.is_equal_approx(Vector2(826, 426)) and RaidLogic.rect_inside_view(r, view, m), "live, mid-screen: 26 px right and below the tip (%s)" % r)
+	# near the right and bottom edges: flipped to the left and above, still off the hint
+	var tip_br := Vector2(1560, 860)
+	r = RaidLogic.live_plate_rect(psz, tip_br, 26.0, view, m, [hint])
+	t.ok(RaidLogic.rect_inside_view(r, view, m) and r.end.x <= tip_br.x - 26.0 + 0.01 and r.end.y <= tip_br.y - 26.0 + 0.01, "live, bottom-right: flipped across the tip (%s)" % r)
+	# near the left edge: the plate stays inside (the legend side), and a tip at the corner is clamped
+	r = RaidLogic.live_plate_rect(psz, Vector2(2, 2), 26.0, view, m, [])
+	t.ok(RaidLogic.rect_inside_view(r, view, m), "live, top-left corner: inside the margin (%s)" % r)
+	r = RaidLogic.live_plate_rect(psz, Vector2(40, 300), 26.0, view, m, [hint])
+	t.ok(RaidLogic.rect_inside_view(r, view, m) and r.position.x >= m, "live, near the left edge: inside (%s)" % r)
+	# above the hint plate: the pen tip just over it would put the plate on the hint, so it moves clear
+	r = RaidLogic.live_plate_rect(psz, Vector2(700, 700), 26.0, view, m, [hint])
+	t.ok(not r.intersects(hint) and RaidLogic.rect_inside_view(r, view, m), "live, tip over the hint plate: the plate keeps off it (%s)" % r)
+	t.ok(RaidLogic.live_plate_rect(psz, Vector2(700, 700), 26.0, view, m, [Rect2()]).position.is_equal_approx(Vector2(726, 726)), "an empty avoid rect (a hidden hint plate) is ignored")
+	# a plate that cannot be both on screen and off the hint is kept on screen
+	var wide := Rect2(Vector2(0, 0), Vector2(1600, 900))
+	r = RaidLogic.live_plate_rect(psz, Vector2(700, 400), 26.0, view, m, [wide])
+	t.ok(RaidLogic.rect_inside_view(r, view, m), "nothing clear: still on screen")
+	# the result: a ring in the middle: head above, tail under
+	var hs := Vector2(140, 27)
+	var ts := Vector2(380, 27)
+	var res := RaidLogic.result_plate_rects(hs, ts, Vector2(800, 400), 90.0, 8.0, 4.0, view, m, [hint])
+	t.ok(is_equal_approx(res["head"].end.y, 400.0 - 90.0 - 8.0) and is_equal_approx(res["tail"].position.y, 400.0 + 90.0 + 8.0)
+		and is_equal_approx(res["head"].get_center().x, 800.0) and is_equal_approx(res["tail"].get_center().x, 800.0), "result, mid-screen: head over the ring, tail under it, both centred")
+	# a ring near the bottom edge (Relish's spawn, bottom-left): the tail goes above the head, both inside, clear of the legend side hint
+	var c_bl := Vector2(300, 780)
+	res = RaidLogic.result_plate_rects(hs, ts, c_bl, 100.0, 8.0, 4.0, view, m, [hint])
+	t.ok(RaidLogic.rect_inside_view(res["head"], view, m) and RaidLogic.rect_inside_view(res["tail"], view, m)
+		and res["tail"].end.y <= res["head"].position.y and res["head"].end.y <= c_bl.y - 100.0, "result, bottom-left ring: both above it, the tail over the head (%s / %s)" % [res["head"], res["tail"]])
+	t.ok(not res["head"].intersects(res["tail"]), "the head and the tail never overlap")
+	# a ring near the left edge: slid sideways, inside
+	var c_l := Vector2(40, 400)
+	res = RaidLogic.result_plate_rects(hs, ts, c_l, 60.0, 8.0, 4.0, view, m, [hint])
+	t.ok(RaidLogic.rect_inside_view(res["head"], view, m) and RaidLogic.rect_inside_view(res["tail"], view, m)
+		and is_equal_approx(res["tail"].position.x, m) and is_equal_approx(res["head"].position.y, 400.0 - 60.0 - 8.0 - 27.0), "result, left-edge ring: slid right to the margin, still head above and tail under (%s / %s)" % [res["head"], res["tail"]])
+	# a ring near the top edge: both go under it, the tail nearest the ring
+	var c_top := Vector2(800, 60)
+	res = RaidLogic.result_plate_rects(hs, ts, c_top, 40.0, 8.0, 4.0, view, m, [])
+	t.ok(RaidLogic.rect_inside_view(res["head"], view, m) and RaidLogic.rect_inside_view(res["tail"], view, m)
+		and res["head"].position.y >= res["tail"].end.y and res["tail"].position.y >= c_top.y + 40.0, "result, top ring: both under it, head under the tail (%s / %s)" % [res["head"], res["tail"]])
+	# a tail over the hint plate moves clear: a ring whose lower plate would sit on the hint
+	var c_h := Vector2(800, 730)
+	res = RaidLogic.result_plate_rects(hs, ts, c_h, 60.0, 8.0, 4.0, view, m, [hint])
+	t.ok(not res["tail"].intersects(hint) and not res["head"].intersects(hint) and RaidLogic.rect_inside_view(res["tail"], view, m), "result, ring above the hint plate: the tail keeps off it (%s)" % res["tail"])
+	# no tail (a head-only result): the head alone
+	res = RaidLogic.result_plate_rects(hs, Vector2.ZERO, Vector2(800, 400), 0.0, 8.0, 4.0, view, m, [hint])
+	t.ok(RaidLogic.rect_inside_view(res["head"], view, m) and not (res["tail"] as Rect2).has_area(), "no tail: the head alone")
+	# a tip tucked at the bottom between the hint plate and the corner: the plate neither covers the tip nor leaves the screen
+	r = RaidLogic.live_plate_rect(psz, Vector2(1500, 860), 26.0, view, m, [hint])
+	t.ok(RaidLogic.rect_inside_view(r, view, m) and not r.has_point(Vector2(1500, 860)), "live, tip in the bottom-right: on screen and off the tip (%s)" % r)
+
+
+## True when a hit word's rect is clear of everything it must keep off.
+func _word_clear(r: Rect2, hub: Vector2, hub_r: float, avoid: Array, bounds: Rect2) -> bool:
+	if not bounds.encloses(r) or RaidLogic.rect_hits_circle(r, hub, hub_r):
+		return false
+	for a in avoid:
+		if r.intersects(a):
+			return false
+	return true
+
+
+## STRUCK / SOAKED / TOLLED / MUFFLED (RaidLogic.hit_word_rect): kept off Relish's body and ring and the warden's
+## meter row and body, and on screen, wherever Relish stands against the warden.
+func _hit_word_tests(t: TestUtil) -> void:
+	t.suite("raid_hit_word")
+	var bounds := Rect2(0, 0, 1600, 900).grow(-8.0)
+	var rad := 13.0
+	var hub_r := maxf(rad * 1.8, rad + 20.0)
+	var wsize := Vector2(64.0, 18.75)   # "STRUCK −4" at 15 px
+	var warden := Vector2(800, 450)
+	var wr := 20.0
+	var body := Rect2(warden - Vector2(wr, wr), Vector2(wr, wr) * 2.0)
+	var meter := Rect2(warden + Vector2(-40.0, wr * 1.75 + 8.0 - 7.0), Vector2(80.0, 14.0)).merge(Rect2(warden + Vector2(-34.0, wr * 1.75 + 24.0), Vector2(68.0, 25.0)))
+	var avoid := [meter, body]
+	# the word's default spot above her, as relish.gd builds it
+	var home_of := func(rel: Vector2) -> Rect2:
+		return Rect2(rel + Vector2(-wsize.x * 0.5, -rad - 22.0 - 9.0 - 14.0), wsize)
+	var cases := {"under the warden (on its meter row)": Vector2(800, 505), "just under, off to one side": Vector2(830, 500), "above the warden": Vector2(800, 380),
+		"beside the warden": Vector2(860, 450), "on the warden's meter row, left": Vector2(775, 485)}
+	for name in cases:
+		var rel: Vector2 = cases[name]
+		var home: Rect2 = home_of.call(rel)
+		var r := RaidLogic.hit_word_rect(wsize, home, rel, hub_r, 6.0, avoid, bounds)
+		t.ok(_word_clear(r, rel, hub_r, avoid, bounds), "relish %s: the word is clear of her, the meter row and the warden, on screen (%s)" % [name, r])
+	var under: Vector2 = cases["under the warden (on its meter row)"]
+	var h_under: Rect2 = home_of.call(under)
+	t.ok(h_under.intersects(meter) or h_under.intersects(body), "the test bites: her default spot under the warden is on its meter row or body")
+	var moved := RaidLogic.hit_word_rect(wsize, h_under, under, hub_r, 6.0, avoid, bounds)
+	t.ok(moved != h_under, "so it moved")
+	# a clear default stays put
+	var far := Vector2(300, 600)
+	t.ok(RaidLogic.hit_word_rect(wsize, home_of.call(far), far, hub_r, 6.0, avoid, bounds) == home_of.call(far), "a word whose spot is clear does not move")
+	# at the screen's top edge the word cannot go above her, so it goes under or beside her
+	var top := Vector2(300, 30)
+	var rt := RaidLogic.hit_word_rect(wsize, home_of.call(top), top, hub_r, 6.0, avoid, bounds)
+	t.ok(_word_clear(rt, top, hub_r, avoid, bounds), "relish near the top edge: the word stays on screen (%s)" % rt)
+	# in the corner, wedged: still on screen and off her
+	var corner := Vector2(20, 20)
+	var rc := RaidLogic.hit_word_rect(wsize, home_of.call(corner), corner, hub_r, 6.0, [], bounds)
+	t.ok(bounds.encloses(rc), "relish in the corner: the word is on screen (%s)" % rc)
+	# the toll word (TOLLED / MUFFLED) goes through the same rule: her spot, home on it, so it steps off her
+	var toll_home := Rect2(under - wsize * 0.5, wsize)
+	var rtoll := RaidLogic.hit_word_rect(wsize, toll_home, under, hub_r, 6.0, avoid, bounds)
+	t.ok(_word_clear(rtoll, under, hub_r, avoid, bounds), "TOLLED where she still stands: beside her, off the warden's meter row (%s)" % rtoll)
+	var src_r := _code(FileAccess.get_file_as_string("res://scripts/raid/relish.gd"))
+	var src_w := _code(FileAccess.get_file_as_string("res://scripts/raid/warden.gd"))
+	var src_b := _code(FileAccess.get_file_as_string("res://scripts/raid/warden_bellringer.gd"))
+	t.ok(src_r.contains("RaidLogic.hit_word_rect(") and src_r.contains("meter_row_rect()"), "relish.gd places STRUCK and SOAKED by hit_word_rect against the warden's meter row")
+	t.ok(src_w.contains("RaidLogic.hit_word_rect(") and src_b.contains("_hit_word(ci, _toll_word_at"), "the Bellringer's TOLLED and MUFFLED go through the same rule")
+
+
+## The awake WardenBlock's note (the Huntsman's catch cost and its siblings): at the break rows' size and full tone,
+## 4.5:1 on its plate, wrapped to the block, and the rows it adds counted in the block's height.
+func _warden_note_tests(t: TestUtil) -> void:
+	t.suite("raid_warden_note")
+	var cfg: Dictionary = TestUtil.load_json("res://configs/raid.json")
+	var hud: Dictionary = cfg["hud"]
+	var px := int(hud["break_row_px"])
+	t.ok(px >= 15, "the note is drawn at hud.break_row_px (%d), at least 15" % px)
+	var plate_a := float(hud["warden_plate_alpha"])
+	var worst := 99.0
+	for key in [RaidLogic.WARDEN_NOTE_KEY, "danger"]:
+		var worst_bg := Palette.c("ground").lerp(Color.WHITE, 1.0 - plate_a)   # the plate over the brightest world colour
+		worst = minf(worst, RaidLogic.contrast_ratio(Palette.c(key), worst_bg))
+	t.ok(worst >= 4.5, "the note's tones (%s, and danger for an exposed Pyre-priest) are %.1f:1 on the plate over the brightest world colour" % [RaidLogic.WARDEN_NOTE_KEY, worst])
+	t.ok(RaidLogic.contrast_ratio(Palette.c(RaidLogic.WARDEN_NOTE_KEY), Palette.c("ground")) > RaidLogic.contrast_ratio(Palette.c("text_dim"), Palette.c("ground")) + 3.0, "and it is plainly brighter than the dim grey it replaces")
+	var hs := _code(FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd"))
+	var ws := hs.substr(hs.find("class WardenBlock:"), hs.find("class Pointers:") - hs.find("class WardenBlock:"))
+	t.ok(ws.contains("_text(x0, y + 22.0 + _step() * float(i), note_lines[i], npx, note_key)") and ws.contains("\"break_row_px\"") and not ws.contains("catch_label(w.wwords(), w.spec, raid.warden_run.tell_bypass), 13"),
+		"the HUD draws the note lines at break_row_px in the note's key (not the old 13 px dim line)")
+	# every archetype's note fits the block: wrapped to its inner width, at most 3 lines, each line within it
+	var f := ThemeDB.fallback_font
+	var inner := RaidLogic.break_wrap_width(float(hud["warden_block_w"]), RaidLogic.WARDEN_BLOCK_INSET, float(hud.get("break_wrap_min_px", 120.0)))
+	var ww: Dictionary = cfg["wardens"]["words"]
+	var worst_lines := 0
+	var widest := 0.0
+	for arche in ["huntsman", "bellringer", "shieldwall", "pyre_priest"]:
+		for variant in [{"tier": 1, "first_dungeon": true}, {"tier": 3, "first_dungeon": false}]:
+			var sp := WardenLogic.spec({"id": "x", "archetype": arche, "tier": variant["tier"], "first_dungeon": variant["first_dungeon"]}, cfg)
+			var notes: Array = []
+			if arche == "huntsman":
+				notes = [WardenLogic.catch_label(ww, sp), WardenLogic.catch_label(ww, sp, true)]
+			elif arche == "shieldwall":
+				notes = [WardenLogic.shield_label(ww, sp, 0, true), WardenLogic.shield_label(ww, sp, 2, true)]
+			elif arche == "pyre_priest":
+				notes = [WardenLogic.pyre_label(ww, sp, 0, 3), WardenLogic.pyre_label(ww, sp, 1, 0)]
+			else:
+				notes = [str((sp.get("weak_point", {}) as Dictionary).get("label", ""))]
+			for n in notes:
+				t.ok(str(n) != "", "%s (tier %d): has a note" % [arche, variant["tier"]])
+				var lines := RaidLogic.wrap_chunks(str(n), f, px, inner)
+				worst_lines = maxi(worst_lines, lines.size())
+				for ln in lines:
+					widest = maxf(widest, f.get_string_size(ln, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x)
+	t.ok(worst_lines <= 3 and widest <= inner, "every warden's note wraps to at most 3 lines inside the block's %.0f px (worst %d lines, widest %.0f px)" % [inner, worst_lines, widest])
+	# the rows the note adds are counted in the block's height, and the banner steps down by it
+	var one := RaidLogic.warden_rows_layout(1, false, 0, 22.0)
+	var two := RaidLogic.warden_rows_layout(2, true, 3, 22.0)
+	t.ok(one["extra_h"] == 20.0 and one["pack_dy"] == 44.0 and one["break_dy"] == 22.0, "a one-line note is the old third row's 20 px (%s)" % str(one))
+	t.ok(two["extra_h"] == 20.0 + 22.0 + 20.0 + 22.0 * 3.0 + 6.0 and two["pack_dy"] == 22.0 + 44.0 and two["break_dy"] == 44.0 + 22.0, "two note lines push the pack row and the break rows down a step each (%s)" % str(two))
+	t.ok(RaidLogic.warden_rows_layout(0, false, 0, 22.0)["extra_h"] == 0.0 and RaidLogic.warden_rows_layout(0, false, 0, 22.0)["pack_dy"] == 22.0, "no note: the bare block, the pack row at the old y+22")
+	t.ok(RaidLogic.banner_top(116.0, true, RaidLogic.TOP_BLOCK_BASE_H + float(two["extra_h"])) == 116.0 + 14.0 + float(two["extra_h"]), "the wake banner steps down by every added row")
+	t.ok(float(hud["warden_block_w"]) == 680.0 and inner == 656.0, "the block keeps hud.warden_block_w (680), notes wrap inside its 12 px insets")
+
+
+## The left stat block (labels, values, sub-lines): 15 px or more, labels 7:1 and the rest 4.5:1 on the plate over the
+## brightest world colour, and at 1600x900 the worst case (day 1, no phylactery charge, the floor key up) ends above
+## the CONTROLS legend and short of the top-centre block.
+func _stat_block_tests(t: TestUtil) -> void:
+	t.suite("raid_stat_block")
+	var cfg: Dictionary = TestUtil.load_json("res://configs/raid.json")
+	var hud: Dictionary = cfg["hud"]
+	var sw: Dictionary = hud["stats"]
+	var f := ThemeDB.fallback_font
+	t.ok(int(hud["label_px"]) >= 15 and int(hud["value_px"]) >= 15 and int(sw["detail_px"]) >= 15, "labels (%d), values (%d) and sub-lines (%d) are at least 15 px" % [int(hud["label_px"]), int(hud["value_px"]), int(sw["detail_px"])])
+	var plate := func(world: Color) -> Color: return RaidLogic.over(Palette.c("ground"), float(hud["plate_alpha"]), world)
+	var lab := _worst_over(plate, "text", float(sw["label_alpha"]))
+	t.ok(float(lab[0]) >= 7.0, "the labels hold 7:1 on the plate over the brightest world colour (%.1f:1)" % float(lab[0]))
+	for key in ["text", "text_dim", "danger", "vei", "undead", "living", "essence", "relish"]:
+		var w := _worst_over(plate, key, 1.0)
+		t.ok(float(w[0]) >= (4.5 if key in ["text", "text_dim", "danger"] else 3.0), "values in `%s` hold their ratio on the plate (%.1f:1)" % [key, float(w[0])])
+	t.ok(float(_worst_over(plate, "text", 1.0)[0]) >= 4.5 and float(_worst_over(plate, "text_dim", 1.0)[0]) >= 4.5 and float(_worst_over(plate, "danger", 1.0)[0]) >= 4.5, "the value tones, text, text_dim (none) and danger (lost if you die), hold 4.5:1")
+	# every label fits its column at its size, with a gap before the value
+	var worst_lab := 0.0
+	for k in ["living_label", "label_essence", "label_raised", "label_phyl", "label_banked", "label_unbanked", "label_door", "rank_chaff", "rank_soldier", "rank_elite", "rank_big"]:
+		worst_lab = maxf(worst_lab, f.get_string_size(str(sw[k]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(hud["label_px"])).x)
+	t.ok(worst_lab + 6.0 + 6.0 <= float(sw["label_col"]), "the widest label (%.0f px) at x 6 leaves 6 px before the value column (%.0f)" % [worst_lab, float(sw["label_col"])])
+	t.ok(f.get_string_size(str(sw["ward_head"]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(hud["label_px"])).x <= float(sw["plate_w"]) - 12.0, "the YOUR UNDEAD header fits the plate")
+	# the worst case's height at 1600x900: the 3-line PHYLACT. explanation (no charge), the essence meaning, and the key's rows up
+	var vcol := _value_col()
+	var dpx := int(sw["detail_px"])
+	var ess := RaidLogic.wrap_each(PackedStringArray([str(sw["essence_meaning"])]), f, dpx, vcol)
+	var phy := RaidLogic.wrap_each(RaidLogic.phylactery_meaning(sw, 0), f, dpx, vcol)
+	var pile := RaidLogic.wrap_each(PackedStringArray([str(sw["key_pile"])]), f, dpx, float(sw["plate_w"]) - 12.0)
+	var row := float(sw["row_px"])
+	var h_worst := RaidLogic.stat_block_height(row, ess.size() - 1, phy.size() - 1, 0, 0, 0)
+	var h_key := RaidLogic.stat_block_height(row, ess.size() - 1, phy.size() - 1, 0, 1 + pile.size(), 0)
+	var top := 14.0 + f.get_height(24) + 2.0   # the HUD box's top, the 24 px title, its separation
+	var lg := RaidLegend.new()
+	lg.setup(hud["legend"], true)
+	var legend_top := 900.0 - 54.0 - lg.size.y   # the legend's offset_bottom -54 from the screen's bottom
+	var view_w := 1600.0
+	var goal_left := view_w * 0.5 - float(hud["warden_block_w"]) * 0.5
+	var right := 18.0 + float(sw["plate_w"])
+	print("STAT_BLOCK worst case (day 1, Old Sluice, 0 charges): %.0f wide x %.0f tall, y %.0f to %.0f; with the floor key %.0f tall, to y %.0f; legend top y %.0f; goal block left x %.0f; plate right x %.0f" % [float(sw["plate_w"]), h_worst, top, top + h_worst, h_key, top + h_key, legend_top, goal_left, right])
+	t.ok(phy.size() == 3 and ess.size() <= 2, "the worst case is the 3-line PHYLACT. meaning and a %d-line essence meaning" % ess.size())
+	t.ok(top + h_worst <= legend_top - 20.0, "day 1, Old Sluice: the stat block ends at y %.0f, 20 px above the CONTROLS legend's top (%.0f)" % [top + h_worst, legend_top])
+	t.ok(top + h_key <= legend_top - 20.0, "even with the floor key's rows up it ends at y %.0f, 20 px above the legend (%.0f)" % [top + h_key, legend_top])
+	t.ok(right <= goal_left - 12.0, "the plate's right edge (x %.0f) stops 12 px short of the top-centre block (x %.0f)" % [right, goal_left])
+	lg.free()
+	var hs := FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd")
+	t.ok(hs.contains("RaidLogic.stat_block_height(_row,") and hs.contains("_row = float(words.get(\"row_px\", _row))"), "the StatBlock sizes itself by the shared height function and reads its row pitch from hud.stats.row_px")
 
 
 ## A stand-in for a RaidUnit (the fields the counter filter reads).
@@ -43,6 +285,47 @@ func _fake(kind := "big", role := "party", beef := 0.0, alive := true) -> FakeUn
 	return u
 
 
+## V-I1 T2: the COUNTER row is true per warden and tier (WardenLogic.counter_role, raid.json's counter_*_from_tier). At
+## tier 1 and in the first dungeon no warden has its pack or the risk lever, so a big undead only helps (the Bellringer,
+## Huntsman, Pyre-priest) or is what breaks it (the Shieldwall's shield takes x0.1 from the front): never "make one at
+## the Crypt slab" for a counter the fight does not need; a role "none" leaves the row off.
+func _counter_role_tests(t: TestUtil) -> void:
+	var cfg: Dictionary = TestUtil.load_json("res://configs/raid.json")
+	var ww: Dictionary = cfg["wardens"]["words"]
+	var want := {"bellringer": ["helps", "needed"], "huntsman": ["helps", "needed"], "shieldwall": ["needed", "needed"], "pyre_priest": ["helps", "needed"]}   # tier 1, tier 3
+	for a in want:
+		var t1 := RaidLogic.warden_spec({"id": "x", "tier": 1, "archetype": a}, cfg)
+		var t3 := RaidLogic.warden_spec({"id": "x", "tier": 3, "archetype": a}, cfg)
+		var fd := RaidLogic.warden_spec({"id": "x", "tier": 3, "archetype": a, "first_dungeon": true}, cfg)
+		t.ok(WardenLogic.counter_role(t1) == want[a][0] and WardenLogic.counter_role(t3) == want[a][1], "%s: counter role t1 %s, t3 %s (got %s, %s)" % [a, want[a][0], want[a][1], WardenLogic.counter_role(t1), WardenLogic.counter_role(t3)])
+		t.ok(WardenLogic.counter_role(fd) == want[a][0], "%s: the first dungeon counts as tier 1 whatever its fort's tier" % a)
+		for vals in [[], [0.0], [99.0]]:
+			var l1 := WardenLogic.counter_line(ww, t1, vals)
+			var l3 := WardenLogic.counter_line(ww, t3, vals)
+			t.ok(l1.begins_with("COUNTER · a big undead with "), "%s t1 %s: still a COUNTER row" % [a, str(vals)])
+			if want[a][0] == "helps":
+				t.ok(not l1.contains("Crypt") and not l1.contains("you have none") and (l1.ends_with(str(ww["counter_helps"])) or not vals.is_empty() and vals[0] > 50.0),
+					"%s t1 %s: it helps, no 'make one at the Crypt slab': %s" % [a, str(vals), l1])
+			else:
+				t.ok(vals.size() == 1 and vals[0] > 50.0 or l1.contains("Crypt"), "%s t1 %s: needed keeps the slab advice: %s" % [a, str(vals), l1])
+			t.ok(vals.size() == 1 and vals[0] > 50.0 or l3.contains("Crypt"), "%s t3 %s: needed keeps the slab advice: %s" % [a, str(vals), l3])
+	# the exact tier-1 and tier-3 rows
+	var bt1 := RaidLogic.warden_spec({"id": "old-sluice", "tier": 1}, cfg)
+	var bt3 := RaidLogic.warden_spec({"id": "vespers", "tier": 2}, cfg)
+	t.ok(WardenLogic.counter_line(ww, bt1, []) == "COUNTER · a big undead with beef 6+ muffles its slams · helps, not needed here"
+		and WardenLogic.counter_line(ww, bt1, [], true) == WardenLogic.counter_line(ww, bt1, [])
+		and WardenLogic.counter_line(ww, bt1, [7.0]) == "COUNTER · a big undead with beef 6+ muffles its slams · 1 in your party"
+		and WardenLogic.counter_line(ww, bt3, []) == "COUNTER · a big undead with beef 6+ muffles its slams · you have none: make one at the Crypt slab",
+		"Old Sluice (tier 1): helps, not needed here; Vespers (tier 2): today's line")
+	# a role of none: the row is left off ("" from counter_line; RaidHud.break_rows skips it)
+	var none_sp := {"tier": 1, "weak_point": {"stat": "beef", "threshold": 6.0, "effect": "muffle", "counter_helps_from_tier": 3, "counter_needed_from_tier": 4}}
+	t.ok(WardenLogic.counter_role(none_sp) == "none" and WardenLogic.counter_line(ww, none_sp, []) == "" and WardenLogic.counter_line(ww, none_sp, [9.0], true) == ""
+		and WardenLogic.counter_role({"tier": 3, "weak_point": none_sp["weak_point"]}) == "helps" and WardenLogic.counter_role({"tier": 4, "weak_point": none_sp["weak_point"]}) == "needed"
+		and WardenLogic.counter_role({"weak_point": {"stat": "beef"}}) == "needed", "counter_role: none below helps_from, helps up to needed_from, needed from it; no numbers is needed")
+	var hsrc := FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd")
+	t.ok(_func_src(hsrc, "static func break_rows(").contains("if cl != \"\":"), "break_rows leaves the COUNTER row off when counter_line is empty")
+
+
 ## Clarity round 2, task A: the counter advice, the retreat panel's two columns, the undead hint, the uses line,
 ## the PHYLACT. explanation.
 func _round2_tests(t: TestUtil) -> void:
@@ -64,6 +347,7 @@ func _round2_tests(t: TestUtil) -> void:
 	t.ok(WardenLogic.counter_line(ww, sp, [], true) == "COUNTER · a big undead with beef 6+ muffles its slams · you have none"
 		and WardenLogic.counter_line(ww, sp, [5.0], true) == "COUNTER · a big undead with beef 6+ muffles its slams · none in your party"
 		and WardenLogic.counter_line(ww, sp, [6.0, 2.0], true) == "COUNTER · a big undead with beef 6+ muffles its slams · 1 in your party", "the compact rows read as they did")
+	_counter_role_tests(t)
 	var holder := _fake("big", "party", 9.0)
 	var pool := [_fake("big", "party", 7.0), _fake("chaff", "party", 99.0), _fake("big", "raised", 99.0), _fake("big", "party", 8.0, false), holder, _fake("big", "party", 3.0)]
 	var vals := RaidLogic.counter_party_values(pool, "beef", holder)
@@ -108,7 +392,14 @@ func _round2_tests(t: TestUtil) -> void:
 	panel_heads.configure(_hr())
 	t.ok(panel_heads.head_keep == "RETREAT NOW" and panel_heads.head_fall == "IF RELISH FALLS", "the panel draws the heads it is configured with")
 	t.ok(panel_heads.title == "LEAVE THE RAID?" and panel_heads.btn_retreat == "RETREAT" and panel_heads.btn_stay == "STAY"
-		and panel_heads.foot == "click to choose · Space or Esc: stay and fight", "the panel's title, buttons and footer are the ones hud.retreat gives it")
+		and panel_heads.foot == "click to choose · Esc: stay and fight · Space: raise undead", "the panel's title, buttons and footer are the ones hud.retreat gives it")
+	# Space keeps one meaning (raise): the foot names Esc, not Space, as the stay key. Space still puts the centred plate
+	# away (is_stay_key, raid.gd _unhandled_input) because the plate is centred, swallows a left press, and would sit over the
+	# motes the raise is about to circle; it is the trance's side effect, and the words say so.
+	t.ok(not panel_heads.foot.contains("Space or Esc") and not panel_heads.foot.contains("Space: stay") and panel_heads.foot.contains("Esc: stay and fight")
+		and panel_heads.foot.contains("Space: raise"), "the retreat foot teaches Esc as the stay key and Space as raise only")
+	t.ok(ThemeDB.fallback_font.get_string_size(panel_heads.foot, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x <= float(_hr().get("w", 820.0)) - 2.0 * float(_hr().get("pad", 16.0)),
+		"the retreat foot fits the panel's width at 13 px")
 	panel_heads.free()
 	# (_lost_agreement_tests runs from run(): it names its own suite, which the checks below must not inherit)
 	# Stays a source pin: raid_hud.gd and raid_endings.gd name autoloads, so the headless suite cannot load them to
@@ -145,7 +436,36 @@ func _round2_tests(t: TestUtil) -> void:
 	# A3: the undead line under the idle hint until the first raise
 	t.ok(RaidLogic.hint_sub_text(_hh(), false, false, false) == _hh()["idle_sub_text"] and _hh()["idle_sub_text"] == "your undead fight on their own · keep Relish safe and raise more", "idle, no raise yet: the second line")
 	t.ok(RaidLogic.hint_sub_text(_hh(), false, false, true) == "", "after the first raise: one line")
-	t.ok(RaidLogic.hint_sub_text(_hh(), true, false, false) == "" and RaidLogic.hint_sub_text(_hh(), false, true, false) == "", "the trance and exit hints take the line alone")
+	t.ok(RaidLogic.hint_sub_text(_hh(), true, false, false) == _hh()["trance_sub_text"]
+		and _hh()["trance_sub_text"] == "a rounder circle makes stronger undead · a bigger loop takes in more motes", "the trance, nothing raised yet: what a loop decides")
+	t.ok(RaidLogic.hint_sub_text(_hh(), true, true, false) == _hh()["trance_sub_text"], "the trance's line wins at the exit too, as its main line does")
+	t.ok(RaidLogic.hint_sub_text(_hh(), true, false, true) == "" and RaidLogic.hint_sub_text(_hh(), false, true, false) == "", "after a raise the trance line is gone, and the exit hint takes its line alone")
+	# T1: the live readout beside the pen (RaidTraceLive) and the result's tier and strength
+	var tnw: Dictionary = _rj()["trace_notch"]
+	var rjson: Dictionary = _rj()
+	var ccfg := {"multiplier_base": 0.5, "multiplier_per_100": 1.0}
+	var l82 := RaidLogic.loop_readout(tnw, true, 82, 5, rjson, ccfg)
+	t.ok(l82 == ["LET GO NOW: 82 · SOLDIER", "5 motes inside · strength ×1.32", "60+ SOLDIER · 90+ ELITE"], "82 reads SOLDIER, 5 motes, strength x1.32 (%s)" % str(l82))
+	t.ok(RaidLogic.loop_readout(tnw, true, 95, 3, rjson, ccfg)[0] == "LET GO NOW: 95 · ELITE", "95 reads ELITE")
+	t.ok(RaidLogic.loop_readout(tnw, true, 40, 0, rjson, ccfg)[0] == "LET GO NOW: 40 · CHAFF" and RaidLogic.loop_readout(tnw, true, 40, 0, rjson, ccfg)[1] == "0 motes inside · strength ×0.90", "40 reads CHAFF, x0.90")
+	t.ok(RaidLogic.loop_readout(tnw, false, 0, 0, rjson, ccfg) == ["keep looping", "60+ SOLDIER · 90+ ELITE"], "not a ring yet: keep looping and the ladder")
+	var rc2 := {"raise": {"soldier_min_score": 55, "elite_min_score": 85}}
+	t.ok(RaidLogic.loop_readout(tnw, true, 87, 2, rc2, {"multiplier_base": 0.0, "multiplier_per_100": 2.0})
+		== ["LET GO NOW: 87 · ELITE", "2 motes inside · strength ×1.74", "55+ SOLDIER · 85+ ELITE"], "a changed config changes the ladder, the tier and the strength")
+	t.ok(RaidLogic.loop_readout(tnw, true, 84, 8, rjson, ccfg)[0].ends_with(RaidLogic.score_class(84, rjson).to_upper()), "the readout's tier is the tier the raise makes (score_class)")
+	t.ok(RaidLogic.word_fmt(tnw, "tier_tail", [3, "SOLDIER", "%.2f" % RaidLogic.stat_mult(82, ccfg)]) == "×3 SOLDIER · strength ×1.32", "the result's tail names tier and strength")
+	# (trace_feedback.gd names autoloads, so the headless suite reads its source rather than loading it)
+	t.ok(FileAccess.get_file_as_string("res://scripts/raid/trace_feedback.gd").contains("static func band_for(s: int)")
+		and FileAccess.get_file_as_string("res://scripts/raid/trace_overlay.gd").contains("RaidTraceFeedback.band_for(score)"), "the readout's colour is the feedback's band lookup")
+	_readout_place_tests(t)
+	var over := Palette.c("ground").lerp(Color.WHITE, 1.0 - float(tnw["live_plate_alpha"]))   # worst case: white under the plate
+	var cr_dim := MapLogic.contrast_ratio(Palette.c("text_dim"), over)
+	t.ok(cr_dim >= 4.5 and int(tnw["live_ladder_px"]) >= 13 and int(tnw["live_font_px"]) >= 13, "the ladder's dim text holds 4.5:1 on its plate even over white (%.1f)" % cr_dim)
+	t.ok(float(TestUtil.load_json("res://configs/circle.json")["feedback_hold_s"]) >= 1.4, "the result holds long enough to read three items")
+	var tsrc := FileAccess.get_file_as_string("res://scripts/raid/trance.gd")
+	t.ok(tsrc.contains("raid.raiser.motes_inside(") and tsrc.contains("RaidLogic.loop_readout(") and FileAccess.get_file_as_string("res://scripts/raid/raid_raise.gd").contains("motes_inside(center, radius)"),
+		"the readout and the raise count motes with one function")
+	t.ok(tsrc.count("CircleScorer.grade(") == 2 and tsrc.contains("trace.append(w)\n\t\t\tif _trace_line != null:\n\t\t\t\t_trace_line.points = trace\n\t\t\t_update_live()"), "one grade per appended point (and the release's), none per frame")
 	t.ok(hsrc.contains("RaidLogic.hint_sub_text(hint_words, raid.trance_active, at_exit, raid.first_raise_done)"), "the HUD picks the second line with the helper")
 	# A4: PHYLACT. explanation and the loot uses
 	t.ok(RaidLogic.phylactery_meaning(_hs(), 0) == PackedStringArray(["revives Relish in place, at most once per dungeon.", "The Ossuary Tower crafts it from essence."]), "no charge: the Jargon line in two rows")
@@ -168,13 +488,13 @@ func _round2_tests(t: TestUtil) -> void:
 	var pw := RaidLogic.phylactery_word(_hs(), 0)
 	var pcut := pw.find(" · ")
 	var fnt0 := ThemeDB.fallback_font
-	var prow := 92.0 + 4.0 + fnt0.get_string_size("0", HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x + 10.0 + fnt0.get_string_size(pw.substr(0, pcut), HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x + fnt0.get_string_size(pw.substr(pcut), HORIZONTAL_ALIGNMENT_LEFT, -1, dpx).x
+	var prow := float(sw["label_col"]) + 4.0 + fnt0.get_string_size("0", HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x + 10.0 + fnt0.get_string_size(pw.substr(0, pcut), HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x + fnt0.get_string_size(pw.substr(pcut), HORIZONTAL_ALIGNMENT_LEFT, -1, dpx).x
 	t.ok(pcut > 0 and prow <= 420.0 - 6.0, "the PHYLACT. row's NO REVIVE run fits the plate (%d of 414 px)" % int(prow))
 	# the LIVING / YOUR UNDEAD words: each fits where it is drawn (label column 92 px; the value after the 1-pip ring)
 	var lab := int(TestUtil.load_json("res://configs/raid.json")["hud"]["label_px"])
 	t.ok(sw["ward_head"] == "YOUR UNDEAD" and sw["living_label"] == "LIVING", "the ward header and the living label")
 	var lv_w := fnt0.get_string_size(str(sw["living_label"]), HORIZONTAL_ALIGNMENT_LEFT, -1, lab).x
-	t.ok(lv_w <= 92.0, "the LIVING label fits the 92 px label column at %d px (%d px)" % [lab, int(lv_w)])
+	t.ok(lv_w <= float(sw["label_col"]), "the LIVING label fits the %d px label column at %d px (%d px)" % [int(sw["label_col"]), lab, int(lv_w)])
 	var wh_w := fnt0.get_string_size(str(sw["ward_head"]), HORIZONTAL_ALIGNMENT_LEFT, -1, lab).x   # a header: its row has no value, it may run on
 	t.ok(wh_w <= 420.0 - 12.0, "the YOUR UNDEAD header fits the plate at %d px (%d px)" % [lab, int(wh_w)])
 	t.ok(RaidLogic.enemies_text(22, sw) == "22 enemies" and RaidLogic.enemies_text(1, sw) == "1 enemy" and RaidLogic.enemies_text(0, sw) == "0 enemies", "the LIVING value counts enemies")
@@ -362,8 +682,9 @@ func _goal_tests(t: TestUtil) -> void:
 			var wp: Dictionary = ac["weak_point"]
 			var thr := int(wp["threshold"])
 			var base := str(ww["counter_line"]) % [str(wp["stat"]), thr, verbs[a]]
-			t.ok(WardenLogic.counter_line(ww, sp, []) == base + str(ww["counter_none"]) + str(ww["counter_make"]), "%s: the counter line, no bigs" % tag)
-			t.ok(WardenLogic.counter_line(ww, sp, [thr - 1, 0]) == base + str(ww["counter_none_party"]) + str(ww["counter_make"]), "%s: the counter line, none meets it" % tag)
+			var helps_only := WardenLogic.counter_role(sp) == WardenLogic.COUNTER_HELPS   # T2: the line follows the role (a tier-1 big does not break a warden)
+			t.ok(WardenLogic.counter_line(ww, sp, []) == base + (str(ww["counter_helps"]) if helps_only else str(ww["counter_none"]) + str(ww["counter_make"])), "%s: the counter line, no bigs" % tag)
+			t.ok(WardenLogic.counter_line(ww, sp, [thr - 1, 0]) == base + (str(ww["counter_helps"]) if helps_only else str(ww["counter_none_party"]) + str(ww["counter_make"])), "%s: the counter line, none meets it" % tag)
 			t.ok(WardenLogic.counter_line(ww, sp, [thr, thr + 3, thr - 1]) == base + str(ww["counter_have"]) % 2, "%s: the counter line, 2 of 3 meet it" % tag)
 			# row 1 of the awake block (raid_hud.gd WardenBlock._draw): the pips, their count, then the archetype's
 			# counter tally or teach label, then its status word: the widest it can be stays inside the plate's inset
@@ -1277,7 +1598,11 @@ func _contrast_tests(t: TestUtil) -> void:
 	for r in drows + RaidLogic.clear_card_rows(_cw(), _lu(), "X", sample):
 		worst_label = maxf(worst_label, f.get_string_size(str(r["label"]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(dc["label_px"])).x)
 	t.ok(int(dc["label_px"]) >= 14 and worst_label <= float(dc["label_w"]) - 8.0, "card labels are 14 px and fit their column (%.0f px of %.0f)" % [worst_label, float(dc["label_w"]) - 8.0])
-	t.ok(f.get_string_size(_hs()["key_pile"], HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x <= 420.0 - 12.0, "the floor key's second line fits the StatBlock's plate at 13 px")
+	var pile := RaidLogic.wrap_each(PackedStringArray([str(_hs()["key_pile"])]), f, int(_hs()["detail_px"]), float(_hs()["plate_w"]) - 12.0)
+	var pile_ok := pile.size() >= 1
+	for ln in pile:
+		pile_ok = pile_ok and f.get_string_size(ln, HORIZONTAL_ALIGNMENT_LEFT, -1, int(_hs()["detail_px"])).x <= float(_hs()["plate_w"]) - 12.0
+	t.ok(pile_ok, "the floor key's pile line wraps to the StatBlock's plate at %d px (%d lines)" % [int(_hs()["detail_px"]), pile.size()])
 
 	# no raid HUD text under 13 px: every literal size in a draw_string / font_size override
 	var small := PackedStringArray()

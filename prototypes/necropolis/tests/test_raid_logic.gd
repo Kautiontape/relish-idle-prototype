@@ -2130,9 +2130,24 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 	var dvt := _func_body("res://scripts/raid/raid_dev.gd", "func tick(")
 	t.ok(dvt.contains("_autodie > 0 and frame > 0 and frame % _autodie == 0"), "--raid-autodie=N first hits at frame N, not at frame 0 (dev path: the death card showed and was gone before an N-based shot)")
 	var trow := RaidLogic.death_card_rows(_dw(), RaidLogic.death_cause(_dw(), "toll", "The Bellringer"), {}, {}, 1, RaidLogic.death_tell(_dw(), "toll"))
-	t.ok(trow.size() == 4 and trow[0]["label"] == "KILLED BY" and trow[0]["text"] == "The Bellringer's toll" and trow[1]["label"] == "MISSED"
-		and trow[1]["text"] == "the ring at your feet" and trow[2]["label"] == "BANKED" and trow[3]["label"] == "LOST",
-		"a death by a tell-attack: KILLED BY the attack, then MISSED its tell, on its own row")
+	t.ok(trow.size() == 4 and trow[0]["label"] == "KILLED BY" and trow[0]["text"] == "The Bellringer's toll" and trow[1]["label"] == "RED TELL"
+		and trow[1]["text"] == "It was marked in red before it hit (the ring at your feet). Keep Relish out of it." and trow[2]["label"] == "BANKED" and trow[3]["label"] == "LOST",
+		"a death by a tell-attack: KILLED BY the attack, then the RED TELL row (marked in red first, keep Relish out), on its own row")
+	# the capture's missed_tell stays the bare tell name (earlier captures keep matching), for every source
+	t.ok(RaidLogic.death_tell(_dw(), "slam") == "the swing" and RaidLogic.death_tell(_dw(), "toll") == "the ring at your feet" and RaidLogic.death_tell(_dw(), "lunge") == "the line"
+		and RaidLogic.death_tell(_dw(), "bash") == "the lit arc" and RaidLogic.death_tell(_dw(), "rush") == "the lit arc" and RaidLogic.death_tell(_dw(), "fire") == "the marked ground"
+		and RaidLogic.death_tell(_dw(), "pack") == "" and RaidLogic.death_tell(_dw(), "living") == "" and RaidLogic.death_tell(_dw(), "") == "",
+		"the tell words and death_tell are untouched")
+	t.ok(RaidLogic.death_card_rows(_dw(), "the living", {}, {}, 1, RaidLogic.death_tell(_dw(), "living")).size() == 3, "no tell, no RED TELL row")
+	# every RED TELL sentence wraps within the card's value column at its font size, in at most two lines (the card's rows grow for a wrap)
+	var rcg: Dictionary = TestUtil.load_json("res://configs/raid.json")["death"]
+	var rcol: float = float(rcg["card_w"]) - 2.0 * float(rcg["card_pad"]) - float(rcg["label_w"])
+	var rfnt := ThemeDB.fallback_font
+	for src in ["slam", "toll", "lunge", "bash", "rush", "fire"]:
+		var sentence := str(RaidLogic.death_card_rows(_dw(), "x", {}, {}, 0, RaidLogic.death_tell(_dw(), src))[1]["text"])
+		var sz := rfnt.get_multiline_string_size(sentence, HORIZONTAL_ALIGNMENT_LEFT, rcol, int(rcg["value_px"]))
+		t.ok(sz.y <= rfnt.get_height(int(rcg["value_px"])) * 2.0 + 0.5 and sz.x <= rcol and int(rcg["value_px"]) >= 13 and sentence.contains("marked in red") and sentence.contains("Keep Relish out"),
+			"the RED TELL row for %s wraps to two lines at most inside the column (%d x %d of %d px): %s" % [src, int(sz.x), int(sz.y), int(rcol), sentence])
 	# every value the KILLED BY and MISSED rows can hold fits the card's value column at its font size
 	var dcg: Dictionary = TestUtil.load_json("res://configs/raid.json")["death"]
 	var col_w: float = float(dcg["card_w"]) - 2.0 * float(dcg["card_pad"]) - float(dcg["label_w"])

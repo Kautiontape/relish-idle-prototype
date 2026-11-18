@@ -457,17 +457,17 @@ func _comes(t: TestUtil) -> void:
 	var none := {"party": []}
 	var two := {"party": [{"uid": "a"}, {"uid": "b"}]}
 	var first := CardLogic.comes_in(_fort_entry(), none, raid, econ)
-	t.ok(first == {"garrison": 0, "starter": 8, "bigs": 0, "total": 8, "war_here": 6.4, "garrison_max": 12}, "the first dungeon: starter 8, garrison 0 of undead 6.4: " + str(first))
+	t.ok(first == {"garrison": 0, "starter": 8, "bigs": 0, "total": 8, "war_here": 6.4, "garrison_max": 12, "garrison_div": 10, "counter": "helps"}, "the first dungeon: starter 8, garrison 0 of undead 6.4: " + str(first))
 	var f27 := _fort_entry()
 	f27["undead"] = 27.5
 	f27["first_dungeon"] = false
-	t.ok(CardLogic.comes_in(f27, none, raid, econ) == {"garrison": 2, "starter": 0, "bigs": 0, "total": 2, "war_here": 27.5, "garrison_max": 12}, "undead 27.5: garrison 2, no starter")
+	t.ok(CardLogic.comes_in(f27, none, raid, econ) == {"garrison": 2, "starter": 0, "bigs": 0, "total": 2, "war_here": 27.5, "garrison_max": 12, "garrison_div": 10, "counter": "helps"}, "undead 27.5: garrison 2, no starter")
 	f27["undead"] = 500.0
 	var cap := int(raid["mass"]["garrison_max"])
 	t.ok(cap == 12 and CardLogic.comes_in(f27, none, raid, econ)["garrison"] == cap, "undead 500: the garrison caps at garrison_max")
 	f27["held"] = false
 	f27["garrison"] = 0.0
-	t.ok(CardLogic.comes_in(f27, two, raid, econ) == {"garrison": 12, "starter": 0, "bigs": 2, "total": 14, "war_here": 500.0, "garrison_max": 12}, "bigs count the party; `garrison` (0 unheld) is not read")
+	t.ok(CardLogic.comes_in(f27, two, raid, econ) == {"garrison": 12, "starter": 0, "bigs": 2, "total": 14, "war_here": 500.0, "garrison_max": 12, "garrison_div": 10, "counter": "helps"}, "bigs count the party; `garrison` (0 unheld) is not read")
 	# profiles and the warning
 	t.ok(CardLogic.profile(1, raid) == {"undead": 6, "bigs": 0} and CardLogic.profile(2, raid) == {"undead": 6, "bigs": 1}
 		and CardLogic.profile(3, raid) == {"undead": 8, "bigs": 2} and CardLogic.profile(4, raid) == {"undead": 12, "bigs": 3}, "profiles t1..t4")
@@ -535,7 +535,43 @@ func _comes(t: TestUtil) -> void:
 	t.ok(CardLogic.comes_in_text({"garrison": 0, "starter": 0, "bigs": 0, "total": 0}) == "None come from your WAR stream yet, and your Party has no big undead.", "nobody: why, in one sentence")
 	t.ok(CardLogic.comes_in_text({"garrison": 0, "starter": 0, "bigs": 0, "total": 0, "war_here": 6.0}) == "The 6 WAR undead here are too few to send one (one comes per 10), and your Party has no big undead.", "nobody, a few WAR undead there: too few")
 	t.ok(CardLogic.comes_in_text({"garrison": 0, "starter": 8, "bigs": 0, "total": 8, "war_here": 1.2}) == "They're your 8 starter undead, plus any you raise inside; the 1 WAR undead here is too few to send one (one per 10).", "one WAR undead there: 'is'")
-	t.ok(CardLogic.comes_in_text({"garrison": 0, "starter": 0, "bigs": 0, "total": 0, "war_here": 0.9}).begins_with("The 1 WAR undead here is too few"), "nobody, one WAR undead there: 'is'")
+	t.ok(CardLogic.comes_in_text({"garrison": 0, "starter": 0, "bigs": 0, "total": 0, "war_here": 1.9}).begins_with("The 1 WAR undead here is too few"), "nobody, one whole WAR undead there: 'is'")
+	t.ok(CardLogic.comes_in_text({"garrison": 0, "starter": 0, "bigs": 0, "total": 0, "war_here": 0.9}) == "None come from your WAR stream yet, and your Party has no big undead.", "under one whole WAR undead reads as none")
+	# the count agrees with what the raid sends (RaidLogic.garrison_count floors undead / div): 9.6 is 9, never a 10
+	var rc0 := TestUtil.load_json("res://configs/raid.json")
+	var ci96 := CardLogic.comes_in({"undead": 9.6, "first_dungeon": false}, {}, rc0, {})
+	t.ok(int(ci96["garrison"]) == RaidLogic.garrison_count(9.6, rc0) and int(ci96["garrison"]) == 0, "9.6 undead: the raid sends none")
+	t.ok(CardLogic.comes_in_text(ci96) == "The 9 WAR undead here are too few to send one (one comes per 10), and your Party has no big undead.", "9.6 reads 9, too few: " + CardLogic.comes_in_text(ci96))
+	var ci196 := CardLogic.comes_in({"undead": 19.6, "first_dungeon": false}, {"party": [{"uid": "a"}]}, rc0, {})
+	t.ok(CardLogic.comes_in_text(ci196) == "They're 1 from the 19 WAR undead here (one per 10) and 1 big undead from your Party, plus any you raise inside.", "19.6 reads 19: " + CardLogic.comes_in_text(ci196))
+	var ci_cap := CardLogic.comes_in({"undead": 300.0, "first_dungeon": false}, {}, rc0, {})
+	t.ok(int(ci_cap["garrison"]) == RaidLogic.garrison_count(300.0, rc0) and CardLogic.comes_in_text(ci_cap).contains("(one per 10, at most 12)"), "capped: the raid's cap and divisor in the words: " + CardLogic.comes_in_text(ci_cap))
+	# a retune moves the card with the raid: the divisor and the cap in the words come from raid.json mass
+	var rc7: Dictionary = rc0.duplicate(true)
+	rc7["mass"]["garrison_mass_div"] = 7.0
+	rc7["mass"]["garrison_max"] = 3
+	var ci7 := CardLogic.comes_in({"undead": 30.0, "first_dungeon": false}, {}, rc7, {})
+	t.ok(int(ci7["garrison"]) == 3 and CardLogic.comes_in_text(ci7).contains("(one per 7, at most 3)"), "div 7 / cap 3: the words follow: " + CardLogic.comes_in_text(ci7))
+	t.ok(CardLogic.comes_in_text(CardLogic.comes_in({"undead": 5.0, "first_dungeon": false}, {}, rc7, {})).contains("(one comes per 7)"), "the none-few words follow the divisor")
+	for k in MapLogic.cfg()["cards"]:
+		if str(k).begins_with("comes_who"):
+			t.ok(not str(MapLogic.cfg()["cards"][k]).contains("per 10") and not str(MapLogic.cfg()["cards"][k]).contains("most 12"), "%s holds no literal divisor or cap" % k)
+	# the warden sentence follows the raid's COUNTER rule (WardenLogic.counter_role) against the fort's tier
+	var helps_s := "A big undead helps against this warden, but you don't need one here."
+	var old_s := "To answer a warden, make a big undead at the Crypt slab and put it in your Party."
+	var d1 := CardLogic.comes_in(_fort_entry(), {"party": []}, rc0, TestUtil.load_json("res://configs/economy.json"))
+	t.ok(d1["counter"] == "helps" and CardLogic.comes_plain_text(d1) == "8 undead come with you. " + helps_s, "Old Sluice day 1 (tier-1 Bellringer): helps, not needed: " + CardLogic.comes_plain_text(d1))
+	var bell2 := _fort_entry()
+	bell2["tier"] = 2
+	bell2["first_dungeon"] = false
+	t.ok(CardLogic.comes_in(bell2, {"party": []}, rc0, {})["counter"] == "needed" and CardLogic.comes_plain_text(CardLogic.comes_in(bell2, {"party": []}, rc0, {})).ends_with(old_s), "a tier-2 Bellringer fort: today's sentence")
+	var shield := _fort_entry()
+	shield["id"] = "pale-bastion"
+	shield["tier"] = 1
+	shield["first_dungeon"] = false
+	t.ok(CardLogic.comes_in(shield, {"party": []}, rc0, {})["counter"] == "needed" and CardLogic.comes_plain_text(CardLogic.comes_in(shield, {"party": []}, rc0, {})).ends_with(old_s), "a Shieldwall fort at tier 1: today's sentence")
+	t.ok(CardLogic.comes_plain_text({"garrison": 0, "starter": 8, "bigs": 0, "total": 8, "counter": "none"}) == "8 undead come with you.", "counter none: no warden sentence")
+	t.ok(CardLogic.comes_plain_text({"garrison": 0, "starter": 8, "bigs": 1, "total": 9, "counter": "helps"}) == "8 undead and 1 big undead come with you.", "a big undead in the Party: no sentence, helps or not")
 	# the sentence names the fort's undead as its HELD chip counts them (IdleLogic.garrison_text), and the raid's per-10 count
 	var rcfg := TestUtil.load_json("res://configs/raid.json")
 	for u in [0.0, 4.0, 22.0, 300.0]:
@@ -543,7 +579,7 @@ func _comes(t: TestUtil) -> void:
 		var who := CardLogic.comes_in_text(ci)
 		var chip_n := MapLogic.fmt_mass(IdleLogic.garrison_units({"garrison": u}))
 		t.ok((u == 0.0 and who.to_lower().contains("none come from your war stream")) or (u > 0.0 and who.contains(" %s WAR undead here" % chip_n)), "%.0f undead at the fort: the card names the chip's count: %s" % [u, who])
-		t.ok(int(ci["garrison"]) == mini(int(u / 10.0), 12), "and comes in at one per 10, at most 12 (%d)" % int(ci["garrison"]))
+		t.ok(int(ci["garrison"]) == mini(int(u / float(rcfg["mass"]["garrison_mass_div"])), int(rcfg["mass"]["garrison_max"])), "and comes in at the raid's rate and cap (%d)" % int(ci["garrison"]))
 	for ci in [{"garrison": 0, "starter": 8, "bigs": 0}, all3, {"garrison": 0, "starter": 0, "bigs": 0}]:
 		var who := CardLogic.comes_in_text(ci)
 		t.ok(not who.contains("from:") and not who.contains("(WAR)") and not who.contains(" · "), "no breakdown jargon: " + who)

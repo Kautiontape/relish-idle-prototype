@@ -346,9 +346,9 @@ func _vei_words_tests(t: TestUtil) -> void:
 	var rj: Dictionary = TestUtil.load_json("res://configs/raid.json")
 	var vf: Dictionary = rj["vei_fight"]
 	t.ok(vf["name"] == "Vei · the final test" and vf["banner_court"] == "VEI'S COURT · break %d of the 4 fronts" and vf["banner_front"] == "%s BREAK THROUGH · %d of %d"
-		and vf["banner_break"] == "THE BREAK · raise at the anchors faster than she ferries" and vf["banner_crack"] == "%s CRACKS · %d backup%s left"
+		and vf["banner_break"] == "THE BREAK · raise at the anchors faster than she works her queue down" and vf["banner_crack"] == "%s CRACKS · %d backup%s left"
 		and vf["crack_phyl"] == "A PHYLACTERY" and vf["crack_clone"] == "A CLONE" and vf["banner_weave"] == "VEI WEAVES · step off the thread"
-		and vf["hint_fronts"] == "HOLD SPACE — CIRCLE THE ESSENCE BY A LANE · it joins that front" and vf["hint_break"] == "RAISE AT THE ANCHORS · outpace her ferry",
+		and vf["hint_fronts"] == "HOLD SPACE — CIRCLE THE ESSENCE BY A LANE · it joins that front" and vf["hint_break"] == "RAISE AT THE ANCHORS · faster than she works her queue down",
 		"vei_fight: the fight's name, banners and hints, word for word")
 	t.ok(vf["lane_short"] == "SHORT %d" and vf["lane_cleared"] == "CLEARED" and vf["lane_sends"] == "SENDS GUARDS" and vf["lane_met"] == "MET · breaking"
 		and vf["lane_have"] == "have %d / need %d" and vf["safe_cue"] == "SAFE %d s", "vei_fight: the lane labels and the revive cue")
@@ -357,20 +357,20 @@ func _vei_words_tests(t: TestUtil) -> void:
 		and vf["hud_left"] == "%d left%s" and vf["hud_cracked"] == " · %d cracked", "vei_fight: the boss block's rows")
 	t.ok(vf["card_title_win"] == "VEI BREAKS" and vf["card_title_lose"] == "VEI HOLDS" and vf["card_sub_win"] == "the game is beaten" and vf["card_time"] == "FIGHT TIME"
 		and vf["card_backups"] == "BACKUPS SPENT" and vf["card_of"] == "%d of %d" and vf["card_none"] == "none to spend" and vf["card_party"] == "BIG UNDEAD LOST"
-		and vf["card_backlog"] == "BACKLOG" and vf["card_backlog_spent"] == "BACKLOG SPENT" and vf["card_button"] == "BACK TO THE REALM"
+		and vf["card_backlog"] == "HER QUEUE" and vf["card_backlog_spent"] == "QUEUE WORKED DOWN" and vf["card_button"] == "BACK TO THE REALM"
 		and rj["vei_loss"]["keep_text"] == "%d%% stays", "vei_fight: the end card's words (and vei_loss.keep_text)")
 	var rt: Dictionary = rj["relish"]
 	var tn: Dictionary = rj["trace_notch"]
-	t.ok(rt["word_struck"] == "STRUCK −%d" and rt["word_soaked"] == "SOAKED" and tn["grade_head"] == "%d — %s" and tn["tier_tail"] == "×%d %s"
+	t.ok(rt["word_struck"] == "STRUCK −%d" and rt["word_soaked"] == "SOAKED" and tn["grade_head"] == "%d — %s" and tn["tier_tail"] == "×%d %s · strength ×%s"
 		and tn["not_circle"] == "0 — NOT A CIRCLE" and [tn["word_perfect"], tn["word_great"], tn["word_good"], tn["word_okay"], tn["word_shaky"], tn["word_poor"], tn["word_awful"]]
 		== ["PERFECT!", "GREAT", "GOOD", "OKAY", "SHAKY", "POOR", "AWFUL"], "relish's hit words and the circle feedback's words, word for word")
 	var dir := "res://scripts/raid/"
 	var left: Array = []
 	for pair in [["vei_boss.gd", ["final test", "VEI'S COURT", "BREAK THROUGH", "THE BREAK", "CRACKS", "PHYLACTERY\"", "A CLONE", "WEAVES", "HOLD SPACE", "RAISE AT THE ANCHORS"]],
-			["vei_card.gd", ["FIGHT TIME", "BACKUPS SPENT", "BIG UNDEAD", "BACKLOG", "none to spend", "VEI HOLDS", "VEI BREAKS", "the game is beaten", "BACK TO THE REALM", "the fight is lost"]],
+			["vei_card.gd", ["FIGHT TIME", "BACKUPS SPENT", "BIG UNDEAD", "HER QUEUE", "none to spend", "VEI HOLDS", "VEI BREAKS", "the game is beaten", "BACK TO THE REALM", "the fight is lost"]],
 			["boss_logic.gd", ["% stays", "%d%% stays", "at this pace", "LAPSES", "keep raise", "a lapse"]],
 			["boss_lanes.gd", ["SHORT", "CLEARED", "SENDS GUARDS", "MET ·", "have %d", "SAFE %d"]],
-			["raid_hud.gd", ["\"FRONTS\"", "\"TIME\"", "\"BROKEN\"", "a front breaks", "\"BACKLOG\"", "ferried %", "SHE BREAKS", "the fight is lost", "raise > ferry", "raise < ferry", "\"BREAK\"", "\"BACKUPS\"", "% left", "%d cracked"]],
+			["raid_hud.gd", ["\"FRONTS\"", "\"TIME\"", "\"BROKEN\"", "a front breaks", "\"HER QUEUE\"", "works it down", "SHE BREAKS", "the fight is lost", "raise > her rate", "raise < her rate", "\"BREAK\"", "\"BACKUPS\"", "% left", "%d cracked"]],
 			["relish.gd", ["STRUCK", "SOAKED"]],
 			["trace_feedback.gd", ["PERFECT", "GREAT", "AWFUL", "NOT A CIRCLE", "%d — %s", "×%d %s"]]]:
 		var code := _code_only(FileAccess.get_file_as_string(dir + str(pair[0])))
@@ -683,7 +683,7 @@ func _loss_cause_tests(t: TestUtil, cfg: Dictionary, lw: Dictionary, dw: Diction
 	for other in ["", "slam", "pack", "wound"]:
 		t.ok(BossLogic.loss_cause("relish_unmade", {"last_hit_src": other}, lw)["text"] == "a wound", "any other source ('%s') reads a wound" % other)
 	var cf := BossLogic.loss_cause("horde_ferried", {"streak_max": 6, "break_beats": 20}, lw)
-	t.ok(cf["label"] == "BREAK" and cf["text"] == "best streak 6 of 20 · the horde ran out first", "horde_ferried: BREAK, the best streak of the beats a break takes: " + str(cf["text"]))
+	t.ok(cf["label"] == "BREAK" and cf["text"] == "best streak 6 of 20 · her queue ran out first", "horde_ferried: BREAK, the best streak of the beats a break takes: " + str(cf["text"]))
 	var ff := BossLogic.loss_cause("fronts_held", {"fronts_cleared": ["giants", "carvers"], "fronts_required": 3}, lw)
 	t.ok(ff["label"] == "FRONTS" and ff["text"] == "2 of 4 fell · 3 needed · Swarm and Raw held", "fronts_held: FRONTS, how many fell, how many were needed, which held: " + str(ff["text"]))
 	var f0 := BossLogic.loss_cause("fronts_held", {"fronts_cleared": [], "fronts_required": 3}, lw)
@@ -696,7 +696,42 @@ func _loss_cause_tests(t: TestUtil, cfg: Dictionary, lw: Dictionary, dw: Diction
 	t.ok(not RaidLogic.TELL_ATTACKS.has("weave") and RaidLogic.chain_soaks("weave", true) == RaidLogic.chain_soaks("", true) and RaidLogic.chain_soaks("weave", true),
 		"'weave' is no tell-attack: the chain soaks it exactly as it soaks an unnamed hit")
 	t.ok(BossLogic.loss_banner("relish_unmade", lw) == "RELISH IS UNMADE" and BossLogic.loss_banner("fronts_held", lw) == "HER FRONTS HOLD"
-		and BossLogic.loss_banner("horde_ferried", lw) == "THE HORDE IS FERRIED" and BossLogic.loss_banner("x", lw) == "THE FIGHT IS LOST", "the loss banners, from raid.json")
+		and BossLogic.loss_banner("horde_ferried", lw) == "HER QUEUE RAN OUT" and BossLogic.loss_banner("x", lw) == "THE FIGHT IS LOST", "the loss banners, from raid.json")
+
+	t.suite("vei_loss_change")
+	var ch: Dictionary = lw["change"]
+	var none_cleared: Array = []
+	var only_gc: Array = ["giants", "carvers"]
+	var swarm_raw_fell: Array = ["swarm", "raw"]
+	# (reason, facts) -> the key it must read; every cause the card can show, plus the unknown
+	var cases := [
+		["relish_unmade", {"last_hit_src": "weave"}, "weave"],
+		["relish_unmade", {"last_hit_src": "living"}, "living"],
+		["relish_unmade", {"last_hit_src": "slam"}, "fallback"],
+		["relish_unmade", {"last_hit_src": ""}, "fallback"],
+		["horde_ferried", {}, "horde_ferried"],
+		["fronts_held", {"fronts_cleared": none_cleared}, "fronts_held_flood"],
+		["fronts_held", {"fronts_cleared": only_gc}, "fronts_held_flood"],
+		["fronts_held", {"fronts_cleared": ["giants", "swarm", "raw"]}, "fronts_held"],
+		["fronts_held", {"fronts_cleared": swarm_raw_fell}, "fronts_held"],
+		["closed", {}, "fallback"], ["weird", {"last_hit_src": "weave"}, "fallback"], ["", {}, "fallback"]]
+	var keys_ok := true
+	for c in cases:
+		var got_key := BossLogic.loss_change_key(str(c[0]), c[1])
+		keys_ok = keys_ok and got_key == str(c[2])
+		if got_key != str(c[2]):
+			t.ok(false, "loss_change_key(%s, %s) = %s, wanted %s" % [c[0], str(c[1]), got_key, c[2]])
+		var row := BossLogic.loss_change(str(c[0]), c[1], lw)
+		keys_ok = keys_ok and row["label"] == "TRY NEXT" and row["text"] == ch[str(c[2])]
+	t.ok(keys_ok, "each cause (weave, guards, queue ran out, fronts with and without Swarm/Raw held, any other) reads its own change line")
+	t.ok(ch.size() == 6 and BossLogic.loss_change("x", {}, {}).is_empty(), "six lines (one per cause plus the flood variant and a fallback); no words, no row")
+	var longest := 0.0
+	var fits := true
+	for k in ch:
+		var wrapped := VeiCard.wrap_words(str(ch[k]), fnt, VeiCard.VALUE_PX, VeiCard.value_w(ccfg))
+		fits = fits and wrapped.size() <= 4 and not str(ch[k]).contains("ferr") and not str(ch[k]).contains("backlog")
+		longest = maxf(longest, float(wrapped.size()))
+	t.ok(fits, "every change line wraps to at most 4 lines in the card's value span (longest %d) and uses her-queue words" % int(longest))
 
 	t.suite("vei_loss_pressure")
 	var pm_full := VeiFronts.pressure_mult(600.0, cfg)
@@ -725,11 +760,13 @@ func _loss_cause_tests(t: TestUtil, cfg: Dictionary, lw: Dictionary, dw: Diction
 				var info := BossLogic.loss_card(sd_w, {"phylactery": 1, "clones": 1}, [], 65.0, reason, keep, dw, lw)
 				info["cause"] = BossLogic.loss_cause(reason, {"last_hit_src": src, "streak_max": 19, "break_beats": 20, "fronts_cleared": cleared, "fronts_required": 3}, lw)
 				info["pressure_row"] = BossLogic.pressure_row(pm_full, 600.0, lw)
+				info["change"] = BossLogic.loss_change(reason, {"last_hit_src": src, "fronts_cleared": cleared}, lw)
 				info["phyl_total"] = 1
 				info["clones_total"] = 1
 				var rows := VeiCard.rows_for(info, vf)
-				shapes_ok = shapes_ok and str(rows[0]["id"]) == "cause" and str(rows[1]["id"]) == "pressure_row" and str(rows[2]["label"]) == "FIGHT TIME" \
-					and (reason == "relish_unmade") == (str(rows[rows.size() - 1]["id"]) == "after") and rows.size() == (7 if reason == "relish_unmade" else 6)
+				shapes_ok = shapes_ok and str(rows[0]["id"]) == "cause" and str(rows[1]["id"]) == "pressure_row" and str(rows[2]["id"]) == "change" \
+					and str(rows[2]["label"]) == "TRY NEXT" and str(rows[3]["label"]) == "FIGHT TIME" \
+					and (reason == "relish_unmade") == (str(rows[rows.size() - 1]["id"]) == "after") and rows.size() == (8 if reason == "relish_unmade" else 7)
 				var laid := VeiCard.layout_rows(rows, vwd, fnt)
 				for lr in laid:
 					for ln in (lr["lines"] as PackedStringArray):
@@ -748,15 +785,15 @@ func _loss_cause_tests(t: TestUtil, cfg: Dictionary, lw: Dictionary, dw: Diction
 	t.suite("vei_loss_hud_row")
 	var worst := 0.0
 	var tag_w := BossLogic.pressure_tag(9.9, lw)
-	t.ok(vf["hud_lost"] == "the fight is lost" and vf["hud_she_breaks"] == "SHE BREAKS" and vf["hud_winning"] == "raise > ferry" and vf["hud_losing"] == "raise < ferry"
-		and RaidLogic.word_fmt(vf, "hud_ferried", [99.99]) == "ferried 99.99/s", "the BACKLOG row's words are raid.json vei_fight's, as they were")
+	t.ok(vf["hud_lost"] == "the fight is lost" and vf["hud_she_breaks"] == "SHE BREAKS" and vf["hud_winning"] == "raise > her rate" and vf["hud_losing"] == "raise < her rate"
+		and RaidLogic.word_fmt(vf, "hud_ferried", [99.99]) == "she works it down 99.99/s", "the BACKLOG row's words are raid.json vei_fight's, as they were")
 	for status in [[vf["hud_lost"], 13], [vf["hud_she_breaks"], 15], [vf["hud_winning"], 13], [vf["hud_losing"], 13]]:
 		worst = maxf(worst, BossLogic.backlog_row_w(fnt, VeiCard._thousands(999999999), RaidLogic.word_fmt(vf, "hud_ferried", [99.99]), tag_w, str(status[0]), int(status[1])))
 	var room := BossLogic.BLOCK_W - BossLogic.BLOCK_INSET - BossLogic.BACKLOG_COL
 	t.ok(worst <= room, "the worst BACKLOG row (999,999,999, ferried 99.99/s, '%s', longest status) is %d px, within the block's %d px" % [tag_w, int(worst), int(room)])
 	var real_w := BossLogic.backlog_row_w(fnt, VeiCard._thousands(55350000), RaidLogic.word_fmt(vf, "hud_ferried", [8.5]), BossLogic.pressure_tag(pm_full, lw), str(vf["hud_losing"]), 13)
 	t.ok(real_w < worst and real_w <= room, "the full-pool row (%d px) fits too" % int(real_w))
-	t.ok(fnt.get_string_size(str(vf["hud_backlog"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x + 12.0 < BossLogic.BACKLOG_COL and vf["hud_backlog"] == "BACKLOG", "the BACKLOG label ends before the value column")
+	t.ok(fnt.get_string_size(str(vf["hud_backlog"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x + 12.0 < BossLogic.BACKLOG_COL and vf["hud_backlog"] == "HER QUEUE", "the HER QUEUE label ends before the value column")
 
 ## The HUD read-outs (D-d): the seconds-to-break hint, the lapse count, the phase-2 rule and the end card.
 func _hud_readouts(t: TestUtil, cfg: Dictionary) -> void:
@@ -791,8 +828,8 @@ func _hud_readouts(t: TestUtil, cfg: Dictionary) -> void:
 	# the lapse line says beats, and is absent before the first lapse
 	t.ok(BossLogic.lapse_text(0, 0, vf) == "" and BossLogic.lapse_text(4, 10, vf) == "LAPSES ×4 · −10 beats" \
 		and BossLogic.lapse_text(1, 1, vf) == "LAPSES ×1 · −1 beat", "lapse_text: beats lost, nothing at zero")
-	t.ok(BossLogic.phase2_hint(20, 4, vf) == "keep raise > ferry for 20 beats · a lapse costs 4" \
-		and BossLogic.phase2_hint(8, -1, vf) == "keep raise > ferry for 8 beats · a lapse resets the count", "phase2_hint reads the config's numbers")
+	t.ok(BossLogic.phase2_hint(20, 4, vf) == "keep raise > her rate for 20 beats · a lapse costs 4" \
+		and BossLogic.phase2_hint(8, -1, vf) == "keep raise > her rate for 8 beats · a lapse resets the count", "phase2_hint reads the config's numbers")
 	# the end card
 	var sd := _seed()
 	sd["phylactery_charges"] = 2
@@ -863,7 +900,7 @@ func _hud_readouts(t: TestUtil, cfg: Dictionary) -> void:
 	var laid_short := VeiCard.layout_rows(VeiCard.rows_for(BossLogic.loss_card(sd, {}, [], 1.0, "fronts_held", keep, dw, lw), vf), vwd, fnt)
 	t.ok(VeiCard.plate_h_for(laid_short, loss_min) == loss_min, "Vei's loss card: with no AFTER row the plate keeps loss_h_px (the minimum)")
 	var vk := VeiCard.rows_for(BossLogic.end_card(sd, {}, [], 1.0, 100.0, 40.0), vf)
-	t.ok(vk.size() == 4 and str(vk[3]["label"]) == "BACKLOG SPENT", "the win card's rows are the same list (BACKLOG SPENT last)")
+	t.ok(vk.size() == 4 and str(vk[3]["label"]) == "QUEUE WORKED DOWN", "the win card's rows are the same list (QUEUE WORKED DOWN last)")
 	_loss_cause_tests(t, cfg, lw, dw, sd, sd_de, keep, ccfg, fnt)
 	# the card draws only what loss_card hands it; the scene builds it from the fight's own fields (no sim read)
 	var lsrc := FileAccess.get_file_as_string("res://scripts/raid/vei_boss.gd")
