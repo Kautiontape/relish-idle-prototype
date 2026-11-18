@@ -34,11 +34,12 @@ static func garrison(f: Dictionary) -> float:
 
 
 ## The garrison as the chip counts it, and as many worker glyphs as the fort draws at near zoom:
-## garrison / garrison_unit_mass, rounded half away from zero (fmt_mass's rounding), never negative.
+## garrison / garrison_unit_mass, floored like the raid counts them (RaidLogic.garrison_count) and the fort
+## card's WHO COMES IN (CardLogic.comes_in_text): 9.6 reads 9, never a 10 the raid would not send. Never negative.
 static func garrison_units(f: Dictionary, c := {}) -> int:
 	if c.is_empty():
 		c = cfg()
-	return maxi(roundi(garrison(f) / maxf(float(c.get("garrison_unit_mass", 1.0)), 0.001)), 0)
+	return maxi(floori(garrison(f) / maxf(float(c.get("garrison_unit_mass", 1.0)), 0.001)), 0)
 
 
 ## The garrison chip's text: garrison_fmt with garrison_units (thousands separated).
