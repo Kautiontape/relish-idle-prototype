@@ -183,7 +183,7 @@ func _build_ui() -> void:
 	hud.card = sidebar
 	hud.nodes = nodes_view  # and Vei's readout and the other map labels
 	hud.cam = cam
-	opening =MapOpening.new()
+	opening = MapOpening.new()
 	opening.model = model
 	opening.hud = hud
 	opening.valve = valve

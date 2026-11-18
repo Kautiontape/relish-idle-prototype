@@ -86,6 +86,9 @@ func _tip_readouts(t: TestUtil, vp: Vector2, plates: Array, odds: Rect2, tip: Ve
 	var tp := hs.substr(i, hs.find("\nfunc ", i + 1) - i)
 	t.ok(i >= 0 and not tp.contains("_relayout()") and tp.contains("_plate_rects"), "_tip_plates reads the cached rects: no layout pass per tick")
 	t.ok(hs.contains("_placer.place(word, _tip_size, _tip_plates(), card_r, vp, _tip_readouts(card_r, vp))") and hs.contains("_placer.reset()"), "MapHud places through the TipPlacer, reset on show and hide")
+	var ti := hs.find("func _tip_readouts(")
+	var tr := hs.substr(ti, hs.find("\nfunc ", ti + 1) - ti)
+	t.ok(ti >= 0 and tr.contains("nodes.ctx.zoom, NodeLogic.panel_key(nodes.ctx.panel)]"), "readout cache key carries the nodes' ctx zoom and panel (the rects are built from them, a frame behind the camera)")
 	var wm := FileAccess.get_file_as_string("res://scripts/map/world_map.gd")
 	t.ok(wm.contains("hud.nodes = nodes_view") and wm.contains("hud.cam = cam"), "world_map gives the HUD the nodes and the camera")
 
