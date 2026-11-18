@@ -192,8 +192,24 @@ static func split_text(text: String) -> Array:
 ## What a set-piece callout's placement (MapSetpieces._callout) depends on, as a cache key: the line, the zoom and
 ## camera, the viewport, the tier, the model's rev, her token on the callouts' grid (`token_cell`), the lane
 ## callouts as drawn (`drawn_key`), and the open card (`panel`: NodeLogic.panel_key: the labels shift clear of it).
-static func callout_key(text: String, zoom: float, cam_pos: Vector2, viewport: Vector2, tier: String, rev: int, token_cell: Vector2, drawn_key: Array, panel: Array) -> Array:
-	return [text, roundi(zoom * 1000.0), roundi(cam_pos.x), roundi(cam_pos.y), viewport, tier, rev, token_cell, drawn_key, panel]
+## `chips_key`: the held forts' chip rects as the placement reads them (HudLogic.rects_key: whole px), hard
+## obstacles whose widths tick between revs.
+static func callout_key(text: String, zoom: float, cam_pos: Vector2, viewport: Vector2, tier: String, rev: int, token_cell: Vector2, drawn_key: Array, chips_key: Array, panel: Array) -> Array:
+	return [text, roundi(zoom * 1000.0), roundi(cam_pos.x), roundi(cam_pos.y), viewport, tier, rev, token_cell, drawn_key, chips_key, panel]
+
+
+## The placement cache without the callouts not drawn this frame: `used` holds the keys that were.
+static func prune_placed(placed: Dictionary, used: Dictionary) -> Dictionary:
+	var out := {}
+	for k in placed:
+		if used.has(k):
+			out[k] = placed[k]
+	return out
+
+
+## Whether the victory is already seen: it played on this map, or the game was already won when the map mounted.
+static func victory_seen(played: bool, won_at_mount: bool) -> bool:
+	return played or won_at_mount
 
 
 ## A fort's name and tag plates in the frame (`zoom` x world): NodeLogic.fort_label_rects at the label

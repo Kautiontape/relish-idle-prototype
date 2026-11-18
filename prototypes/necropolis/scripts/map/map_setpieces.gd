@@ -60,6 +60,8 @@ var _swing := {}  # {from, to, start_ms} while the valve swing runs
 var _valve_rev := -1  # the model.rev the idle valve target was last read at
 var _taken_ids: Array = []  # forts whose fort_flipped this map heard (the router replays the ones it held): note_return's "taken"
 var _won := false  # victory has played (or is playing): once per map
+var _won_at_mount := false  # the game was already won when the map mounted: its victory is seen, an away_report replays nothing
+var _placed_used := {}  # the _placed keys drawn this frame: the rest are pruned at its end
 var _builds: Array = []  # the finished builds the callout at Covington names: [{lot_id, building_id, level}]
 var _build_runs: Array = []  # its line as runs (SetpieceLogic.build_spans)
 var _build_start_ms := -1.0  # when it started; -1 until the set pieces are live
@@ -116,7 +118,7 @@ func on_event(ev: Dictionary) -> void:
 ## forts that are still held, and a victory the swallowed vei_result would have played.
 func _after_away() -> void:
 	model.refresh(true)  # the event can land before the map's own refresh this frame
-	var r := SetpieceLogic.after_away(_taken_ids, model.forts, _won, bool(model.hud.get("won", false)))
+	var r := SetpieceLogic.after_away(_taken_ids, model.forts, SetpieceLogic.victory_seen(_won, _won_at_mount), bool(model.hud.get("won", false)))
 	_taken_ids = r["taken_ids"]
 	if bool(r["victory"]):
 		_add(SetpieceLogic.VICTORY, "")
@@ -126,6 +128,7 @@ func _after_away() -> void:
 ## refresh) get their callout, unless `away_opened` (the away panel opened for this return, and its report
 ## already lists them). They take the same path as the live event, so one that is both is named once.
 func note_mount(away_opened: bool) -> void:
+	_won_at_mount = bool(model.hud.get("won", false))
 	for b in SetpieceLogic.mount_builds(model.mount_rises, away_opened):
 		_note_build(b)
 
@@ -215,6 +218,8 @@ func _process(_delta: float) -> void:
 		if done:
 			_active.erase(p)
 	_build_tick(items)
+	_placed = SetpieceLogic.prune_placed(_placed, _placed_used)
+	_placed_used = {}
 	layer.set_items(items)
 
 
@@ -343,8 +348,9 @@ func _callout(id: String, text: String, alpha: float, key := "undead") -> Array:
 	# what the placement depends on (not the frame): the line, the zoom and camera, the viewport, her token on
 	# the callouts' grid, and the model's rev (the held set, the chips)
 	var sig := SetpieceLogic.callout_key(text, ctx.zoom, cp, get_viewport().get_visible_rect().size, ctx.tier, model.rev,
-		Vector2(roundi(tok.x / grid), roundi(tok.y / grid)), HudLogic.rects_key(callouts.drawn_rects()) if callouts != null else [], NodeLogic.panel_key(ctx.panel))
+		Vector2(roundi(tok.x / grid), roundi(tok.y / grid)), HudLogic.rects_key(callouts.drawn_rects()) if callouts != null else [], _chips_key(ctx.zoom, ctx.tier), NodeLogic.panel_key(ctx.panel))
 	var ck := "%s|%s" % [id, text]
+	_placed_used[ck] = true
 	var hit: Dictionary = _placed.get(ck, {})
 	if hit.is_empty() or hit["sig"] != sig:
 		var made := _place_callout(id, text, hit.get("choice", {}))  # the last choice stays while it is still free
@@ -355,6 +361,18 @@ func _callout(id: String, text: String, alpha: float, key := "undead") -> Array:
 	for l in hit["lines"]:
 		out.append({"kind": "label", "pos": l["pos"], "text": l["text"], "size": int(l["size"]), "key": key, "alpha": alpha})
 	return out
+
+
+## The held forts' chip rects as the placement reads them (zoomed frame), in whole px: part of the cache
+## key, since a chip's width ticks with its text between revs.
+func _chips_key(z: float, tier: String) -> Array:
+	var rects: Array = []
+	if IdleLogic.chip_shown(tier, z):
+		for g in model.forts:
+			if bool(g.get("held", false)):
+				var r := nodes.chip_world_rect(g)
+				rects.append(Rect2(r.position * z, r.size * z))
+	return HudLogic.rects_key(rects)
 
 
 ## Where `text` goes for the fort `id`: {lines: [{pos (world), text}], choice: {form, place, slide}}.
@@ -478,7 +496,7 @@ func _build_plate(alpha: float) -> Dictionary:
 	var tok := ctx.relish_pos * z
 	var soft: Array = callouts.drawn_rects() if callouts != null else []
 	var sig := SetpieceLogic.callout_key(_build_line, z, cp, get_viewport().get_visible_rect().size, ctx.tier, model.rev,
-		Vector2(roundi(tok.x / grid), roundi(tok.y / grid)), HudLogic.rects_key(soft + _fort_rects), NodeLogic.panel_key(ctx.panel))
+		Vector2(roundi(tok.x / grid), roundi(tok.y / grid)), HudLogic.rects_key(soft + _fort_rects), _chips_key(z, ctx.tier), NodeLogic.panel_key(ctx.panel))
 	if _build_hit.is_empty() or _build_hit["sig"] != sig:
 		var made := _place_build(soft, _build_hit.get("choice", {}))
 		_build_hit = {"sig": sig, "pos": made["pos"], "choice": made["choice"]}

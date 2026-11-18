@@ -32,6 +32,7 @@ func run() -> int:
 	_reduced(t, c)
 	_debug(t, c)
 	_after_away(t)
+	_callout_cache(t)
 	_sources(t)
 	return t.failures
 
@@ -44,12 +45,39 @@ func _after_away(t: TestUtil) -> void:
 	t.ok(bool(SetpieceLogic.after_away([], forts, false, true)["victory"]), "a won realm that never played its victory plays it now")
 	t.ok(not bool(SetpieceLogic.after_away([], forts, true, true)["victory"]), "but only once")
 	t.ok(SetpieceLogic.after_away(["gone"], forts, false, false)["taken_ids"] == [], "an unknown fort is dropped")
+	# victory seen: primed at mount from the view, then set when it plays
+	var seen := SetpieceLogic.victory_seen(false, true)
+	t.ok(seen and not bool(SetpieceLogic.after_away([], forts, seen, true)["victory"]), "mounted on a won game: the next away_report plays no victory")
+	seen = SetpieceLogic.victory_seen(false, false)
+	t.ok(not seen and bool(SetpieceLogic.after_away([], forts, seen, true)["victory"]), "mounted not won, the away time holds the win: it plays once")
+	seen = SetpieceLogic.victory_seen(true, false)
+	t.ok(not bool(SetpieceLogic.after_away([], forts, seen, true)["victory"]), "a second away_report plays nothing")
+	var cs := FileAccess.get_file_as_string("%s/map_setpieces.gd" % MAP_DIR)
+	var nm := cs.substr(cs.find("func note_mount("), cs.find("\n\n\n", cs.find("func note_mount(")) - cs.find("func note_mount("))
+	t.ok(nm.contains("_won_at_mount") and nm.contains("hud.get(\"won\""), "the mount primes the seen state from the view")
+	t.ok(cs.contains("SetpieceLogic.victory_seen(_won, _won_at_mount)"), "the away resync reads it")
 	var src := FileAccess.get_file_as_string("%s/map_setpieces.gd" % MAP_DIR)
 	var ev := src.substr(src.find("func on_event("), src.find("func _after_away(") - src.find("func on_event("))
 	t.ok(ev.contains("\"away_report\":") and ev.contains("_after_away()"), "the away_report branch calls the resync")
 	var a0 := src.find("func _after_away(")
 	var aa := src.substr(a0, src.find("\n\n\n", a0) - a0)
 	t.ok(aa.contains("SetpieceLogic.after_away(") and aa.contains("model.refresh(true)") and not aa.contains("_add(SetpieceLogic.FLIP") and not aa.contains("for "), "the resync re-reads the views and replays no flip set pieces")
+
+
+## The callout cache key carries the chips; the cache keeps only what was drawn this frame.
+func _callout_cache(t: TestUtil) -> void:
+	var chips_a := HudLogic.rects_key([Rect2(10, 20, 40.2, 12)])
+	var chips_b := HudLogic.rects_key([Rect2(10, 20, 52, 12)])
+	var chips_a2 := HudLogic.rects_key([Rect2(10.2, 19.8, 40.4, 12.1)])
+	var k := func(chips: Array): return SetpieceLogic.callout_key("x", 1.0, Vector2.ZERO, Vector2(800, 600), "near", 3, Vector2.ZERO, [], chips, [])
+	t.ok(k.call(chips_a) != k.call(chips_b), "a different chip width is a different key")
+	t.ok(k.call(chips_a) == k.call(chips_a2), "chips equal to the whole px are one key")
+	t.ok(k.call(chips_a) == k.call(chips_a), "equal inputs, equal key")
+	var kept := SetpieceLogic.prune_placed({"a|x": 1, "b|y": 2, "c|z": 3}, {"b|y": true})
+	t.ok(kept == {"b|y": 2}, "the cache drops callouts not drawn this frame")
+	t.ok(SetpieceLogic.prune_placed({"a|x": 1}, {}) == {}, "nothing drawn, nothing kept")
+	var src := FileAccess.get_file_as_string("%s/map_setpieces.gd" % MAP_DIR)
+	t.ok(src.contains("_chips_key(") and src.contains("prune_placed("), "the placement and _process use them")
 
 
 func _clock(t: TestUtil) -> void:
