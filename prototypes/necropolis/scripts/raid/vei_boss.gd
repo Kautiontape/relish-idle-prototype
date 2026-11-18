@@ -198,6 +198,7 @@ func _fronts_for(sd: Dictionary, vc: Dictionary) -> Array:
 
 
 func _build_extra() -> void:
+	RaidLogic.assist_boot(rcfg().get("assist", {}))   # the fight seeds the assist's switch too (only on a session's first raid or fight)
 	var vc := vcfg()
 	rng_combat.seed = BossLogic.rng_int(str(seed_data.get("rng_seed", "1"))) ^ 0x7E1B055
 	rng_loot.seed = rng_combat.seed ^ 0x10075EED

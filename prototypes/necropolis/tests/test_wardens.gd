@@ -304,6 +304,16 @@ func _assist_tests(t: TestUtil, cfg: Dictionary) -> void:
 	# the boot applies raid.json once: enabled seeds the switch the first time only, tell_mult always
 	t.ok(RaidLogic.assist_boot_state({"enabled": true, "tell_mult": 2.0}, false) == [true, 2.0], "assist_boot_state: the first boot takes `enabled` and tell_mult")
 	t.ok(RaidLogic.assist_boot_state({"enabled": false, "tell_mult": 2.0}, true) == [null, 2.0], "assist_boot_state: a later boot leaves the switch alone")
+	# Vei's drawn tell never outlasts the time to the hit: a late lay (a Break with Relish down) gets what is left
+	t.near(WardenLogic.lay_len(3.0, 10.0, 7.0), 3.0, 0.0001, "lay_len: laid on time, the whole tell")
+	t.near(WardenLogic.lay_len(3.0, 10.0, 8.5), 1.5, 0.0001, "lay_len: laid late, the beats left to the hit")
+	t.near(WardenLogic.lay_len(1.0, 10.0, 9.99), 0.01, 0.0001, "lay_len: laid at the last moment, nearly nothing")
+	t.ok(WardenLogic.lay_len(2.0, 5.0, 3.0) == 2.0, "lay_len: exactly on the threshold, the tell (no drift)")
+	var vei_src := FileAccess.get_file_as_string("res://scripts/raid/vei.gd")
+	t.ok(vei_src.contains("tell_len = WardenLogic.lay_len(tb, next_beat, beat)"), "Vei's _lay sizes its drawn tell with lay_len")
+	var vb_src := FileAccess.get_file_as_string("res://scripts/raid/vei_boss.gd")
+	var bx := vb_src.find("func _build_extra")
+	t.ok(bx >= 0 and vb_src.substr(bx, 400).contains("RaidLogic.assist_boot("), "the boss scene's _build_extra calls RaidLogic.assist_boot")
 	# every warned attack's tell length reads through the helper (the call sites), never raw
 	var sites := {
 		"res://scripts/raid/warden_bellringer.gd": 5, "res://scripts/raid/warden_huntsman.gd": 1,

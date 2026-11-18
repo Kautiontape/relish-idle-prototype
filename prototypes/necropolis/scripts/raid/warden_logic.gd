@@ -195,6 +195,12 @@ static func attack_tell(attack: Dictionary, key: String = "tell_beats") -> float
 	return tell_len(float(attack.get(key, 1.0)), RaidLogic.assist_on, RaidLogic.assist_mult)
 
 
+## Vei's drawn tell length: the tell `tb`, but never more than the beats left to the hit (a weave laid late, with
+## Relish down through its window, must not draw or count down more time than there is). Draw only.
+static func lay_len(tb: float, hit_beat: float, beat: float) -> float:
+	return minf(tb, hit_beat - beat)
+
+
 ## True while the telegraph shows: attack_beat - tell_beats <= beat < attack_beat.
 static func is_tell(beat: float, attack_beat: float, tell_beats: float) -> bool:
 	return beat >= attack_beat - tell_beats and beat < attack_beat
