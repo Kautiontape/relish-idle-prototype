@@ -91,7 +91,7 @@ func _open(rep: Dictionary) -> void:
 		ch.queue_free()
 	var c := AwayLogic.cfg()
 	var fort_ids: Array = model.forts_by_id.keys()
-	var built := AwayLogic.build(rep, fort_ids)
+	var built := AwayLogic.build(rep, fort_ids, {}, {}, model.hud, AwayLogic.queue_label(ConfigDb.data.get("economy", {})))  # once won, no Vei's queue row
 	var title := Label.new()
 	MapType.style_title(title)
 	title.text = str(c["title"])

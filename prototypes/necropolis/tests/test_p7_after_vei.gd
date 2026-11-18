@@ -25,8 +25,45 @@ func run() -> int:
 	_won_town_words()
 	_catalog_rows_refresh()
 	_after_21()
+	_won_away()
 	_clean()
 	return t.failures
+
+
+## The away panel on a won game (handoff-10 item 1; reports/screens/after/p7-map-reload-vei.png had "Vei's queue ▲
+## +34/s · +34 · your odds 1% → 1%"): a won pre_vei, saved and loaded 30 min later, reports her queue (the sim's
+## report is unchanged) and the panel, built with the won view_hud, leaves that row out, as P7 hides her odds
+## elsewhere; the same report with a not-won hud keeps it. Revert proof: gains_row_shown always true.
+func _won_away() -> void:
+	MapLogic.configure(cfg["map_view"])
+	var s := _won_state()
+	s.clock_override = 1_800_000_000
+	t.ok(bool(s.cmd_save("p7_away").get("ok", false)), "(setup) the won game saves")
+	var n := GameState.new(cfg)
+	n.debug_enabled = true
+	n.save_dir = _dir
+	n.clock_override = 1_800_000_000 + 1800
+	t.ok(bool(n.cmd_load("p7_away").get("ok", false)) and bool(n.view_hud().get("won", false)), "(setup) the won game loads 30 min later, still won")
+	var rep := n.view_away()
+	var label := AwayLogic.queue_label(cfg["economy"])
+	var queue_rows: Array = (rep.get("gains", []) as Array).filter(func(r): return str(r.get("text", "")).begins_with(label + " "))
+	t.ok(label == "Vei's queue" and bool(rep.get("shown", false)) and queue_rows.size() == 1 and str(queue_rows[0]["text"]).contains(" · your odds "),
+		"the won game's away report has Vei's queue row, odds and all (%s)" % str(queue_rows.map(func(r): return r["text"])))
+	var texts := func(b: Dictionary) -> Array:
+		var out: Array = []
+		for sec in b["sections"]:
+			for l in sec["lines"]:
+				out.append(str(l["text"]))
+		return out
+	var won_lines: Array = texts.call(AwayLogic.build(rep, [], {}, {}, n.view_hud(), label))
+	t.ok(not won_lines.is_empty() and won_lines.filter(func(x): return x.contains(label) or x.contains("your odds")).is_empty(),
+		"won: the panel has no Vei's queue row and no odds (%s)" % str(won_lines.slice(0, 3)))
+	t.ok(won_lines.size() == (texts.call(AwayLogic.build(rep, [])) as Array).size() - 1, "won: only that one row is left out")
+	var plain_lines: Array = texts.call(AwayLogic.build(rep, [], {}, {}, {"won": false}, label))
+	t.ok(plain_lines.has(str(queue_rows[0]["text"])), "the control: not won, the same report keeps the row")
+	var src := FileAccess.get_file_as_string("res://scripts/map/map_away.gd")
+	t.ok(src.contains("AwayLogic.build(rep, fort_ids, {}, {}, model.hud, AwayLogic.queue_label(ConfigDb.data.get(\"economy\", {})))"),
+		"the panel builds with the model's view_hud and economy's queue label")
 
 
 ## P7 review 4: the town's FLOOD words after the win. The muster lines (the Build tab's "N idle hands muster to …",
