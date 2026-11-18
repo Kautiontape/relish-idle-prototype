@@ -183,6 +183,12 @@ var staffing := {}
 ## "pits_first" when the pits took bodies and the supply fell short of both; "no_bodies" when the
 ## pits took none either (nothing in the store or landing, or no staffed pit). STATE-API §5.9.
 var mill_starved := ""
+## Why the staffed stalls sold less than their hands can in the last step (never saved; "" before a first step,
+## after a new game and after a load): "living_first" when the living's shopping (living · market.shop_rate) is
+## under the staffed stalls' rate (staffed · stall.rate) by more than float noise, so a Market level, which adds
+## stalls, sells nothing more; "" when the stalls bind or none are staffed (E4 step 10, review-t7r1r2 §5: the
+## Market side of the input-limited lever). The queue's gold-short rows read it (STATE-API §5.9).
+var trade_starved := ""
 var _by_lot := {}  # lot_id -> {job: staffed}
 ## The allocation's rooms (staff_rooms), cached: they change only when the ladder, a building (its
 ## arrival or removal, state, level or staff cap) or the vats do, and every place that changes one
@@ -327,6 +333,7 @@ static func _d(v: Variant) -> Dictionary:
 ## BALANCE §0: the start buildings on their lots, the opening stocks and the default ladder.
 func new_game() -> void:
 	mill_starved = ""
+	trade_starved = ""
 	workers = float(_start["workers"])
 	bodies = float(_start["bodies"])
 	gold = float(_start["gold"])
@@ -695,6 +702,9 @@ func step(dt: float, inp: Dictionary) -> Dictionary:
 	var sales := _sales()
 	var gold_in := sales * _price * _job_f("stall") * dt
 	gold += gold_in
+	# the stalls' reason (trade_starved): the living buy less than the staffed stalls could sell
+	var stall_cap := _job("stall") * _stall_rate
+	trade_starved = "living_first" if stall_cap > 0.0 and living * _shop_rate < stall_cap * (1.0 - 1e-9) else ""
 
 	# 5. the forge: work toward the next q level; a level completes only with its relics
 	var forge_work := 0.0
@@ -2125,6 +2135,7 @@ func to_dict() -> Dictionary:
 
 func from_dict(d: Dictionary) -> void:
 	mill_starved = ""
+	trade_starved = ""
 	workers = float(d.get("workers", 0.0))
 	bodies = float(d.get("bodies", 0.0))
 	gold = float(d.get("gold", 0.0))

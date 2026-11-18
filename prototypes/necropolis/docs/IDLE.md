@@ -737,6 +737,16 @@ a **"While you were away"** panel. It is ordered **gains, then ready actions, th
       current income of 0/s bone: the pits are eating every body. Raise WAR, or move it down"
       (`idle.report.afford_starved_fmt`; `afford_starved_last_fmt` without the move down, the same rule). Below a new
       game's bone edge (`view_hud.bone_war_share`, MECHANICS §4.2) day 1's first queue sits here.
+    - **the living buying less than the stalls can sell** (E4 step 10, review-t7r1r2 §5, the Market side): never on
+      gold while the head row's `starved` is `living_first` (gold is min(staffed stalls · `stall.rate`, living ·
+      `market.shop_rate`), so a Market level adds stalls and sells nothing more), ahead of the producer form: "House
+      level 2 can't be afforded, 54 gold short at the current income of −0.050/s gold: the living buy less than the
+      stalls can sell. Build housing or an Inn, or move it down" (`idle.report.afford_living_fmt`;
+      `afford_living_last_fmt` without the move down). The upkeep gate's line takes the same lever in that state:
+      "House waits: the current income of +0.050/s gold can't pay its upkeep, and the living buy less than the stalls
+      can sell: build housing or an Inn" (`afford_upkeep_living_fmt`). The income test's "Still stopped … Build a
+      Market" (`unpaid_upkeep_fmt`) is unchanged: in a new game the shed reaches the Market and its stalls first, so
+      no test reaches it with the living binding (a Phase I item if a larger town shows it).
   - **Stores full, queue empty: raid** (R2; the run's manager, from Shawn's "needs relics: raid a fort",
     the review's question 2). When the absence ends with every capped store full (gold and bone, each within
     `idle.report.full_tol` of its cap: 1%) and the queue empty, the plateau is the wall Shawn asked for, and

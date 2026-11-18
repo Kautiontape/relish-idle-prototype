@@ -522,7 +522,13 @@ static func queue_walk(gs: GameState, entries: Array, timed := true) -> Dictiona
 		var short := {"gold": 0.0, "bone": 0.0}
 		if status == "waiting_funds":
 			short = {"gold": maxf(0.0, float(cost["gold"]) - gold), "bone": maxf(0.0, float(cost["bone"]) - bone)}
-		var starved := gs.town_sim.mill_starved if float(short["bone"]) > 0.0 else ""
+		# E4 step 10 (review-t7r1r2 §5, the Market side): short of gold and not of bone, why the stalls sold less than
+		# they can (TownSim.trade_starved): "living_first", "raise_living"
+		var starved := ""
+		if float(short["bone"]) > 0.0:
+			starved = gs.town_sim.mill_starved
+		elif float(short["gold"]) > 0.0:
+			starved = gs.town_sim.trade_starved
 		row["short"] = short
 		row["starved"] = starved
 		row["lever"] = gs.starved_lever(starved)

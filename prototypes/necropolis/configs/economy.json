@@ -70,6 +70,9 @@
       "afford_raise_self": { "gold": "nothing else makes gold", "bone": "nothing else makes bone" },
       "afford_starved_fmt": "{name} can't be afforded, {short} bone short at the current income of {rate} bone: the pits are eating every body. Raise WAR, or move it down",
       "afford_starved_last_fmt": "{name} can't be afforded, {short} bone short at the current income of {rate} bone: the pits are eating every body. Raise WAR",
+      "afford_living_fmt": "{name} can't be afforded, {short} gold short at the current income of {rate} gold: the living buy less than the stalls can sell. Build housing or an Inn, or move it down",
+      "afford_living_last_fmt": "{name} can't be afforded, {short} gold short at the current income of {rate} gold: the living buy less than the stalls can sell. Build housing or an Inn",
+      "afford_upkeep_living_fmt": "{name} waits: the current income of {rate} gold can't pay its upkeep, and the living buy less than the stalls can sell: build housing or an Inn",
       "full_tol": 0.01, "full_raid": "Your stores are full and the queue is empty: raid a fort for relics",
       "unpaid_fmt": "{name} stopped for {when}, {store} ran out: {stopped}", "unpaid_brief_fmt": "{name} stopped briefly, {store} ran out: {stopped}",
       "unpaid_none_fmt": "{name} stopped for {when}, {store} ran out", "unpaid_none_brief_fmt": "{name} stopped briefly, {store} ran out",
@@ -111,7 +114,7 @@
     "projection_phase": 0.5,
     "projection_starve_frames": 30,
     "projection_tol": { "rel": 0.01, "abs": 0.005 },
-    "starved_lever": { "_doc": "E4 (the A1 day-1 ruling): the lever per TownSim.mill_starved reason, on view_town's mill rows and a queue head short of bone. pits_first: the pits ate the bodies the mill wanted; more WAR makes more corpses at the forts.", "pits_first": "raise_war" },
+    "starved_lever": { "_doc": "E4 (the A1 day-1 ruling): the lever per TownSim.mill_starved reason, on view_town's mill rows and a queue head short of bone. pits_first: the pits ate the bodies the mill wanted; more WAR makes more corpses at the forts. E4 step 10 (review-t7r1r2 §5): the lever per TownSim.trade_starved reason, on a queue row short of gold and not of bone. living_first: the living buy less than the staffed stalls can sell, so a Market level sells nothing more; more housing (the cap) or an Inn (its cap and attract) raises the living.", "pits_first": "raise_war", "living_first": "raise_living" },
     "migrant_rate": 0.012,
     "leave_rate": 0.004,
     "tiers": {

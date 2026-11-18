@@ -101,7 +101,10 @@ const REPORT_KEYS := ["streams", "stream_labels", "stream_fmt", "backlog_fmt", "
 	"afford_upkeep_fmt", "unpaid_upkeep_fmt",
 	# E4 (the A1 day-1 ruling): a head that can never be afforded on bone while the pits eat every body (the mill
 	# starved pits_first): the bone it is short of and the lever, with and without the move down
-	"afford_starved_fmt", "afford_starved_last_fmt"]
+	"afford_starved_fmt", "afford_starved_last_fmt",
+	# E4 step 10 (review-t7r1r2 §5, the Market side): never on gold while the living buy less than the stalls can sell
+	# (TownSim.trade_starved living_first), with and without the move down; and the upkeep line's form for that state
+	"afford_living_fmt", "afford_living_last_fmt", "afford_upkeep_living_fmt"]
 ## The reasons a queued build's waited_on can hold (STATE-API §6 queue_started): idle.report.waited_on words each.
 const REPORT_WAITED_ON := ["needs_tier", "lot_locked", "needs_blueprint", "needs_building", "no_relics", "no_gold",
 	"no_bone", "lot_taken", "empty_lot", "under_construction", "unpaid", "cost_exceeds_cap", "upkeep"]

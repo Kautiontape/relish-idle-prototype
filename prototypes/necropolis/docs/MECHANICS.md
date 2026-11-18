@@ -1064,7 +1064,11 @@ mass; bodies, rot return, WORK and muster are mass.
     last step, `view_town().buildings[]` reads `starved` on a building with mill slots: `"pits_first"` if the pits took
     bodies, `"no_bodies"` if they took none (STATE-API §5.9). The same shape of problem exists, unsaid,
     for the pits (store empty: `feed` < 1), the stalls (`living` · `market.shop_rate` under the staffed
-    stalls' rate) and the forge (a level waiting for relics); only the mill's is reported.
+    stalls' rate) and the forge (a level waiting for relics); only the mill's is reported on the buildings.
+    From E4 step 10 (review-t7r1r2 §5) the stalls' is kept too (`TownSim.trade_starved` `"living_first"`, per step,
+    never saved) and read by a queue row short of gold, not by the Market's building row: a Market level adds
+    stalls, so while the living bind it sells nothing more, and the row's lever and the away report's line name
+    housing or an Inn (IDLE §7).
   - **The bone cliff** (E4, the run's manager's A1 day-1 ruling). Under A1 (§3.2) the muster goes to Vei, so
     early bodies come from WAR's corpses at the forts and the workers' rot return. Below a WAR share of about 0.54
     a new game's pits eat every body (0.20 mass/s of rot return; the forts' corpses are cleared as they form) and
