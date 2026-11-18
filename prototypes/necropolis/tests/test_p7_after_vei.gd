@@ -80,6 +80,18 @@ func _save_after_win() -> void:
 	t.ok(after == before, "the loaded town says what it said before the save")
 	var nl := TownGuide.step(_views(n), gcfg, hcfg, bview)
 	t.ok(String(nl["short"]) == String(gcfg["goal"]["won_short"]), "the top bar's next: line after the load: '%s'" % nl["short"])
+	# the map, mounting the loaded game (its victory seen in the session that saved it): it settles straight to the
+	# end state (END: no freeze, no headline, Vei's lanes hidden), Vei's readouts and FLOOD are off, her card has no BEGIN
+	MapLogic.configure(cfg["map_view"])
+	var won_n := bool(n.view_hud().get("won", false))
+	t.ok(SetpieceLogic.victory_settle_at_mount(won_n, true) and SetpieceLogic.victory_phase(0.0, false, true) == SetpieceLogic.END,
+		"the loaded won game settles at mount, straight to END")
+	t.ok(not HudLogic.vei_readout_shown(n.view_hud()) and not HudLogic.flood_shown(n.view_hud()), "after the load: no Vei odds readout and no FLOOD control")
+	var acts := RelishLogic.vei_actions(n.view_vei(), n.view_relish())
+	t.ok(acts.filter(func(a): return str(a.get("act", "")) == "begin").is_empty(), "after the load the Vei card offers no BEGIN (%d items)" % acts.size())
+	t.ok(CardBlocksLogic.vei_card(n.view_vei(), "", [], {}, {})["blocks"].is_empty(), "after the load the Vei card reads no war")
+	var cv := _load("p7_won")  # loading the same save twice reads the same end state
+	t.ok(bool(cv.view_hud().get("won", false)) and _goal(cv) == after, "a second load of the save reads the same end state")
 	# the control: the same game saved before the win loads into the realm's usual step and head
 	var c := GameState.new(cfg)
 	c.debug_enabled = true
