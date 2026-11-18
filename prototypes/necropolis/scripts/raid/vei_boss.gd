@@ -651,7 +651,7 @@ func try_phylactery() -> bool:
 	hud.show_banner(RaidLogic.word_fmt(vw, "banner_crack", [str(vw.get("crack_phyl", "")) if kind == "phylactery" else str(vw.get("crack_clone", "")), left,
 		"" if left == 1 else str(vw.get("plural", ""))]), float(bc.get("banner_s", 2.2)), "relish" if left > 0 else "danger")
 	if _standalone:
-		print("BOSS_BACKUP kind=%s deaths=%d left=%d t=%.1f" % [kind, deaths, left, fight_t])
+		print("BOSS_BACKUP kind=%s deaths=%d left=%d t=%.1f frame=%d" % [kind, deaths, left, fight_t, Engine.get_process_frames()])
 	return true
 
 

@@ -253,6 +253,7 @@ func try_phylactery() -> bool:
 	_raid.hud.flash(Palette.c("relish"))
 	if _raid._standalone:
 		print("RAID_REVIVE n=%d left=%d hp=%.1f" % [revived, phylactery_left(), relish.hp])
+		print("REVIVE_DEMO frame=%d charges_left=%d" % [Engine.get_process_frames(), phylactery_left()])
 	return true
 
 
