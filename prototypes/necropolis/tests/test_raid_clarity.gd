@@ -12,7 +12,48 @@ func run() -> int:
 	_legend_tests(t)
 	_hint_cue_tests(t)
 	_goal_tests(t)
+	_clear_card_tests(t)
 	return t.failures
+
+
+## T5: the clear card's words (RaidLogic) and the warden run's wiring (source text: raid_warden_run.gd names RaidAutopilot).
+func _clear_card_tests(t: TestUtil) -> void:
+	t.suite("raid_clear_card")
+	t.ok(RaidLogic.clear_card_title("Old Sluice") == "OLD SLUICE IS YOURS", "title upper-cases the fort name")
+	var found := {"relics": 2, "husks": [{"kind": "skeleton"}], "essence": 3}
+	var won := RaidLogic.loot_counts(RaidLogic.result_loot("warden_beaten", false, found, 4, {}))
+	t.ok(int(won["relics"]) == 2 and int(won["husks"]) == 1 and int(won["essence"]) == 4, "the win pays everything found plus the carried essence")
+	var rows := RaidLogic.clear_card_rows("The Bellringer", won)
+	var labels: Array = []
+	var no_contradiction := true
+	for r in rows:
+		labels.append(r["label"])
+		var tx := str(r["text"])
+		if tx.contains("banked") and tx.contains("lost"):
+			no_contradiction = false
+	t.ok(labels == ["BROKEN", "TAKEN", "LOOT", "NEXT"], "the four rows in order")
+	t.ok(rows[0]["text"] == "The Bellringer" and rows[0]["key"] == "vei", "BROKEN names the warden")
+	t.ok(rows[2]["text"] == RaidLogic.loot_line(won) and str(rows[2]["text"]).contains("relics 2"), "LOOT reads the counts")
+	t.ok(RaidLogic.clear_card_rows("X", RaidLogic.loot_counts(RaidLogic.empty_loot()))[2]["text"] == "nothing this time", "empty loot reads 'nothing this time'")
+	t.ok(no_contradiction, "no row says banked next to lost")
+	var src := FileAccess.get_file_as_string("res://scripts/raid/raid_warden_run.gd")
+	var i := src.find("func on_chest_opened")
+	var body := src.substr(i, src.find("\nfunc ", i + 10) - i if src.find("\nfunc ", i + 10) > 0 else -1)
+	var bot := body.find("RaidAutopilot.enabled()")
+	var card_at := body.find("RaidClearCard.new()")
+	t.ok(bot > 0 and card_at > bot, "the bot check comes before the card is built")
+	var bot_branch := body.substr(bot, card_at - bot)
+	t.ok(bot_branch.contains("victory_s") and bot_branch.contains("show_banner(\"THE WARDEN IS BEATEN"), "the bot branch keeps victory_s and its banner")
+	var rest := body.substr(card_at)
+	t.ok(rest.contains("hud.add_child(card)") and rest.contains("card.dismissed.connect(finish_win)"), "the card is added to the HUD and its dismissal finishes the run")
+	t.ok(rest.contains("\"card_s\"") and rest.contains("create_timer") and not rest.contains("show_banner"), "a card_s timer backs it up, no banner")
+	t.ok(body.contains("e.finish(e.build_result(\"warden_beaten\"))") and body.contains("e.pending_exit = RaidLogic.pending_on(\"chest_opened\")"), "the result is still build_result(warden_beaten), pending_exit set first")
+	var cc := TestUtil.load_json("res://configs/raid.json").get("clear", {})
+	for k in ["card_s", "skip_after_s", "fade_s"]:
+		t.ok(cc.get(k, 0) is float or cc.get(k, 0) is int, "clear.%s is a number" % k)
+		t.ok(float(cc.get(k, 0)) > 0.0, "clear.%s > 0" % k)
+	var card_src := FileAccess.get_file_as_string("res://scripts/raid/raid_clear_card.gd")
+	t.ok(card_src.contains("click to return to the realm") and card_src.contains("ev.echo") and card_src.contains("MOUSE_BUTTON_LEFT"), "the card's footer and skip gate")
 
 
 ## T4: the goal line, the route line, how the warden breaks (break / takes / counter lines from the spec the game

@@ -102,6 +102,12 @@
     "skip_after_s": 0.8,
     "fade_s": 0.3
   },
+  "clear": {
+    "_doc": "The clear card (RaidClearCard): when Relish opens the warden's chest the run holds one card naming what was won (the fort is yours, the warden broken, the loot, what comes next). card_s is the longest it holds before the win goes out, skip_after_s when a click or SPACE may end it early, fade_s its fade-in (none under reduced motion). The measuring bot never sees it (it keeps the wardens.victory_s banner beat).",
+    "card_s": 12.0,
+    "skip_after_s": 0.8,
+    "fade_s": 0.3
+  },
   "revive": {
     "crack_s": 1.1,
     "crack_radius_px": 90.0,

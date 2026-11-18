@@ -516,6 +516,23 @@ static func death_lost_line(unbanked: Dictionary, party_n: int) -> String:
 
 ## The death card's geometry (RaidDeathCard._draw reads it; the test measures the widest value against it):
 ## card width, padding, the label column, the value font size.
+## The clear card's title (the raid's win, RaidClearCard): "OLD SLUICE IS YOURS".
+static func clear_card_title(fort_name: String) -> String:
+	return "%s IS YOURS" % fort_name.to_upper()
+
+
+## The clear card's rows [{label, text, key}]: the warden broken, what taking the fort means, the loot the win
+## pays (`loot` = loot_counts of RaidLogic.result_loot("warden_beaten", ...)), and what comes next.
+static func clear_card_rows(warden_name: String, loot: Dictionary) -> Array:
+	var ll := loot_line(loot)
+	return [
+		{"label": "BROKEN", "text": warden_name, "key": "vei"},
+		{"label": "TAKEN", "text": "its living become your dead · it joins your realm as a held fort", "key": "text"},
+		{"label": "LOOT", "text": ll if ll != "" else "nothing this time", "key": "text"},
+		{"label": "NEXT", "text": "Vei contests it once its grace runs out · send WAR there to hold it", "key": "text_dim"},
+	]
+
+
 const DEATH_CARD := {"w": 560.0, "pad": 22.0, "label_w": 120.0, "value_px": 18}
 
 
