@@ -929,6 +929,7 @@ class StatBlock:
 	var detail_px := 14                     # the detail lines' size, drawn in full `text`
 	var label_alpha := 0.85                 # the row labels' brightness (text at this alpha)
 	var essence_lines := PackedStringArray()   # hud.stats essence_meaning wrapped to value_w() at detail_px (setup)
+	var key_pile_lines := PackedStringArray()   # hud.stats key_pile wrapped to the plate's inner width at detail_px (setup)
 	var plate_alpha := 0.96
 	var show_key := false
 	var door_lines := PackedStringArray()   # D-e task 6: the held door's DOOR row, wrapped (empty: no row)
@@ -946,9 +947,11 @@ class StatBlock:
 		_plate_w = float(words.get("plate_w", _plate_w))
 		_col = float(words.get("label_col", _col))
 		_val_pad = float(words.get("value_pad", _val_pad))
+		_row = float(words.get("row_px", _row))
 		detail_px = int(words.get("detail_px", 14))
 		label_alpha = float(words.get("label_alpha", 0.85))
 		essence_lines = RaidLogic.wrap_each(PackedStringArray([str(words.get("essence_meaning", ""))]), ThemeDB.fallback_font, detail_px, value_w())
+		key_pile_lines = RaidLogic.wrap_each(PackedStringArray([str(words.get("key_pile", ""))]), ThemeDB.fallback_font, detail_px, _plate_w - 12.0)
 		var rows := 3.0 if boss else 14.0   # living, essence, raised | + 4 ward rows, essence meaning, phylactery, its meaning, banked, unbanked, stakes
 		custom_minimum_size = Vector2(_plate_w, rows * _row + 8.0)
 		if not boss:
@@ -994,7 +997,7 @@ class StatBlock:
 	func _fit() -> void:
 		var loot_extra := maxi(0, banked_lines.size() - 1) + maxi(0, unbanked_lines.size() - 1)
 		var ess_extra := maxi(0, essence_lines.size() - 1)
-		custom_minimum_size = Vector2(_plate_w, (14.0 + float(ess_extra + phyl_extra + loot_extra) +(2.0 if show_key else 0.0) + float(door_lines.size())) * _row + 8.0)
+		custom_minimum_size = Vector2(_plate_w, RaidLogic.stat_block_height(_row, ess_extra, phyl_extra, loot_extra, 1 + key_pile_lines.size() if show_key else 0, door_lines.size()))
 
 	## A floor glyph as the pickups draw it (RaidLoot.floor_glyph shapes), small, at `p`.
 	func _key_glyph(p: Vector2, shape: String, col: Color) -> void:
@@ -1016,9 +1019,10 @@ class StatBlock:
 			var g := RaidLoot.floor_glyph(str(k[0]), false)
 			var kw := _word(str(k[1]))
 			_key_glyph(Vector2(x + 6.0, y - 4.0), str(g["shape"]), Palette.c(str(g["key"])))
-			draw_string(f, Vector2(x + 16.0, y), kw, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Palette.c("text_dim"))
-			x += 22.0 + f.get_string_size(kw, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
-		draw_string(f, Vector2(6.0, y + _row), str(words.get("key_pile", "")), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Palette.c("text_dim"))
+			draw_string(f, Vector2(x + 16.0, y), kw, HORIZONTAL_ALIGNMENT_LEFT, -1, detail_px, Palette.c("text"))
+			x += 22.0 + f.get_string_size(kw, HORIZONTAL_ALIGNMENT_LEFT, -1, detail_px).x
+		for i in key_pile_lines.size():
+			draw_string(f, Vector2(6.0, y + _row * float(i + 1)), key_pile_lines[i], HORIZONTAL_ALIGNMENT_LEFT, -1, detail_px, Palette.c("text"))
 
 	## The stat block's word `key` (raid.json hud.stats; blank when it has none).
 	func _word(key: String) -> String:
@@ -1135,7 +1139,7 @@ class StatBlock:
 				_draw_key(y + _row)
 			if not door_lines.is_empty():
 				# the held door's big, on the plate: out of the WARD's big row while it is spent on the door
-				var dy := y + _row * (3.0 if show_key else 1.0)
+				var dy := y + _row * (2.0 + float(key_pile_lines.size()) if show_key else 1.0)
 				_label(dy, _word("label_door"))
 				for ln in door_lines:
 					draw_string(ThemeDB.fallback_font, Vector2(_col, dy), ln, HORIZONTAL_ALIGNMENT_LEFT, -1, _val, door_tone)

@@ -697,7 +697,16 @@ static func row1_fits(x: float, w: float, reserve: float, plate_w: float) -> boo
 ## (The break / takes / counter rows' font size is raid.json hud.break_row_px, at least 15 as the win line, and one
 ## wrapped line's height hud.break_row_step: the font's height at 15 is 17, plus 5.)
 const BREAK_ROW_KEY := "text"      # the break / takes / counter rows' colour key (full value tone)
-const WARDEN_NOTE_KEY := "text"    # the awake WardenBlock's note under the pip rows (what a catch costs, what the shield does...): full tone
+## The left stat block's height: its 14 base rows (living, the YOUR UNDEAD header and four ranks, essence and its
+## meaning, raised, phylactery and its meaning, banked, unbanked, the stakes) plus the extra wrapped lines of the
+## essence meaning (`ess_extra`), the phylactery meaning (`phyl_extra`) and the loot lines (`loot_extra`), the floor
+## key's rows (`key_rows`, 0 while nothing lies on the floor) and the held door's lines (`door_n`), at `row` px each
+## and 8 px of padding.
+static func stat_block_height(row: float, ess_extra: int, phyl_extra: int, loot_extra: int, key_rows: int, door_n: int) -> float:
+	return (14.0 + float(ess_extra + phyl_extra + loot_extra + key_rows + door_n)) * row + 8.0
+
+
+const WARDEN_NOTE_KEY := "text"    #the awake WardenBlock's note under the pip rows (what a catch costs, what the shield does...): full tone
 
 ## The awake WardenBlock's rows under row 2, by what they hold: `note_n` note lines (the Huntsman's catch cost, the
 ## Shieldwall's shield, the Pyre-priest's fires, the Bellringer's muffle), a pack row when `has_pack`, `break_n`

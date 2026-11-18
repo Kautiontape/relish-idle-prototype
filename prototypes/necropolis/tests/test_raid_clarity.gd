@@ -21,6 +21,7 @@ func run() -> int:
 	_goal_compact_tests(t)
 	_hit_word_tests(t)
 	_warden_note_tests(t)
+	_stat_block_tests(t)
 	return t.failures
 
 
@@ -197,6 +198,55 @@ func _warden_note_tests(t: TestUtil) -> void:
 	t.ok(RaidLogic.warden_rows_layout(0, false, 0, 22.0)["extra_h"] == 0.0 and RaidLogic.warden_rows_layout(0, false, 0, 22.0)["pack_dy"] == 22.0, "no note: the bare block, the pack row at the old y+22")
 	t.ok(RaidLogic.banner_top(116.0, true, RaidLogic.TOP_BLOCK_BASE_H + float(two["extra_h"])) == 116.0 + 14.0 + float(two["extra_h"]), "the wake banner steps down by every added row")
 	t.ok(float(hud["warden_block_w"]) == 680.0 and inner == 656.0, "the block keeps hud.warden_block_w (680), notes wrap inside its 12 px insets")
+
+
+## The left stat block (labels, values, sub-lines): 15 px or more, labels 7:1 and the rest 4.5:1 on the plate over the
+## brightest world colour, and at 1600x900 the worst case (day 1, no phylactery charge, the floor key up) ends above
+## the CONTROLS legend and short of the top-centre block.
+func _stat_block_tests(t: TestUtil) -> void:
+	t.suite("raid_stat_block")
+	var cfg: Dictionary = TestUtil.load_json("res://configs/raid.json")
+	var hud: Dictionary = cfg["hud"]
+	var sw: Dictionary = hud["stats"]
+	var f := ThemeDB.fallback_font
+	t.ok(int(hud["label_px"]) >= 15 and int(hud["value_px"]) >= 15 and int(sw["detail_px"]) >= 15, "labels (%d), values (%d) and sub-lines (%d) are at least 15 px" % [int(hud["label_px"]), int(hud["value_px"]), int(sw["detail_px"])])
+	var plate := func(world: Color) -> Color: return RaidLogic.over(Palette.c("ground"), float(hud["plate_alpha"]), world)
+	var lab := _worst_over(plate, "text", float(sw["label_alpha"]))
+	t.ok(float(lab[0]) >= 7.0, "the labels hold 7:1 on the plate over the brightest world colour (%.1f:1)" % float(lab[0]))
+	for key in ["text", "text_dim", "danger", "vei", "undead", "living", "essence", "relish"]:
+		var w := _worst_over(plate, key, 1.0)
+		t.ok(float(w[0]) >= (4.5 if key in ["text", "text_dim", "danger"] else 3.0), "values in `%s` hold their ratio on the plate (%.1f:1)" % [key, float(w[0])])
+	t.ok(float(_worst_over(plate, "text", 1.0)[0]) >= 4.5 and float(_worst_over(plate, "text_dim", 1.0)[0]) >= 4.5 and float(_worst_over(plate, "danger", 1.0)[0]) >= 4.5, "the value tones, text, text_dim (none) and danger (lost if you die), hold 4.5:1")
+	# every label fits its column at its size, with a gap before the value
+	var worst_lab := 0.0
+	for k in ["living_label", "label_essence", "label_raised", "label_phyl", "label_banked", "label_unbanked", "label_door", "rank_chaff", "rank_soldier", "rank_elite", "rank_big"]:
+		worst_lab = maxf(worst_lab, f.get_string_size(str(sw[k]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(hud["label_px"])).x)
+	t.ok(worst_lab + 6.0 + 6.0 <= float(sw["label_col"]), "the widest label (%.0f px) at x 6 leaves 6 px before the value column (%.0f)" % [worst_lab, float(sw["label_col"])])
+	t.ok(f.get_string_size(str(sw["ward_head"]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(hud["label_px"])).x <= float(sw["plate_w"]) - 12.0, "the YOUR UNDEAD header fits the plate")
+	# the worst case's height at 1600x900: the 3-line PHYLACT. explanation (no charge), the essence meaning, and the key's rows up
+	var vcol := _value_col()
+	var dpx := int(sw["detail_px"])
+	var ess := RaidLogic.wrap_each(PackedStringArray([str(sw["essence_meaning"])]), f, dpx, vcol)
+	var phy := RaidLogic.wrap_each(RaidLogic.phylactery_meaning(sw, 0), f, dpx, vcol)
+	var pile := RaidLogic.wrap_each(PackedStringArray([str(sw["key_pile"])]), f, dpx, float(sw["plate_w"]) - 12.0)
+	var row := float(sw["row_px"])
+	var h_worst := RaidLogic.stat_block_height(row, ess.size() - 1, phy.size() - 1, 0, 0, 0)
+	var h_key := RaidLogic.stat_block_height(row, ess.size() - 1, phy.size() - 1, 0, 1 + pile.size(), 0)
+	var top := 14.0 + f.get_height(24) + 2.0   # the HUD box's top, the 24 px title, its separation
+	var lg := RaidLegend.new()
+	lg.setup(hud["legend"], true)
+	var legend_top := 900.0 - 54.0 - lg.size.y   # the legend's offset_bottom -54 from the screen's bottom
+	var view_w := 1600.0
+	var goal_left := view_w * 0.5 - float(hud["warden_block_w"]) * 0.5
+	var right := 18.0 + float(sw["plate_w"])
+	print("STAT_BLOCK worst case (day 1, Old Sluice, 0 charges): %.0f wide x %.0f tall, y %.0f to %.0f; with the floor key %.0f tall, to y %.0f; legend top y %.0f; goal block left x %.0f; plate right x %.0f" % [float(sw["plate_w"]), h_worst, top, top + h_worst, h_key, top + h_key, legend_top, goal_left, right])
+	t.ok(phy.size() == 3 and ess.size() <= 2, "the worst case is the 3-line PHYLACT. meaning and a %d-line essence meaning" % ess.size())
+	t.ok(top + h_worst <= legend_top - 20.0, "day 1, Old Sluice: the stat block ends at y %.0f, 20 px above the CONTROLS legend's top (%.0f)" % [top + h_worst, legend_top])
+	t.ok(top + h_key <= legend_top - 20.0, "even with the floor key's rows up it ends at y %.0f, 20 px above the legend (%.0f)" % [top + h_key, legend_top])
+	t.ok(right <= goal_left - 12.0, "the plate's right edge (x %.0f) stops 12 px short of the top-centre block (x %.0f)" % [right, goal_left])
+	lg.free()
+	var hs := FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd")
+	t.ok(hs.contains("RaidLogic.stat_block_height(_row,") and hs.contains("_row = float(words.get(\"row_px\", _row))"), "the StatBlock sizes itself by the shared height function and reads its row pitch from hud.stats.row_px")
 
 
 ## A stand-in for a RaidUnit (the fields the counter filter reads).
@@ -416,13 +466,13 @@ func _round2_tests(t: TestUtil) -> void:
 	var pw := RaidLogic.phylactery_word(_hs(), 0)
 	var pcut := pw.find(" · ")
 	var fnt0 := ThemeDB.fallback_font
-	var prow := 92.0 + 4.0 + fnt0.get_string_size("0", HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x + 10.0 + fnt0.get_string_size(pw.substr(0, pcut), HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x + fnt0.get_string_size(pw.substr(pcut), HORIZONTAL_ALIGNMENT_LEFT, -1, dpx).x
+	var prow := float(sw["label_col"]) + 4.0 + fnt0.get_string_size("0", HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x + 10.0 + fnt0.get_string_size(pw.substr(0, pcut), HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x + fnt0.get_string_size(pw.substr(pcut), HORIZONTAL_ALIGNMENT_LEFT, -1, dpx).x
 	t.ok(pcut > 0 and prow <= 420.0 - 6.0, "the PHYLACT. row's NO REVIVE run fits the plate (%d of 414 px)" % int(prow))
 	# the LIVING / YOUR UNDEAD words: each fits where it is drawn (label column 92 px; the value after the 1-pip ring)
 	var lab := int(TestUtil.load_json("res://configs/raid.json")["hud"]["label_px"])
 	t.ok(sw["ward_head"] == "YOUR UNDEAD" and sw["living_label"] == "LIVING", "the ward header and the living label")
 	var lv_w := fnt0.get_string_size(str(sw["living_label"]), HORIZONTAL_ALIGNMENT_LEFT, -1, lab).x
-	t.ok(lv_w <= 92.0, "the LIVING label fits the 92 px label column at %d px (%d px)" % [lab, int(lv_w)])
+	t.ok(lv_w <= float(sw["label_col"]), "the LIVING label fits the %d px label column at %d px (%d px)" % [int(sw["label_col"]), lab, int(lv_w)])
 	var wh_w := fnt0.get_string_size(str(sw["ward_head"]), HORIZONTAL_ALIGNMENT_LEFT, -1, lab).x   # a header: its row has no value, it may run on
 	t.ok(wh_w <= 420.0 - 12.0, "the YOUR UNDEAD header fits the plate at %d px (%d px)" % [lab, int(wh_w)])
 	t.ok(RaidLogic.enemies_text(22, sw) == "22 enemies" and RaidLogic.enemies_text(1, sw) == "1 enemy" and RaidLogic.enemies_text(0, sw) == "0 enemies", "the LIVING value counts enemies")
@@ -1526,7 +1576,11 @@ func _contrast_tests(t: TestUtil) -> void:
 	for r in drows + RaidLogic.clear_card_rows(_cw(), _lu(), "X", sample):
 		worst_label = maxf(worst_label, f.get_string_size(str(r["label"]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(dc["label_px"])).x)
 	t.ok(int(dc["label_px"]) >= 14 and worst_label <= float(dc["label_w"]) - 8.0, "card labels are 14 px and fit their column (%.0f px of %.0f)" % [worst_label, float(dc["label_w"]) - 8.0])
-	t.ok(f.get_string_size(_hs()["key_pile"], HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x <= 420.0 - 12.0, "the floor key's second line fits the StatBlock's plate at 13 px")
+	var pile := RaidLogic.wrap_each(PackedStringArray([str(_hs()["key_pile"])]), f, int(_hs()["detail_px"]), float(_hs()["plate_w"]) - 12.0)
+	var pile_ok := pile.size() >= 1
+	for ln in pile:
+		pile_ok = pile_ok and f.get_string_size(ln, HORIZONTAL_ALIGNMENT_LEFT, -1, int(_hs()["detail_px"])).x <= float(_hs()["plate_w"]) - 12.0
+	t.ok(pile_ok, "the floor key's pile line wraps to the StatBlock's plate at %d px (%d lines)" % [int(_hs()["detail_px"]), pile.size()])
 
 	# no raid HUD text under 13 px: every literal size in a draw_string / font_size override
 	var small := PackedStringArray()
