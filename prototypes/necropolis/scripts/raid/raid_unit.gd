@@ -441,17 +441,27 @@ func _draw_undead(off: Vector2) -> void:
 	draw_circle(off + _facing * (half + 1.0), radius * 0.3, _flashed(Palette.c("undead_core")))
 
 
-## A bow arc (spans ~2.2 x radius) with a hollow ring head (r ~0.45 x radius) at its tip.
+const LIVING_DASHES := 3
+const LIVING_DASH_SWEEP := 0.56   # radians: 3 dashes + 2 gaps span the bow's 2.4 rad
+const LIVING_GAP_SWEEP := 0.36
+const LIVING_CORE_MIX := 0.4   # how far the living's core goes from `living` toward `living_core`
+
+## A dashed bow arc (spans ~2.2 x radius) with a hollow ring head (r ~0.45 x radius) at its tip.
 ## A heavier `living_core` stroke keeps it readable against the orange walls.
 func _draw_living(off: Vector2) -> void:
 	var col := _flashed(Palette.c("living"))
-	var core := _flashed(Palette.c("living_core"))
+	# a core part-way to `living_core`: its full pale tone reads near-white in greyscale, where the undead's cores do too
+	var core := _flashed(Palette.c("living").lerp(Palette.c("living_core"), LIVING_CORE_MIX))
 	var r := radius * 1.1
 	var c := off - _facing * (radius * 0.55)
 	var a0 := _facing.angle() - 1.2
 	var width := maxf(2.6, radius * (0.3 if kind == "brute" else 0.24))
-	LineGlow.arc(self, c, r, a0, a0 + 2.4, col, width, 0.4, core)
-	LineGlow.ring(self, c + _facing * r, radius * 0.45, col, maxf(2.0, width * 0.8), 0.0, core)
+	# the bow is DASHED (VISUAL-LANGUAGE dash rhythm): three strokes with gaps, so living and undead part in greyscale
+	# too, where both bright cores read near-white. Undead strokes stay solid.
+	for i in LIVING_DASHES:
+		var da := a0 + float(i) * (LIVING_DASH_SWEEP + LIVING_GAP_SWEEP)
+		LineGlow.arc(self, c, r, da, da + LIVING_DASH_SWEEP, col, width, 0.4, core)
+	LineGlow.ring(self, c + _facing * r, radius * 0.45, col, maxf(1.8, width * 0.6), 0.0, core)   # a thin stroke: the head stays visibly hollow
 	if kind == "guard":
 		LineGlow.ring(self, off, radius * 1.6, Palette.c("vei"), 2.2, 0.5)
 

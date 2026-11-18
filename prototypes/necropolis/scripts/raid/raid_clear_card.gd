@@ -73,8 +73,8 @@ func _draw() -> void:
 	var h := pad * 2.0 + 44.0 + total + 30.0
 	var vs := get_viewport_rect().size
 	var o := (vs - Vector2(w, h)) * 0.5
-	draw_rect(Rect2(Vector2.ZERO, vs), Palette.c("ground", 0.55 * a))
-	draw_rect(Rect2(o, Vector2(w, h)), Palette.c("ground", 0.96 * a))
+	draw_rect(Rect2(Vector2.ZERO, vs), Palette.c("ground", float(dc["backdrop_a"]) * a))
+	draw_rect(Rect2(o, Vector2(w, h)), Palette.c("ground", float(dc["plate_a"]) * a))
 	draw_rect(Rect2(o, Vector2(w, h)), Palette.c("vei", 0.8 * a), false, 2.0)
 	var x := o.x + pad
 	var y := o.y + pad + 22.0
@@ -82,8 +82,8 @@ func _draw() -> void:
 	y += 40.0
 	for i in rows.size():
 		var r: Dictionary = rows[i]
-		draw_string(f, Vector2(x, y), str(r["label"]), HORIZONTAL_ALIGNMENT_LEFT, 110.0, 13, Palette.c("text_dim", a))
+		draw_string(f, Vector2(x, y), str(r["label"]), HORIZONTAL_ALIGNMENT_LEFT, lw - 8.0, int(dc["label_px"]), Palette.c("text_dim", a))
 		draw_multiline_string(f, Vector2(x + lw, y), str(r["text"]), HORIZONTAL_ALIGNMENT_LEFT, vw, vpx, -1, Palette.c(str(r["key"]), a))
 		y += float(heights[i])
 	if can_skip():
-		draw_string(f, Vector2(x, y + 4.0), "click or press Space to return to the realm", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Palette.c("text_dim", a))
+		draw_string(f, Vector2(x, y + 4.0), "click or press Space to return to the realm", HORIZONTAL_ALIGNMENT_LEFT, -1, int(dc["foot_px"]), Palette.c("text_dim", a))

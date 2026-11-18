@@ -8,7 +8,7 @@ extends Control
 const PAD := 8.0
 const GAP := 3.0
 
-var plate_alpha := 0.86
+var plate_alpha := 0.96
 var height := 0.0          # the plate's height for the rows set
 var _rows: Array = []
 var _lines: Array = []     # wrapped rows: {text, px, key}
@@ -24,19 +24,36 @@ func set_rows(rows: Array) -> void:
 	if rows == _rows:
 		return
 	_rows = rows.duplicate(true)
-	var w := maxf(40.0, offset_right - offset_left - 2.0 * (PAD + 4.0))
-	var f := ThemeDB.fallback_font
-	_lines = []
-	height = 0.0
-	for r in _rows:
-		for ln in _wrap(f, str(r["text"]), int(r["px"]), w):
-			_lines.append({"text": ln, "px": int(r["px"]), "key": str(r["key"])})
-	if not _lines.is_empty():
-		height = 2.0 * PAD - GAP
-		for l in _lines:
-			height += f.get_height(int(l["px"])) + GAP
+	_lines = _wrap_rows(_rows)
+	height = _height_of(_lines)
 	offset_bottom = offset_top + height
 	queue_redraw()
+
+
+## The plate height `rows` would have, without showing them: the HUD measures the FULL rows this way while the
+## compact ones are up, so the choice between the two never depends on which one is showing.
+func height_for(rows: Array) -> float:
+	return _height_of(_wrap_rows(rows))
+
+
+func _wrap_rows(rows: Array) -> Array:
+	var w := maxf(40.0, offset_right - offset_left - 2.0 * (PAD + 4.0))
+	var f := ThemeDB.fallback_font
+	var out: Array = []
+	for r in rows:
+		for ln in _wrap(f, str(r["text"]), int(r["px"]), w):
+			out.append({"text": ln, "px": int(r["px"]), "key": str(r["key"])})
+	return out
+
+
+func _height_of(lines: Array) -> float:
+	if lines.is_empty():
+		return 0.0
+	var f := ThemeDB.fallback_font
+	var h := 2.0 * PAD - GAP
+	for l in lines:
+		h += f.get_height(int(l["px"])) + GAP
+	return h
 
 
 func _wrap(f: Font, s: String, px: int, w: float) -> Array:

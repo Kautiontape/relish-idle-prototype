@@ -461,19 +461,62 @@ static func goal_rows(s: Dictionary) -> Array:
 	var rpx := int(s.get("route_px", 14))
 	var xpx := int(s.get("row_px", 13))
 	var fort := str(s.get("fort_name", ""))
+	var compact := bool(s.get("compact", false))   # the sleeping warden's ring lies under the full block: goal, BREAK, COUNTER, the short no-army row
 	if bool(s.get("held", false)):
 		rows.append({"text": goal_line(fort, "", true), "px": gpx, "key": "vei"})
 	elif bool(s.get("warden_alive", false)):
 		rows.append({"text": goal_line(fort, str(s.get("warden_name", "")), false), "px": gpx, "key": "vei"})
-		rows.append({"text": str(s.get("route_text", "")), "px": rpx, "key": "text"})
-		for r in s.get("break_rows", []):
-			rows.append({"text": str(r), "px": xpx, "key": "text_dim"})
+		if not compact:
+			rows.append({"text": str(s.get("route_text", "")), "px": rpx, "key": "text"})
+		var br: Array = s.get("break_rows", [])
+		for i in br.size():
+			if compact and br.size() > 2 and i > 0 and i < br.size() - 1:
+				continue   # the TAKES row (between the BREAK and COUNTER rows) waits for the full block
+			rows.append({"text": str(br[i]), "px": xpx, "key": "text_dim"})
 	elif bool(s.get("chest", false)):
 		rows.append({"text": goal_line(fort, str(s.get("warden_name", "")), false), "px": gpx, "key": "vei"})
 		rows.append({"text": CHEST_ROW, "px": rpx, "key": "text"})
 	if not rows.is_empty() and bool(s.get("no_army", false)):
-		rows.append({"text": NO_ARMY_LINE, "px": xpx, "key": "danger"})
+		rows.append({"text": NO_ARMY_SHORT if compact else NO_ARMY_LINE, "px": xpx, "key": "danger"})
 	return rows
+
+
+## The goal block shows its compact rows while the sleeping warden's ring (its screen rect, `ring_rect`; empty
+## when there is none to protect) meets the block's FULL rect (`full_rect`: the full rows' height, measured even
+## while compact is showing, so the block cannot flicker between the two).
+static func goal_compact(full_rect: Rect2, ring_rect: Rect2) -> bool:
+	return full_rect.has_area() and ring_rect.has_area() and full_rect.intersects(ring_rect)
+
+
+## A sleeping warden's presence picture as a screen rect: a square around the dashed outer ring. `center` is the
+## warden's screen point, `scale` the canvas scale (camera zoom), `radius` its world radius; `pc` is wardens.presence
+## (ring_mult, dash_gap_px). The glyph and the plinth lie inside it; `pad` screen px of margin.
+static func warden_ring_rect(center: Vector2, scale: float, radius: float, pc: Dictionary, pad := 4.0) -> Rect2:
+	var rs := radius * float(pc.get("ring_mult", 1.9)) * scale + float(pc.get("dash_gap_px", 7.0)) + pad
+	return Rect2(center - Vector2(rs, rs), Vector2(rs, rs) * 2.0)
+
+
+## WCAG 2 relative luminance of an sRGB colour.
+static func rel_luminance(c: Color) -> float:
+	var ch := [c.r, c.g, c.b]
+	for i in 3:
+		var v: float = ch[i]
+		ch[i] = v / 12.92 if v <= 0.03928 else pow((v + 0.055) / 1.055, 2.4)
+	return 0.2126 * float(ch[0]) + 0.7152 * float(ch[1]) + 0.0722 * float(ch[2])
+
+
+## WCAG contrast ratio of two opaque colours, 1 to 21 (alpha ignored: composite with `over` first).
+static func contrast_ratio(fg: Color, bg: Color) -> float:
+	var a := rel_luminance(fg)
+	var b := rel_luminance(bg)
+	return (maxf(a, b) + 0.05) / (minf(a, b) + 0.05)
+
+
+## `top` at `alpha` (times its own alpha) composited over the opaque `under` in sRGB, as Godot's 2D blend does
+## (this project does not enable hdr_2d). Opaque result.
+static func over(top: Color, alpha: float, under: Color) -> Color:
+	var a := clampf(alpha * top.a, 0.0, 1.0)
+	return Color(top.r * a + under.r * (1.0 - a), top.g * a + under.g * (1.0 - a), top.b * a + under.b * (1.0 - a), 1.0)
 
 
 ## The banner's top: `base` while no top-centre block shows, else stepped down 14 px under it, and further by
@@ -541,6 +584,9 @@ static func card_skips(ev: InputEvent, t: float, gate: float) -> bool:
 ## T4: she has no undead with her, no loose essence, nothing carried and no corpse pile left to stir:
 ## nothing can be raised here.
 const NO_ARMY_LINE := "NO UNDEAD WITH YOU AND NOTHING TO RAISE · retreat, then send WAR here or bring big undead"
+## The StatBlock's floor-loot key, second line (13 px, on the 420 px plate: a test pins it to fit).
+const KEY_PILE_LINE := "grey ×9 = a corpse pile (bodies in it): walk close, it gives essence"
+const NO_ARMY_SHORT := "NO UNDEAD, NOTHING TO RAISE · retreat, then send WAR here or bring big undead"   # the compact goal block's form
 
 static func no_army(allies_alive: int, loose_motes: int, carried: int, piles_left: int) -> bool:
 	return allies_alive == 0 and loose_motes == 0 and carried == 0 and piles_left == 0
@@ -639,7 +685,9 @@ static func clear_card_rows(warden_name: String, loot: Dictionary) -> Array:
 
 ## The death card's geometry (RaidDeathCard._draw reads it, and so does the clear card; the test measures the
 ## widest value against it): card width, padding, the label column, the value font size.
-const DEATH_CARD := {"w": 560.0, "pad": 22.0, "label_w": 120.0, "value_px": 18}
+## label_px / foot_px: the dim label column and footer sizes; backdrop_a the world-dimming rect behind the card,
+## plate_a the card's own ground plate (the contrast test composites both over the brightest world colour).
+const DEATH_CARD := {"w": 560.0, "pad": 22.0, "label_w": 120.0, "value_px": 18, "label_px": 14, "foot_px": 14, "backdrop_a": 0.55, "plate_a": 0.96}
 
 
 ## The death card's rows [{label, text, key}] (key: a Palette key): who killed her, the tell she missed when

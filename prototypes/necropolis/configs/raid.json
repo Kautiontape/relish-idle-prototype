@@ -48,8 +48,9 @@
     "max_clusters": 8
   },
   "hud": {
-    "_doc": "The stat block (top left). plate_alpha is its backing plate: near opaque so a corpse glyph or pickup under the block never crosses its text.",
-    "plate_alpha": 0.86,
+    "_doc": "The stat block (top left). plate_alpha is its backing plate: near opaque so a corpse glyph or pickup under the block never crosses its text. Every HUD plate's alpha is pinned by tests/test_raid_clarity.gd: its dimmest text must stay 4.5:1 (lines 3:1) over the brightest thing the world can put under it, so lowering one fails the suite. warden_plate_alpha backs the awake warden's block.",
+    "plate_alpha": 0.96,
+    "warden_plate_alpha": 0.96,
     "pip_row_max": 24,
     "pip_px": 8.0,
     "label_px": 13,
@@ -63,16 +64,17 @@
     },
     "legend": {
       "_doc": "The control legend (bottom left, above the trance meter): open every raid until a fort has been taken, then a collapsed chip the player can reopen. Sizes in px; plate_alpha backs it; chip_h is at least 44 (touch target).",
-      "row_px": 14,
-      "key_px": 13,
+      "row_px": 15,
+      "key_px": 14,
       "pad_px": 10,
       "gap_px": 8,
-      "plate_alpha": 0.86,
+      "plate_alpha": 0.97,
       "chip_w": 140,
       "chip_h": 44
     },
     "retreat": {
       "_doc": "The retreat panel (RaidRetreatPanel): two columns, RETREAT NOW and IF RELISH FALLS. w is the plate's width; pad its inner margin; title_px/head_px/line_px the title, column-head and line sizes (no text under 13 px); line_h one line's pitch; col_gap the space between the columns; btn_w/btn_h/btn_gap the RETREAT and STAY buttons (btn_h is at least 44, a touch target). The words are RaidLogic.retreat_keep_lines / retreat_fall_lines.",
+      "plate_alpha": 0.97,
       "w": 820,
       "pad": 18,
       "title_px": 20,
@@ -89,7 +91,7 @@
       "goal_px": 17,
       "route_px": 14,
       "row_px": 13,
-      "plate_alpha": 0.86
+      "plate_alpha": 0.96
     }
   },
   "trace_notch": {

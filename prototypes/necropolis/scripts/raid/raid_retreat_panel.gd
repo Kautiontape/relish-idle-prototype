@@ -26,6 +26,7 @@ var line_h := 22.0      # the gap between two lines is line_h - the font's heigh
 var col_gap := 32.0
 var btn := Vector2(150.0, 44.0)   # 44 px tall: the touch-target floor
 var btn_gap := 24.0
+var plate_alpha := 0.97   # the panel's ground plate; a test holds its dim text at 4.5:1 over the brightest world colour
 
 var title := "LEAVE THE RAID?"
 var cols: Array = [[], []]
@@ -53,6 +54,7 @@ func configure(c: Dictionary) -> void:
 	col_gap = float(c.get("col_gap", col_gap))
 	btn = Vector2(float(c.get("btn_w", btn.x)), float(c.get("btn_h", btn.y)))
 	btn_gap = float(c.get("btn_gap", btn_gap))
+	plate_alpha = float(c.get("plate_alpha", plate_alpha))
 
 
 ## Show the panel with `p_cols` = [left, right] (RaidLogic.retreat_keep_lines, retreat_fall_lines), sized to
@@ -186,7 +188,7 @@ func _gui_input(ev: InputEvent) -> void:
 func _draw() -> void:
 	var r := Rect2(Vector2.ZERO, size)
 	var font := ThemeDB.fallback_font
-	draw_rect(r, Palette.c("ground", 0.95))
+	draw_rect(r, Palette.c("ground", plate_alpha))
 	draw_rect(r, Palette.c("relish", 0.8), false, 2.0)
 	draw_string(font, Vector2(pad, pad + 20.0), title, HORIZONTAL_ALIGNMENT_LEFT, w - 2.0 * pad, title_px, Palette.c("vei"))
 	var cw := _col_w()
@@ -202,7 +204,7 @@ func _draw() -> void:
 			draw_multiline_string(font, Vector2(x, y), tx, HORIZONTAL_ALIGNMENT_LEFT, cw, line_px, -1, Palette.c(str(ln.get("key", "text"))))
 			y += _line_cost(tx)
 	var mid := pad + cw + col_gap * 0.5
-	draw_line(Vector2(mid, top + 4.0), Vector2(mid, _retreat_rect.position.y - 14.0), Palette.c("text_dim", 0.5), 1.0)
+	draw_line(Vector2(mid, top + 4.0), Vector2(mid, _retreat_rect.position.y - 14.0), Palette.c("text_dim", 0.8), 1.0)
 	_button(_retreat_rect, "RETREAT", Palette.c("relish", 1.0 if _hover == "retreat" else 0.7), Palette.c("vei"))
 	_button(_stay_rect, "STAY", Palette.c("text_dim", 1.0 if _hover == "stay" else 0.7), Palette.c("text"))
 	draw_string(font, Vector2(0.0, size.y - pad), "click to choose · Space or Esc: stay and fight",

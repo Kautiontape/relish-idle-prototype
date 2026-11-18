@@ -14,6 +14,8 @@ func run() -> int:
 	_goal_tests(t)
 	_clear_card_tests(t)
 	_round2_tests(t)
+	_contrast_tests(t)
+	_goal_compact_tests(t)
 	return t.failures
 
 
@@ -328,8 +330,8 @@ func _legend_tests(t: TestUtil) -> void:
 	t.ok(RaidLogic.legend_open_at_start(0) and not RaidLogic.legend_open_at_start(1) and not RaidLogic.legend_open_at_start(3),
 		"open at 0 forts taken, collapsed after one or more")
 	var cfg: Dictionary = TestUtil.load_json("res://configs/raid.json").get("hud", {}).get("legend", {})
-	t.ok(cfg.has("_doc") and float(cfg.get("chip_h", 0)) >= 44.0 and float(cfg.get("key_px", 0)) >= 12.0 and float(cfg.get("row_px", 0)) >= 12.0,
-		"hud.legend is documented, with a 44 px chip and text of at least 12 px")
+	t.ok(cfg.has("_doc") and float(cfg.get("chip_h", 0)) >= 44.0 and float(cfg.get("key_px", 0)) >= 14.0 and float(cfg.get("row_px", 0)) >= 15.0 and float(cfg.get("plate_alpha", 0)) >= 0.96,
+		"hud.legend is documented, with a 44 px chip, 15/14 px rows and keys, and a plate of at least 0.96")
 	var l := RaidLegend.new()
 	l.setup(cfg, true)
 	t.ok(l.focus_mode == Control.FOCUS_NONE and l.mouse_filter == Control.MOUSE_FILTER_PASS, "no focus; the mouse passes through")
@@ -662,3 +664,200 @@ func _retreat_line_tests(t: TestUtil) -> void:
 	var paid := RaidLogic.loot_counts(RaidLogic.result_loot("retreated", false, {"relics": 2, "husks": [{"kind": "skeleton"}]}, 5, {}))
 	t.ok(paid["relics"] == keep["relics"] and paid["husks"] == keep["husks"] and paid["essence"] == keep["essence"],
 		"the counts shown are what result_loot pays a retreat")
+
+
+# ----------------------------------------------------------------------------------------------------------
+# Clarity round 2, task B: contrast measured on every raid HUD plate, the compact goal block, small text.
+
+## The brightest things the world can put under a HUD plate (cream wall lines, essence motes, the undead and
+## the living's cores): the worst of them is what a plate's ink must survive.
+const WORLD_BRIGHT := ["vei", "essence", "undead", "living_core", "undead_core"]
+const TEXT_MIN := 4.5
+const LINE_MIN := 3.0
+
+
+## Every Palette.c("key" literal in `src` must be `ground` or in `keys`, so a new colour on a plate is a new
+## line in the contrast test.
+func _guard_keys(t: TestUtil, name: String, src: String, keys: Array) -> void:
+	var re := RegEx.create_from_string("Palette\\.c\\(\"(\\w+)\"")
+	var bad := PackedStringArray()
+	for m in re.search_all(_code(src)):
+		var k := m.get_string(1)
+		if k != "ground" and not keys.has(k) and not bad.has(k):
+			bad.append(k)
+	t.ok(bad.is_empty(), "%s draws only the inks the contrast test measures (unmeasured: %s)" % [name, ", ".join(bad)])
+
+
+## Worst contrast of `key` at `alpha` over `bg(world)` across WORLD_BRIGHT: [ratio, world key].
+func _worst_over(bg: Callable, key: String, alpha: float) -> Array:
+	var worst := [INF, ""]
+	for w in WORLD_BRIGHT:
+		var under: Color = bg.call(Palette.c(w))
+		var ink := RaidLogic.over(Palette.c(key), alpha, under)
+		var r := RaidLogic.contrast_ratio(ink, under)
+		if r < float(worst[0]):
+			worst = [r, w]
+	return worst
+
+
+func _check_plate(t: TestUtil, name: String, bg: Callable, texts: Array, lines: Array) -> void:
+	for k in texts:
+		var w := _worst_over(bg, str(k), 1.0)
+		t.ok(float(w[0]) >= TEXT_MIN, "%s: text `%s` is %.2f:1 over the plate on %s (needs %.1f)" % [name, k, float(w[0]), w[1], TEXT_MIN])
+	for ln in lines:
+		var w := _worst_over(bg, str(ln[0]), float(ln[1]))
+		t.ok(float(w[0]) >= LINE_MIN, "%s: line `%s` at %.2f is %.2f:1 over the plate on %s (needs %.1f)" % [name, ln[0], float(ln[1]), float(w[0]), w[1], LINE_MIN])
+
+
+func _rows_keys(rows: Array) -> Array:
+	var out: Array = []
+	for r in rows:
+		var k := str(r["key"])
+		if not out.has(k):
+			out.append(k)
+	return out
+
+
+func _contrast_tests(t: TestUtil) -> void:
+	t.suite("raid_contrast")
+	# the helpers: WCAG values, sRGB compositing
+	t.ok(is_equal_approx(RaidLogic.contrast_ratio(Color.BLACK, Color.WHITE), 21.0), "black on white is 21:1")
+	t.ok(is_equal_approx(RaidLogic.contrast_ratio(Color.WHITE, Color.WHITE), 1.0), "a colour on itself is 1:1")
+	var td := RaidLogic.contrast_ratio(Palette.c("text_dim"), Palette.c("ground"))
+	t.ok(td > 5.8 and td < 6.0, "text_dim on pure ground is ~5.9:1 (%.2f)" % td)
+	var mid := RaidLogic.over(Color.WHITE, 0.5, Color.BLACK)
+	t.ok(is_equal_approx(mid.r, 0.5) and is_equal_approx(mid.g, 0.5) and mid.a == 1.0, "half white over black is 0.5 grey in sRGB")
+	t.ok(RaidLogic.over(Color.RED, 0.0, Color.BLUE) == Color.BLUE and RaidLogic.over(Color.RED, 1.0, Color.BLUE) == Color(1, 0, 0, 1), "alpha 0 keeps the under colour, 1 the top")
+	var raid_cfg: Dictionary = TestUtil.load_json("res://configs/raid.json")
+	var hud: Dictionary = raid_cfg.get("hud", {})
+	var a_legend := float(hud.get("legend", {}).get("plate_alpha", 0.0))
+	var a_goal := float(hud.get("goal", {}).get("plate_alpha", 0.0))
+	var a_stat := float(hud.get("plate_alpha", 0.0))
+	var a_warden := float(hud.get("warden_plate_alpha", 0.0))
+	var a_retreat := float(hud.get("retreat", {}).get("plate_alpha", 0.0))
+	var dc: Dictionary = RaidLogic.DEATH_CARD
+	var plate := func(alpha: float) -> Callable:
+		return func(world: Color) -> Color: return RaidLogic.over(Palette.c("ground"), alpha, world)
+	var card_bg := func(world: Color) -> Color:
+		return RaidLogic.over(Palette.c("ground"), float(dc["plate_a"]), RaidLogic.over(Palette.c("ground"), float(dc["backdrop_a"]), world))
+	var rsrc := func(f: String) -> String: return FileAccess.get_file_as_string("res://scripts/raid/" + f)
+	var hs: String = rsrc.call("raid_hud.gd")
+	var stat_src := hs.substr(hs.find("class StatBlock:"), hs.find("class TranceMeter:") - hs.find("class StatBlock:"))
+	var warden_src := hs.substr(hs.find("class WardenBlock:"), hs.find("class Pointers:") - hs.find("class WardenBlock:"))
+	t.ok(stat_src.length() > 1000 and warden_src.length() > 1000, "the StatBlock and WardenBlock sources were found")
+
+	# the test bites: the old 0.86 plates failed text_dim over a cream wall line
+	t.ok(float(_worst_over(plate.call(0.86), "text_dim", 1.0)[0]) < TEXT_MIN, "at the old 0.86 alpha, text_dim fails 4.5:1 over the brightest world colour")
+	# the control legend (bottom left)
+	_check_plate(t, "legend", plate.call(a_legend), ["text"], [["text", 1.0], ["text_dim", 1.0]])
+	_guard_keys(t, "legend", rsrc.call("raid_legend.gd"), ["text", "text_dim"])
+	# the goal block: the keys goal_rows hands it, full and compact
+	var gs := {"held": false, "fort_name": "F", "warden_alive": true, "warden_name": "W", "route_text": "r", "break_rows": ["a", "b", "c"], "chest": true, "no_army": true, "goal_px": 17, "route_px": 14, "row_px": 13}
+	var gkeys := _rows_keys(RaidLogic.goal_rows(gs))
+	for k in _rows_keys(RaidLogic.goal_rows(gs.merged({"compact": true}))):
+		if not gkeys.has(k):
+			gkeys.append(k)
+	_check_plate(t, "goal block", plate.call(a_goal), gkeys, [])
+	_guard_keys(t, "goal block", rsrc.call("raid_goal_block.gd"), [])   # it draws the keys goal_rows hands it, nothing literal
+	# the StatBlock (top left), its dim meaning and sub-lines included
+	_check_plate(t, "stat block", plate.call(a_stat), ["text", "text_dim", "danger", "vei"],
+		[["undead", 1.0], ["living", 1.0], ["essence", 1.0], ["relish", 1.0], ["danger", 1.0], ["undead", 0.8], ["essence", 0.8], ["relish", 0.8], ["living", 0.8], ["danger", 0.8], ["text_dim", 0.8]])   # 0.8: a hollow pip's outline (dim.a)
+	_guard_keys(t, "stat block", stat_src, ["text", "text_dim", "danger", "vei", "undead", "living", "essence", "relish"])
+	# the awake warden's block (top centre)
+	_check_plate(t, "warden block", plate.call(a_warden), ["text", "text_dim", "danger", "vei", "undead"],
+		[["vei", 0.9], ["vei", 1.0], ["undead", 1.0], ["danger", 1.0], ["text_dim", 0.8]])
+	_guard_keys(t, "warden block", warden_src, ["text", "text_dim", "danger", "vei", "undead"])
+	# the retreat panel
+	_check_plate(t, "retreat panel", plate.call(a_retreat), ["vei", "relish", "danger", "text", "text_dim"],
+		[["relish", 0.8], ["relish", 0.7], ["text_dim", 0.7], ["text_dim", 0.8]])
+	_guard_keys(t, "retreat panel", rsrc.call("raid_retreat_panel.gd"), ["vei", "relish", "danger", "text", "text_dim"])
+	# the death and clear cards at full alpha: the plate over the backdrop over the world
+	var sample := RaidLogic.loot_counts({"relics": 1, "husks": [{}], "essence": 2})
+	var drows := RaidLogic.death_card_rows("a wound", sample, sample, 2, "the ring", RaidLogic.death_next_row({}))
+	var dkeys := _rows_keys(drows)
+	for k in ["danger", "text_dim"]:
+		if not dkeys.has(k):
+			dkeys.append(k)
+	_check_plate(t, "death card", card_bg, dkeys, [["danger", 0.8]])
+	_guard_keys(t, "death card", rsrc.call("raid_death_card.gd"), dkeys)
+	var ckeys := _rows_keys(RaidLogic.clear_card_rows("X", sample))
+	for k in ["vei", "text_dim"]:
+		if not ckeys.has(k):
+			ckeys.append(k)
+	_check_plate(t, "clear card", card_bg, ckeys, [["vei", 0.8]])
+	_guard_keys(t, "clear card", rsrc.call("raid_clear_card.gd"), ckeys)
+	# the alphas the draw code reads are the config's (a plate never hard-codes its own)
+	t.ok(a_legend >= 0.96 and a_goal >= 0.9 and a_stat >= 0.9 and a_warden >= 0.9 and a_retreat >= 0.9, "every plate's alpha is configured (raid.json) and near opaque")
+	t.ok(not _code(rsrc.call("raid_retreat_panel.gd")).contains("Palette.c(\"ground\", 0.95)") and not _code(warden_src).contains("Palette.c(\"ground\", 0.62)"), "no plate hard-codes its alpha")
+	# the card labels fit their column at their size
+	var f := ThemeDB.fallback_font
+	var worst_label := 0.0
+	for r in drows + RaidLogic.clear_card_rows("X", sample):
+		worst_label = maxf(worst_label, f.get_string_size(str(r["label"]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(dc["label_px"])).x)
+	t.ok(int(dc["label_px"]) >= 14 and worst_label <= float(dc["label_w"]) - 8.0, "card labels are 14 px and fit their column (%.0f px of %.0f)" % [worst_label, float(dc["label_w"]) - 8.0])
+	t.ok(f.get_string_size(RaidLogic.KEY_PILE_LINE, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x <= 420.0 - 12.0, "the floor key's second line fits the StatBlock's plate at 13 px")
+
+	# no raid HUD text under 13 px: every literal size in a draw_string / font_size override
+	var small := PackedStringArray()
+	var re_ds := RegEx.create_from_string("HORIZONTAL_ALIGNMENT_\\w+,\\s*[^,]+,\\s*(\\d+)[,)]")
+	var re_fs := RegEx.create_from_string("\"font_size\",\\s*(\\d+)")
+	for file in ["raid_hud.gd", "raid_legend.gd", "raid_goal_block.gd", "raid_retreat_panel.gd", "raid_death_card.gd", "raid_clear_card.gd"]:
+		var code := _code(rsrc.call(file))
+		for re in [re_ds, re_fs]:
+			for m in (re as RegEx).search_all(code):
+				if int(m.get_string(1)) < 13:
+					small.append("%s: %s" % [file, m.get_string(0)])
+	t.ok(small.is_empty(), "no raid HUD text is set under 13 px (%s)" % ", ".join(small))
+	t.ok(int(hud.get("label_px", 0)) >= 13 and int(hud.get("value_px", 0)) >= 13 and int(hud.get("legend", {}).get("row_px", 0)) >= 13 and int(hud.get("retreat", {}).get("line_px", 0)) >= 13, "the configured HUD sizes are at least 13 px")
+	# B4: the living's bow is dashed (dash rhythm), the undead's strokes solid
+	var us: String = rsrc.call("raid_unit.gd")
+	var living_src := _func_src(us, "func _draw_living(")
+	var undead_src := _func_src(us, "func _draw_undead(")
+	undead_src = undead_src.substr(0, undead_src.find("\nconst "))   # up to the living's constants that follow it
+	t.ok(living_src.contains("for i in LIVING_DASHES") and living_src.contains("LineGlow.arc(") and living_src.contains("LineGlow.ring("), "the living's bow is dashed LineGlow arcs, the hollow ring head kept")
+	t.ok(not undead_src.contains("LIVING_DASHES") and undead_src.contains("draw_line("), "the undead's strokes stay solid")
+	var sweep := 3.0 * 0.56 + 2.0 * 0.36
+	t.ok(us.contains("const LIVING_DASHES := 3") and us.contains("const LIVING_DASH_SWEEP := 0.56") and us.contains("const LIVING_GAP_SWEEP := 0.36") and sweep <= 2.45, "three dashes and their gaps span the bow's 2.4 rad")
+
+
+## The compact goal block: the decision, the rows, the ring's rect, and the HUD's wiring (source text).
+func _goal_compact_tests(t: TestUtil) -> void:
+	t.suite("raid_goal_compact")
+	var full := Rect2(300.0, 10.0, 680.0, 150.0)
+	t.ok(RaidLogic.goal_compact(full, Rect2(600.0, 120.0, 100.0, 100.0)), "a ring reaching into the full rect: compact")
+	t.ok(not RaidLogic.goal_compact(full, Rect2(600.0, 200.0, 100.0, 100.0)), "a ring below the full rect: full rows")
+	t.ok(not RaidLogic.goal_compact(full, Rect2()), "no ring (awake, down, absent): full rows")
+	t.ok(not RaidLogic.goal_compact(Rect2(), Rect2(600.0, 120.0, 100.0, 100.0)), "no block: nothing to shrink")
+	# the test is against the FULL rect, so a ring between the compact and the full bottom keeps it compact
+	var compact_rect := Rect2(300.0, 10.0, 680.0, 90.0)
+	var ring_between := Rect2(600.0, 120.0, 100.0, 100.0)
+	t.ok(not compact_rect.intersects(ring_between) and RaidLogic.goal_compact(full, ring_between), "a ring clear of the compact rect but under the full one stays compact (no flicker)")
+	var rr := RaidLogic.warden_ring_rect(Vector2(640.0, 60.0), 1.0, 30.0, {"ring_mult": 1.9, "dash_gap_px": 7.0}, 4.0)
+	t.ok(rr.get_center() == Vector2(640.0, 60.0) and is_equal_approx(rr.size.x, 2.0 * (57.0 + 7.0 + 4.0)), "the ring's rect is centred on the warden, 1.9 x radius plus the dashed ring's gap and a margin")
+	t.ok(RaidLogic.warden_ring_rect(Vector2.ZERO, 2.0, 30.0, {"ring_mult": 1.9, "dash_gap_px": 7.0}, 0.0).size.x > rr.size.x, "the camera's zoom scales it")
+	# the rows
+	var s := {"held": false, "fort_name": "Ashgate", "warden_alive": true, "warden_name": "The Huntsman", "route_text": "you are in the warden's room",
+		"break_rows": ["BREAK it", "TAKES x4", "COUNTER them"], "chest": false, "no_army": true, "goal_px": 17, "route_px": 14, "row_px": 13}
+	var full_rows := RaidLogic.goal_rows(s)
+	t.ok(full_rows.size() == 6 and full_rows[1]["text"] == s["route_text"] and full_rows[3]["text"] == "TAKES x4" and full_rows[5]["text"] == RaidLogic.NO_ARMY_LINE, "full: goal, route, BREAK, TAKES, COUNTER, no-army")
+	var cs := s.duplicate()
+	cs["compact"] = true
+	var crows := RaidLogic.goal_rows(cs)
+	t.ok(crows.size() == 4 and crows[0]["key"] == "vei" and crows[1]["text"] == "BREAK it" and crows[2]["text"] == "COUNTER them" and crows[3]["text"] == RaidLogic.NO_ARMY_SHORT,
+		"compact: goal, BREAK, COUNTER and the short no-army row; no route, no TAKES")
+	t.ok(RaidLogic.NO_ARMY_SHORT.contains("retreat, then send WAR here or bring big undead") and RaidLogic.NO_ARMY_SHORT.begins_with("NO UNDEAD") and RaidLogic.NO_ARMY_SHORT.length() < RaidLogic.NO_ARMY_LINE.length(),
+		"the short no-army row keeps its advice and is shorter")
+	cs["no_army"] = false
+	t.ok(RaidLogic.goal_rows(cs).size() == 3, "compact without the no-army row: three rows")
+	cs["break_rows"] = ["BREAK it", "COUNTER them"]
+	t.ok(RaidLogic.goal_rows(cs).size() == 3 and RaidLogic.goal_rows(cs)[2]["text"] == "COUNTER them", "a spec with no TAKES row loses nothing")
+	var held := s.duplicate()
+	held["held"] = true
+	held["compact"] = true
+	t.ok(RaidLogic.goal_rows(held).size() == 2 and RaidLogic.goal_rows(held)[1]["text"] == RaidLogic.NO_ARMY_SHORT, "a held raid: the goal and the short no-army row when compact")
+	# the HUD measures the full rows and tests against them
+	var hcode := _code(FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd"))
+	var ug := _func_src(hcode, "func _update_goal(")
+	t.ok(ug.contains("height_for(full_rows)") and ug.contains("RaidLogic.goal_compact(full,") and ug.contains("_sleeping_ring_rect("), "_update_goal tests the ring against the FULL rows' rect")
+	var sr := _func_src(hcode, "func _sleeping_ring_rect(")
+	t.ok(sr.contains("get_global_transform_with_canvas()") and sr.contains("RaidLogic.warden_ring_rect(") and sr.contains("w.awake"), "the ring's rect goes through the canvas transform and only while the warden sleeps")

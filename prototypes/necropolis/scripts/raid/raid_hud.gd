@@ -164,7 +164,7 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 		# T4: the goal block, in the same spot while no warden block shows (before the wake, after it falls, a held raid)
 		_goal_block = RaidGoalBlock.new()
 		_goal_block.visible = false
-		_goal_block.plate_alpha = float(_goal_cfg(p_raid).get("plate_alpha", 0.86))
+		_goal_block.plate_alpha = float(_goal_cfg(p_raid).get("plate_alpha", 0.96))
 		add_child(_goal_block)
 		_goal_block.set_anchors_preset(Control.PRESET_CENTER_TOP)
 		_goal_block.anchor_left = 0.5
@@ -465,7 +465,23 @@ func _update_goal() -> void:
 	elif not held and wr != null:
 		s["warden_name"] = wr.warden_name
 	s["no_army"] = (held or alive or s["chest"]) and _no_army()   # the row follows a goal row only
-	_goal_block.set_rows(RaidLogic.goal_rows(s))
+	# the sleeping warden's ring must stay clear: compact rows while the block's FULL rect (measured with the full
+	# rows even when compact shows, so it cannot flicker) meets the ring's screen rect
+	var full_rows := RaidLogic.goal_rows(s)
+	var vw := get_viewport().get_visible_rect().size.x
+	var full := Rect2(Vector2(vw * 0.5 + _goal_block.offset_left, _goal_block.offset_top),
+		Vector2(_goal_block.offset_right - _goal_block.offset_left, _goal_block.height_for(full_rows)))
+	s["compact"] = alive and not held and RaidLogic.goal_compact(full, _sleeping_ring_rect(w))
+	_goal_block.set_rows(RaidLogic.goal_rows(s) if s["compact"] else full_rows)
+
+
+## The screen rect of the sleeping warden's ring and glyph (RaidLogic.warden_ring_rect, through the canvas
+## transform so it follows the camera); empty while it is awake, down or absent.
+func _sleeping_ring_rect(w: Variant) -> Rect2:
+	if w == null or not is_instance_valid(w) or not w.alive or w.awake:
+		return Rect2()
+	var xf: Transform2D = (w as Node2D).get_global_transform_with_canvas()
+	return RaidLogic.warden_ring_rect(xf.origin, xf.get_scale().x, float(w.radius), w.wcfg().get("presence", {}))
 
 
 ## The break line, the takes line (when something multiplies a blow) and the counter line for a warden's spec.
@@ -789,7 +805,7 @@ class StatBlock:
 	var _pip := 7.0
 	var _row_max := 24
 	var _col := 92.0
-	var plate_alpha := 0.86
+	var plate_alpha := 0.96
 	var show_key := false
 	var door_lines := PackedStringArray()   # D-e task 6: the held door's DOOR row, wrapped (empty: no row)
 	var door_tone: Color = Palette.c("text")
@@ -801,7 +817,7 @@ class StatBlock:
 		_lab = int(c.get("label_px", 13))
 		_val = int(c.get("value_px", 15))
 		_row_max = int(c.get("pip_row_max", 24))
-		plate_alpha = float(c.get("plate_alpha", 0.86))
+		plate_alpha = float(c.get("plate_alpha", 0.96))
 		var rows := 3.0 if boss else 14.0   # living, essence, raised | + 4 ward rows, essence meaning, phylactery, its meaning, banked, unbanked, stakes
 		custom_minimum_size = Vector2(420.0, rows * _row + 8.0)
 
@@ -852,9 +868,9 @@ class StatBlock:
 		for k in [["relic", "relic"], ["remnant", "remnant"], ["husk", "husk"], ["blueprint", "blueprint"]]:
 			var g := RaidLoot.floor_glyph(str(k[0]), false)
 			_key_glyph(Vector2(x + 6.0, y - 4.0), str(g["shape"]), Palette.c(str(g["key"])))
-			draw_string(f, Vector2(x + 16.0, y), str(k[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Palette.c("text_dim"))
-			x += 22.0 + f.get_string_size(str(k[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 12).x
-		draw_string(f, Vector2(6.0, y + _row), "grey ×9 = a corpse pile (the bodies in it): walk close, it gives essence", HORIZONTAL_ALIGNMENT_LEFT, -1, 12, Palette.c("text_dim"))
+			draw_string(f, Vector2(x + 16.0, y), str(k[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Palette.c("text_dim"))
+			x += 22.0 + f.get_string_size(str(k[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+		draw_string(f, Vector2(6.0, y + _row), RaidLogic.KEY_PILE_LINE, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Palette.c("text_dim"))
 
 	func _label(y: float, text: String) -> void:
 		draw_string(ThemeDB.fallback_font, Vector2(6, y), text, HORIZONTAL_ALIGNMENT_LEFT, _col, _lab, Palette.c("text_dim"))
@@ -869,7 +885,7 @@ class StatBlock:
 	func _pips(x: float, y: float, n: int, filled: int, col: Color, r: float, diamond := false) -> float:
 		var step := r * 2.0 + 3.0
 		var dim := col
-		dim.a = 0.6
+		dim.a = 0.8   # a hollow pip's outline: a line, held at 3:1 over the plate by the contrast test
 		for i in n:
 			var p := Vector2(x + r + step * i, y)
 			if diamond:
@@ -1121,7 +1137,7 @@ class WardenBlock:
 		var w := _warden()
 		if w == null:
 			return
-		draw_rect(Rect2(Vector2.ZERO, size), Palette.c("ground", 0.62))
+		draw_rect(Rect2(Vector2.ZERO, size), Palette.c("ground", float(raid.rcfg().get("hud", {}).get("warden_plate_alpha", 0.96))))
 		var x0 := 12.0
 		var px0 := 150.0
 		var y := 26.0
@@ -1151,7 +1167,7 @@ class WardenBlock:
 				draw_arc(p, r - 0.6, 0.0, TAU, 14, Palette.c("undead"), 1.6)
 				draw_line(p + Vector2(-r * 0.7, r * 0.7), p + Vector2(r * 0.7, -r * 0.7), Palette.c("undead"), 1.6)
 			else:
-				draw_arc(p, r - 0.6, 0.0, TAU, 14, Palette.c("text_dim", 0.6), 1.3)
+				draw_arc(p, r - 0.6, 0.0, TAU, 14, Palette.c("text_dim", 0.8), 1.3)
 			x += 16.0
 		x = _text(x + 2.0, y, "%d/%d" % [lit, w.meter_n], 15)
 		y += 26.0
@@ -1190,7 +1206,7 @@ class WardenBlock:
 				if i < hw.catches:
 					draw_colored_polygon(pts, Palette.c("danger"))
 				else:
-					draw_polyline(pts, Palette.c("text_dim", 0.6), 1.3)
+					draw_polyline(pts, Palette.c("text_dim", 0.8), 1.3)
 				cx += 16.0
 			var x5 := cx + 2.0
 			if hw.catches > 0:
@@ -1360,7 +1376,7 @@ class PushLine:
 	func _line(f: Font, y: float, s: String) -> void:
 		var w := f.get_string_size(s, HORIZONTAL_ALIGNMENT_LEFT, -1, 15).x
 		var x := size.x - w
-		draw_rect(Rect2(Vector2(x - 10.0, y - 3.0), Vector2(w + 12.0, 28.0)), Palette.c("ground", float(ConfigDb.data.get("raid", {}).get("hud", {}).get("plate_alpha", 0.86))))
+		draw_rect(Rect2(Vector2(x - 10.0, y - 3.0), Vector2(w + 12.0, 28.0)), Palette.c("ground", float(ConfigDb.data.get("raid", {}).get("hud", {}).get("plate_alpha", 0.96))))
 		draw_string(f, Vector2(x - 2.0, y + 17.0), s, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Palette.c("text"))
 
 	func _draw() -> void:
