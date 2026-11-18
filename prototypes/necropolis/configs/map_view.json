@@ -1062,6 +1062,8 @@
     "default_next_fmt": "%s Next: %s",
     "queue_text": "Queue empty: plan the next build in Covington",
     "vei_fmt": "Vei can be faced: your odds %d%%",
+    "vei_backups_below": 0.5,
+    "vei_backups_text": "; grow clones in the Chapel of Vats to raise them",
     "hint": ">",
     "leave_fall_fmt": "Safe to leave: first fort falls in %s",
     "leave_safe_s": 3600.0,

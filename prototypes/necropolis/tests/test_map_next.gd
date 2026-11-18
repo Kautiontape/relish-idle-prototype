@@ -610,7 +610,26 @@ func _next(t: TestUtil) -> void:
 	t.ok(NextLogic.choose(_inp({"readout": {"odds": float(c["next_vei_odds"]) - 0.01}}))["rule"] == "default", "under it, no")
 	# Phase I P3's odds split: the decision reads readiness, the text the shown odds
 	var sp := NextLogic.choose(_inp({"readout": {"odds": 0.05, "readiness": 0.62}}))
-	t.ok(sp["rule"] == "vei" and sp["text"] == "Vei can be faced: your odds 5%", "readiness 0.62 / odds 0.05: in reach, the text shows 5%% (%s)" % sp["text"])
+	var sfx := str(c["vei_backups_text"])
+	t.ok(sp["rule"] == "vei" and sp["text"] == "Vei can be faced: your odds 5%; grow clones in the Chapel of Vats to raise them", "readiness 0.62 / odds 0.05: in reach, the text shows 5%% and the backups hint (%s)" % sp["text"])
+	t.ok(sfx == "; grow clones in the Chapel of Vats to raise them" and float(c["vei_backups_below"]) == 0.5, "the backups hint's text and factor are in the config")
+	var no1: String = NextLogic.choose(_inp({"readout": {"odds": 0.4, "readiness": 0.6}}))["text"]
+	t.ok(no1 == "Vei can be faced: your odds 40%", "odds 0.4 / readiness 0.6: over half, no hint (%s)" % no1)
+	var no2: String = NextLogic.choose(_inp({"readout": {"odds": 0.3, "readiness": 0.6}}))["text"]
+	t.ok(no2 == "Vei can be faced: your odds 30%", "odds exactly half the readiness: strict, no hint (%s)" % no2)
+	var no3: String = NextLogic.choose(_inp({"readout": {"odds": 0.62}}))["text"]
+	t.ok(no3 == "Vei can be faced: your odds 62%", "no readiness key (before P3): no hint (%s)" % no3)
+	var no3b: String = NextLogic.choose(_inp({"vei": {"can_begin": true}, "readout": {"odds": 0.3}}))["text"]
+	t.ok(no3b == "Vei can be faced: your odds 30%", "no readiness key, low odds: readiness falls back to the odds, no hint (%s)" % no3b)
+	var no4: String = NextLogic.choose(_inp({"vei": {"can_begin": true}, "readout": {"odds": 0.0, "readiness": 0.0}}))["text"]
+	t.ok(no4 == "Vei can be faced: your odds 0%", "readiness 0: 0 < 0 is false, no hint (%s)" % no4)
+	var c2 := c.duplicate(true)
+	c2["vei_backups_below"] = 0.9
+	var yes2: String = NextLogic.choose(_inp({"readout": {"odds": 0.4, "readiness": 0.6}}), {}, c2)["text"]
+	t.ok(yes2 == "Vei can be faced: your odds 40%" + sfx, "vei_backups_below 0.9: odds 0.4 / readiness 0.6 now gets the hint (%s)" % yes2)
+	c2["vei_backups_below"] = 0.05
+	var no5: String = NextLogic.choose(_inp({"readout": {"odds": 0.05, "readiness": 0.62}}), {}, c2)["text"]
+	t.ok(no5 == "Vei can be faced: your odds 5%", "vei_backups_below 0.05: odds 0.05 / readiness 0.62 loses it (%s)" % no5)
 	t.ok(NextLogic.choose(_inp({"readout": {"odds": 0.9, "readiness": 0.5}}))["rule"] == "default", "readiness 0.5 / odds 0.9: not in reach")
 	t.ok(NextLogic.choose(_inp({"readout": {"odds": 0.58, "readiness": 0.58}}), {"rule": "vei", "target": "vei"})["rule"] == "vei"
 		and NextLogic.choose(_inp({"readout": {"odds": 0.9, "readiness": 0.54}}), {"rule": "vei", "target": "vei"})["rule"] != "vei", "the exit hysteresis reads readiness too")
