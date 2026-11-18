@@ -16,6 +16,8 @@ var _open_user := -1  # -1: not chosen (open), 0 closed by the player, 1 opened 
 var _head: Button
 var _rows: VBoxContainer
 var _shown_open := true
+var _rows_h_settled := 0.0  # the rows' wrapped height once it held still while shown; 0: not measured yet
+var _rows_h_last := 0.0
 var _legend_key: Array = []  # what refresh() last ran for (HudLogic.legend_key); empty: lay out on the next frame
 
 
@@ -126,9 +128,14 @@ func is_open() -> bool:
 func _process(_delta: float) -> void:
 	if model == null:
 		return
+	if _rows.visible:  # the same height two frames running while laid out: the wrap has settled
+		var live := _rows_min_h()
+		if live > 0.0 and is_equal_approx(live, _rows_h_last):
+			_rows_h_settled = live
+		_rows_h_last = live
 	var vrect := valve.get_global_rect() if valve != null else Rect2()
 	var crect := chip.get_global_rect() if chip != null and is_instance_valid(chip) else Rect2()
-	var key := HudLogic.legend_key(get_parent_area_size(), is_open(), _open_user, crect, vrect, _rows.get_child_count(), _min_heights())
+	var key :=HudLogic.legend_key(get_parent_area_size(), is_open(), _open_user, crect, vrect, _rows.get_child_count(), _min_heights())
 	if key == _legend_key:
 		return
 	_legend_key = key
@@ -136,7 +143,11 @@ func _process(_delta: float) -> void:
 
 
 ## The rows' combined minimum heights, summed (what refresh sizes the legend from).
+## Hidden rows are not laid out, so their wrapped labels measure as one word per line (very tall):
+## while the rows are hidden this is the height they last settled at when shown.
 func _rows_min_h() -> float:
+	if not _rows.visible and _rows_h_settled > 0.0:
+		return _rows_h_settled
 	var h := 0.0
 	for r in _rows.get_children():
 		h += (r as Control).get_combined_minimum_size().y
@@ -171,8 +182,9 @@ func refresh() -> void:
 	var p := HudLogic.legend_place(crect, vrect, x, w, h_full, h_compact, pad + head_h, want, gap)
 	var mode := str(p["mode"])
 	_shown_open = mode != "closed"
-	if _rows.visible != _shown_open:
-		_rows.visible = _shown_open
+	var rows_vis := _shown_open or _rows_h_settled <= 0.0  # until measured once, the rows stay laid out
+	if _rows.visible != rows_vis:
+		_rows.visible = rows_vis
 	var sep := int(lc["compact_row_gap_px"] if mode == "compact" else lc["row_gap_px"])
 	if _rows.get_theme_constant("separation") != sep:
 		_rows.add_theme_constant_override("separation", sep)
