@@ -224,6 +224,9 @@ func _vei_counted(t: TestUtil) -> void:
 	t.ok(rows[1]["queue"] == "+ her queue: 10" and rows[2]["queue"] == "+ her queue: 6", "queue fronts show have less the counted stat: %s, %s" % [rows[1]["queue"], rows[2]["queue"]])
 	var named := CardLogic.front_rows(fr, names, vcfg, {})
 	t.ok(named[1]["queue"] == "+ her queue", "no stats for a counted unit: the queue is only named")
+	var old_swarm := CardLogic.queue_text({"id": "swarm", "need": 14.0, "have": 14.0, "assigned": []}, vcfg, bigs)
+	t.ok(old_swarm == "+ her queue", "an old-shape queue front (no counted) only names the queue, never all of have as hers: '%s'" % old_swarm)
+	t.ok(CardLogic.queue_text({"id": "swarm", "need": 14.0, "have": 14.0, "assigned": [], "counted": []}, vcfg, bigs) == "+ her queue: 14", "counted present but empty: all of have is her queue")
 	t.ok(CardLogic.front_rows(fr, names)[1]["queue"] == "", "no vei config: no queue line")
 	var blk: Dictionary = CardBlocksLogic.vei_card({"fronts": fr}, "", [], names, {}, vcfg, bigs)["blocks"].filter(func(b): return b["id"] == "front_swarm")[0]
 	t.ok(blk["queue"] == "+ her queue: 10" and blk["also"] == "also counts: Pale Ann (not assigned: its best front)", "the card block carries both lines")
@@ -314,12 +317,19 @@ func _blocks(t: TestUtil) -> void:
 	for b in vc["blocks"]:
 		by[b["id"]] = b
 	t.ok(vc["title"] == "Vei's Domain" and vc["sub"] == "THE GODDESS OF LIFE", "Vei title and subtitle")
+	t.ok(str(MapLogic.cfg()["cards"]["vei_title"]) == vc["title"] and not FileAccess.get_file_as_string("res://scripts/map/card_blocks_logic.gd").contains("Vei's Domain"),
+		"the Vei card's title is map_view.json cards.vei_title, not a literal in card_blocks_logic")
 	t.ok(by["backlog"]["mass"] == "18,450" and by["backlog"]["text"] == " massed at her gates", "backlog line")
 	t.ok(by["odds"]["value"] == "61%" and by["sign"]["value"] == "▲" and by["diff"]["value"] == "+6.1/s" and by["drain"]["value"] == "∞", "odds, sign, differential, drain (holding is ∞)")
 	t.ok(by["diff"]["vkind"] == "rate" and by["odds"]["vkind"] == "mass", "the differential is a rate, odds a mass")
 	t.ok(by.has("front_giants") and by["fronts_met"]["text"] == "fronts met 1 of the 3 needed", "front row and the met count")
 	t.ok(by["fronts_hint"]["text"] == "Front: one part of Vei's final test. The big undead you put on it (picked on the Vei card), plus Vei's own queue for some fronts (Swarm and Raw count her queue, Carvers her digest queue), must add up to what the front needs.", "the fronts hint is the glossary's Front line")
 	t.ok(by.has("party_empty") and by["party_empty"]["text"].contains("crypt slab"), "an empty party says where to raise them")
+	# P7: a beaten Vei's card reads no war (no YOUR ODDS beside "Vei is beaten"): no rows, the same title
+	var wv := vei.duplicate(true)
+	wv["won"] = true
+	var wc := CardBlocksLogic.vei_card(wv, "", [{"uid": "u1", "name": "Old Gristle"}], {"u1": "Old Gristle"}, _readout(wv))
+	t.ok(wc["title"] == "Vei's Domain" and (wc["blocks"] as Array).is_empty(), "a won game's Vei card has no odds, queue, fronts or party rows (%d blocks)" % (wc["blocks"] as Array).size())
 	var party := [{"uid": "u1", "name": "Old Gristle", "kind": "hulk", "role": "brute", "front": "giants"}]
 	var vp := CardBlocksLogic.vei_card({"fronts": [{"id": "giants"}, {"id": "swarm"}, {"id": "carvers"}, {"id": "raw"}]}, "", party, {}, {})
 	var asg: Dictionary = vp["blocks"].filter(func(b): return b["kind"] == "assign")[0]

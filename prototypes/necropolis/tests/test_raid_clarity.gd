@@ -63,6 +63,27 @@ func _readout_place_tests(t: TestUtil) -> void:
 	r = RaidLogic.live_plate_rect(psz, Vector2(700, 700), 26.0, view, m, [hint])
 	t.ok(not r.intersects(hint) and RaidLogic.rect_inside_view(r, view, m), "live, tip over the hint plate: the plate keeps off it (%s)" % r)
 	t.ok(RaidLogic.live_plate_rect(psz, Vector2(700, 700), 26.0, view, m, [Rect2()]).position.is_equal_approx(Vector2(726, 726)), "an empty avoid rect (a hidden hint plate) is ignored")
+	# the control legend (bottom-left; the loop readout touched it in dungeon-loop-draw.png): the plate keeps off it too
+	var legend := Rect2(Vector2(18, 654), Vector2(380, 192))
+	var tip_lg := Vector2(354, 680)
+	t.ok(RaidLogic.live_plate_rect(psz, tip_lg, 26.0, view, m, [hint]).intersects(legend), "the test bites: without the legend in avoid the readout lands on it")
+	r = RaidLogic.live_plate_rect(psz, tip_lg, 26.0, view, m, [hint, legend])
+	t.ok(not r.intersects(legend) and not r.intersects(hint) and RaidLogic.rect_inside_view(r, view, m), "live, pen beside the legend: the readout keeps off the legend and the hint (%s)" % r)
+	for tip in [Vector2(440, 700), Vector2(354, 640), Vector2(60, 630), Vector2(500, 780), Vector2(410, 660)]:   # pen outside the legend, near it
+		var rr := RaidLogic.live_plate_rect(psz, tip, 26.0, view, m, [hint, legend])
+		t.ok(not rr.intersects(legend) and RaidLogic.rect_inside_view(rr, view, m), "live, pen at %s: the readout keeps off the legend (%s)" % [str(tip), rr])
+	# HUD plates in screen px become world avoid rects through the canvas transform; a hidden plate (empty rect) drops out
+	var xf := Transform2D(0.0, Vector2(2.0, 2.0), 0.0, Vector2(-100.0, 50.0))   # world -> screen
+	var wl := RaidLogic.screen_rects_to_world([Rect2(), legend, hint], xf.affine_inverse())
+	t.ok(wl.size() == 2 and (xf * (wl[0] as Rect2)).is_equal_approx(legend), "screen_rects_to_world: empties dropped, the rest map back (%s)" % str(wl))
+	# a hit word whose home sits on the legend moves off it, on screen and off her (the dungeon-backup-save.png case)
+	var hb := Rect2(0, 0, 1600, 900).grow(-8.0)
+	var hrel := Vector2(415, 700)   # at the legend's right edge: her word's usual spot above her is half on it
+	var hsize := Vector2(64.0, 18.75)
+	var hhome := Rect2(hrel + Vector2(-hsize.x * 0.5, -13.0 - 22.0 - 9.0 - 14.0), hsize)
+	t.ok(hhome.intersects(legend), "the test bites: the hit word's home is on the legend")
+	var hw := RaidLogic.hit_word_rect(hsize, hhome, hrel, 23.4, 6.0, RaidLogic.screen_rects_to_world([legend], Transform2D.IDENTITY), hb)
+	t.ok(not hw.intersects(legend) and hb.encloses(hw) and not RaidLogic.rect_hits_circle(hw, hrel, 23.4), "a hit word keeps off the legend (%s)" % hw)
 	# a plate that cannot be both on screen and off the hint is kept on screen
 	var wide := Rect2(Vector2(0, 0), Vector2(1600, 900))
 	r = RaidLogic.live_plate_rect(psz, Vector2(700, 400), 26.0, view, m, [wide])
@@ -159,6 +180,13 @@ func _hit_word_tests(t: TestUtil) -> void:
 	var src_b := _code(FileAccess.get_file_as_string("res://scripts/raid/warden_bellringer.gd"))
 	t.ok(src_r.contains("RaidLogic.hit_word_rect(") and src_r.contains("meter_row_rect()"), "relish.gd places STRUCK and SOAKED by hit_word_rect against the warden's meter row")
 	t.ok(src_w.contains("RaidLogic.hit_word_rect(") and src_b.contains("_hit_word(ci, _toll_word_at"), "the Bellringer's TOLLED and MUFFLED go through the same rule")
+	# the stray "b" (dungeon-huntsman-awake): the "break pips" plate under the meter row lay under Relish's body, which
+	# draws over it and left one letter showing. The label is not drawn while her disc (1.8 x her radius) touches its plate.
+	var lbl := Rect2(Vector2(468, 478), Vector2(64, 24))   # a plate under the row, centred on the warden at (500,450)
+	t.ok(RaidLogic.rect_hits_circle(lbl, Vector2(500, 480), 13.0 * 1.8), "the test bites: Relish on the plate covers it")
+	t.ok(not RaidLogic.rect_hits_circle(lbl, Vector2(500, 560), 13.0 * 1.8) and not RaidLogic.rect_hits_circle(lbl, Vector2(380, 490), 13.0 * 1.8), "clear of the plate she does not hide it")
+	t.ok(src_w.contains("label != \"\" and not _label_under_relish()") and src_w.contains("RaidLogic.rect_hits_circle(meter_label_rect(), raid.relish.global_position, raid.relish.radius * 1.8)"),
+		"warden.gd draws the meter label only while Relish is not over its plate")
 
 
 ## The awake WardenBlock's note (the Huntsman's catch cost and its siblings): at the break rows' size and full tone,
@@ -445,14 +473,17 @@ func _round2_tests(t: TestUtil) -> void:
 	var rjson: Dictionary = _rj()
 	var ccfg := {"multiplier_base": 0.5, "multiplier_per_100": 1.0}
 	var l82 := RaidLogic.loop_readout(tnw, true, 82, 5, rjson, ccfg)
-	t.ok(l82 == ["LET GO NOW: 82 · SOLDIER", "5 motes inside · strength ×1.32", "60+ SOLDIER · 90+ ELITE"], "82 reads SOLDIER, 5 motes, strength x1.32 (%s)" % str(l82))
-	t.ok(RaidLogic.loop_readout(tnw, true, 95, 3, rjson, ccfg)[0] == "LET GO NOW: 95 · ELITE", "95 reads ELITE")
-	t.ok(RaidLogic.loop_readout(tnw, true, 40, 0, rjson, ccfg)[0] == "LET GO NOW: 40 · CHAFF" and RaidLogic.loop_readout(tnw, true, 40, 0, rjson, ccfg)[1] == "0 motes inside · strength ×0.90", "40 reads CHAFF, x0.90")
+	t.ok(l82 == ["roundness 82 · soldier · fine to let go", "5 motes inside · strength ×1.32", "60+ SOLDIER · 90+ ELITE"], "82 reads soldier, 5 motes, strength x1.32 (%s)" % str(l82))
+	t.ok(RaidLogic.loop_readout(tnw, true, 95, 3, rjson, ccfg)[0] == "roundness 95 · elite · fine to let go", "95 reads elite")
+	var l40 := RaidLogic.loop_readout(tnw, true, 40, 0, rjson, ccfg)
+	t.ok(l40[0] == "roundness 40 · chaff" and l40[1] == "0 motes inside · strength ×0.90", "40 reads chaff, x0.90, no release advice")
+	t.ok(not l40[0].to_lower().contains("let go") and not RaidLogic.loop_readout(tnw, true, 59, 0, rjson, ccfg)[0].contains("let go")
+		and RaidLogic.loop_readout(tnw, true, 60, 0, rjson, ccfg)[0].contains("let go"), "release advice only from the soldier score up (59 none, 60 yes)")
 	t.ok(RaidLogic.loop_readout(tnw, false, 0, 0, rjson, ccfg) == ["keep looping", "60+ SOLDIER · 90+ ELITE"], "not a ring yet: keep looping and the ladder")
 	var rc2 := {"raise": {"soldier_min_score": 55, "elite_min_score": 85}}
 	t.ok(RaidLogic.loop_readout(tnw, true, 87, 2, rc2, {"multiplier_base": 0.0, "multiplier_per_100": 2.0})
-		== ["LET GO NOW: 87 · ELITE", "2 motes inside · strength ×1.74", "55+ SOLDIER · 85+ ELITE"], "a changed config changes the ladder, the tier and the strength")
-	t.ok(RaidLogic.loop_readout(tnw, true, 84, 8, rjson, ccfg)[0].ends_with(RaidLogic.score_class(84, rjson).to_upper()), "the readout's tier is the tier the raise makes (score_class)")
+		== ["roundness 87 · elite · fine to let go", "2 motes inside · strength ×1.74", "55+ SOLDIER · 85+ ELITE"], "a changed config changes the ladder, the tier and the strength")
+	t.ok(RaidLogic.loop_readout(tnw, true, 84, 8, rjson, ccfg)[0].contains(RaidLogic.score_class(84, rjson)), "the readout's tier is the tier the raise makes (score_class)")
 	t.ok(RaidLogic.word_fmt(tnw, "tier_tail", [3, "SOLDIER", "%.2f" % RaidLogic.stat_mult(82, ccfg)]) == "×3 SOLDIER · strength ×1.32", "the result's tail names tier and strength")
 	# (trace_feedback.gd names autoloads, so the headless suite reads its source rather than loading it)
 	t.ok(FileAccess.get_file_as_string("res://scripts/raid/trace_feedback.gd").contains("static func band_for(s: int)")
@@ -815,7 +846,18 @@ func _replace_tests(t: TestUtil) -> void:
 	t.ok(rm.contains("if not visible or not is_inside_tree():\n\t\treturn") and rm.contains("get_viewport_rect().size == _placed_vp and is_equal_approx(avoid_right_x, _placed_avoid)") and rm.contains("_fit()"),
 		"_replace_if_moved does nothing while shut, or when neither the viewport nor avoid_right_x moved; else it refits and places")
 	var ft := _func_src(psrc, "func _fit(")
-	t.ok(ft.contains("_placed_vp = vp") and ft.contains("_placed_avoid = avoid_right_x"), "_fit records the viewport and edge it placed for")
+	t.ok(ft.contains("_fit_for(get_viewport_rect().size if is_inside_tree() else Vector2.ZERO)"), "_fit fits for the viewport it is in (_fit_for)")
+	# behavioural, no tree (M2 review 5(b)): _fit_for records the viewport and edge it placed for, the inputs the guard above compares
+	var fp := RaidRetreatPanel.new()
+	fp.configure(_hr())
+	fp.cols = [_cl(["a"]), _cl(["b"])]
+	fp.avoid_right_x = 300.0
+	fp._fit_for(Vector2(1280, 720))
+	var rec1 := fp._placed_vp == Vector2(1280, 720) and is_equal_approx(fp._placed_avoid, 300.0)
+	fp.avoid_right_x = 450.0
+	fp._fit_for(Vector2(1600, 900))
+	t.ok(rec1 and fp._placed_vp == Vector2(1600, 900) and is_equal_approx(fp._placed_avoid, 450.0), "_fit_for records the viewport and edge it placed for, each time")
+	fp.free()
 
 ## r2 #3: the retreat panel's IF RELISH FALLS lines and the death card's rows, built from the same death state with
 ## the real raid.json words, say the same thing. Both sides are pure RaidLogic functions: the panel's column from
@@ -1278,6 +1320,30 @@ func _t5_tests(t: TestUtil) -> void:
 	t.ok(is_equal_approx(p.size.x, n.size.x) and p.retreat_rect().position.x >= 0.0 and p.stay_rect().end.x <= p.size.x and p.retreat_rect().end.x <= p.stay_rect().position.x,
 		"at the 700 px clamp's width (%.0f px) both buttons sit inside the panel, side by side (x %.0f..%.0f)" % [p.size.x, p.retreat_rect().position.x, p.stay_rect().end.x])
 	p.free()
+	# the vertical clamp (M2 review 2): a panel taller than the viewport hangs from the top margin, never above it
+	var tall := RaidLogic.retreat_panel_rect(Vector2(1600, 200), rc, stat_right, 300.0)
+	t.ok(tall.position.y == margin, "a panel taller than its 200 px viewport sits at the top margin (y %.0f), not above it" % tall.position.y)
+	# `_fit_for` (M2 review 5(b)): the real panel fitted and placed for a viewport size, with no tree; its size and place
+	# follow the viewport and the stat block's edge, and it records what it was placed for (the re-place guard's inputs)
+	var q := RaidRetreatPanel.new()
+	q.configure(rc)
+	q.cols = [_cl(["a"]), _cl(["b"])]
+	q._fit_for(Vector2(1600, 900))
+	var q1600 := RaidLogic.retreat_panel_rect(Vector2(1600, 900), rc, 0.0, q.size.y)
+	t.ok(is_equal_approx(q.size.x, float(rc["w"])) and q.position == q1600.position and q._placed_vp == Vector2(1600, 900),
+		"_fit_for(1600x900): %.0f px wide at %s, the rect retreat_panel_rect gives, and 1600x900 recorded" % [q.size.x, str(q.position)])
+	q._fit_for(Vector2(700, 900))
+	t.ok(is_equal_approx(q.size.x, n.size.x) and q.position.x >= margin and q.position.x + q.size.x <= 700.0 - margin and q._placed_vp == Vector2(700, 900),
+		"_fit_for(700x900): the panel narrows to %.0f px and stays inside the margins (x %.0f)" % [q.size.x, q.position.x])
+	q.avoid_right_x = stat_right   # not in a tree: the setter's re-place has no viewport to read and waits
+	q._fit_for(Vector2(1600, 900))
+	t.ok(q.position.x >= stat_right + gap and is_equal_approx(q._placed_avoid, stat_right),
+		"_fit_for after the stat block's edge moves to %.0f: the panel's left edge (%.0f) clears it plus the gap" % [stat_right, q.position.x])
+	q.free()
+	# enemies_text through word_fmt (M2 review 1): an edited word never throws. One with a placeholder too many blanks;
+	# one with none reads as written (word_fmt's plain-word rule); the configured one counts
+	t.ok(RaidLogic.enemies_text(3, {"enemies": "%d of %d"}) == "" and RaidLogic.enemies_text(3, {"enemies": "enemies"}) == "enemies"
+		and RaidLogic.enemies_text(1, {"enemy": "%d enemy"}) == "1 enemy", "enemies_text: a placeholder mismatch blanks, a plain word stands, %d counts")
 	var psrc := FileAccess.get_file_as_string("res://scripts/raid/raid_retreat_panel.gd")
 	var hsrc := FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd")
 	t.ok(psrc.contains("RaidLogic.retreat_panel_rect(") and hsrc.contains("avoid_right_x"), "the panel is placed by RaidLogic.retreat_panel_rect, the HUD passes the stat block's right edge")

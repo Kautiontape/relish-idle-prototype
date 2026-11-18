@@ -148,10 +148,16 @@ func _col_h(col: Array) -> float:
 	return h
 
 
-## The panel's size for its lines, and the two button rects (local coordinates).
+## The panel's size for its lines, and the two button rects (local coordinates), for the viewport it is in.
 func _fit() -> void:
+	_fit_for(get_viewport_rect().size if is_inside_tree() else Vector2.ZERO)
+
+
+## `_fit` for a viewport of size `vp` (Vector2.ZERO: none, so the configured `w` stands and the position is left
+## alone). It records what it was placed for (`_placed_vp`, `_placed_avoid`), which is what stops `_replace_if_moved`
+## from fitting again on the same inputs. Tests call it with sizes of their own: no tree is needed.
+func _fit_for(vp: Vector2) -> void:
 	# the width the viewport allows (RaidLogic.retreat_panel_rect), before the columns are measured with it
-	var vp := get_viewport_rect().size if is_inside_tree() else Vector2.ZERO
 	var cfg := {"w": w, "margin": margin, "gap": gap}
 	_w = RaidLogic.retreat_panel_rect(vp, cfg, avoid_right_x).size.x if vp.x > 0.0 else w
 	var body := maxf(_col_h(cols[0]), _col_h(cols[1]))
@@ -164,7 +170,7 @@ func _fit() -> void:
 	_stay_rect = Rect2(Vector2(x0 + btn.x + btn_gap, by), btn)
 	_placed_vp = vp
 	_placed_avoid = avoid_right_x
-	if is_inside_tree():
+	if vp.x > 0.0:
 		position = RaidLogic.retreat_panel_rect(vp, cfg, avoid_right_x, h).position
 
 

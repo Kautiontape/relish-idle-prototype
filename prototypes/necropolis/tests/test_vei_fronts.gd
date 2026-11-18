@@ -380,8 +380,8 @@ func _vei_words_tests(t: TestUtil) -> void:
 	t.ok(left.is_empty(), "no Vei-fight word is left as a literal in the code: %s" % [left])
 	var missing: Array = []
 	for pair in [["vei_boss.gd", ["\"name\"", "\"banner_court\"", "\"banner_front\"", "\"banner_break\"", "\"banner_crack\"", "\"banner_weave\"", "\"hint_fronts\"", "\"hint_break\"", "vwords()"]],
-			["vei_card.gd", ["\"card_time\"", "\"card_backups\"", "\"card_none\"", "\"card_party\"", "\"card_backlog\"", "\"card_backlog_spent\"", "\"card_title_lose\"", "\"card_title_win\"", "\"card_sub_win\"", "\"card_button\""]],
-			["boss_logic.gd", ["\"eta\"", "\"lapse\"", "\"rule\"", "\"rule_cost\"", "\"rule_reset\"", "\"keep_text\""]],
+			["vei_card.gd", ["\"card_time\"", "\"card_backups\"", "\"card_none\"", "\"card_party\"", "\"card_backlog\"", "\"card_backlog_spent\"", "\"card_title_lose\"", "\"card_title_win\"", "\"card_sub_win\"", "BossLogic.card_button_text("]],
+			["boss_logic.gd", ["\"eta\"", "\"lapse\"", "\"rule\"", "\"rule_cost\"", "\"rule_reset\"", "\"keep_text\"", "\"card_button\"", "\"card_button_auto\""]],
 			["boss_lanes.gd", ["\"lane_short\"", "\"lane_cleared\"", "\"lane_sends\"", "\"lane_met\"", "\"lane_have\"", "\"safe_cue\""]],
 			["raid_hud.gd", ["\"hud_fronts\"", "\"hud_need\"", "\"hud_time\"", "\"hud_broken\"", "\"hud_broken_note\"", "\"hud_backlog\"", "\"hud_ferried\"", "\"hud_she_breaks\"", "\"hud_lost\"", "\"hud_winning\"", "\"hud_losing\"", "\"hud_break\"", "\"hud_backups\"", "\"hud_left\"", "\"hud_cracked\""]],
 			["relish.gd", ["\"word_struck\"", "\"word_soaked\""]],
@@ -924,6 +924,45 @@ func _hud_readouts(t: TestUtil, cfg: Dictionary) -> void:
 	var skip := float(cfg.get("card", {}).get("skip_after_s", -1.0))
 	t.ok(skip >= 0.5 and str(cfg.get("card", {}).get("_doc", "")).contains("skip_after_s"), "vei.json card: skip_after_s is set (%s) and documented" % str(skip))
 	t.ok(not BossLogic.card_unlocked(0.0, skip) and not BossLogic.card_unlocked(skip - 0.01, skip) and BossLogic.card_unlocked(skip, skip), "the card takes no press until skip_after_s has passed")
+	# P7 item 4: the win card presses itself (a sleep with it up would forfeit the open boss run and the win with it)
+	var rj := TestUtil.load_json("res://configs/raid.json")
+	var auto := float(rj.get("gap_end", {}).get("win_card_auto_s", -1.0))
+	t.ok(auto >= 10.0 and auto > skip and str(rj["gap_end"].get("_doc", "")).contains("win_card_auto_s"), "raid.json gap_end: win_card_auto_s is set (%s s, long enough to read the card) and documented" % str(auto))
+	t.ok(not BossLogic.card_auto_due(auto - 0.01, auto) and BossLogic.card_auto_due(auto, auto) and not BossLogic.card_auto_due(1.0e6, -1.0) and not BossLogic.card_auto_due(1.0e6, 0.0),
+		"card_auto_due: due at auto_s, not before; never with auto_s <= 0 (the loss card)")
+	t.ok(BossLogic.card_auto_left(0.0, 30.0) == 30 and BossLogic.card_auto_left(0.2, 30.0) == 30 and BossLogic.card_auto_left(29.5, 30.0) == 1 and BossLogic.card_auto_left(31.0, 30.0) == 0 and BossLogic.card_auto_left(5.0, -1.0) == -1,
+		"card_auto_left counts whole seconds down, rounded up; -1 when the card never presses itself")
+	var vw: Dictionary = rj["vei_fight"]
+	var btxt := BossLogic.card_button_text(vw, 0.0, auto)
+	t.ok(btxt == "BACK TO THE REALM · %d s" % int(auto) and BossLogic.card_button_text(vw, 0.0, -1.0) == "BACK TO THE REALM"
+		and BossLogic.card_button_text({"card_button": "B", "card_button_auto": "B · soon"}, 0.0, auto) == "B · soon"
+		and BossLogic.card_button_text({"card_button": "B", "card_button_auto": "B %d %d"}, 0.0, auto) == "B",
+		"the win card's button counts down (%s); the loss card's is the plain word; a lost placeholder falls back to the plain word" % btxt)
+	var bw_px := float(cfg.get("card", {}).get("button_w_px", 300.0))
+	var btw := ThemeDB.fallback_font.get_string_size(btxt, HORIZONTAL_ALIGNMENT_LEFT, -1, 20).x
+	t.ok(btw <= bw_px - 16.0, "the countdown button text fits its %d px button at 20 px (%d px)" % [int(bw_px), int(btw)])
+	# behavioural, no tree: the card's own clock presses the button once at auto_s, and a card with no auto_s never does
+	var presses := [0]
+	var vc := VeiCard.new()
+	vc._on_back = func() -> void: presses[0] += 1
+	vc._auto_after = auto
+	vc._process(auto - 1.0)
+	var before: int = presses[0]
+	vc._process(1.0)
+	vc._process(5.0)
+	t.ok(before == 0 and presses[0] == 1, "the win card presses itself once, at win_card_auto_s (%d before, %d after)" % [before, presses[0]])
+	var nc := VeiCard.new()
+	nc._on_back = func() -> void: presses[0] += 10
+	nc._process(1.0e5)
+	t.ok(presses[0] == 1, "a card set up with no auto_s (the loss card) never presses itself")
+	vc.free()
+	nc.free()
+	var vbsrc := FileAccess.get_file_as_string("res://scripts/raid/vei_boss.gd")
+	var wc_i := vbsrc.find("func _win_card(")
+	var wc_body := vbsrc.substr(wc_i, vbsrc.find("\nfunc ", wc_i + 1) - wc_i)
+	var lc_i := vbsrc.find("func _lose_card(")
+	var lc_body := vbsrc.substr(lc_i, vbsrc.find("\nfunc ", lc_i + 1) - lc_i)
+	t.ok(wc_body.contains("win_card_auto_s") and not lc_body.contains("win_card_auto_s"), "the win card is set up with win_card_auto_s, the loss card without")
 	var csrc := FileAccess.get_file_as_string("res://scripts/raid/vei_card.gd")
 	var in_i := csrc.find("func _input(")
 	var in_body := csrc.substr(in_i, csrc.find("\nfunc ", in_i + 1) - in_i)

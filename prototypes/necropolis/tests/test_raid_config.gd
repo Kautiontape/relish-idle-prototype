@@ -16,7 +16,7 @@ const WORDS := [
 	"hud.retreat.keep_prefix", "hud.retreat.head_keep", "hud.retreat.head_fall", "hud.retreat.keep_all", "hud.retreat.keep_none",
 	"hud.retreat.fort_yours", "hud.retreat.fort_vei", "hud.retreat.fall_revive",
 	"hud.hint.trance_text", "hud.hint.exit_text", "hud.hint.idle_text", "hud.hint.idle_sub_text", "hud.hint.trance_sub_text",
-	"trace_notch.live_head", "trace_notch.live_tail", "trace_notch.live_ladder", "trace_notch.live_none",
+	"trace_notch.live_head", "trace_notch.live_head_keep", "trace_notch.live_tail", "trace_notch.live_ladder", "trace_notch.live_none",
 	"hud.cues.first_mote_text", "hud.cues.undead_text",
 	"hud.stats.essence_meaning", "hud.stats.phyl_none", "hud.stats.phyl_meaning_charged", "hud.stats.phyl_meaning_none_1",
 	"hud.stats.phyl_meaning_none_2", "hud.stats.key_pile",
@@ -60,6 +60,7 @@ const WORDS := [
 	"wardens.words.takes_shield", "wardens.words.takes_acolyte", "wardens.words.takes_pack", "wardens.words.counter_line",
 	"wardens.words.counter_muffle", "wardens.words.counter_intercept", "wardens.words.counter_flank", "wardens.words.counter_snuff",
 	"wardens.words.counter_none", "wardens.words.counter_none_party", "wardens.words.counter_make", "wardens.words.counter_have", "wardens.words.counter_helps", "death.missed_row",
+	"death.missed_row_named", "death.attack_slam", "death.attack_toll", "death.attack_lunge", "death.attack_bash", "death.attack_rush", "death.attack_fire",
 	"wardens.words.catch_label", "wardens.words.catch_ally", "wardens.words.join_and", "wardens.words.join_comma",
 	"wardens.words.tally_muffled", "wardens.words.tally_intercepted", "wardens.words.tally_flanked", "wardens.words.tally_snuffed",
 	"wardens.words.row_braced", "wardens.words.row_stunned", "wardens.words.row_phase", "wardens.words.row_caught",
@@ -89,7 +90,7 @@ const WORDS := [
 	"vei_fight.eta", "vei_fight.lapse", "vei_fight.rule", "vei_fight.rule_cost", "vei_fight.rule_reset",
 	"vei_fight.card_title_win", "vei_fight.card_title_lose", "vei_fight.card_sub_win", "vei_fight.card_time", "vei_fight.card_backups",
 	"vei_fight.card_of", "vei_fight.card_none", "vei_fight.card_party", "vei_fight.card_backlog", "vei_fight.card_backlog_spent",
-	"vei_fight.card_button",
+	"vei_fight.card_button", "vei_fight.card_button_auto",
 	"revive.banner", "revive.left_none", "revive.left_one", "revive.left_fmt",
 ]
 
@@ -119,7 +120,7 @@ const FORMATS := {
 	"held.banner_holds": ["%s"], "held.payoff": ["%d", "%d", "%d"], "held.payoff_husk": ["%d"], "held.map_effect": ["%d"],
 	"death.cause_slam": ["%s"], "death.cause_toll": ["%s"], "death.cause_lunge": ["%s"], "death.cause_bash": ["%s"], "death.cause_rush": ["%s"],
 	"death.cause_fire": ["%s"], "death.cause_hound": ["%s"], "death.cause_pack": ["%s"],
-	"death.missed_row": ["%s"], "death.killed_missed": ["%s", "%s"], "death.lost_bigs": ["%d"], "death.shut_text": ["%s"],
+	"death.missed_row": ["%s"], "death.missed_row_named": ["%s"], "death.killed_missed": ["%s", "%s"], "death.lost_bigs": ["%d"], "death.shut_text": ["%s"],
 	"clear.title": ["%s"],
 	"held_door.label_held": ["%s"], "held_door.label_sent": ["%s"], "held_door.label_shut": ["%s"], "held_door.label_freed": ["%s"],
 	"held_door.row_held": ["%s"], "held_door.row_shut": ["%s"],
@@ -141,12 +142,13 @@ const FORMATS := {
 	"hud.text.title_tier": ["%s", "%d"], "hud.text.raised_big": ["%d", "%d"], "hud.text.raised_ranks": ["%d", "%d", "%d"],
 	"hud.text.checkpoint": ["%d", "%d", "%d", "%d", "%d"],
 	"vei_loss.keep_text": ["%d"], "relish.word_struck": ["%d"], "trace_notch.grade_head": ["%d", "%s"], "trace_notch.tier_tail": ["%d", "%s", "%s"],
-	"trace_notch.live_head": ["%d", "%s"], "trace_notch.live_tail": ["%d", "%s"], "trace_notch.live_ladder": ["%d", "%d"],
+	"trace_notch.live_head": ["%d", "%s"], "trace_notch.live_head_keep": ["%d", "%s"], "trace_notch.live_tail": ["%d", "%s"], "trace_notch.live_ladder": ["%d", "%d"],
 	"revive.banner": ["%s"], "revive.left_fmt": ["%d"],
 	"vei_fight.banner_court": ["%d"], "vei_fight.banner_front": ["%s", "%d", "%d"], "vei_fight.banner_crack": ["%s", "%d", "%s"],
 	"vei_fight.lane_have": ["%d", "%d"], "vei_fight.lane_short": ["%d"], "vei_fight.safe_cue": ["%d"], "vei_fight.hud_need": ["%d"],
 	"vei_fight.hud_ferried": ["%.2f"], "vei_fight.hud_left": ["%d", "%s"], "vei_fight.hud_cracked": ["%d"], "vei_fight.eta": ["%d"],
 	"vei_fight.lapse": ["%d", "%d", "%s"], "vei_fight.rule": ["%d"], "vei_fight.rule_cost": ["%d"], "vei_fight.card_of": ["%d", "%d"],
+	"vei_fight.card_button_auto": ["%d"],
 }
 
 

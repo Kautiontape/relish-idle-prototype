@@ -41,7 +41,7 @@ func _draw_static() -> void:
 	# the reading: odds as an integer percent, then the differential's sign (labelled as her strain) and the drain time
 	var line := float(n["odds_line_px"])
 	var rs := NodeLogic.vei_readout_shift(vp.x, r_out, _readout_widths(), ctx.zoom, ctx.panel)  # clear of the open card, or hidden
-	if not bool(rs["hidden"]):
+	if not bool(rs["hidden"]) and _readout_shown():
 		var x0 := vp.x + r_out + float(n["odds_gap_px"]) + ctx.px(float(rs["dx"]))
 		text(Vector2(x0, vp.y), "ODDS", size, Palette.c("text_dim"), ALIGN_LEFT, -line)
 		text(Vector2(x0, vp.y), NodeLogic.fmt_odds(float(ctx.readout.get("odds", 0.0))), int(n["font_odds"]), Palette.c("vei"), ALIGN_LEFT, size * float(n["odds_baseline_ratio"]), true)
@@ -66,7 +66,12 @@ func static_sig():
 		lsig = NodeLogic.vei_label_sig(ctx.vei_pos.x, _r_out(), MapNodeLayer.label_width(vname, size, false), _readout_widths(), size, ctx.zoom, ctx.panel)
 	return [NodeLogic.backlog_rings(float(ctx.vei.get("backlog", 0.0))), ctx.vei_radius,
 		NodeLogic.fmt_odds(float(r.get("odds", 0.0))), int(r.get("sign", 0)),
-		NodeLogic.drain_line(float(r.get("backlog", 0.0)), float(r.get("drain_s", -1.0))), ctx.selected_id == "vei", lsig]
+		NodeLogic.drain_line(float(r.get("backlog", 0.0)), float(r.get("drain_s", -1.0))), ctx.selected_id == "vei", lsig, _readout_shown()]
+
+
+## Whether her ODDS readout shows: not in a won game (HudLogic.vei_readout_shown).
+func _readout_shown() -> bool:
+	return HudLogic.vei_readout_shown(ctx.model.hud)
 
 
 ## The outer ring of her backlog stack (world px): where the readout and her name start.
@@ -78,6 +83,8 @@ func _r_out() -> float:
 
 ## Where her ODDS readout is drawn, in world px (Rect2() while hidden): the tooltip plate keeps off it.
 func readout_rect() -> Rect2:
+	if not _readout_shown():
+		return Rect2()
 	return NodeLogic.vei_readout_rect(ctx.vei_pos, _r_out(), _readout_widths(), ctx.zoom, ctx.panel)
 
 

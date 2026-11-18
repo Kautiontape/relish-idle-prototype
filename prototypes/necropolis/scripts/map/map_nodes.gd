@@ -368,7 +368,7 @@ func _update_relish(rm: bool) -> void:
 		if state == "dead":
 			at = "covington"  # E1 respawns at once; dead she is hollow at home
 		ctx.relish_pos = model.node_pos(at) if state == "dead" else base
-		ctx.relish_pos.y -= _node_reach(at) + float(n["relish_gap_px"]) + float(NodeLogic.relish_radii(ctx.zoom)["halo"])
+		ctx.relish_pos.y += NodeLogic.relish_stand_dy(at, _node_reach(at), float(n["relish_gap_px"]), float(NodeLogic.relish_radii(ctx.zoom)["halo"]))
 	if _has_drawn and NodeLogic.wake_jumped(_drawn_prev, ctx.relish_pos):
 		ctx.wake.clear()  # she jumped (new game, fixture, teleport): no streak across the map
 	_drawn_prev = ctx.relish_pos

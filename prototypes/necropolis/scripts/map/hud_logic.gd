@@ -87,6 +87,22 @@ static func objective_text(hud: Dictionary) -> String:
 	return str(cfg.get("objective_won_text", "")) if hud.get("won", false) else str(cfg.get("objective_text", ""))
 
 
+## Whether Vei's odds / strain / drain show (her node's readout and the top bar's group): not once the game
+## is won. The tithe line and its telegraph are not keyed on this: they follow view data.
+## TODO(api-request #21): keyed on `won` while the sim still runs her odds after a win; permanent design (a beaten
+## Vei has no odds to read), so it stays after #21.
+static func vei_readout_shown(hud: Dictionary) -> bool:
+	return not bool(hud.get("won", false))
+
+
+## Whether the valve panel shows its FLOOD row and corner button: not once the game is won. The panel, its
+## drag and Covington's stems then show FLOOD's share as WAR's (ValveLogic.won_valve).
+## TODO(api-request #21): a stand-in until economy reroutes FLOOD's share to WAR after a win; hiding FLOOD once
+## won stays the design after #21.
+static func flood_shown(hud: Dictionary) -> bool:
+	return not bool(hud.get("won", false))
+
+
 ## Whether your goal shows under the strip: at every tier (V-I1 item 9), until the game is won (the
 ## won strip and the victory set piece say the rest).
 static func goal_shown(hud: Dictionary) -> bool:

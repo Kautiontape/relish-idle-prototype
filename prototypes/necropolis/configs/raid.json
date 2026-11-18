@@ -228,12 +228,13 @@
     }
   },
   "trace_notch": {
-    "_doc": "The circle's feedback (RaidTraceFeedback): the tier notches' length and width, and its words. grade_head is the head over a fitted ring ('%d' the score, '%s' its grade word), tier_tail the tail ('%d' the units raised, '%s' their tier, upper-cased, '%s' the strength multiplier to 2 decimals). RaidTraceOverlay (the readout beside the pen while a loop is drawn; RaidLogic.loop_readout): live_head ('%d' the score now, '%s' the tier it would make, upper-cased), live_tail ('%d' the motes inside the fitted ring, '%s' the strength multiplier), live_ladder ('%d' the soldier score, '%d' the elite score, from raise.*_min_score) and live_none (shown in place of the first two while the trace fits no ring); live_font_px / live_ladder_px the sizes, live_gap_px the offset from the pen tip, live_pad_px the plate's padding, live_plate_alpha its backing. Both the readout and the result's head and tail are screen-space plates (RaidTraceOverlay on the HUD's layer, RaidLogic.live_plate_rect / result_plate_rects): screen_margin_px the gap every plate keeps from the viewport's edges, result_gap_px the gap between the ring and its head or tail, result_stack_gap_px the gap between the head and the tail when they stack on one side of the ring. not_circle the head over a trace that fits no ring, and word_* the grade words, best score band first (perfect from 98, great 90, good 80, okay 70, shaky 60, poor 50, awful below).",
+    "_doc": "The circle's feedback (RaidTraceFeedback): the tier notches' length and width, and its words. grade_head is the head over a fitted ring ('%d' the score, '%s' its grade word), tier_tail the tail ('%d' the units raised, '%s' their tier, upper-cased, '%s' the strength multiplier to 2 decimals). RaidTraceOverlay (the readout beside the pen while a loop is drawn; RaidLogic.loop_readout): live_head ('%d' the score now, '%s' the tier it would make; the roundness score, no advice) or live_head_keep (the same, with release advice, used only once the score reaches soldier), live_tail ('%d' the motes inside the fitted ring, '%s' the strength multiplier), live_ladder ('%d' the soldier score, '%d' the elite score, from raise.*_min_score) and live_none (shown in place of the first two while the trace fits no ring); live_font_px / live_ladder_px the sizes, live_gap_px the offset from the pen tip, live_pad_px the plate's padding, live_plate_alpha its backing. Both the readout and the result's head and tail are screen-space plates (RaidTraceOverlay on the HUD's layer, RaidLogic.live_plate_rect / result_plate_rects): screen_margin_px the gap every plate keeps from the viewport's edges, result_gap_px the gap between the ring and its head or tail, result_stack_gap_px the gap between the head and the tail when they stack on one side of the ring. not_circle the head over a trace that fits no ring, and word_* the grade words, best score band first (perfect from 98, great 90, good 80, okay 70, shaky 60, poor 50, awful below).",
     "len_px": 9.0,
     "width_px": 3.0,
     "grade_head": "%d — %s",
     "tier_tail": "×%d %s · strength ×%s",
-    "live_head": "LET GO NOW: %d · %s",
+    "live_head": "roundness %d · %s",
+    "live_head_keep": "roundness %d · %s · fine to let go",
     "live_tail": "%d motes inside · strength ×%s",
     "live_ladder": "%d+ SOLDIER · %d+ ELITE",
     "live_none": "keep looping",
@@ -274,8 +275,9 @@
     "banner_s": 2.5
   },
   "gap_end": {
-    "_doc": "A gap above idle.gap_s (the machine slept mid-raid) made the state end the run from its last checkpoint (run_ended, cause gap): the raid stops, shows the AWAY TOO LONG banner, and emits its one result beat_s later (a held beat so the banner can be read; the state ignores the result, the run is already ended). banner_s is how long the banner shows (past the beat: the scene is usually gone by then). banner_text is the raid's banner; banner_text_boss the Vei fight's (a boss run has no checkpoint: the state forfeits it, the party intact and Relish back at Vei's door, StateRuns.end_open), so it says the fight was called off.",
+    "_doc": "A gap above idle.gap_s (the machine slept mid-raid) made the state end the run from its last checkpoint (run_ended, cause gap): the raid stops, shows the AWAY TOO LONG banner, and emits its one result beat_s later (a held beat so the banner can be read; the state ignores the result, the run is already ended). banner_s is how long the banner shows (past the beat: the scene is usually gone by then). banner_text is the raid's banner; banner_text_boss the Vei fight's (a boss run has no checkpoint: the state forfeits it, the party intact and Relish back at Vei's door, StateRuns.end_open), so it says the fight was called off. win_card_auto_s: a won Vei fight is written back only when the win card's button runs, so the win card presses itself this many real seconds after it appears (its button counts down, vei_fight.card_button_auto; BossLogic.card_auto_due). Only the press keeps the win: a gap above idle.gap_s (the machine slept) while the card is up, before the press, forfeits the open boss run and the win with it (api-request #22, open, closes that window). The loss card waits for its press.",
     "beat_s": 2.5,
+    "win_card_auto_s": 30.0,
     "banner_s": 4.0,
     "banner_text": "AWAY TOO LONG · the raid ended at its last checkpoint",
     "banner_text_boss": "AWAY TOO LONG · the fight with Vei was called off while you were away"
@@ -369,7 +371,8 @@
     "card_party": "BIG UNDEAD LOST",
     "card_backlog": "HER QUEUE",
     "card_backlog_spent": "QUEUE WORKED DOWN",
-    "card_button": "BACK TO THE REALM"
+    "card_button": "BACK TO THE REALM",
+    "card_button_auto": "BACK TO THE REALM · %d s"
   },
   "death": {
     "_doc": "The death frame (RaidDeathCard): card_s is how long the death beat holds the card before the result goes out (the measuring bot never waits, it keeps the 0.9 s beat; 0 = no card), skip_after_s when a click or SPACE may end it early, fade_s its fade-in (none under reduced motion). The AFTER row's words (RaidLogic.death_next_row, read by the death card, the retreat panel's IF RELISH FALLS column and Vei's loss card): after_clone when a clone wakes her, after_unmade when she is unmade, after_in then the wait (' in 10 min') when the seed gives one, after_shock last for an unmade death (the town takes the morale shock). wait_* the AFTER wait's units ('%d' each). The card's geometry (RaidDeathCard and the clear card read it): card_w its width, card_pad its padding, label_w the label column, value_px / label_px / foot_px / sub_px the row, label, footer and sub-line font sizes, sub_h the sub-line's height, backdrop_a the world-dimming rect behind the card (deep enough that the card reads on its own), plate_a the card's own ground plate (the contrast test composites both over the brightest world colour). label_* are the card's row labels (label_missed is the RED TELL row's), cause_* the KILLED BY words ('%s' the warden's name), tell_* the names of the tell the killing blow showed (the same words the capture's missed_tell records: the Bellringer's slam ring, its toll, the Huntsman's line, the Shieldwall's lit arc and the Pyre-priest's marked ground are all drawn in red before they land) and missed_row the RED TELL row's sentence around one of them ('%s' the tell: what hit her, that it was marked in red first, and that stepping out of it is the answer; a pack, the living or a wound have no tell and no row), nothing / lost_bigs / shut_text the LOST, BANKED and SHUT IN texts.",
@@ -399,6 +402,13 @@
     "label_killed_by": "KILLED BY",
     "label_missed": "RED TELL",
     "missed_row": "It was marked in red before it hit (%s). Keep Relish out of it.",
+    "missed_row_named": "The %s was marked in red before it hit. Keep Relish out of it.",
+    "attack_slam": "slam",
+    "attack_toll": "toll",
+    "attack_lunge": "lunge",
+    "attack_bash": "bash",
+    "attack_rush": "rush",
+    "attack_fire": "fire",
     "label_banked": "BANKED",
     "label_lost": "LOST",
     "label_after": "AFTER",

@@ -447,13 +447,17 @@ const LIVING_GAP_SWEEP := 0.36
 const LIVING_CORE_MIX := 0.4   # how far the living's core goes from `living` toward `living_core`
 
 static var _bow_cache := {}      # layer count -> RaidLogic.living_bow_spans at angle 0
-static var _bow_solid := -1      # raid.combat.living_bow_solid_layers, read once (fallback 2)
+static var _bow_solid := -1      # raid.combat.living_bow_solid_layers, read once per ConfigDb.data (fallback 2)
+static var _bow_src := {}        # the ConfigDb.data the two above came from: a reload (ConfigDb.reload) replaces it
 
 
 ## The living bow's spans for a stack of n layers, relative to angle 0: computed once per layer count
 ## (the stack comes from LineGlow and does not change at runtime), so a draw allocates and walks no config.
+## A config reload empties the cache (is_same against ConfigDb.data), so the spans follow an edited raid.json.
 static func _bow_spans(n: int) -> Array:
-	if _bow_solid < 0:
+	if not is_same(_bow_src, ConfigDb.data):
+		_bow_src = ConfigDb.data
+		_bow_cache = {}
 		_bow_solid = int(ConfigDb.data.get("raid", {}).get("combat", {}).get("living_bow_solid_layers", 2))
 	if not _bow_cache.has(n):
 		_bow_cache[n] = RaidLogic.living_bow_spans(0.0, n, _bow_solid, LIVING_DASHES, LIVING_DASH_SWEEP, LIVING_GAP_SWEEP)

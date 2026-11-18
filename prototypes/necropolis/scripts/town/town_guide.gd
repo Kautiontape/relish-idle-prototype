@@ -7,8 +7,13 @@ extends RefCounted
 ## The goal keys off existing state only (what's placed, whether any fort was ever taken): no "seen" flag.
 
 
-## One line: what building `bid` does for you → the part of the loop it feeds ("" for an unknown id).
-static func why(bid: String, gcfg: Dictionary) -> String:
+## One line: what building `bid` does for you → the part of the loop it feeds ("" for an unknown id). Once the
+## game is `won` (view_hud.won), `why_won`'s line where it has one: the Raising Pit's mint no longer goes to Vei.
+## TODO(api-request #21): won-keyed while the sim still sends FLOOD to Vei after a win; the won wording stays after #21.
+static func why(bid: String, gcfg: Dictionary, won := false) -> String:
+	var w: Dictionary = gcfg.get("why_won", {})
+	if won and w.has(bid):
+		return String(w[bid])
 	return String((gcfg.get("why", {}) as Dictionary).get(bid, ""))
 
 
@@ -35,8 +40,8 @@ static func how_key(bid: String, gcfg: Dictionary) -> String:
 
 ## Adds `bid`'s why-line (`text`) and how-line (how_key) to `box` as two wrapping 14 px labels, skipping an
 ## empty one. Their text is fixed per building, so a catalog row sets them once, when it is made.
-static func add_lines(box: Container, bid: String, bcfg: Dictionary, gcfg: Dictionary) -> void:
-	for pair in [[why(bid, gcfg), "text"], [how(bid, bcfg, gcfg), how_key(bid, gcfg)]]:
+static func add_lines(box: Container, bid: String, bcfg: Dictionary, gcfg: Dictionary, won := false) -> void:
+	for pair in [[why(bid, gcfg, won), "text"], [how(bid, bcfg, gcfg), how_key(bid, gcfg)]]:
 		if String(pair[0]) == "":
 			continue
 		var l := TownUI.label(String(pair[0]), 14, String(pair[1]))
@@ -51,8 +56,14 @@ static func add_lines(box: Container, bid: String, bcfg: Dictionary, gcfg: Dicti
 ## `forts` ([{held, flipped_count, first_dungeon, name}], the shell's realm digest); `hcfg`/`bview` word the tier.
 static func goal(views: Dictionary, gcfg: Dictionary, hcfg: Dictionary, bview: Dictionary) -> Dictionary:
 	var out := step(views, gcfg, hcfg, bview)
-	out["head"] = String((gcfg.get("goal", {}) as Dictionary).get("head", ""))
+	var g: Dictionary = gcfg.get("goal", {})
+	out["head"] = String(g.get("won_head", "")) if won(views) else String(g.get("head", ""))  # P7: the game is won, and says so
 	return out
+
+
+## Whether the game is won (Vei beaten): view_hud's `won`, in the shell's `hud` view.
+static func won(views: Dictionary) -> bool:
+	return bool((views.get("hud", {}) as Dictionary).get("won", false))
 
 
 ## The step due now: the one the goal plate shows (`text`, its lead + the step) and the top bar's next: line shows
@@ -60,7 +71,9 @@ static func goal(views: Dictionary, gcfg: Dictionary, hcfg: Dictionary, bview: D
 ## - the first steps (goal.steps, at goal.tiers only), while one's `until` isn't met: the Bone Mill, then the first fort;
 ## - the next tier, from HudModel.next_line (the top bar's own line): its relic wall when relics hold the tier back
 ##   (`relics` true), else its building count and missing gate buildings;
-## - at the top tier, the realm: Vei's forts while any isn't held (still hers: Vei's, overrun or retaken), else Vei.
+## - at the top tier, the realm: Vei's forts while any isn't held (still hers: Vei's, overrun or retaken), else Vei;
+##   in a won game (`hud.won`) the won step instead (goal.won / won_short), and goal() heads it goal.won_head.
+##   A won town below the top tier keeps its first steps and next tier: those are still the way to grow it.
 static func step(views: Dictionary, gcfg: Dictionary, hcfg: Dictionary, bview: Dictionary) -> Dictionary:
 	var g: Dictionary = gcfg.get("goal", {})
 	var lead := String(g.get("lead", ""))
@@ -82,6 +95,8 @@ static func step(views: Dictionary, gcfg: Dictionary, hcfg: Dictionary, bview: D
 			missing = BuildSort.fmt(String(g.get("tier_missing", "")), {"list": ", ".join(nl["missing"])})
 		return {"id": "tier", "text": lead + BuildSort.fmt(String(g.get("tier", "")), {"tier": nl["tier"], "need": nl["b_need"],
 			"have": nl["b_have"], "missing": missing}), "short": String(nl["text"]), "relics": false}
+	if won(views):  # P7: Vei is beaten; the realm's step says the town and forts go on (worded as the map's epilogue)
+		return {"id": "won", "text": String(g.get("won", "")), "short": String(g.get("won_short", "")), "relics": false}
 	var left := forts_left(views)
 	var id := "forts" if left > 0 else "vei"
 	if (views.get("forts", []) as Array).is_empty():

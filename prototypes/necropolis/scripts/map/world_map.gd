@@ -11,6 +11,8 @@ extends Control
 signal finished(result: Dictionary)
 
 static var _skipped := false  # --skip-time fires once per run, not per map entry
+static var _won_applied := false  # --won fires once per run (P7 shots)
+static var _won_reload := false  # --won=reload: the victory reads as seen, as a later session's mount finds it
 
 var world: Node2D
 var cam: MapCamera
@@ -65,6 +67,7 @@ func _ready() -> void:
 	model.idle_cap = float(ConfigDb.data.get("economy", {}).get("worker", {}).get("idle_cap", 0.0))
 	_apply_valve_arg()
 	_apply_skip_arg()
+	_apply_won_arg()
 	model.refresh(true)
 	_build_world()
 	_build_ui()
@@ -158,6 +161,10 @@ func _build_ui() -> void:
 	layer.add_child(valve)
 	seen = MapSeen.new(MapSeen.PATH, Game.autosave_enabled)  # outside the save; a harness session reads it empty and never writes it
 	seen.reconcile(str(model.hud.get("game_id", "")))  # the flags belong to one game
+	if _won_reload:  # debug (--won=reload): the victory was seen in the session that saved this won game
+		seen.mark(MapSeen.VICTORY)
+	if _won_applied:  # debug (--won, either form): a won game was played past its first tithe, so its explanation was seen (a harness session reads MapSeen empty)
+		seen.mark(MapSeen.TITHE)
 	var legend := MapLegend.new()  # the fort rings' key, just above the valve
 	legend.seen = seen  # it keeps the player's close there
 	legend.model = model
@@ -393,6 +400,33 @@ func _apply_skip_arg() -> void:
 		if arg.begins_with("--skip-time="):
 			_skipped = true
 			print("SKIP_TIME ", Game.state.cmd_debug_skip_time(float(arg.trim_prefix("--skip-time="))))
+
+
+## Debug only (P7 shots): `--won` marks the game won (Vei beaten) once per run, at the first map entry and before
+## the map's first read, so the map mounts a won game and plays its victory. `--won=reload` also writes the game to a
+## scratch slot and loads it back (a real save and load, in a dev save dir that is removed after) and marks the
+## victory seen once MapSeen is reconciled (`_won_reload`), as a later session's mount of that won save finds it.
+## Either form marks the first tithe's explanation seen there too: a harness session reads MapSeen empty, and a
+## real won game is long past its first tithe (the popup covered the victory headline in the shots).
+func _apply_won_arg() -> void:
+	if not Game.state.debug_enabled or _won_applied:
+		return
+	for arg in OS.get_cmdline_user_args():
+		if arg != "--won" and arg != "--won=reload":
+			continue
+		_won_applied = true
+		print("WON ", Game.state.cmd_debug_set_state({"won": true}))
+		if arg == "--won=reload":
+			_won_reload = true
+			var s = Game.state
+			var keep: String = s.save_dir
+			s.save_dir = "user://p7_dev_saves"
+			print("WON_SAVE ", s.cmd_save("won_dev"))
+			print("WON_LOAD ", s.cmd_load("won_dev"), " won=", s.view_hud().get("won", false))
+			for f in DirAccess.get_files_at(s.save_dir):
+				DirAccess.remove_absolute(s.save_dir.path_join(f))
+			DirAccess.remove_absolute(s.save_dir)
+			s.save_dir = keep
 
 
 ## Debug only: `--map-clicks=` replays a script in screen px once the camera fit has settled,

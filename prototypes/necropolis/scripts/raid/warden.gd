@@ -413,7 +413,10 @@ func _hit_word(ci: CanvasItem, p: Vector2, text: String, px: int, col: Color) ->
 		var rc: Dictionary = raid.rcfg().get("relish", {})
 		var rad: float = raid.relish.radius
 		var avoid: Array = [meter_row_rect(), Rect2(global_position - Vector2(radius, radius), Vector2(radius, radius) * 2.0)]
-		var bounds: Rect2 = raid.get_canvas_transform().affine_inverse() * raid.get_viewport_rect().grow(-float(rc.get("hit_word_margin_px", 8.0)))
+		var inv: Transform2D = raid.get_canvas_transform().affine_inverse()
+		var bounds: Rect2 = inv * raid.get_viewport_rect().grow(-float(rc.get("hit_word_margin_px", 8.0)))
+		if raid.get("hud") != null and raid.hud.has_method("panel_rects"):
+			avoid.append_array(RaidLogic.screen_rects_to_world(raid.hud.panel_rects(), inv))   # off the control legend and the hint plate
 		r = RaidLogic.hit_word_rect(size, home, raid.relish.global_position, maxf(rad * 1.8, rad + float(rc.get("hit_word_halo_px", 20.0))),
 			float(rc.get("hit_word_gap_px", 6.0)) / z, avoid, bounds)
 	var q := r.position - global_position
@@ -439,6 +442,25 @@ func meter_row_rect() -> Rect2:
 		var top := y + pr * 2.0 + float(wcfg().get("meter_label_gap_px", 4.0)) / z
 		r = r.merge(Rect2(global_position + Vector2(-half / z, top), Vector2(half * 2.0, font.get_height(lpx) + PLATE_PAD * 2.0) / z))
 	return r
+
+
+## The meter label's plate, in world units (where _draw_meter_row puts it; the pips' row above it is not part of it).
+func meter_label_rect() -> Rect2:
+	var z := zoom()
+	var pr := float(wcfg().get("meter_pip_px", 3.5)) / z
+	var y := _meter_y() + pr
+	var lpx := int(wcfg().get("meter_label_px", 13))
+	var font := ThemeDB.fallback_font
+	var half := (font.get_string_size(str(wcfg().get("meter_label", "")), HORIZONTAL_ALIGNMENT_LEFT, -1, lpx).x + 1.0) * 0.5 + PLATE_PAD
+	var top := y + pr * 2.0 + float(wcfg().get("meter_label_gap_px", 4.0)) / z
+	return Rect2(global_position + Vector2(-half / z, top), Vector2(half * 2.0, font.get_height(lpx) + PLATE_PAD * 2.0) / z)
+
+
+## True while Relish's body (the hit words' disc round her) overlaps the label's plate (RaidLogic.rect_hits_circle).
+func _label_under_relish() -> bool:
+	if raid == null or raid.relish == null or not is_instance_valid(raid.relish):
+		return false
+	return RaidLogic.rect_hits_circle(meter_label_rect(), raid.relish.global_position, raid.relish.radius * 1.8)
 
 
 ## Subclass telegraph drawing, on the z 37 child (centred on the warden).
@@ -667,7 +689,8 @@ func _draw_meter_row() -> void:
 		x += step
 	# what the row is, in words on a small ground plate under it (awake only: this runs only while awake)
 	var label := str(wcfg().get("meter_label", ""))
-	if label != "":
+	# not while Relish stands over the plate: her body draws over it and only a fragment of the words ("b") shows
+	if label != "" and not _label_under_relish():
 		var lpx := int(wcfg().get("meter_label_px", 13))
 		var font := ThemeDB.fallback_font
 		var box := Vector2(font.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, lpx).x + 1.0, font.get_height(lpx))

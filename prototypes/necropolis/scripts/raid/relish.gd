@@ -180,7 +180,10 @@ func _hit_word_rect(home: Rect2, size: Vector2, z: float, rw: Dictionary) -> Rec
 	if w != null and is_instance_valid(w) and w.alive and w.awake:
 		avoid.append(w.meter_row_rect())
 		avoid.append(Rect2(w.global_position - Vector2(w.radius, w.radius), Vector2(w.radius, w.radius) * 2.0))
-	var bounds: Rect2 = raid.get_canvas_transform().affine_inverse() * raid.get_viewport_rect().grow(-float(rw.get("hit_word_margin_px", 8.0)))
+	var inv: Transform2D = raid.get_canvas_transform().affine_inverse()
+	var bounds: Rect2 = inv * raid.get_viewport_rect().grow(-float(rw.get("hit_word_margin_px", 8.0)))
+	if raid.get("hud") != null and raid.hud.has_method("panel_rects"):
+		avoid.append_array(RaidLogic.screen_rects_to_world(raid.hud.panel_rects(), inv))   # off the control legend and the hint plate
 	return RaidLogic.hit_word_rect(size, home, global_position, maxf(radius * 1.8, radius + float(rw.get("hit_word_halo_px", 20.0))),
 		float(rw.get("hit_word_gap_px", 6.0)) / z, avoid, bounds)
 

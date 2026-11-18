@@ -218,6 +218,23 @@ func _goal_fixtures() -> void:
 			var all := _goal(v)
 			t.ok(all.get("id", "") == "vei" and String(all["text"]).contains("face Vei") and String(all["short"]).contains("face Vei"),
 				"a City holding every fort: face Vei: '%s' / '%s'" % [all["text"], all["short"]])
+			# P7: the same City once Vei is beaten (a real win written back): the won step on both, under the won head;
+			# no "face Vei" and no "take Vei's forts" anywhere in it
+			var nb := s.cmd_begin_boss()
+			t.ok(bool(nb.get("ok", false)), "(setup) pre_vei: the fight begins")
+			var applied := s.apply_result("boss", {"v": 2, "run_id": nb.get("run_id", -1), "seed_rev": nb.get("seed_rev", -1), "won": true,
+				"fronts_cleared": [], "relish_deaths": 0, "backups_spent": {"phylactery": 0, "clones": 0}, "party_lost": [], "backlog_spent": 0.0})
+			t.ok(bool(applied.get("ok", false)) and bool(s.view_hud().get("won", false)), "(setup) pre_vei: a won boss result is written back (%s)" % str(applied))
+			var vw := _views(s)
+			var won := _goal(vw)
+			var wtxt := "%s | %s | %s" % [won.get("head", ""), won.get("text", ""), won.get("short", "")]
+			t.ok(won.get("id", "") == "won" and String(won["head"]) == String(gcfg["goal"]["won_head"]) and String(won["text"]) == String(gcfg["goal"]["won"])
+				and String(won["short"]) == String(gcfg["goal"]["won_short"]), "a won City: the won head, step and next: line: '%s'" % wtxt)
+			t.ok(not wtxt.contains("face Vei") and not wtxt.contains("take Vei's forts") and not wtxt.to_lower().contains("the run"),
+				"a won City's plate and next: line say neither 'face Vei' nor 'take Vei's forts' (nor 'the run')")
+			for f in vw["forts"]:
+				f["held"] = true
+			t.ok(_goal(vw).get("id", "") == "won", "a won City holding every fort: still the won step, never 'face Vei'")
 	var late := {"town": {"buildings": [], "tier": "town"}, "forts": []}
 	t.ok(not _goal(late).get("id", "") in ["mill", "fort"], "a Town-tier town skips the first steps (they're for a new game)")
 	var held := {"town": {"buildings": [{"building_id": "bone_mill"}], "tier": "village"}, "forts": [{"held": true, "flipped_count": 0}]}

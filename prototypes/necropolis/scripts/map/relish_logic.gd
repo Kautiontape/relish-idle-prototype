@@ -162,6 +162,10 @@ static func fort_actions(fort: Dictionary, relish: Dictionary, haul: Dictionary,
 ## its reason in words; pressing it still confirms).
 static func vei_actions(vei: Dictionary, relish: Dictionary) -> Array:
 	var out := move_items(relish, "vei", "Relish is at Vei's gates")
+	if bool(vei.get("won", false)):
+		# TODO(api-request #21): economy's _boss_reason will refuse with "won"; reason_text then gives the same words.
+		out.append(_line(reason_text("won")))
+		return out
 	var can := bool(vei.get("can_begin", false))
 	var short := CardLogic.fronts_short_text(vei)
 	if short != "":

@@ -318,11 +318,16 @@ func _garrison_count(t: TestUtil) -> void:
 				shown_ok = shown_ok and (int(fill["plus"]) == 0 or int(fill["shown"]) < slots)
 	t.ok(all_ok, "the glyph count (garrison_units) is the chip's number, for masses 0..12,345 at unit masses 1, 4, 25 and the config's")
 	t.ok(shown_ok, "glyphs shown + the \"+N\" overflow always add up to it, capped at garrison_glyph_max, the +N in a free slot")
-	t.ok(IdleLogic.garrison_units({"undead": 64.0, "garrison": 31.0}, c) == roundi(31.0 / float(c["garrison_unit_mass"])), "the view's garrison counts, not the fort's undead")
+	t.ok(IdleLogic.garrison_units({"undead": 64.0, "garrison": 31.0}, c) == floori(31.0 / float(c["garrison_unit_mass"])), "the view's garrison counts, not the fort's undead")
 	t.ok(IdleLogic.garrison_units({"garrison": -5.0}, c) == 0, "never negative")
 	var cc := c.duplicate()
 	cc["garrison_unit_mass"] = 10.0
-	t.ok(IdleLogic.garrison_units({"garrison": 44.9}, cc) == 4 and IdleLogic.garrison_units({"garrison": 45.0}, cc) == 5, "rounded half up, like the chip (44.9 -> 4, 45 -> 5 at 10 a unit)")
+	t.ok(IdleLogic.garrison_units({"garrison": 49.9}, cc) == 4 and IdleLogic.garrison_units({"garrison": 45.0}, cc) == 4 and IdleLogic.garrison_units({"garrison": 50.0}, cc) == 5, "floored, like the raid's count (49.9 -> 4, 50 -> 5 at 10 a unit)")
+	var cu := c.duplicate()
+	cu["garrison_unit_mass"] = 1.0
+	t.ok(IdleLogic.garrison_units({"garrison": 9.6}, cu) == 9 and IdleLogic.garrison_text({"garrison": 9.6}, cu) == "HELD · 9 undead", "a fractional 9.6 reads 9 on the chip")
+	var ci := CardLogic.comes_in_text({"garrison": 0, "starter": 8, "bigs": 0, "total": 8, "war_here": 9.6})
+	t.ok(ci.contains("the 9 WAR undead here") and IdleLogic.garrison_units({"garrison": 9.6, "undead": 9.6}, cu) == 9, "the chip and the card's WHO COMES IN read the same 9 at 9.6: " + ci)
 	t.ok(IdleLogic.garrison_units({"garrison": 34.0}, cc) == 3, "one unit lost (45 -> 34) is one glyph fewer")
 	t.ok(GlyphLogic.garrison_fill(3, 0)["shown"] == 0, "no room in the ring: no glyphs (the chip still counts)")
 	t.ok(GlyphLogic.garrison_fill(5, 8) == {"shown": 5, "plus": 0}, "five units in eight slots: five glyphs")

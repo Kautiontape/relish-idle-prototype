@@ -2139,12 +2139,21 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 		and RaidLogic.death_tell(_dw(), "pack") == "" and RaidLogic.death_tell(_dw(), "living") == "" and RaidLogic.death_tell(_dw(), "") == "",
 		"the tell words and death_tell are untouched")
 	t.ok(RaidLogic.death_card_rows(_dw(), "the living", {}, {}, 1, RaidLogic.death_tell(_dw(), "living")).size() == 3, "no tell, no RED TELL row")
+	# one attack, one word: the RED TELL row names the blow with the headline's own word (the tell words and the capture's missed_tell stay frozen above)
+	for src in ["slam", "toll", "lunge", "bash", "rush", "fire"]:
+		var head := RaidLogic.death_cause(_dw(), src, "The Warden")
+		var atk := RaidLogic.death_attack(_dw(), src)
+		var nrow := RaidLogic.death_card_rows(_dw(), head, {}, {}, 0, RaidLogic.death_tell(_dw(), src), {}, atk)[1]["text"] as String
+		t.ok(atk != "" and head.ends_with(atk) and nrow.begins_with("The " + atk + " was marked in red") and not nrow.contains(RaidLogic.death_tell(_dw(), src)),
+			"%s: the headline '%s' and the RED TELL row share the word '%s', and the row names no second word for it (%s)" % [src, head, atk, nrow])
+	t.ok(RaidLogic.death_attack(_dw(), "pack") == "" and RaidLogic.death_attack(_dw(), "living") == "" and RaidLogic.death_attack(_dw(), "") == "",
+		"no tell, no attack word")
 	# every RED TELL sentence wraps within the card's value column at its font size, in at most two lines (the card's rows grow for a wrap)
 	var rcg: Dictionary = TestUtil.load_json("res://configs/raid.json")["death"]
 	var rcol: float = float(rcg["card_w"]) - 2.0 * float(rcg["card_pad"]) - float(rcg["label_w"])
 	var rfnt := ThemeDB.fallback_font
 	for src in ["slam", "toll", "lunge", "bash", "rush", "fire"]:
-		var sentence := str(RaidLogic.death_card_rows(_dw(), "x", {}, {}, 0, RaidLogic.death_tell(_dw(), src))[1]["text"])
+		var sentence := str(RaidLogic.death_card_rows(_dw(), "x", {}, {}, 0, RaidLogic.death_tell(_dw(), src), {}, RaidLogic.death_attack(_dw(), src))[1]["text"])
 		var sz := rfnt.get_multiline_string_size(sentence, HORIZONTAL_ALIGNMENT_LEFT, rcol, int(rcg["value_px"]))
 		t.ok(sz.y <= rfnt.get_height(int(rcg["value_px"])) * 2.0 + 0.5 and sz.x <= rcol and int(rcg["value_px"]) >= 13 and sentence.contains("marked in red") and sentence.contains("Keep Relish out"),
 			"the RED TELL row for %s wraps to two lines at most inside the column (%d x %d of %d px): %s" % [src, int(sz.x), int(sz.y), int(rcol), sentence])

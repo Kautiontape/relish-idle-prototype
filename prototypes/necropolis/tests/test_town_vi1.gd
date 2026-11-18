@@ -48,6 +48,8 @@ func _plate_fits() -> void:
 	lines.append(lead + BuildSort.fmt(String(g["relics"]), {"tier": "Village", "n": 99, "unit": "relics", "have": 98}))
 	for id in ["forts", "vei", "forts_any"]:
 		lines.append(lead + BuildSort.fmt(String(g[id]), {"n": 99}))
+	lines.append(String(g["won"]))   # P7: the won step (no lead) and the won head over it
+	lines.append(String(g["won_head"]))
 	for st in g["steps"]:
 		lines.append(String(st.get("lead", lead)) + BuildSort.fmt(String(st["text"]), {"fort": "Mourner's Gate"}))
 	for ln in lines:

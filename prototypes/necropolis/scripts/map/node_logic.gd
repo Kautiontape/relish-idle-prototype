@@ -831,6 +831,13 @@ static func relish_radii(zoom: float) -> Dictionary:
 		"wide": halo * _n("relish_wide_mult")}
 
 
+## The y shift of Relish's standing token from the node `at`: above it (-), clear of its `reach`, the gap and her halo;
+## at Vei, who sits at the map's top edge, below her ring (+) so the mark is not under the top bar.
+static func relish_stand_dy(at: String, reach: float, gap: float, halo: float) -> float:
+	var d := reach + gap + halo
+	return d if at == "vei" else -d
+
+
 ## Ids of the forts within `radius` of Relish: their dead turn dead_lit.
 static func lit_fort_ids(forts: Array, relish_pos: Vector2, radius: float) -> Array:
 	var out: Array = []

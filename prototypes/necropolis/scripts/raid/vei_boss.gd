@@ -75,7 +75,8 @@ var _seq_t := 0.0
 var _emitted := false
 var _card: VeiCard = null       # the win or loss card, once the closing set piece is done
 var _rcfg_cache := {}
-var _vw_cache := {}              # vwords(), read once
+var _vw_cache := {}              # vwords(), read once per ConfigDb.data
+var _vw_src := {}                # the ConfigDb.data _vw_cache was read from (a reload replaces it)
 var _tag_p := -1.0               # the pressure _tag_text was built for (hud_info runs every frame)
 var _tag_text := ""
 var _bdev: BossDev = null
@@ -87,10 +88,19 @@ func vcfg() -> Dictionary:
 
 
 ## raid.json `vei_fight`: the fight's banners, hints, HUD words and end-card words.
+## The walk runs once per ConfigDb.data (the HUD reads this every frame); a reload (ConfigDb.reload, the map's F6)
+## replaces that Dictionary, so the next read walks the new one. The Dictionary itself stays ConfigDb's.
 func vwords() -> Dictionary:
-	if _vw_cache.is_empty():   # the walk once (the HUD reads this every frame); the Dictionary itself stays ConfigDb's
+	if not is_same(_vw_src, ConfigDb.data):
+		_vw_src = ConfigDb.data
 		_vw_cache = ConfigDb.data.get("raid", {}).get("vei_fight", {})
 	return _vw_cache
+
+
+## The break's guard config: vcfg() with the guards pressured by her living reserve (VeiFronts.pressured), set at
+## the break's start ({} before it). BossDev's --boss-stress reads it.
+func guard_cfg() -> Dictionary:
+	return _gvc
 
 
 ## The boss scene's own warm list (vei.json `sound.warm`): unravel and the param kinds, no warden kinds.
@@ -754,7 +764,11 @@ func _win_card() -> void:
 		info["clones_total"] = int(seed_data.get("clones_ready", 0))
 		_card = VeiCard.new()
 		hud.add_child(_card)
-		_card.setup(info, vcfg().get("card", {}), _emit.bind(true), vwords())
+		# the win card presses itself after gap_end.win_card_auto_s (BossLogic.card_auto_due): the win is written back
+		# on the press, and a sleep with the card up would forfeit the open run (RaidEndings.gap_end)
+		# TODO(api-request #22): record the win in the open boss run here, as the card appears, so a gap or a load
+		# before the press resolves as the win; the press (or its self-press) must not apply it twice.
+		_card.setup(info, vcfg().get("card", {}), _emit.bind(true), vwords(), float(rcfg().get("gap_end", {}).get("win_card_auto_s", -1.0)))
 	if _bot != null and not (_bdev != null and _bdev.hold_card):
 		_emit(true)
 

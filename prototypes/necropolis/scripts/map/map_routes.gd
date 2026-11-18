@@ -91,6 +91,7 @@ var _vei_outer := -1.0  # Vei's trim radius (structure + backlog stack + beat ri
 var _reported := false
 var _report_ms := -1.0  # Pulse's clock when the --lanes-report table prints
 var _victory := ""  # "" | SetpieceLogic.RUN | SetpieceLogic.STOP
+var _vei_hidden := false  # the won map's END: no lane with Vei at an end (set_vei_hidden)
 var _hold_ms := -1.0  # victory's stop: the clock every offset is taken at from then on (-1: live)
 
 # bench readout (--bench-seconds): per ground mode, the routes' ms per frame
@@ -180,6 +181,17 @@ func set_victory(phase: String) -> void:
 		_rev = -2
 
 
+## Victory's END (MapSetpieces): every lane with Vei at either end is hidden from now on, with its
+## carts, whatever its flow (LaneStyle.without_vei).
+## TODO(api-request #21): a stand-in. Once #21 stops her lanes they carry no rate and view_lanes omits them, so this
+## hides nothing; it can go then (with MapCallouts.set_vei_hidden and LaneStyle.without_vei).
+func set_vei_hidden(on: bool) -> void:
+	if on == _vei_hidden:
+		return
+	_vei_hidden = on
+	_rev = -2
+
+
 ## The frame before's total (process + the cart draw), as the readout and a bench sample.
 func _record_last_frame() -> void:
 	routes_ms = _last_us / 1000.0 + float(_carts.draw_ms)
@@ -238,7 +250,7 @@ func _u(row) -> float:
 
 func _sync() -> void:
 	_rev = model.rev
-	var rows := LaneStyle.plan_rows(model.lanes)
+	var rows := LaneStyle.without_vei(LaneStyle.plan_rows(model.lanes), _vei_hidden)
 	var by_id := {}
 	var dead_on_host := {}
 	for r in rows:

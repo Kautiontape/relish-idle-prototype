@@ -553,6 +553,49 @@ func _status(t: TestUtil) -> void:
 	t.ok(HudLogic.objective_text(_hud([])) == cfg["objective_text"], "the objective line")
 	t.ok(HudLogic.objective_text(_hud([], {"won": true})) == cfg["objective_won_text"], "the victory line when won")
 	t.ok(cfg["objective_text"] != cfg["objective_won_text"], "the two differ")
+	t.ok(str(cfg["objective_won_text"]) == "You beat Vei: the game is won. Your town and forts are still yours: keep playing, or stop here." and not str(cfg["objective_won_text"]).contains("factory"), "the epilogue's words")
+	# it is drawn on one line in the strip (a Button at objective_size_px, left of the ground meter's reserve): measure it
+	var ep_w: float = ThemeDB.fallback_font.get_string_size(str(cfg["objective_won_text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(cfg["objective_size_px"])).x
+	var ep_room := 1600.0 - float(cfg["meter_reserve_px"]) - float(cfg["topbar_plate_pad_px"]) * 2.0 - 40.0
+	t.ok(ep_w <= ep_room and ep_w <= float(cfg["topbar_max_w_px"]), "the epilogue (%.0f px) fits the strip on one line at 1600 (room %.0f, the bar's max %.0f)" % [ep_w, ep_room, float(cfg["topbar_max_w_px"])])
+	t.ok(not HudLogic.vei_readout_shown({"won": true}) and HudLogic.vei_readout_shown({"won": false}) and HudLogic.vei_readout_shown({}), "Vei's odds / strain / drain hide once won")
+	t.ok(not HudLogic.flood_shown({"won": true}) and HudLogic.flood_shown({}), "the valve's FLOOD row and corner hide once won")
+	var vsrc := FileAccess.get_file_as_string("res://scripts/map/map_valve.gd")
+	t.ok(vsrc.contains("HudLogic.flood_shown(model.hud)") and vsrc.contains("_corner_btns[\"flood\"]"), "the valve panel applies flood_shown to its row and corner")
+	# the won valve (P7 review 1): FLOOD's share is WAR's, so WORK + WAR add to 100 and no corner is hidden
+	var sh := {"work": 0.4, "war": 0.45, "flood": 0.15}
+	var wv := ValveLogic.won_valve(sh, {"won": true})
+	var wp := ValveLogic.percents(wv)
+	t.ok(wp["work"] == 40 and wp["war"] == 60 and wp["flood"] == 0 and wp["work"] + wp["war"] == 100, "won: WORK 40 + WAR 60 = 100, FLOOD 0 (%s)" % str(wp))
+	t.ok(ValveLogic.won_valve(sh, {}) == sh and ValveLogic.won_valve(sh, {"won": false}) == sh and sh["flood"] == 0.15, "before the win the valve is untouched (the identity)")
+	var side := 200.0
+	var at_flood := ValveLogic.won_valve(ValveLogic.valve_at(ValveLogic.corners(side)["flood"] + Vector2(30, 10), side), {"won": true})
+	t.ok(absf(float(at_flood["war"]) - 1.0) < 1e-6 and float(at_flood["flood"]) == 0.0, "won: a drag past the FLOOD corner lands on WAR, FLOOD 0 sent: %s" % str(at_flood))
+	var mid := ValveLogic.won_valve(ValveLogic.valve_at(Vector2(side * 0.6, ValveLogic.height(side) * 0.7), side), {"won": true})
+	var mp := ValveLogic.point_of(mid, side)
+	t.ok(float(mid["flood"]) == 0.0 and Geometry2D.get_closest_point_to_segment(mp, ValveLogic.corners(side)["work"], ValveLogic.corners(side)["war"]).distance_to(mp) < 1e-3,
+		"won: the handle sits on the WORK–WAR edge wherever it is dragged")
+	# Covington's glyph reads the same fold: WAR's stem is war + flood, no FLOOD stem or label
+	var gw := NodeLogic.valve_widths(wv)
+	t.ok(gw["flood"] == 0.0 and is_equal_approx(float(gw["war"]), float(NodeLogic.valve_widths({"war": 0.6})["war"])) and gw["work"] > 0.0, "a won map's glyph: WAR's stem at 60%, no FLOOD stem")
+	t.ok(not NodeLogic.valve_label_layout(NodeLogic.valve_dirs(Vector2.ZERO, Vector2(-300, -100), Vector2(-100, -500)), gw, true, 1.0, {"war": 40.0, "flood": 50.0, "work": 45.0, "covington": 90.0}, 13.0).has("flood"),
+		"and no FLOOD label in the layout the glyph and the chips' obstacles read")
+	t.ok(FileAccess.get_file_as_string("res://scripts/map/map_covington.gd").contains("ValveLogic.won_valve(s, ctx.model.hud)")
+		and FileAccess.get_file_as_string("res://scripts/map/map_fort_idle.gd").count("ValveLogic.won_valve(") == 2, "the glyph and both chip-layout reads take won_valve")
+	var vb := FileAccess.get_file_as_string("res://scripts/map/map_valve.gd")
+	t.ok(vb.count("ValveLogic.won_valve(") == 6 and vb.contains("_override = ValveLogic.won_valve(ValveLogic.valve_at(") and vb.contains("var target := ValveLogic.won_valve(")
+		and vb.contains("or not HudLogic.vei_readout_shown(model.hud):"), "the valve panel folds its target, the override check, the drag, the snap and the ghost ring, and drops the Vei payoff once won")
+	# her node's ODDS readout (P7 review 3; map_vei.gd needs the autoloads, so a source check): the guard reads
+	# vei_readout_shown, and the drawing, the tooltip's keep-off rect and the redraw signature all ask it
+	var vsrc2 := FileAccess.get_file_as_string("res://scripts/map/map_vei.gd")
+	var g0 := vsrc2.find("func _readout_shown() -> bool:")
+	var gbody := vsrc2.substr(g0, vsrc2.find("\n\n\n", g0) - g0) if g0 >= 0 else ""
+	t.ok(gbody.strip_edges().ends_with("return HudLogic.vei_readout_shown(ctx.model.hud)"), "map_vei's _readout_shown is vei_readout_shown, nothing else")
+	t.ok(vsrc2.contains("if not bool(rs[\"hidden\"]) and _readout_shown():") and vsrc2.contains("if not _readout_shown():\n\t\treturn Rect2()")
+		and vsrc2.contains("lsig, _readout_shown()]"), "_draw_static, readout_rect and static_sig each ask _readout_shown")
+	var hsrc2 := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
+	t.ok(hsrc2.contains("HudLogic.vei_readout_shown(hud)") and hsrc2.contains("_vei_group = [odds_name, _odds, strain_name, _sign, drain_name, _drain]"),"the bar applies it to the odds group, and the tithe line is untouched")
+	t.ok(FileAccess.get_file_as_string("res://scripts/map/map_vei.gd").contains("_readout_shown()"), "Vei's node applies it to her readout")
 
 
 func _callout_text(t: TestUtil) -> void:

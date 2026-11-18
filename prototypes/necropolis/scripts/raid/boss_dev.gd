@@ -215,11 +215,11 @@ func on_break() -> void:
 
 
 ## --boss-stress: guards held at the most that can stand at once in play (the pressured ceiling,
-## BossLogic.guard_ceiling of the break's `_gvc`: rate x uncleared x life_s, at most the pressured cap),
-## the raised and the anchor motes topped up.
+## BossLogic.guard_ceiling of the break's guard config (VeiBoss.guard_cfg): rate x uncleared x life_s, at most
+## the pressured cap), the raised and the anchor motes topped up.
 func stress_tick() -> void:
 	var cfg: Dictionary = _boss.vcfg()
-	var cap := ceili(BossLogic.guard_ceiling(_boss.uncleared, _boss._gvc))
+	var cap := ceili(BossLogic.guard_ceiling(_boss.uncleared, _boss.guard_cfg()))
 	var n: int = cap - _boss.guards_alive()
 	for i in n:
 		_boss.spawn_guard()

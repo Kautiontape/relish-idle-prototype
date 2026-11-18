@@ -106,6 +106,8 @@ func on_event(ev: Dictionary) -> void:
 		"tithe_warning":
 			_synth.play("horn")
 		"tithe_wave":
+			# TODO(api-request #21): a won map keeps the tithe's horn and set piece (its band runs along her living lane
+			# though END hides it), as the bar keeps its tithe line: the wave is real until #21 stops the tithe.
 			_add(SetpieceLogic.TITHE, id)
 		"counter_garrison_cleared":
 			var g := SetpieceLogic.garrison_from_event(ev)
@@ -227,7 +229,7 @@ func _process(_delta: float) -> void:
 			SetpieceLogic.GARRISON:
 				done = _garrison_tick(p, t, rm, items)
 			SetpieceLogic.VICTORY:
-				done = _victory_tick(t, rm or bool(p.get("settle", false)))
+				done = _victory_tick(t, rm, bool(p.get("settle", false)))
 			SetpieceLogic.RETREAT:
 				done = _retreat_tick(p, t, rm, items)
 		if done:
@@ -648,12 +650,21 @@ func _garrison_tick(p: Dictionary, t: float, rm: bool, items: Array) -> bool:
 
 # --- victory ----------------------------------------------------------------------------------
 
-func _victory_tick(t: float, rm: bool) -> bool:
-	var ph := SetpieceLogic.victory_phase(t, rm)
+## RUN, then STOP with the headline up, then END: the headline goes, the routes leave victory styling
+## and drop every lane at Vei (MapRoutes.set_vei_hidden). A settle is END at once.
+## TODO(api-request #21): END's lane hiding is a stand-in (MapRoutes.set_vei_hidden); the RUN / STOP / END beats stay.
+func _victory_tick(t: float, rm: bool, settle := false) -> bool:
+	var ph := SetpieceLogic.victory_phase(t, rm, settle)
+	if ph == SetpieceLogic.END:
+		hud.hide_victory()
+		routes.set_victory("")
+		routes.set_vei_hidden(true)
+		if callouts != null:
+			callouts.set_vei_hidden(true)  # their "why" plates go with the lanes
+		return true
 	routes.set_victory(ph)
 	if ph == SetpieceLogic.STOP:
 		hud.show_victory()
-		return true
 	return false
 
 
