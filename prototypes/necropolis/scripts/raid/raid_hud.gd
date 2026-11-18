@@ -15,7 +15,8 @@ var _hint: Label
 var _meter: Control
 var _exit_btn: Control = null       # dungeon only
 var _retreat: RaidRetreatPanel = null   # dungeon only: the retreat choice (mouse only; Space never confirms)
-var _legend: RaidLegend = null      # dungeon only: the control legend (open until a fort is taken, then a chip)
+var _retreat_t := 0.0               # the open retreat panel's lines refresh clock
+var _legend: RaidLegend = null     # dungeon only: the control legend (open until a fort is taken, then a chip)
 var _flash: ColorRect
 var _flash_t := -1.0
 var _banner: Label
@@ -237,12 +238,11 @@ func _process(_delta: float) -> void:
 	refresh()
 	_tick_cues()
 	if _warden_block != null:
-		# the banner steps down under the warden's block while it shows
-		var top := _banner_top + ((14.0 + (_warden_block as WardenBlock).extra_h) if _warden_block.visible else 0.0)
 		if _goal_block != null:
 			_tick_goal(_delta_real())
-			if _goal_block.visible:   # the same step down under the goal block, once it is taller than the warden's base block
-				top = _banner_top + 14.0 + maxf(0.0, _goal_block.height - 62.0)
+		# the banner steps down under whichever top-centre block shows (the goal block's height, or the warden's)
+		var blk := top_block_rect()
+		var top := RaidLogic.banner_top(_banner_top, blk.size.y > 0.0, blk.size.y)
 		if _banner.offset_top != top:
 			_banner.offset_top = top
 			_fit_banner_plate()
@@ -314,6 +314,13 @@ func refresh() -> void:
 		_legend.visible = not raid._ended
 	if retreat_open() and (raid._ended or not exit_enabled()):
 		_retreat.close()   # she walked off the exit (or the run ended): the choice is gone
+		_retreat_t = 0.0
+	elif retreat_open():
+		# not modal: a pickup while it shows changes what a retreat pays, so its lines follow, 4 times a second
+		_retreat_t += _delta_real()
+		if _retreat_t >= 0.25:
+			_retreat_t = 0.0
+			_retreat.refresh_lines(_retreat_lines())
 	if _door_prompt != null:
 		var dr: String = raid.held_door.row_text()
 		if dr != _door_text:
@@ -389,42 +396,50 @@ func _awake_warden() -> RaidWarden:
 
 
 ## T4: the goal block shows while no WardenBlock does and the run lives; its rows are rebuilt four times a
-## second (and set only when they change).
+## second (and set only when they change). While it is hidden (the warden awake, the run ended) nothing is
+## rebuilt, and the first frame it may show again rebuilds at once.
 func _tick_goal(dt: float) -> void:
+	if raid._ended or _awake_warden() != null:
+		_goal_block.visible = false
+		_goal_t = 1.0
+		return
 	_goal_t += dt
 	if _goal_t >= 0.25:
 		_goal_t = 0.0
 		_update_goal()
-	_goal_block.visible = _goal_block.height > 0.0 and not raid._ended and _awake_warden() == null
+	_goal_block.visible = _goal_block.height > 0.0
+
+
+## The screen rect of the top-centre block that shows (the goal block, else the warden's): empty when neither
+## does. The banner steps down under it and the edge chevrons stay clear of it (RaidLogic.edge_clear_of).
+func top_block_rect() -> Rect2:
+	if _goal_block != null and _goal_block.visible:
+		return Rect2(_goal_block.global_position, Vector2(_goal_block.size.x, _goal_block.height))
+	if _warden_block != null and _warden_block.visible:
+		return Rect2(_warden_block.global_position, Vector2(_warden_block.size.x, 62.0 + (_warden_block as WardenBlock).extra_h))
+	return Rect2()
 
 
 ## The rows: the goal line, then (warden alive) the route and how to break it, or (warden down) the chest;
 ## a held raid keeps only its goal. Plus the no-army row when nothing can be raised.
 func _update_goal() -> void:
 	var g := _goal_cfg(raid)
-	var gpx := int(g.get("goal_px", 17))
-	var rpx := int(g.get("route_px", 14))
-	var xpx := int(g.get("row_px", 13))
 	var wr: RaidWardenRun = raid.warden_run
-	var fort_name: String = raid.fort_name()
-	var rows: Array = []
 	var held: bool = raid.held
 	var w = wr.warden if wr != null else null
 	var alive: bool = w != null and is_instance_valid(w) and w.alive
-	if held:
-		rows.append({"text": RaidLogic.goal_line(fort_name, "", true), "px": gpx, "key": "vei"})
-	elif alive:
+	var s := {"held": held, "fort_name": raid.fort_name(), "warden_alive": alive, "warden_name": "",
+		"route_text": "", "break_rows": [], "chest": wr != null and wr.chest != null, "no_army": false,
+		"goal_px": int(g.get("goal_px", 17)), "route_px": int(g.get("route_px", 14)), "row_px": int(g.get("row_px", 13))}
+	if not held and alive:
 		var sp: Dictionary = w.spec
-		rows.append({"text": RaidLogic.goal_line(fort_name, str(sp.get("name", "")), false), "px": gpx, "key": "vei"})
-		rows.append({"text": _route_text(), "px": rpx, "key": "text"})
-		for r in break_rows(raid, sp, int(w.meter_n)):
-			rows.append({"text": r, "px": xpx, "key": "text_dim"})
-	elif wr != null and wr.chest != null:
-		rows.append({"text": RaidLogic.goal_line(fort_name, wr.warden_name, false), "px": gpx, "key": "vei"})
-		rows.append({"text": "open the chest to take the fort", "px": rpx, "key": "text"})
-	if not rows.is_empty() and _no_army():
-		rows.append({"text": RaidLogic.NO_ARMY_LINE, "px": xpx, "key": "danger"})
-	_goal_block.set_rows(rows)
+		s["warden_name"] = str(sp.get("name", ""))
+		s["route_text"] = _route_text()
+		s["break_rows"] = break_rows(raid, sp, int(w.meter_n))
+	elif not held and wr != null:
+		s["warden_name"] = wr.warden_name
+	s["no_army"] = (held or alive or s["chest"]) and _no_army()   # the row follows a goal row only
+	_goal_block.set_rows(RaidLogic.goal_rows(s))
 
 
 ## The break line, the takes line (when something multiplies a blow) and the counter line for a warden's spec.
@@ -445,8 +460,8 @@ static func break_rows(raid: Node, sp: Dictionary, meter_n := -1) -> Array:
 	return rows
 
 
-## "room 2 of 4 · the warden is 2 rooms NE": the route's length from the spawn's room, the hops left from
-## Relish's room (kept through a doorway band) and the compass word of the first step of the walk to the warden.
+## "room 2 of 4 · the warden is 2 rooms on · next door NE": the route's length from the spawn's room, the hops left
+## from Relish's room (kept through a doorway band) and the compass word of the next step of the walk to the warden.
 func _route_text() -> String:
 	var lay: Dictionary = raid.layout
 	var rel: RaidRelish = raid.relish
@@ -563,7 +578,6 @@ func flash(color: Color) -> void:
 	_flash_t = 0.0
 
 
-## A plain banner line for `secs` seconds (warden wake, last chance, victory).
 ## The warden is beaten and the clear card is up (RaidWardenRun.on_chest_opened, not the measuring bot): the HUD
 ## must not contradict the win. The banner under the card is hidden (and none shows after), BANKED reads the win's
 ## loot counts, UNBANKED reads none with no stakes row, and the push line drops its "at risk" clause.
@@ -580,6 +594,7 @@ func on_clear(win_counts: Dictionary) -> void:
 	_push_t = 1.0
 
 
+## A plain banner line for `secs` seconds (warden wake, last chance, victory).
 func show_banner(text: String, secs: float, color_key := "relish") -> void:
 	if _clearing:
 		return
@@ -677,11 +692,16 @@ static func wrap_chunks(text: String, font: Font, font_px: int, max_w: float) ->
 func open_exit_dialog() -> void:
 	if _retreat == null or raid._ended or not exit_enabled():
 		return
+	_retreat.open(_retreat_lines())
+
+
+## The retreat panel's lines now: what a retreat pays (found loot and carried essence) and what stays. A big
+## spent on the held door is lost, said by its state (on the plate, or shut in at the cache).
+func _retreat_lines() -> PackedStringArray:
 	var hd = raid.held_door
-	# a big spent on the held door is lost, said by its state (on the plate, or shut in at the cache)
 	var keep := RaidLogic.loot_counts(RaidLogic.loot_snapshot(raid.found_loot, raid.carried_count()))
-	_retreat.open(RaidLogic.retreat_lines(raid.held, keep,
-		RaidLogic.held_door_retreat_line(hd.state, hd.holder_name) if hd != null else ""))
+	return RaidLogic.retreat_lines(raid.held, keep,
+		RaidLogic.held_door_retreat_line(hd.state, hd.holder_name) if hd != null else "")
 
 
 ## The retreat panel shows (the raid closes it on a stay key: Space, right mouse, Esc).
@@ -1188,6 +1208,7 @@ class Pointers:
 	var _wp := Vector2.INF      # the off-screen warden's screen point (INF: no WARDEN chevron)
 	var _sp := Vector2.INF      # the nearest pickup's screen point (INF: none)
 	var _from := Vector2.INF    # the HUD's "N on the floor" anchor
+	var _block := Rect2()       # the top-centre block (goal or warden) a chevron must stay clear of
 
 	func _process(d: float) -> void:
 		var raid = hud.raid if hud != null else null
@@ -1218,7 +1239,9 @@ class Pointers:
 		if _loot != null and is_instance_valid(_loot) and _loot.is_in_group("raid_pickups"):
 			sp = xf * _loot.global_position
 		var from := hud.floor_anchor() if sp != Vector2.INF else Vector2.INF
-		if ep != _ep or sp != _sp or from != _from or wp != _wp:
+		var blk := hud.top_block_rect()
+		if ep != _ep or sp != _sp or from != _from or wp != _wp or blk != _block:
+			_block = blk
 			_wp = wp
 			_ep = ep
 			_sp = sp
@@ -1244,15 +1267,20 @@ class Pointers:
 		var tx := INF if absf(dir.x) < 0.0001 else ((view.x - m) - c.x) / absf(dir.x)
 		var ty := INF if absf(dir.y) < 0.0001 else ((view.y - m) - c.y) / absf(dir.y)
 		var p := c + dir * minf(tx, ty)
+		var f := ThemeDB.fallback_font
+		var tw := f.get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
+		var lp := p - dir * 26.0 - Vector2(tw * 0.5, -5.0)
+		# a chevron or label under the top-centre block moves to just below it, so it stays visible
+		var q := RaidLogic.edge_clear_of(p, Rect2(lp + Vector2(0.0, -13.0), Vector2(tw, 16.0)), _block, view)
+		if q != p:
+			p = q
+			lp = p - dir * 26.0 - Vector2(tw * 0.5, -5.0)
 		_chev[0] = p + dir * 12.0
 		_chev[1] = p - dir * 6.0 + dir.orthogonal() * 10.0
 		_chev[2] = p - dir * 6.0 - dir.orthogonal() * 10.0
 		draw_colored_polygon(_chev, Palette.c("ground", 0.8))
 		draw_polyline(_chev, col, 2.0)
 		draw_line(_chev[2], _chev[0], col, 2.0)
-		var f := ThemeDB.fallback_font
-		var tw := f.get_string_size(word, HORIZONTAL_ALIGNMENT_LEFT, -1, 13).x
-		var lp := p - dir * 26.0 - Vector2(tw * 0.5, -5.0)
 		draw_string(f, lp, word, HORIZONTAL_ALIGNMENT_LEFT, -1, 13, col)
 
 	func _draw() -> void:
@@ -1319,6 +1347,10 @@ class ExitButton:
 	extends Control
 	var hud: RaidHud = null
 	var _hover := false
+
+	func _init() -> void:
+		# PASS: only its own left press is accepted below; a right press (the trance) or a dragged loop reaches the raid
+		mouse_filter = Control.MOUSE_FILTER_PASS
 
 	func _ready() -> void:
 		mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND

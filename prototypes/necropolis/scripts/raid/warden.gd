@@ -26,6 +26,9 @@ var flash := 0.0
 var drop_t := -1.0             # >= 0 while a ring is dropping away after a phase change
 
 var _breath_t := 0.0
+var _pres := {}                # draw only: the sleeping picture's cached geometry (_build_presence)
+var _pres_z := -1.0            # the zoom it was built at
+var _pres_n := -1              # and the meter pips
 
 # break meter (pips; see WardenLogic.meter_bands)
 var meter_bands: Array[float] = []
@@ -407,10 +410,28 @@ func _draw() -> void:
 ## under the glyph, a boss ring with a tick per break pip and a dashed ring outside it, and name
 ## plates. In-world sizes are screen px (divided by the zoom; the text through a scaled transform).
 func _draw_presence() -> void:
-	var pc: Dictionary = wcfg().get("presence", {})
 	var z := zoom()
-	var vei_ring := Palette.c("vei", float(pc.get("ring_alpha", 0.85)))
+	if _pres.is_empty() or not is_equal_approx(z, _pres_z) or meter_n != _pres_n:
+		_build_presence(z)   # a sleeping warden's picture is static: rebuilt only when the zoom (or its pips) change
 	var lw := 2.0 / z
+	var vei_ring: Color = _pres["vei_ring"]
+	draw_polyline(_pres["plinth"], _pres["plinth_col"], lw)
+	draw_arc(Vector2.ZERO, _pres["rr"], 0.0, TAU, 64, vei_ring, lw)
+	draw_multiline(_pres["ticks"], vei_ring, lw)
+	for dash in _pres["dashes"]:
+		draw_polyline(dash, vei_ring, lw)
+	var plates: Array = _pres["plates"]
+	for pl in plates:
+		_draw_plate(pl["lines"], pl["anchor"], pl["above"], _pres["plate_a"], pl["size"])
+
+
+## The sleeping picture's geometry at zoom `z`: the plinth's points, the ring's ticks and the dashed ring's
+## arcs (the points draw_arc would build), the plates' text, anchors and measured sizes, and the colours.
+func _build_presence(z: float) -> void:
+	var pc: Dictionary = wcfg().get("presence", {})
+	_pres_z = z
+	_pres_n = meter_n
+	var vei_ring := Palette.c("vei", float(pc.get("ring_alpha", 0.85)))
 	# plinth: a flattened ellipse the warden stands on
 	var prx := radius * float(pc.get("plinth_rx", 1.35))
 	var pry := radius * float(pc.get("plinth_ry", 0.38))
@@ -420,41 +441,59 @@ func _draw_presence() -> void:
 	for i in seg + 1:
 		var a := TAU * float(i) / float(seg)
 		pts.append(Vector2(cos(a) * prx, pcy + sin(a) * pry))
-	draw_polyline(pts, Palette.c("vei", float(pc.get("plinth_alpha", 0.55))), lw)
 	# boss ring, a tick per break pip (meter_n) from the top, and a dashed ring outside it
 	var rr := radius * float(pc.get("ring_mult", 1.9))
-	draw_arc(Vector2.ZERO, rr, 0.0, TAU, 64, vei_ring, lw)
 	var tick := float(pc.get("tick_px", 7.0)) / z
+	var ticks := PackedVector2Array()
 	for i in meter_n:
 		var d := Vector2.UP.rotated(TAU * float(i) / float(maxi(1, meter_n)))
-		draw_line(d * rr, d * (rr + tick), vei_ring, lw)
+		ticks.append(d * rr)
+		ticks.append(d * (rr + tick))
 	var dr := rr + float(pc.get("dash_gap_px", 7.0)) / z
-	var dashes := 48
-	for i in dashes:
-		var a0 := TAU * float(i) / float(dashes)
-		draw_arc(Vector2.ZERO, dr, a0, a0 + TAU / float(dashes) * 0.5, 4, vei_ring, lw)
+	var dashes: Array = []
+	var n_dash := 48
+	for i in n_dash:
+		var a0 := TAU * float(i) / float(n_dash)
+		var a1 := a0 + TAU / float(n_dash) * 0.5
+		var arc := PackedVector2Array()
+		for j in 4:   # draw_arc's own points: 4 of them, evenly from a0 to a1
+			var th := a0 + (a1 - a0) * float(j) / 3.0
+			arc.append(Vector2(cos(th), sin(th)) * dr)
+		dashes.append(arc)
 	# name plates, clear of the dashed ring
 	var name_px := maxi(12, int(pc.get("name_px", 20)))
 	var label_px := maxi(12, int(pc.get("label_px", 13)))
-	var plate_a := float(pc.get("plate_alpha", 0.8))
 	var clear := dr + float(pc.get("plate_gap_px", 6.0)) / z
 	var nm := str(spec.get("name", "")).to_upper()
-	_draw_plate([["WARDEN", label_px, Palette.c("vei", 0.85)], [nm, name_px, Palette.c("vei")]],
-		Vector2(0.0, -clear), true, plate_a)
-	_draw_plate([["break it to take this fort", label_px, Palette.c("text")]],
-		Vector2(0.0, clear), false, plate_a)
+	var above: Array = [["WARDEN", label_px, Palette.c("vei", 0.85)], [nm, name_px, Palette.c("vei")]]
+	var below: Array = [["break it to take this fort", label_px, Palette.c("text")]]
+	_pres = {"vei_ring": vei_ring, "plinth": pts, "plinth_col": Palette.c("vei", float(pc.get("plinth_alpha", 0.55))),
+		"rr": rr, "ticks": ticks, "dashes": dashes, "plate_a": float(pc.get("plate_alpha", 0.8)),
+		"plates": [
+			{"lines": above, "anchor": Vector2(0.0, -clear), "above": true, "size": _plate_size(above)},
+			{"lines": below, "anchor": Vector2(0.0, clear), "above": false, "size": _plate_size(below)},
+		]}
 
 
-## Text lines (each [text, screen px, colour]) on a dark plate sized to them, centred on x = anchor.x,
-## its bottom edge (above) or top edge (below) on the anchor. Drawn in screen px through a transform.
-func _draw_plate(lines: Array, anchor: Vector2, above: bool, plate_a: float) -> void:
+## A plate's text block size (the widest line, the lines' heights summed), in screen px.
+func _plate_size(lines: Array) -> Vector2:
 	var font := ThemeDB.fallback_font
-	var pad := 4.0
 	var w := 0.0
 	var h := 0.0
 	for ln in lines:
 		w = maxf(w, font.get_string_size(str(ln[0]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(ln[1])).x)
 		h += font.get_height(int(ln[1]))
+	return Vector2(w, h)
+
+
+## Text lines (each [text, screen px, colour]) on a dark plate sized to them (`sz`, from _plate_size), centred
+## on x = anchor.x, its bottom edge (above) or top edge (below) on the anchor. Drawn in screen px through a transform.
+## `box` is the lines' measured size.
+func _draw_plate(lines: Array, anchor: Vector2, above: bool, plate_a: float, box: Vector2) -> void:
+	var font := ThemeDB.fallback_font
+	var pad := 4.0
+	var w := box.x
+	var h := box.y
 	var z := zoom()
 	var top := -(h + pad * 2.0) if above else 0.0
 	draw_set_transform(anchor, 0.0, Vector2(1.0 / z, 1.0 / z))

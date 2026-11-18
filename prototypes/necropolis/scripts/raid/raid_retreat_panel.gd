@@ -8,7 +8,8 @@ extends Control
 ## Mouse only. A left click on RETREAT leaves; a left click on STAY closes it. The raid closes it
 ## too when Space, right mouse or Esc is pressed (`is_stay_key`: the player chose to fight) or when
 ## Relish walks off the exit. Nothing here takes focus and no key ever confirms. It is not modal:
-## the raid runs on under it, and a click outside it still moves Relish.
+## the raid runs on under it, and a click outside it still moves Relish. Its mouse filter is PASS: only a left
+## button event on the plate is accepted, so a right press (the trance) and a dragged loop go through it.
 ## No autoloads (Palette reads its file when ConfigDb is absent), so tests drive this class headless.
 
 signal chosen(retreat: bool)
@@ -30,7 +31,9 @@ var _hover := ""
 
 func _init() -> void:
 	focus_mode = Control.FOCUS_NONE
-	mouse_filter = Control.MOUSE_FILTER_STOP   # a click on the plate never reaches the floor (no move)
+	# PASS: only a left-button event on the plate is accepted (`_gui_input`), so a left click never moves Relish
+	# but a right press (the trance) and mouse motion (a loop dragged across the plate) reach the raid
+	mouse_filter = Control.MOUSE_FILTER_PASS
 	visible = false
 
 
@@ -42,9 +45,25 @@ func open(p_lines: PackedStringArray) -> void:
 	queue_redraw()
 
 
+## New lines for the open panel (what a retreat pays changes as she picks things up): refit and redraw only
+## when they differ from the ones shown.
+func refresh_lines(p_lines: PackedStringArray) -> void:
+	if not visible or p_lines == lines:
+		return
+	lines = p_lines
+	_fit()
+	queue_redraw()
+
+
 func close() -> void:
 	visible = false
 	_hover = ""
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_MOUSE_EXIT and _hover != "":
+		_hover = ""
+		queue_redraw()
 
 
 func is_open() -> bool:
@@ -62,8 +81,8 @@ func stay_rect() -> Rect2:
 ## The panel's size for its lines, and the two button rects (local coordinates).
 func _fit() -> void:
 	var h := PAD + 30.0 + float(lines.size()) * LINE_H + 14.0 + BTN.y + 8.0 + 18.0 + PAD
+	custom_minimum_size = Vector2(W, h)   # first: a minimum set after the size would keep an old, taller plate
 	size = Vector2(W, h)
-	custom_minimum_size = size
 	var by := h - PAD - 18.0 - 8.0 - BTN.y
 	var x0 := (W - 2.0 * BTN.x - BTN_GAP) * 0.5
 	_retreat_rect = Rect2(Vector2(x0, by), BTN)
@@ -115,8 +134,8 @@ func _gui_input(ev: InputEvent) -> void:
 			_hover = hv
 			queue_redraw()
 		return
-	if ev is InputEventMouseButton:
-		accept_event()
+	if ev is InputEventMouseButton and (ev as InputEventMouseButton).button_index == MOUSE_BUTTON_LEFT:
+		accept_event()   # a left press or release on the plate never moves Relish; any other button reaches the raid
 		apply(classify(ev))
 
 

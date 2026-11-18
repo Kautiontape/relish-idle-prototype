@@ -22,6 +22,7 @@ const L_DRAG := "then drag a loop around essence to RAISE undead"
 const CAP_PAD := 7.0     # a key cap's side padding
 const CAP_VPAD := 5.0    # and its top and bottom
 const MIN_PX := 12      # nothing in the legend is set smaller
+const HDR_HIT := 44.0   # the header's hit band is at least this tall (touch floor)
 
 var is_open := true
 var _row_px := 14
@@ -33,6 +34,7 @@ var _chip := Vector2(140.0, 44.0)
 var _header_rect := Rect2()
 var _rows: Array = []   # per row: [y, [[kind, text, x, w], ...]] kind "cap" or "txt"
 var _hdr_hide_x := 0.0
+var _hdr_base := 0.0   # the header label's baseline
 
 
 func _init() -> void:
@@ -68,9 +70,12 @@ func _fit() -> void:
 	if is_open:
 		var cap_h := float(_key_px) + 2.0 * CAP_VPAD
 		var hdr_h := float(_key_px) + 4.0
-		var y := _pad
-		_header_rect = Rect2(0.0, 0.0, 0.0, y + hdr_h + _gap * 0.5)
-		y += hdr_h + _gap
+		# the header is the toggle's target: its hit band is at least HDR_HIT tall (the touch floor), the label
+		# centred in it, so the plate grows upward by what the compact row lacked
+		var hb := maxf(HDR_HIT, _pad + hdr_h + _gap * 0.5)
+		_header_rect = Rect2(0.0, 0.0, 0.0, hb)
+		_hdr_base = (hb - hdr_h) * 0.5 + float(_key_px) * 0.85
+		var y := hb + _gap * 0.5
 		var widest := _w(L_HEADER, _key_px) + 24.0 + _w(L_HIDE, _key_px)
 		var spec := [
 			[cap_h, [["cap", L_CLICK], ["txt", L_MOVE]]],
@@ -128,7 +133,7 @@ func _draw() -> void:
 		draw_string(font, Vector2(0.0, size.y * 0.5 + float(_key_px) * 0.36), L_CHIP,
 			HORIZONTAL_ALIGNMENT_CENTER, size.x, _key_px, Palette.c("text"))
 		return
-	var hy := _pad + float(_key_px) * 0.85
+	var hy := _hdr_base
 	draw_string(font, Vector2(_pad, hy), L_HEADER, HORIZONTAL_ALIGNMENT_LEFT, -1.0, _key_px, Palette.c("text_dim"))
 	draw_string(font, Vector2(_hdr_hide_x, hy), L_HIDE, HORIZONTAL_ALIGNMENT_LEFT, -1.0, _key_px, Palette.c("text_dim"))
 	for row in _rows:

@@ -2,7 +2,7 @@ class_name RaidClearCard
 extends Control
 ## The clear card: when Relish opens the warden's chest, one card names what was won (the fort is yours,
 ## the warden broken, the loot, what comes next: RaidLogic.clear_card_title / clear_card_rows) before the
-## win goes out. A click or SPACE after `clear.skip_after_s` dismisses it; RaidWardenRun also ends it after
+## win goes out. A click, SPACE or Enter after `clear.skip_after_s` dismisses it; RaidWardenRun also ends it after
 ## `clear.card_s`. The result and its single emit are RaidEndings' (finish guards a double).
 ## Modelled on RaidDeathCard. Numbers: raid.json `clear`.
 
@@ -43,17 +43,12 @@ func _alpha() -> float:
 	return 1.0 if (Pulse.reduced_motion or _fade <= 0.0) else clampf(_t / _fade, 0.0, 1.0)
 
 
-## A left click, or a SPACE press that is not an echo (a SPACE already held when the card opened is an echo
-## or a press before the gate: it never skips it), once the skip gate is open.
+## Skips as the death card does (RaidLogic.card_skips): any mouse button, or a non-echo Space, Enter or keypad
+## Enter press, once the skip gate is open (a key already held when the card opened is an echo: it never skips).
 func _input(ev: InputEvent) -> void:
-	if _skipped or not can_skip():
+	if _skipped:
 		return
-	var go := false
-	if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
-		go = true
-	elif ev is InputEventKey and ev.pressed and not ev.echo and ev.keycode == KEY_SPACE:
-		go = true
-	if go:
+	if RaidLogic.card_skips(ev, _t, _skip_after):
 		_skipped = true
 		get_viewport().set_input_as_handled()
 		dismissed.emit()
@@ -91,4 +86,4 @@ func _draw() -> void:
 		draw_multiline_string(f, Vector2(x + lw, y), str(r["text"]), HORIZONTAL_ALIGNMENT_LEFT, vw, vpx, -1, Palette.c(str(r["key"]), a))
 		y += float(heights[i])
 	if can_skip():
-		draw_string(f, Vector2(x, y + 4.0), "click to return to the realm", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Palette.c("text_dim", a))
+		draw_string(f, Vector2(x, y + 4.0), "click or press Space to return to the realm", HORIZONTAL_ALIGNMENT_LEFT, -1, 13, Palette.c("text_dim", a))

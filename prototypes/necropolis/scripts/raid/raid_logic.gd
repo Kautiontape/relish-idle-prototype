@@ -427,14 +427,83 @@ static func goal_line(fort_name: String, warden_name: String, held: bool) -> Str
 
 ## T4: where the warden is. `route_len` is the hops from the spawn's room to the warden's room plus one (the
 ## rooms on the shortest route), `hops_left` the hops from Relish's room to the warden's, `compass` the word
-## of the next step ("" drops it). An off-route detour (more hops left than the route has) reads as room 1.
+## of the next step, the door to take ("" drops that clause). The warden itself may lie in another direction
+## (its WARDEN chevron points straight at it), so the word is named "next door". An off-route detour (more
+## hops left than the route has) reads as room 1.
 static func route_line(route_len: int, hops_left: int, compass_word: String) -> String:
 	if hops_left <= 0:
 		return "you are in the warden's room"
-	var tail := "the warden is %d room%s%s" % [hops_left, "" if hops_left == 1 else "s", "" if compass_word == "" else " " + compass_word]
+	var tail := "the warden is %d room%s on%s" % [hops_left, "" if hops_left == 1 else "s", "" if compass_word == "" else " · next door " + compass_word]
 	if route_len <= 0:   # the spawn's room has no walk to the warden's: no "room n of m"
 		return tail
 	return "room %d of %d · %s" % [clampi(route_len - hops_left, 1, route_len), route_len, tail]
+
+
+## T4: the GoalBlock's chest row, once the warden is down and its chest stands.
+const CHEST_ROW := "open the chest to take the fort"
+
+
+## T4: the GoalBlock's rows [{text, px, key}] for `s`: held (bool), fort_name, warden_alive (bool), warden_name,
+## route_text, break_rows (Array of String), chest (bool: the warden is down and its chest stands), no_army
+## (bool), goal_px / route_px / row_px (font sizes). A held raid keeps only its goal; a living warden adds the
+## route and how to break it; a fallen one the chest; the no-army row follows any of them. No rows: none shown.
+static func goal_rows(s: Dictionary) -> Array:
+	var rows: Array = []
+	var gpx := int(s.get("goal_px", 17))
+	var rpx := int(s.get("route_px", 14))
+	var xpx := int(s.get("row_px", 13))
+	var fort := str(s.get("fort_name", ""))
+	if bool(s.get("held", false)):
+		rows.append({"text": goal_line(fort, "", true), "px": gpx, "key": "vei"})
+	elif bool(s.get("warden_alive", false)):
+		rows.append({"text": goal_line(fort, str(s.get("warden_name", "")), false), "px": gpx, "key": "vei"})
+		rows.append({"text": str(s.get("route_text", "")), "px": rpx, "key": "text"})
+		for r in s.get("break_rows", []):
+			rows.append({"text": str(r), "px": xpx, "key": "text_dim"})
+	elif bool(s.get("chest", false)):
+		rows.append({"text": goal_line(fort, str(s.get("warden_name", "")), false), "px": gpx, "key": "vei"})
+		rows.append({"text": CHEST_ROW, "px": rpx, "key": "text"})
+	if not rows.is_empty() and bool(s.get("no_army", false)):
+		rows.append({"text": NO_ARMY_LINE, "px": xpx, "key": "danger"})
+	return rows
+
+
+## The banner's top: `base` while no top-centre block shows, else stepped down 14 px under it, and further by
+## what the block is taller than its 62 px base (`block_h` is its height).
+static func banner_top(base: float, block_visible: bool, block_h: float) -> float:
+	if not block_visible:
+		return base
+	return base + 14.0 + maxf(0.0, block_h - 62.0)
+
+
+## Where an edge chevron at `p` (with its label at `label_rect`) goes so it never sits under the top-centre
+## HUD block `block_rect` (an empty rect: no block): a chevron whose point or label falls inside the block
+## moves to just below the block's bottom edge, same x, clamped into `view` (inset EDGE_INSET). Else `p`.
+const EDGE_INSET := 34.0
+const EDGE_BELOW := 18.0   # the chevron's point stands 12 px ahead of `p`: p sits this far under the block
+
+
+static func edge_clear_of(p: Vector2, label_rect: Rect2, block_rect: Rect2, view: Vector2) -> Vector2:
+	if block_rect.size.x <= 0.0 or block_rect.size.y <= 0.0:
+		return p
+	var chev := Rect2(p - Vector2(12.0, 12.0), Vector2(24.0, 24.0))
+	if not (block_rect.has_point(p) or block_rect.intersects(chev) or block_rect.intersects(label_rect)):
+		return p
+	return Vector2(clampf(p.x, EDGE_INSET, maxf(EDGE_INSET, view.x - EDGE_INSET)),
+		clampf(block_rect.end.y + EDGE_BELOW, EDGE_INSET, maxf(EDGE_INSET, view.y - EDGE_INSET)))
+
+
+## The shared skip rule of the death and clear cards: once `t` has reached `gate`, any mouse button press, or
+## a non-echo press of Space, Enter or keypad Enter, skips the card. Before the gate, nothing does.
+static func card_skips(ev: InputEvent, t: float, gate: float) -> bool:
+	if t < gate:
+		return false
+	if ev is InputEventMouseButton:
+		return (ev as InputEventMouseButton).pressed
+	if ev is InputEventKey:
+		var k := ev as InputEventKey
+		return k.pressed and not k.echo and (k.keycode == KEY_SPACE or k.keycode == KEY_ENTER or k.keycode == KEY_KP_ENTER)
+	return false
 
 
 ## T4: she has no undead with her, no loose essence, nothing carried and no corpse pile left to stir:
@@ -515,8 +584,6 @@ static func death_lost_line(unbanked: Dictionary, party_n: int) -> String:
 	return "nothing" if parts.is_empty() else " · ".join(parts)
 
 
-## The death card's geometry (RaidDeathCard._draw reads it; the test measures the widest value against it):
-## card width, padding, the label column, the value font size.
 ## The clear card's title (the raid's win, RaidClearCard): "OLD SLUICE IS YOURS".
 static func clear_card_title(fort_name: String) -> String:
 	return "%s IS YOURS" % fort_name.to_upper()
@@ -534,6 +601,8 @@ static func clear_card_rows(warden_name: String, loot: Dictionary) -> Array:
 	]
 
 
+## The death card's geometry (RaidDeathCard._draw reads it, and so does the clear card; the test measures the
+## widest value against it): card width, padding, the label column, the value font size.
 const DEATH_CARD := {"w": 560.0, "pad": 22.0, "label_w": 120.0, "value_px": 18}
 
 
@@ -1117,7 +1186,7 @@ static func held_door_pick(stats: Array, threshold: float, ap: Dictionary) -> in
 
 
 ## The held door's words (the world label, the plate's prompt, the HUD row, the death card's row and the
-## retreat dialog's line). `name` is the big's.
+## retreat panel's line). `name` is the big's.
 const HELD_DOOR_ENTRY := "HELD DOOR · a big on the plate holds it · it stays behind · the warden fight is harder without it"
 
 
@@ -1162,7 +1231,6 @@ static func death_rows_with_shut(rows: Array, shut: String) -> Array:
 	return out
 
 
-## The retreat dialog's line for a big spent on the door, by its state ("" when none is spent).
 ## The retreat panel's lines (Phase I item 6/8, the glossary's words): what a retreat keeps, as counts
 ## (`keep` is loot_counts of what a retreat pays: everything found plus the carried essence, as
 ## result_loot builds it), and what stays: the fort stays Vei's (a held fort stays yours). `door_line`
@@ -1178,6 +1246,7 @@ static func retreat_lines(held: bool, keep: Dictionary, door_line: String) -> Pa
 	return out
 
 
+## The retreat panel's line for a big spent on the door, by its state ("" when none is spent).
 static func held_door_retreat_line(state: String, name: String) -> String:
 	match state:
 		"sent":
