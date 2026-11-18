@@ -18,6 +18,9 @@ func run() -> int:
 	_vei(t)
 	_village(t)
 	_blocks(t)
+	_comes(t)
+	_parity(t)
+	_sidebar_src(t)
 	_contrast(t)
 	_real(t)
 	return t.failures
@@ -193,7 +196,7 @@ func _fort_entry() -> Dictionary:
 
 func _blocks(t: TestUtil) -> void:
 	var back := {"death": {"outcome": "unmade", "respawn_s": 0.0, "loses": ["party", "unbanked_loot", "morale"]}}
-	var card := CardBlocksLogic.fort_card(_fort_entry(), "a drowned water-works", back, {}, _loot_cfg())
+	var card := _fc(_fort_entry(), "a drowned water-works", back, {}, _loot_cfg())
 	t.ok(card["title"] == "Old Sluice" and card["sub"] == "FORTRESS · TIER 1 · CAPACITY 80", "fort title and subtitle: " + str(card["sub"]))
 	var ids: Array = card["blocks"].map(func(b): return b["id"])
 	for want in ["warden", "tell1", "hint", "loot", "first_clear", "versus", "risk", "death0", "death1", "living", "undead", "dead", "space", "war_in", "ship_in", "chips"]:
@@ -208,16 +211,24 @@ func _blocks(t: TestUtil) -> void:
 	t.ok(by_id["death0"]["text"].begins_with("If she dies now: ") and by_id["death1"]["text"].begins_with("loses: "), "the death cost is in words")
 	var wide := _fort_entry()
 	wide["warden"] = {"archetype": "huntsman", "tells": ["a", "b"]}
-	var wb: Array = CardBlocksLogic.fort_card(wide, "", back, {}, _loot_cfg())["blocks"].filter(func(b): return str(b["id"]).begins_with("tell"))
+	var wb: Array = _fc(wide, "", back, {}, _loot_cfg())["blocks"].filter(func(b): return str(b["id"]).begins_with("tell"))
 	t.ok(wb.size() == 2 and wb[0]["text"] == "TELLS: a" and wb[1]["text"] == "· b", "several tells, one line each")
 	var stub := _fort_entry()
 	stub["threat"] = {"party_strength": 0.0, "garrison_strength": 0.0, "risk": "low", "risk_pct": -1.0}
 	stub["loot_hint"] = ""
 	stub["first_dungeon"] = false
 	stub["first_clear"] = false
-	var sc := CardBlocksLogic.fort_card(stub, "", back, {}, _loot_cfg())
-	var vs: Dictionary = sc["blocks"].filter(func(b): return b["kind"] == "versus")[0]
-	t.ok(not vs["known"] and str(vs["text"]).contains("—"), "the E1 stub renders as an unknown comparison")
+	var sc := _fc(stub, "", back, {}, _loot_cfg())
+	# was: the stub rendered as an unknown "PARTY — vs GARRISON —" versus block; now the threat blocks are omitted (map-i M1 task 3)
+	var sids: Array = sc["blocks"].map(func(b): return b["id"])
+	t.ok(not sids.has("threat_head") and not sids.has("versus") and not sids.has("risk"), "the E1 stub omits the threat head, versus and risk blocks")
+	t.ok(sids.has("death0"), "and keeps the death lines")
+	var known: Array = _fc(_fort_entry(), "", back, {}, _loot_cfg())["blocks"].map(func(b): return b["id"])
+	t.ok(known.has("threat_head") and known.has("versus") and known.has("risk"), "a known threat shows all three")
+	var pct := _fort_entry()
+	pct["threat"] = {"party_strength": 0.0, "garrison_strength": 0.0, "risk": "risky", "risk_pct": 34.0}
+	var pids: Array = _fc(pct, "", back, {}, _loot_cfg())["blocks"].map(func(b): return b["id"])
+	t.ok(pids.has("versus") and pids.has("risk"), "a known risk % alone shows them too")
 	t.ok(not (sc["blocks"] as Array).any(func(b): return b["id"] == "hint"), "no hint row when there is none")
 	var order: Array = ids.filter(func(i): return ["chips", "state", "raid", "retreat", "warden"].has(i))
 	t.ok(order == ["chips", "state", "raid", "retreat", "warden"], "order: chips, state, raid, retreat, warden: " + str(order))
@@ -227,19 +238,19 @@ func _blocks(t: TestUtil) -> void:
 	var hf := _fort_entry()
 	hf["held"] = true
 	var hb := {}
-	for b in CardBlocksLogic.fort_card(hf, "", back, {}, _loot_cfg())["blocks"]:
+	for b in _fc(hf, "", back, {}, _loot_cfg())["blocks"]:
 		hb[b["id"]] = b
 	t.ok(hb["raid"]["text"] == "Raid it again for loot: less each time; it recovers over 8 h." and hb["retreat"]["text"].ends_with("the fort stays yours."), "held: raid again and retreat words")
 	var lc := _loot_cfg()
 	lc["recover_s"] = 7200.0
 	var hb2 := {}
-	for b in CardBlocksLogic.fort_card(hf, "", back, {}, lc)["blocks"]:
+	for b in _fc(hf, "", back, {}, lc)["blocks"]:
 		hb2[b["id"]] = b
 	t.ok(str(hb2["raid"]["text"]).contains("over 2 h"), "the hours come from recover_s: " + str(hb2["raid"]["text"]))
 	t.ok(CardBlocksLogic.card_sig(card) != CardBlocksLogic.card_sig(sc), "a different structure has a different signature")
 	var c2 := _fort_entry()
 	c2["living"] = 12.0
-	t.ok(CardBlocksLogic.card_sig(CardBlocksLogic.fort_card(c2, "a drowned water-works", back, {}, _loot_cfg())) == CardBlocksLogic.card_sig(card), "a changed number keeps the signature")
+	t.ok(CardBlocksLogic.card_sig(_fc(c2, "a drowned water-works", back, {}, _loot_cfg())) == CardBlocksLogic.card_sig(card), "a changed number keeps the signature")
 
 	var vei := {"backlog": 18450.0, "odds": 0.61, "sign": 1, "diff_ema": 6.1, "drain_s": -1.0, "fronts_met": 1, "fronts_required": 3,
 		"fronts": [{"id": "giants", "need": 24.0, "have": 26.5, "cleared": true, "assigned": ["u1"]}]}
@@ -299,7 +310,7 @@ func _real(t: TestUtil) -> void:
 	t.ok(not m.backups.is_empty() and m.backups.has("death") and m.party.has("party"), "the model caches backups and the party")
 	var back := m.backups
 	for f in m.forts:
-		var card := CardBlocksLogic.fort_card(f, "", back, m.unit_names, _loot_cfg())
+		var card := _fc(f, "", back, m.unit_names, _loot_cfg(), m.party)
 		var empty := false
 		for b in card["blocks"]:
 			for k in ["text", "value", "label"]:
@@ -308,7 +319,7 @@ func _real(t: TestUtil) -> void:
 		t.ok(not empty and str(card["title"]) != "" and str(card["sub"]) != "", "fort %s card has no empty required line" % f["id"])
 	var vc := CardBlocksLogic.vei_card(m.vei, "", m.party["party"], m.unit_names, m.readout())
 	t.ok(str(vc["title"]) != "" and (vc["blocks"] as Array).size() > 8, "the Vei card builds from the real view")
-	t.ok(CardLogic.confirm_text(m.readout()).contains("%"), "the confirm text builds from the real view")
+	t.ok(CardLogic.confirm_text(m.readout(), m.vei).contains("%"), "the confirm text builds from the real view")
 	# the card and the dialog read the one readout the bar and Vei's node draw, with and without the demo
 	for demo in [false, true]:
 		var md := MapModel.new(s)
@@ -369,6 +380,114 @@ func _assigned_to(s: GameState, front_id: String) -> Array:
 		if f["id"] == front_id:
 			return f["assigned"]
 	return []
+
+
+## fort_card with the real raid and economy configs and the realm's tide bias; `party` is view_party() (none by default).
+func _fc(f: Dictionary, desc: String, back: Dictionary, names: Dictionary, lc: Dictionary, party := {"party": []}) -> Dictionary:
+	return CardBlocksLogic.fort_card(f, desc, back, names, lc, party, TestUtil.load_json("res://configs/raid.json"),
+		TestUtil.load_json("res://configs/economy.json"), float(TestUtil.load_json("res://configs/realm.json")["relish"]["tide_bias"]))
+
+
+func _comes(t: TestUtil) -> void:
+	var raid := TestUtil.load_json("res://configs/raid.json")
+	var econ := TestUtil.load_json("res://configs/economy.json")
+	var none := {"party": []}
+	var two := {"party": [{"uid": "a"}, {"uid": "b"}]}
+	var first := CardLogic.comes_in(_fort_entry(), none, raid, econ)
+	t.ok(first == {"garrison": 0, "starter": 8, "bigs": 0, "total": 8}, "the first dungeon: starter 8, garrison 0 of undead 6.4: " + str(first))
+	var f27 := _fort_entry()
+	f27["undead"] = 27.5
+	f27["first_dungeon"] = false
+	t.ok(CardLogic.comes_in(f27, none, raid, econ) == {"garrison": 2, "starter": 0, "bigs": 0, "total": 2}, "undead 27.5: garrison 2, no starter")
+	f27["undead"] = 500.0
+	var cap := int(raid["mass"]["garrison_max"])
+	t.ok(cap == 12 and CardLogic.comes_in(f27, none, raid, econ)["garrison"] == cap, "undead 500: the garrison caps at garrison_max")
+	f27["held"] = false
+	f27["garrison"] = 0.0
+	t.ok(CardLogic.comes_in(f27, two, raid, econ) == {"garrison": 12, "starter": 0, "bigs": 2, "total": 14}, "bigs count the party; `garrison` (0 unheld) is not read")
+	# profiles and the warning
+	t.ok(CardLogic.profile(1, raid) == {"undead": 6, "bigs": 0} and CardLogic.profile(2, raid) == {"undead": 6, "bigs": 1}
+		and CardLogic.profile(3, raid) == {"undead": 8, "bigs": 2} and CardLogic.profile(4, raid) == {"undead": 12, "bigs": 3}, "profiles t1..t4")
+	t.ok(CardLogic.profile(9, raid) == CardLogic.profile(4, raid) and CardLogic.profile(0, raid) == CardLogic.profile(1, raid), "the tier clamps to 1..4")
+	var zero := {"garrison": 0, "starter": 0, "bigs": 0, "total": 0}
+	var w0 := CardLogic.comes_in_warning(zero, CardLogic.profile(2, raid), 2)
+	t.ok(w0 == {"text": "No undead come in. Relish never attacks, so this raid can't be won yet.", "key": "danger"}, "nobody: danger")
+	var low := {"garrison": 6, "starter": 0, "bigs": 0, "total": 6}
+	var w2 := CardLogic.comes_in_warning(low, CardLogic.profile(2, raid), 2)
+	t.ok(w2 == {"text": "Below a standard tier-2 party (6 undead, 1 big undead): expect losses.", "key": "select"}, "below t2 names 1 big: " + str(w2))
+	t.ok(CardLogic.comes_in_warning({"garrison": 5, "starter": 0, "bigs": 1, "total": 6}, CardLogic.profile(2, raid), 2)["key"] == "select", "too few undead warns too")
+	t.ok(CardLogic.comes_in_warning({"garrison": 6, "starter": 0, "bigs": 1, "total": 7}, CardLogic.profile(2, raid), 2).is_empty(), "at the profile: no warning")
+	t.ok(CardLogic.comes_in_warning({"garrison": 12, "starter": 0, "bigs": 4, "total": 16}, CardLogic.profile(4, raid), 4).is_empty(), "above the profile: no warning")
+	var w1 := CardLogic.comes_in_warning({"garrison": 2, "starter": 0, "bigs": 0, "total": 2}, CardLogic.profile(1, raid), 1)
+	t.ok(w1["text"] == "Below a standard tier-1 party (6 undead): expect losses.", "a t1 profile drops the big-undead part: " + str(w1))
+	# the card
+	var back := {"death": {"outcome": "unmade", "respawn_s": 0.0, "loses": ["party"]}}
+	var ids: Array = _fc(_fort_entry(), "", back, {}, _loot_cfg())["blocks"].map(func(b): return b["id"])
+	var want := ["chips", "state", "raid", "retreat", "comes_in_head", "comes_in", "bring_more", "warden"]
+	t.ok(ids.filter(func(i): return want.has(i)) == want, "block order: chips, state, raid, retreat, comes_in_head, comes_in, bring_more, warden (no warning for a first dungeon): " + str(ids))
+	var warn_f := _fort_entry()
+	warn_f["first_dungeon"] = false
+	warn_f["tier"] = 2
+	var wb := {}
+	var wids: Array = []
+	for b in _fc(warn_f, "", back, {}, _loot_cfg())["blocks"]:
+		wb[b["id"]] = b
+		wids.append(b["id"])
+	want = ["chips", "state", "raid", "retreat", "comes_in_head", "comes_in", "bring_more", "comes_warn", "warden"]
+	t.ok(wids.filter(func(i): return want.has(i)) == want, "with a warning: comes_warn sits before the warden: " + str(wids))
+	t.ok(wb["comes_warn"]["key"] == "danger" and wb["comes_warn"]["text"].begins_with("No undead come in"), "nobody coming in: the danger line on the card")
+	t.ok(wb["comes_in_head"]["text"] == "WHO COMES IN" and wb["comes_in"]["face"] == "mass" and wb["comes_in"]["text"] == "Garrison 0 (from WAR) · starter 0 · big undead 0 · total 0", "the head and the count: " + str(wb["comes_in"]["text"]))
+	t.ok(wb["bring_more"]["key"] == "text_dim" and wb["bring_more"]["text"].contains("draws 3× its share") and wb["bring_more"]["text"].begins_with("Bring more: raise WAR on the valve;"), "the tide bias reads from config: " + str(wb["bring_more"]["text"]))
+	t.ok(CardLogic.bring_more_text(2.5).contains("2.5×") and CardLogic.bring_more_text(3.0).contains("3×") and not CardLogic.bring_more_text(3.0).contains("3.0"), "no trailing .0")
+	# the pinned line and the descend dialog text
+	t.ok(CardLogic.comes_count_text({"garrison": 2, "starter": 8, "bigs": 1, "total": 11}) == "10 undead and 1 big undead come in", "the pinned count")
+	t.ok(CardLogic.descend_confirm_text(w0) == w0["text"] + "\n\nDescend anyway?", "the descend dialog's text")
+	# vei: fronts short versus met
+	var short := {"fronts_met": 1, "fronts_required": 3}
+	var sentence := "Fronts met 1 of 3 required: Vei will likely win. Assign big undead to the open fronts."
+	var ro := {"odds": 0.61, "sign": 1, "drain_s": 200.0}
+	t.ok(CardLogic.confirm_text(ro, short).ends_with("\n" + sentence), "confirm_text appends the shortfall on its own line")
+	t.ok(CardLogic.confirm_text(ro, {"fronts_met": 3, "fronts_required": 3}) == CardLogic.confirm_text(ro) and not CardLogic.confirm_text(ro, {"fronts_met": 3, "fronts_required": 3}).contains("Fronts met"), "fronts met: no shortfall line")
+	var home := {"state": "at_vei", "at": "vei"}
+	var va := RelishLogic.vei_actions({"can_begin": true, "reason": "", "fronts_met": 1, "fronts_required": 3}, home)
+	var wi := va.find_custom(func(i): return i["text"] == sentence)
+	var bi := va.find_custom(func(i): return i["act"] == "begin")
+	t.ok(wi >= 0 and wi < bi and va[wi]["key"] == "danger" and va[bi]["enabled"], "vei_actions: a danger line above an enabled BEGIN")
+	t.ok(not RelishLogic.vei_actions({"can_begin": true, "reason": "", "fronts_met": 3, "fronts_required": 3}, home).any(func(i): return str(i["text"]).begins_with("Fronts met")), "no line with the fronts met")
+
+
+## comes_in matches the sim's own garrison and starter counts (view_party) at the fort Relish stands at.
+func _parity(t: TestUtil) -> void:
+	var raid := TestUtil.load_json("res://configs/raid.json")
+	var econ := TestUtil.load_json("res://configs/economy.json")
+	for cs in [["day1", "old-sluice"], ["midgame_2flips", "greywall"]]:
+		var s := GameState.new(TestUtil.configs())
+		s.debug_enabled = true
+		t.ok(s.cmd_debug_load_fixture(cs[0])["ok"], "%s loads" % cs[0])
+		t.ok(s.cmd_debug_set_state({"relish_at": cs[1]})["ok"], "Relish stands at %s" % cs[1])
+		var party := s.view_party()
+		var fort: Dictionary = s.view_realm()["forts"].filter(func(f): return f["id"] == cs[1])[0]
+		var ci := CardLogic.comes_in(fort, party, raid, econ)
+		t.ok(party["fort_id"] == cs[1], "view_party is for %s" % cs[1])
+		t.ok(ci["garrison"] == party["garrison_units"] and ci["starter"] == party["starter_units"], "%s: comes_in garrison %d / starter %d equal view_party's %d / %d (undead %.1f)" % [cs[1], ci["garrison"], ci["starter"], party["garrison_units"], party["starter_units"], fort["undead"]])
+		t.ok(ci["bigs"] == (party["party"] as Array).size(), "%s: bigs are the party's" % cs[1])
+
+
+## map_sidebar.gd names autoloads, so it is read as text: DESCEND checks who comes in before it dives, and a
+## "Descend anyway" dialog (its own, so a confirmed BEGIN still dives to Vei) dives to the fort.
+func _sidebar_src(t: TestUtil) -> void:
+	var src := FileAccess.get_file_as_string("res://scripts/map/map_sidebar.gd")
+	var a := src.find('"descend":')
+	var b := src.find('"begin":')
+	t.ok(a >= 0 and b > a, "the sidebar has descend and begin branches")
+	var branch := src.substr(a, b - a)
+	t.ok(branch.contains('["total"]') and branch.find('["total"]') < branch.find("dive.emit"), "the descend branch checks comes_in's total before dive.emit")
+	t.ok(branch.contains("_descend_confirm.popup_centered()"), "and opens the dialog when nobody comes in")
+	t.ok(src.contains("_descend_confirm.confirmed.connect(func(): dive.emit(_descend_id))") and src.contains("_confirm.confirmed.connect(func(): dive.emit(MapModel.VEI))"), "each dialog dives to its own id")
+	t.ok(src.contains("descend_confirm_ok") and src.contains("descend_confirm_title"), "the dialog's words come from config")
+	var cards: Dictionary = TestUtil.load_json("res://configs/map_view.json")["cards"]
+	t.ok(cards["descend_confirm_ok"] == "Descend anyway" and cards["descend_confirm_title"] == "No undead come in", "the dialog's title and OK")
+	t.ok(src.contains('items[i].get("key", "text_dim")'), "a line is coloured by its key, text_dim by default")
 
 
 func _loot_cfg() -> Dictionary:

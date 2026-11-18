@@ -7,6 +7,8 @@ extends RefCounted
 const MAP_DIR := "res://scripts/map"
 const NEW_FILES := ["valve_logic.gd", "relish_logic.gd", "map_valve.gd", "map_relish_chip.gd", "map_route_hint.gd", "map_ui.gd"]
 const SIDE := 200.0
+## who comes in, as the sidebar passes it to RelishLogic.fort_actions: 2 + 0 undead, 1 big, no warning
+const CM := {"ci": {"garrison": 2, "starter": 0, "bigs": 1, "total": 3}, "warn": {}}
 
 
 func run() -> int:
@@ -235,29 +237,29 @@ func _actions(t: TestUtil) -> void:
 	var names := {"old-sluice": "Old Sluice", "ashgate": "Ashgate"}
 	var auto := {"target": "auto", "current": "old-sluice", "convoys": []}
 	var home := {"state": "home", "at": "covington", "target": "", "eta_s": -1.0}
-	var a := RelishLogic.fort_actions(_fort("ashgate", false, "not_at_fort"), home, auto, names)
+	var a := RelishLogic.fort_actions(_fort("ashgate", false, "not_at_fort"), home, auto, names, CM)
 	t.ok(_acts(a) == ["move", "descend", "haul"], "from home: MOVE, DESCEND, HAUL FROM HERE")
 	t.ok(a.filter(func(i): return i["act"] == "descend")[0]["enabled"] == false, "DESCEND is disabled")
 	t.ok(a.any(func(i): return i["kind"] == "line" and i["text"] == "Relish must stand here first. MOVE her."), "and says why in words")
 	t.ok(a.any(func(i): return i["text"] == "Haul: Old Sluice (auto)"), "the haul line names the auto pick")
 	t.ok(a.any(func(i): return i["text"] == "HAUL FROM HERE"), "the haul button")
 	var trav := {"state": "travelling", "at": "covington", "target": "ashgate", "eta_s": 3.6}
-	var b := RelishLogic.fort_actions(_fort("ashgate", false, "not_at_fort"), trav, auto, names)
+	var b := RelishLogic.fort_actions(_fort("ashgate", false, "not_at_fort"), trav, auto, names, CM)
 	t.ok(_acts(b) == ["cancel", "descend", "haul"], "heading here: CANCEL replaces MOVE")
 	t.ok(b.any(func(i): return i["kind"] == "line" and i["text"] == "on her way · 0:04"), "with 'on her way · 0:04'")
-	var other := RelishLogic.fort_actions(_fort("old-sluice", false, "not_at_fort"), trav, auto, names)
+	var other := RelishLogic.fort_actions(_fort("old-sluice", false, "not_at_fort"), trav, auto, names, CM)
 	t.ok(_acts(other) == ["move", "descend", "haul"], "heading elsewhere: another fort's card still has MOVE")
 	var there := {"state": "at_fort", "at": "ashgate", "target": "", "eta_s": -1.0}
-	var c := RelishLogic.fort_actions(_fort("ashgate", true, ""), there, auto, names)
+	var c := RelishLogic.fort_actions(_fort("ashgate", true, ""), there, auto, names, CM)
 	t.ok(_acts(c) == ["descend", "haul"], "arrived: no MOVE button")
 	t.ok(c.any(func(i): return i["text"] == "Relish is here"), "it says 'Relish is here'")
 	t.ok(c.filter(func(i): return i["act"] == "descend")[0]["enabled"] == true, "DESCEND is enabled when can_descend")
 	t.ok(not c.any(func(i): return i["kind"] == "line" and i["text"].begins_with("Relish must")), "and shows no reason")
-	var busy := RelishLogic.fort_actions(_fort("ashgate", false, "busy"), there, auto, names)
+	var busy := RelishLogic.fort_actions(_fort("ashgate", false, "busy"), there, auto, names, CM)
 	t.ok(busy.any(func(i): return i["text"] == "A run is already open"), "busy reason in words")
-	var dead := RelishLogic.fort_actions(_fort("ashgate", false, "dead"), {"state": "dead", "at": "covington"}, auto, names)
+	var dead := RelishLogic.fort_actions(_fort("ashgate", false, "dead"), {"state": "dead", "at": "covington"}, auto, names, CM)
 	t.ok(dead.any(func(i): return i["text"] == "Relish is dead"), "dead reason in words")
-	var set := RelishLogic.fort_actions(_fort("ashgate", true, ""), there, {"target": "ashgate", "current": "ashgate", "convoys": []}, names)
+	var set := RelishLogic.fort_actions(_fort("ashgate", true, ""), there, {"target": "ashgate", "current": "ashgate", "convoys": []}, names, CM)
 	t.ok(_acts(set) == ["descend", "haul_auto"], "a set target shows BACK TO AUTO")
 	t.ok(set.any(func(i): return i["text"] == "Haul: Ashgate (set)"), "'Haul: Ashgate (set)'")
 	t.ok(RelishLogic.haul_line({"target": "auto", "current": ""}, names) == "Haul: none yet (auto)", "auto with no pick yet")
@@ -268,7 +270,15 @@ func _actions(t: TestUtil) -> void:
 	var v2 := RelishLogic.vei_actions({"can_begin": true, "reason": ""}, {"state": "at_vei", "at": "vei"})
 	t.ok(_acts(v2) == ["begin"] and v2.filter(func(i): return i["act"] == "begin")[0]["enabled"] == true, "at Vei's gates: BEGIN enabled")
 	t.ok(RelishLogic.actions_sig(a) != RelishLogic.actions_sig(c), "the structure key changes with the layout")
-	t.ok(RelishLogic.actions_sig(b) == RelishLogic.actions_sig(RelishLogic.fort_actions(_fort("ashgate", false, "not_at_fort"), {"state": "travelling", "at": "covington", "target": "ashgate", "eta_s": 2.1}, auto, names)), "but not with a ticking ETA")
+	t.ok(RelishLogic.actions_sig(b) == RelishLogic.actions_sig(RelishLogic.fort_actions(_fort("ashgate", false, "not_at_fort"), {"state": "travelling", "at": "covington", "target": "ashgate", "eta_s": 2.1}, auto, names, CM)), "but not with a ticking ETA")
+	# the line above DESCEND: the count, or the warning in its key; the structure key ignores text and key
+	var di := c.find_custom(func(i): return i["act"] == "descend")
+	t.ok(di > 0 and c[di - 1]["kind"] == "line" and c[di - 1]["text"] == "2 undead and 1 big undead come in" and not c[di - 1].has("key"), "a count line directly above DESCEND")
+	var warned := RelishLogic.fort_actions(_fort("ashgate", true, ""), there, auto, names,
+		{"ci": {"garrison": 0, "starter": 0, "bigs": 0, "total": 0}, "warn": {"text": "No undead come in. X", "key": "danger"}})
+	var wdi := warned.find_custom(func(i): return i["act"] == "descend")
+	t.ok(warned[wdi - 1]["text"] == "No undead come in. X" and warned[wdi - 1]["key"] == "danger", "the warning replaces the count, with its key")
+	t.ok(RelishLogic.actions_sig(warned) == RelishLogic.actions_sig(c), "the structure key ignores the line's text and key")
 
 
 func _routes(t: TestUtil) -> void:
@@ -343,7 +353,7 @@ func _real_state(t: TestUtil) -> void:
 	t.ok(rel["state"] == "at_fort" and rel["at"] == "old-sluice", "she arrives at the fort")
 	var d1: Dictionary = s.view_realm()["forts"].filter(func(f): return f["id"] == "old-sluice")[0]
 	t.ok(d1["can_descend"], "DESCEND is enabled once she has arrived")
-	var acts := RelishLogic.fort_actions(d1, rel, s.view_town()["haul"], names)
+	var acts := RelishLogic.fort_actions(d1, rel, s.view_town()["haul"], names, CM)
 	t.ok(_acts(acts) == ["descend", "haul"] and acts.filter(func(i): return i["act"] == "descend")[0]["enabled"], "the card's actions reflect it")
 	t.ok(s.cmd_move_relish("covington")["ok"], "GO HOME is cmd_move_relish('covington')")
 	t.ok(s.view_relish()["target"] == "covington", "and she heads there")

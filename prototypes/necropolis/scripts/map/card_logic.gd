@@ -225,12 +225,78 @@ static func fronts_met_text(vei: Dictionary) -> String:
 
 ## The BEGIN dialog's text: repeats the odds, the sign and the drain time ("∞" when holding,
 ## "queue empty" with no backlog) from MapModel.readout(), as the top bar and Vei's node read them.
-static func confirm_text(readout: Dictionary) -> String:
+## With the fronts short (`vei.fronts_met` < `fronts_required`) the shortfall sentence follows on its own line.
+static func confirm_text(readout: Dictionary, vei: Dictionary = {}) -> String:
 	var st := HudLogic.status(readout)
 	var sign := int(st["sign"])
-	return str(_c().get("confirm_fmt", "%d %s %s")) % [roundi(clampf(float(readout.get("odds", 0.0)), 0.0, 1.0) * 100.0),
+	var text := str(_c().get("confirm_fmt", "%d %s %s")) % [roundi(clampf(float(readout.get("odds", 0.0)), 0.0, 1.0) * 100.0),
 		"%s %s" % [st["sign_text"], sign_word(sign)] if sign != 0 else sign_word(0),
 		st["drain_text"]]
+	var short := fronts_short_text(vei)
+	return text + "\n" + short if short != "" else text
+
+
+## "Fronts met 1 of 3 required: Vei will likely win. Assign big undead to the open fronts." while the
+## fronts met are fewer than required, else "".
+static func fronts_short_text(vei: Dictionary) -> String:
+	var met := int(vei.get("fronts_met", 0))
+	var need := int(vei.get("fronts_required", 0))
+	return str(_c().get("fronts_short_fmt", "%d %d")) % [met, need] if met < need else ""
+
+
+# --- who comes into a raid ---------------------------------------------------------------
+
+## Who comes in with Relish at fort `fort`: {garrison, starter, bigs, total}. The garrison is the
+## fort's undead over raid mass.garrison_mass_div (up to garrison_max; `undead`, not `garrison`, which
+## is 0 unless held), the starter party is the first dungeon's only, the bigs are `party.party`
+## (view_party()). The same formula as GameState._garrison and _starter_units.
+static func comes_in(fort: Dictionary, party: Dictionary, raid_cfg: Dictionary, econ_cfg: Dictionary) -> Dictionary:
+	var mass: Dictionary = raid_cfg.get("mass", {})
+	var garrison := clampi(int(float(fort.get("undead", 0.0)) / float(mass.get("garrison_mass_div", 10.0))), 0, int(mass.get("garrison_max", 12)))
+	var starter := int(econ_cfg.get("opening", {}).get("starter_party", 0)) if bool(fort.get("first_dungeon", false)) else 0
+	var bigs := (party.get("party", []) as Array).size()
+	return {"garrison": garrison, "starter": starter, "bigs": bigs, "total": garrison + starter + bigs}
+
+
+## The standard party of tier `tier` (clamped 1..4): {undead, bigs}, from raid autopilot.party_profiles.
+static func profile(tier: int, raid_cfg: Dictionary) -> Dictionary:
+	var p: Dictionary = raid_cfg.get("autopilot", {}).get("party_profiles", {}).get(str(clampi(tier, 1, 4)), {})
+	return {"undead": int(p.get("garrison_units", 0)) + int(p.get("starter_units", 0)), "bigs": (p.get("party", []) as Array).size()}
+
+
+## The warning before a raid: {text, key}, or {}. Nobody coming in is "danger"; a party under the
+## tier's standard is "select" (the big-undead part is dropped when the standard has none).
+static func comes_in_warning(ci: Dictionary, prof: Dictionary, tier: int) -> Dictionary:
+	if int(ci.get("total", 0)) == 0:
+		return {"text": str(_c().get("comes_none", "")), "key": "danger"}
+	var u := int(prof.get("undead", 0))
+	var b := int(prof.get("bigs", 0))
+	if int(ci.get("garrison", 0)) + int(ci.get("starter", 0)) < u or int(ci.get("bigs", 0)) < b:
+		var t := clampi(tier, 1, 4)
+		var text := (str(_c().get("comes_below_fmt", "%d %d %d")) % [t, u, b]) if b > 0 else (str(_c().get("comes_below_no_bigs_fmt", "%d %d")) % [t, u])
+		return {"text": text, "key": "select"}
+	return {}
+
+
+## "Garrison 2 (from WAR) · starter 8 · big undead 1 · total 11".
+static func comes_in_text(ci: Dictionary) -> String:
+	return str(_c().get("comes_in_fmt", "%d %d %d %d")) % [ci["garrison"], ci["starter"], ci["bigs"], ci["total"]]
+
+
+## The tide bias as the card says it: 3.0 reads "3", 2.5 reads "2.5".
+static func bring_more_text(tide_bias: float) -> String:
+	var word := str(roundi(tide_bias)) if is_equal_approx(tide_bias, roundf(tide_bias)) else String.num(tide_bias)
+	return str(_c().get("bring_more_fmt", "%s")) % word
+
+
+## The pinned count line: "8 undead and 1 big undead come in".
+static func comes_count_text(ci: Dictionary) -> String:
+	return str(_c().get("comes_count_fmt", "%d %d")) % [int(ci["garrison"]) + int(ci["starter"]), ci["bigs"]]
+
+
+## The descend dialog's text: the warning line, a blank line, then the ask.
+static func descend_confirm_text(warn: Dictionary) -> String:
+	return "%s\n\n%s" % [str(warn.get("text", "")), str(_c().get("descend_confirm_ask", ""))]
 
 
 ## The odds summary pinned beside BEGIN (out of the card's scroll): "Your odds 61% ▲ gaining ·
