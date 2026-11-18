@@ -589,6 +589,9 @@ func _refresh_next() -> void:
 		_objective.text = text
 	# an opening ask with nothing to click (the valve) stays enabled: a disabled button would dim it
 	_objective.disabled = not act and str(_next["rule"]) != NextLogic.OPENING
+	var goal := HudLogic.goal_text(str(_next["rule"]) == NextLogic.DEFAULT)  # the standing strip already says line two
+	if _goal.text != goal:
+		_goal.text = goal
 	_objective.mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND if act else Control.CURSOR_ARROW
 	if str(_next["rule"]) != NextLogic.OPENING:
 		set_opening_pulse(0.0)

@@ -211,6 +211,11 @@ func _clarity(t: TestUtil) -> void:
 	t.ok(HudLogic.goal_shown({"highest_tier_flipped": 0}), "no fort taken: the goal shows")
 	t.ok(HudLogic.goal_shown({}), "a view without the field reads as a new game")
 	t.ok(HudLogic.goal_shown({"highest_tier_flipped": 1}) and HudLogic.goal_shown({"highest_tier_flipped": 4}), "V-I1 item 9: a fort taken, any tier: the goal stays")
+	var gl: Array = MapLogic.cfg()["clarity"]["goal_lines"]
+	t.ok(HudLogic.goal_text() == "\n".join(PackedStringArray(gl)) and HudLogic.goal_text(true) == str(gl[0]), "under the standing strip only the goal's first line shows (the strip says the FLOOD-and-odds sentence)")
+	t.ok(HudLogic.objective_text({}).contains("FLOOD clogs her queue") and str(gl[1]).contains("FLOOD clogs her queue"), "which is why: both say it")
+	var hsrc := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
+	t.ok(hsrc.contains("HudLogic.goal_text(str(_next[\"rule\"]) == NextLogic.DEFAULT)"), "the HUD picks the goal's lines from the strip's rule")
 	t.ok(HudLogic.valve_explain_shown({"highest_tier_flipped": 0}) and HudLogic.valve_explain_shown({}), "no fort taken: the valve's explanation shows")
 	t.ok(not HudLogic.valve_explain_shown({"highest_tier_flipped": 1}) and not HudLogic.valve_explain_shown({"highest_tier_flipped": 0, "won": true}), "a fort taken, or won: the valve's explanation is its tooltip only")
 	t.ok(not HudLogic.goal_shown({"highest_tier_flipped": 0, "won": true}), "won: no goal line")

@@ -100,9 +100,14 @@ static func valve_explain_shown(hud: Dictionary) -> bool:
 	return int(hud.get("highest_tier_flipped", 0)) == 0 and not bool(hud.get("won", false))
 
 
-## Your goal under the objective strip: the config's lines, one per row.
-static func goal_text() -> String:
-	return "\n".join(PackedStringArray(MapLogic.cfg().get("clarity", {}).get("goal_lines", [])))
+## Your goal under the objective strip: the config's lines, one per row. `standing`: the strip shows the
+## standing objective (NextLogic.DEFAULT), which already says the second line's FLOOD-and-odds sentence, so
+## only the first line shows under it (the goal stays at every tier, V-I1 item 9, without saying it twice).
+static func goal_text(standing := false) -> String:
+	var lines: Array = MapLogic.cfg().get("clarity", {}).get("goal_lines", [])
+	if standing and not lines.is_empty():
+		lines = [lines[0]]
+	return "\n".join(PackedStringArray(lines))
 
 
 ## Whether the fort legend shows expanded: open until the player closes it (`user`: -1 not chosen yet,
