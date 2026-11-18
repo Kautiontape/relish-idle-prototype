@@ -48,7 +48,7 @@ func _clear_card_tests(t: TestUtil) -> void:
 	t.ok(rest.contains("hud.add_child(card)") and rest.contains("card.dismissed.connect(finish_win)"), "the card is added to the HUD and its dismissal finishes the run")
 	t.ok(rest.contains("\"card_s\"") and rest.contains("create_timer") and not rest.contains("show_banner"), "a card_s timer backs it up, no banner")
 	t.ok(body.contains("e.finish(e.build_result(\"warden_beaten\"))") and body.contains("e.pending_exit = RaidLogic.pending_on(\"chest_opened\")"), "the result is still build_result(warden_beaten), pending_exit set first")
-	var cc := TestUtil.load_json("res://configs/raid.json").get("clear", {})
+	var cc: Dictionary = TestUtil.load_json("res://configs/raid.json").get("clear", {})
 	for k in ["card_s", "skip_after_s", "fade_s"]:
 		t.ok(cc.get(k, 0) is float or cc.get(k, 0) is int, "clear.%s is a number" % k)
 		t.ok(float(cc.get(k, 0)) > 0.0, "clear.%s > 0" % k)
