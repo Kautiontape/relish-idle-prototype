@@ -125,8 +125,7 @@ static func status_chips(fort: Dictionary, names: Dictionary) -> Array:
 	var ch := _table("chips")
 	var keys := _table("chip_keys")
 	var out: Array = []
-	if bool(fort.get("held", false)):
-		out.append(held_chip(fort))
+	out.append(fort_state(fort)["chip"])
 	var tithe: Dictionary = fort.get("tithe", {})
 	if bool(tithe.get("wave_active", false)):
 		out.append({"text": str(ch.get("tithe_now", "")), "key": keys.get("tithe", "text")})
@@ -153,16 +152,35 @@ static func status_chips(fort: Dictionary, names: Dictionary) -> Array:
 	return out
 
 
-## The held chip. While view_fort has `margin` (api-request #7, the two pools) a hold no longer
-## lapses on a timer, so it reads the garrison and its margin, "garrison 64 · SAFE", in the
-## margin's colour; until then, the grace countdown "HELD · 6:14 left".
+## The fort's owner in the glossary's words: {state ("held" / "retaken" / "veis"), chip {text, key},
+## line (how it got that way and what to do next)}. Retaken is a Vei's fort the player once held
+## (flipped_count > 0); a Vei's fort with undead inside and no living (NodeLogic's overrun) says so.
+static func fort_state(fort: Dictionary) -> Dictionary:
+	var ch := _table("chips")
+	var keys := _table("chip_keys")
+	var words := _table("state")
+	if bool(fort.get("held", false)):
+		return {"state": "held", "chip": held_chip(fort),
+			"line": str(words.get("held_grace" if float(fort.get("grace_s_left", 0.0)) > 0.0 else "held_contested", ""))}
+	if int(fort.get("flipped_count", 0)) > 0:
+		return {"state": "retaken", "chip": {"text": str(ch.get("retaken", "")), "key": keys.get("retaken", "text")},
+			"line": str(words.get("retaken", ""))}
+	var overrun := NodeLogic.fort_state(fort, "") == NodeLogic.OVERRUN
+	return {"state": "veis", "chip": {"text": str(ch.get("veis", "")), "key": keys.get("veis", "text")},
+		"line": str(words.get("veis_overrun" if overrun else "veis", ""))}
+
+
+## The held chip. While the grace clock runs, "HELD · Vei contests in 6:14" (the hold's own colour);
+## after it, with a margin, "HELD · garrison 64 · SAFE" in the margin's colour; with none, "HELD".
 static func held_chip(fort: Dictionary) -> Dictionary:
+	if float(fort.get("grace_s_left", 0.0)) > 0.0:
+		return {"text": str(_table("chips").get("held_fmt", "%s")) % fmt_clock(float(fort["grace_s_left"])),
+			"key": _table("chip_keys").get("held", "text")}
 	var m := str(fort.get("margin", ""))
-	if fort.has("margin") and m != "":
+	if m != "":
 		return {"text": str(_c().get("held_margin_fmt", "%s %s")) % [MapLogic.fmt_mass(IdleLogic.garrison_units(fort)), IdleLogic.word(m)],
 			"key": IdleLogic.color_key(m)}
-	return {"text": str(_table("chips").get("held_fmt", "%s")) % fmt_clock(float(fort.get("held_s_left", 0.0))),
-		"key": _table("chip_keys").get("held", "text")}
+	return {"text": str(_table("chips").get("held_bare", "HELD")), "key": _table("chip_keys").get("held", "text")}
 
 
 # --- Vei -----------------------------------------------------------------------------------

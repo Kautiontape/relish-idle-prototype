@@ -949,11 +949,12 @@ func _away(t: TestUtil) -> void:
 
 func _cards(t: TestUtil) -> void:
 	t.suite("map_next-cards")
-	var f := {"held": true, "held_s_left": 374.0, "undead": 64.0}
-	t.ok(CardLogic.held_chip(f)["text"] == "HELD · 6:14 left", "without fort.margin: the grace countdown")
+	var f := {"held": true, "grace_s_left": 374.0, "undead": 64.0}
+	t.ok(CardLogic.held_chip(f)["text"] == "HELD · Vei contests in 6:14", "without fort.margin: the grace countdown")
 	f["margin"] = "safe"
+	f["grace_s_left"] = 0.0
 	var hc := CardLogic.held_chip(f)
-	t.ok(hc["text"] == "garrison 64 · SAFE" and hc["key"] == "undead", "with fort.margin: the garrison and the margin (%s)" % hc["text"])
+	t.ok(hc["text"] == "HELD · garrison 64 · SAFE" and hc["key"] == "undead", "with fort.margin and no grace: the garrison and the margin (%s)" % hc["text"])
 	f["margin"] = "will_fall"
 	t.ok(CardLogic.held_chip(f)["key"] == "danger", "in the margin's colour")
 	var loot := TestUtil.load_json("res://configs/loot.json")

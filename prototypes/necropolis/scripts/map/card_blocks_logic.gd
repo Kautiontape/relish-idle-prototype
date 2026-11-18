@@ -61,6 +61,11 @@ static func fort_card(fort: Dictionary, desc: String, backups: Dictionary, names
 	var chips := CardLogic.status_chips(fort, names)
 	if not chips.is_empty():
 		blocks.append({"kind": "chips", "id": "chips", "chips": chips})
+	var held := bool(fort.get("held", false))
+	blocks.append(_para("state", str(CardLogic.fort_state(fort)["line"]), "text"))
+	var hours := roundi(float(loot_cfg.get("recover_s", 0.0)) / 3600.0)
+	blocks.append(_para("raid", str(c.get("raid_again_fmt", "%d")) % hours if held else str(c.get("raid_take", "")), "select"))
+	blocks.append(_para("retreat", str(c.get("retreat_held" if held else "retreat_veis", "")), "text_dim"))
 	var warden: Dictionary = fort.get("warden", {})
 	var lines := CardLogic.warden_lines(warden)
 	blocks.append(_para("warden", str(lines[0]), "text", "mass"))

@@ -13,6 +13,8 @@ func run() -> int:
 	_threat(t)
 	_death(t)
 	_chips(t)
+	_state(t)
+	_no_cleared_words(t)
 	_vei(t)
 	_village(t)
 	_blocks(t)
@@ -81,26 +83,72 @@ func _death(t: TestUtil) -> void:
 
 func _chips(t: TestUtil) -> void:
 	var names := {"u1": "Old Gristle", "u2": "Pale Ann"}
-	t.ok(CardLogic.status_chips({}, names).is_empty(), "no chips on a quiet fort")
-	var held := CardLogic.status_chips({"held": true, "held_s_left": 192.0}, names)
-	t.ok(held.size() == 1 and held[0]["text"] == "HELD · 3:12 left", "held countdown m:ss")
+	var quiet := CardLogic.status_chips({}, names)
+	t.ok(quiet.size() == 1 and quiet[0]["text"] == "VEI'S", "a quiet fort has only the state chip")
+	var held := CardLogic.status_chips({"held": true, "grace_s_left": 192.0}, names)
+	t.ok(held.size() == 1 and held[0]["text"] == "HELD · Vei contests in 3:12", "held countdown m:ss")
 	var eta := CardLogic.status_chips({"tithe": {"targeted": true, "eta_s": 88.0, "wave_active": false}}, names)
-	t.ok(eta.size() == 1 and eta[0]["text"] == "TITHE WAVE IN 1:28", "tithe ETA")
+	t.ok(eta.size() == 2 and eta[1]["text"] == "TITHE WAVE IN 1:28", "tithe ETA")
 	var now := CardLogic.status_chips({"tithe": {"targeted": true, "eta_s": 0.0, "wave_active": true}}, names)
-	t.ok(now.size() == 1 and now[0]["text"] == "TITHE WAVE NOW", "wave now")
-	t.ok(CardLogic.status_chips({"tithe": {"targeted": false, "eta_s": -1.0, "wave_active": false}}, names).is_empty(), "an untargeted tithe shows nothing")
+	t.ok(now.size() == 2 and now[1]["text"] == "TITHE WAVE NOW", "wave now")
+	t.ok(CardLogic.status_chips({"tithe": {"targeted": false, "eta_s": -1.0, "wave_active": false}}, names).size() == 1, "an untargeted tithe shows nothing")
 	var here := CardLogic.status_chips({"relish_here": true, "tide": true, "redirect": true}, names)
-	t.ok(here[0]["text"] == "RELISH HERE · tide · redirect", "relish here with tide and redirect")
-	t.ok(CardLogic.status_chips({"relish_here": true}, names)[0]["text"] == "RELISH HERE", "relish here alone")
+	t.ok(here[1]["text"] == "RELISH HERE · tide · redirect", "relish here with tide and redirect")
+	t.ok(CardLogic.status_chips({"relish_here": true}, names)[1]["text"] == "RELISH HERE", "relish here alone")
 	var siege := CardLogic.status_chips({"siege": ["u1", "u2", "u9"]}, names)
-	t.ok(siege[0]["text"] == "SIEGE · Old Gristle, Pale Ann, u9", "siege by name, unknown uid as itself")
+	t.ok(siege[1]["text"] == "SIEGE · Old Gristle, Pale Ann, u9", "siege by name, unknown uid as itself")
 	var sim := CardLogic.status_chips({"simulacrum_charges": 3.0}, names)
-	t.ok(sim[0]["text"] == "SIMULACRUM · 3 charges", "simulacrum charges")
-	t.ok(CardLogic.status_chips({"first_dungeon": true}, names)[0]["text"] == "YOUR FIRST DUNGEON", "first dungeon")
+	t.ok(sim[1]["text"] == "SIMULACRUM · 3 charges", "simulacrum charges")
+	t.ok(CardLogic.status_chips({"first_dungeon": true}, names)[1]["text"] == "YOUR FIRST DUNGEON", "first dungeon")
 	var cfg: Dictionary = MapLogic.cfg()["cards"]
-	var every := CardLogic.status_chips({"held": true, "held_s_left": 5.0, "relish_here": true, "siege": ["u1"],
+	var every := CardLogic.status_chips({"held": true, "grace_s_left": 5.0, "relish_here": true, "siege": ["u1"],
 		"simulacrum_charges": 1.0, "first_dungeon": true, "tithe": {"targeted": true, "eta_s": 4.0, "wave_active": false}}, names)
 	t.ok(every.size() == 6 and every.all(func(c): return str(c["text"]) != "" and cfg["chip_keys"].values().has(c["key"])), "all six chips, each with text and a configured key")
+	t.ok(every[0]["text"].begins_with("HELD") and every[1]["text"].begins_with("TITHE"), "the state chip comes first, the rest keep their order")
+	var unheld := CardLogic.status_chips({"first_dungeon": true, "flipped_count": 1}, names)
+	t.ok(unheld[0]["text"] == "RETAKEN" and unheld[0]["key"] == "danger" and unheld[1]["text"] == "YOUR FIRST DUNGEON", "an unheld fort's first chip is its state chip")
+
+
+func _state(t: TestUtil) -> void:
+	var veis := CardLogic.fort_state({"held": false, "cap": 80.0, "living": 60.0, "undead": 2.0, "flipped_count": 0})
+	t.ok(veis["state"] == "veis" and veis["chip"] == {"text": "VEI'S", "key": "living"}, "a Vei's fort: " + str(veis["chip"]))
+	t.ok(veis["line"] == "Not taken yet. Raid it and break its warden to take it.", "its line: " + str(veis["line"]))
+	var over := CardLogic.fort_state({"held": false, "cap": 80.0, "living": 0.0, "undead": 30.0, "flipped_count": 0})
+	t.ok(over["state"] == "veis" and over["chip"]["text"] == "VEI'S" and str(over["line"]).begins_with("Your undead fill it, but it's still Vei's."), "an overrun fort is still Vei's: " + str(over["line"]))
+	var grace := CardLogic.fort_state({"held": true, "grace_s_left": 374.0, "margin": "thin"})
+	t.ok(grace["state"] == "held" and grace["chip"]["text"] == "HELD · Vei contests in 6:14" and grace["chip"]["key"] == "undead", "held in grace: " + str(grace["chip"]))
+	t.ok(str(grace["line"]).begins_with("Taken by you. Vei can't touch it until the clock runs out"), "grace line: " + str(grace["line"]))
+	var cont := CardLogic.fort_state({"held": true, "grace_s_left": 0.0, "margin": "thin", "undead": 40.0})
+	t.ok(cont["state"] == "held" and cont["chip"]["key"] == IdleLogic.color_key("thin") and str(cont["chip"]["text"]).begins_with("HELD · garrison "), "held contested wears the margin: " + str(cont["chip"]))
+	t.ok(str(cont["line"]).begins_with("Taken by you. Vei contests it now"), "contested line: " + str(cont["line"]))
+	var ret := CardLogic.fort_state({"held": false, "flipped_count": 1, "cap": 80.0, "living": 60.0})
+	t.ok(ret["state"] == "retaken" and ret["chip"] == {"text": "RETAKEN", "key": "danger"} and str(ret["line"]).begins_with("Vei won it back."), "retaken: " + str(ret["chip"]))
+	# the held chip
+	var both := CardLogic.held_chip({"held": true, "grace_s_left": 374.0, "margin": "safe", "undead": 64.0})
+	t.ok(both["text"] == "HELD · Vei contests in 6:14" and both["key"] == "undead", "grace beats the margin: " + str(both))
+	t.ok(CardLogic.held_chip({"held": true, "grace_s_left": 61.0})["text"] == "HELD · Vei contests in 1:01", "the countdown moves with grace_s_left")
+	t.ok(CardLogic.held_chip({"held": true, "grace_s_left": 0.0, "margin": "safe", "undead": 64.0})["text"] == "HELD · garrison 64 · SAFE", "no grace: the garrison and margin")
+	var bare := CardLogic.held_chip({"held": true, "grace_s_left": 0.0})
+	t.ok(bare["text"] == "HELD" and bare["key"] == "undead", "no grace and no margin: bare HELD")
+	t.ok(not FileAccess.get_file_as_string("res://scripts/map/card_logic.gd").contains("held_s_left"), "card_logic no longer reads held_s_left")
+
+
+## "Cleared" means one thing (taking a fort by breaking its warden): no config string says it otherwise.
+func _no_cleared_words(t: TestUtil) -> void:
+	var found: Array = []
+	_walk_strings(MapLogic.cfg(), "", found)
+	t.ok(found.is_empty(), "no map_view.json value says 'cleared': %s" % str(found))
+
+
+func _walk_strings(v: Variant, path: String, found: Array) -> void:
+	if v is Dictionary:
+		for k in v:
+			_walk_strings(v[k], path + "/" + str(k), found)
+	elif v is Array:
+		for i in v.size():
+			_walk_strings(v[i], path + "/" + str(i), found)
+	elif v is String and (v as String).to_lower().contains("cleared"):
+		found.append(path)
 
 
 func _vei(t: TestUtil) -> void:
@@ -170,7 +218,24 @@ func _blocks(t: TestUtil) -> void:
 	var sc := CardBlocksLogic.fort_card(stub, "", back, {}, _loot_cfg())
 	var vs: Dictionary = sc["blocks"].filter(func(b): return b["kind"] == "versus")[0]
 	t.ok(not vs["known"] and str(vs["text"]).contains("—"), "the E1 stub renders as an unknown comparison")
-	t.ok(not (sc["blocks"] as Array).any(func(b): return b["id"] == "hint" or b["id"] == "chips"), "no hint row and no chips when there are none")
+	t.ok(not (sc["blocks"] as Array).any(func(b): return b["id"] == "hint"), "no hint row when there is none")
+	var order: Array = ids.filter(func(i): return ["chips", "state", "raid", "retreat", "warden"].has(i))
+	t.ok(order == ["chips", "state", "raid", "retreat", "warden"], "order: chips, state, raid, retreat, warden: " + str(order))
+	t.ok(by_id["state"]["text"] == "Not taken yet. Raid it and break its warden to take it." and by_id["state"]["key"] == "text", "the state line")
+	t.ok(by_id["raid"]["text"] == "Raid: break the warden to take the fort. Loot: relics, husks, essence." and by_id["raid"]["key"] == "select", "the raid line, unheld")
+	t.ok(by_id["retreat"]["text"].ends_with("the fort stays Vei's.") and by_id["retreat"]["key"] == "text_dim", "the retreat line, unheld")
+	var hf := _fort_entry()
+	hf["held"] = true
+	var hb := {}
+	for b in CardBlocksLogic.fort_card(hf, "", back, {}, _loot_cfg())["blocks"]:
+		hb[b["id"]] = b
+	t.ok(hb["raid"]["text"] == "Raid it again for loot: less each time; it recovers over 8 h." and hb["retreat"]["text"].ends_with("the fort stays yours."), "held: raid again and retreat words")
+	var lc := _loot_cfg()
+	lc["recover_s"] = 7200.0
+	var hb2 := {}
+	for b in CardBlocksLogic.fort_card(hf, "", back, {}, lc)["blocks"]:
+		hb2[b["id"]] = b
+	t.ok(str(hb2["raid"]["text"]).contains("over 2 h"), "the hours come from recover_s: " + str(hb2["raid"]["text"]))
 	t.ok(CardBlocksLogic.card_sig(card) != CardBlocksLogic.card_sig(sc), "a different structure has a different signature")
 	var c2 := _fort_entry()
 	c2["living"] = 12.0
