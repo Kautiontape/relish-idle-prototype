@@ -100,6 +100,20 @@ func _return(t: TestUtil, c: Dictionary) -> void:
 	t.ok(SetpieceLogic.return_kind("ashgate", vei_fort, false, alive) == SetpieceLogic.RETREAT, "still Vei's after the raid: a retreat")
 	t.ok(SetpieceLogic.return_kind("ashgate", vei_fort, false, {"dead_s_left": 30.0, "state": "dead"}) == "", "she died: not a retreat, you did not keep everything")
 	t.ok(SetpieceLogic.return_kind("ashgate", {"id": "ashgate", "held": true, "grace_s_left": 0.0}, false, alive) == "", "an old held fort raided again with no flip: nothing taken, nothing to say")
+	# the dive record: a held fort raided again is not taken, whatever its grace
+	var was_held := {"fort": "ashgate", "held": true}
+	var was_vei := {"fort": "ashgate", "held": false}
+	t.ok(SetpieceLogic.return_kind("ashgate", held_fort, false, alive, was_held) == "", "held at the dive, held in grace now, no event: nothing taken, no line (not a retreat either: the fort is not Vei's)")
+	t.ok(SetpieceLogic.return_kind("ashgate", held_fort, false, alive, was_vei) == SetpieceLogic.TAKEN, "Vei's at the dive, held in grace now, no event yet: taken (the late-event path)")
+	t.ok(SetpieceLogic.return_kind("ashgate", held_fort, false, alive, {}) == SetpieceLogic.TAKEN, "no dive record: the grace fallback stands")
+	t.ok(SetpieceLogic.return_kind("ashgate", held_fort, true, alive, was_held) == SetpieceLogic.TAKEN, "a real event is taken whatever the dive record says")
+	t.ok(SetpieceLogic.return_kind("ashgate", held_fort, false, alive, {"fort": "bellmoor", "held": true}) == SetpieceLogic.TAKEN, "a dive record for another fort is ignored")
+	var saved: Dictionary = SetpieceLogic._last_dive
+	SetpieceLogic.note_dive("ashgate", true)
+	t.ok(SetpieceLogic.return_kind("ashgate", held_fort, false, alive) == "", "the default record is the last dive")
+	SetpieceLogic.note_dive("bellmoor", false)
+	t.ok(SetpieceLogic._last_dive == {"fort": "bellmoor", "held": false} and SetpieceLogic.return_kind("ashgate", held_fort, false, alive) == SetpieceLogic.TAKEN, "only the last dive is kept")
+	SetpieceLogic._last_dive = saved
 	t.ok(SetpieceLogic.return_kind("covington", {}, false, alive) == "" and SetpieceLogic.return_kind("", {}, false, alive) == "", "back from town: no line")
 	t.ok(SetpieceLogic.return_kind("vei", {}, true, alive) == "", "back from Vei: no line")
 	t.ok(SetpieceLogic.return_text(SetpieceLogic.TAKEN, "Ashgate") == "Ashgate taken by you", "taken line")
@@ -111,6 +125,7 @@ func _return(t: TestUtil, c: Dictionary) -> void:
 	t.ok(src.contains("SetpieceLogic.return_kind(") and src.contains("func note_return("), "MapSetpieces decides the return line through the pure function")
 	var wm := FileAccess.get_file_as_string("res://scripts/map/world_map.gd")
 	t.ok(wm.contains("setpieces.note_return("), "world_map hands the arrival's fort to the set pieces")
+	t.ok(wm.contains("SetpieceLogic.note_dive(node_id,") and wm.find("SetpieceLogic.note_dive(") < wm.find("finished.emit({\"v\": 2, \"teleport_to\""), "world_map records the dive (held or not) before it leaves")
 
 
 ## No displayed config string says flip or cleared: the player's word for winning a fort is taken

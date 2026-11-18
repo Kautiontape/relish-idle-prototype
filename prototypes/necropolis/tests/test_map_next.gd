@@ -379,7 +379,7 @@ func _raid(t: TestUtil) -> void:
 	var order: Array = _raid_ids(forts)
 	t.ok(order == ["c", "b", "a"], "refilled first, then the first dungeon, then the frontier (%s)" % str(order))
 	t.ok(NextLogic.ready_line(forts[2], "refilled") == {"text": "C refilled: raid it", "kind": "raid", "target": "c"}, "a refilled ready line, in view_away's shape")
-	t.ok(NextLogic.ready_line(forts[1], "first_clear")["text"] == "B: taken first time, it holds a blueprint", "a first-clear ready line")
+	t.ok(NextLogic.ready_line(forts[1], "first_clear")["text"] == "B: take it for a guaranteed blueprint", "a first-clear ready line")
 	var s := GameState.new(TestUtil.configs())
 	s.debug_enabled = true
 	s.cmd_debug_load_fixture("day1")
@@ -594,7 +594,7 @@ func _next(t: TestUtil) -> void:
 	var r2 := NextLogic.choose(_inp({"forts": [ash]}))
 	t.ok(r2["rule"] == "raid" and r2["text"] == "Ashgate refilled: raid it" and r2["action"] == {"kind": "fort", "id": "ashgate"}, "a refilled raid")
 	var sluice := {"id": "old-sluice", "name": "Old Sluice", "first_clear": true, "first_dungeon": true}
-	t.ok(NextLogic.choose(_inp({"forts": [sluice]}))["text"] == "Old Sluice: taken first time, it holds a blueprint", "a first clear")
+	t.ok(NextLogic.choose(_inp({"forts": [sluice]}))["text"] == "Old Sluice: take it for a guaranteed blueprint", "a first clear")
 	var two := [{"id": "a", "name": "A", "first_clear": false, "clears_since_retaken": 1, "yield_mult": 1.0}, {"id": "b", "name": "B", "first_clear": false, "clears_since_retaken": 1, "yield_mult": 1.0}]
 	t.ok(NextLogic.choose(_inp({"forts": two}), {"rule": "raid", "target": "b"})["target"] == "b", "a kept raid target holds while it is still in the set")
 	var only_a := NextLogic.raid_set([two[0]], [], Vector2.ZERO, {})
@@ -982,7 +982,7 @@ func _cards(t: TestUtil) -> void:
 	t.ok(CardLogic.held_chip(f)["key"] == "danger", "in the margin's colour")
 	var loot := TestUtil.load_json("res://configs/loot.json")
 	t.ok(CardLogic.loot_card_line({"yield_mult": 1.0}, loot) == RaidLoot.card_line({"yield_mult": 1.0}, loot), "the loot line is the dungeon's")
-	t.ok(CardLogic.first_clear_line({"first_clear": true}) == "taken first time: guaranteed blueprint", "the first clear's reward")
+	t.ok(CardLogic.first_clear_line({"first_clear": true}) == "first taking: guaranteed blueprint", "the first clear's reward")
 	var pin := CardLogic.pinned_odds({"odds": 0.61, "sign": 1, "drain_s": -1.0, "backlog": 18000.0})
 	# the ▲ is the backlog's sign, labelled as the strain (E4 step 10, the step 9 review's item 4; was "61% ▲ gaining")
 	t.ok(pin == "Your odds 61% · strain ▲ rising · drains in ∞", "the pinned odds (%s)" % pin)

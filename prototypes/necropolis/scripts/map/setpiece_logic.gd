@@ -118,19 +118,35 @@ static func first_flip_text(fort_name: String) -> String:
 	return _s("first_flip_fmt") % fort_name
 
 
+## The map's last dive into a fort: {fort, held} (held when Relish dove), or {}. Static so it
+## outlives the map scene, which is freed during the raid (as MapHud._next does).
+static var _last_dive := {}
+
+
+## The map dove into `fort_id` (an empty id, for Covington or Vei, records nothing to match) while the
+## fort was `held` or not. Only the last dive is kept.
+static func note_dive(fort_id: String, held: bool) -> void:
+	_last_dive = {"fort": fort_id, "held": held}
+
+
 ## What the map says on mounting after a scene: TAKEN, RETREAT or "" (no line). `arrive_from` is the
 ## node just left, `fort` its view (empty for Covington, Vei or none), `taken_event` whether the
-## router replayed this fort's fort_flipped, `relish` view_relish. The event, or a fort held
-## within its grace, is taken; a fort still Vei's with Relish alive is a retreat (she keeps what she
-## found); a death, a held fort past its grace (raided again, nothing taken) and any other scene say nothing.
-static func return_kind(arrive_from: String, fort: Dictionary, taken_event: bool, relish: Dictionary) -> String:
+## router replayed this fort's fort_flipped, `relish` view_relish, `dive` note_dive's record (default
+## the last one). A real event is always taken. Without one, a fort held within its grace counts as
+## taken (the no-snapshot swap can deliver fort_flipped after the map mounts), unless it was already
+## held when Relish dove: that raid took nothing, so it says nothing. No record for this fort (a
+## harness teleport that never dove from the map) allows the fallback. A fort still Vei's with Relish
+## alive is a retreat (she keeps what she found); a death, a held fort past its grace and any other
+## scene say nothing.
+static func return_kind(arrive_from: String, fort: Dictionary, taken_event: bool, relish: Dictionary, dive := _last_dive) -> String:
 	if arrive_from == "" or fort.is_empty() or str(fort.get("id", "")) != arrive_from:
 		return ""
 	if taken_event:
 		return TAKEN
 	var held := bool(fort.get("held", false))
 	if held:
-		return TAKEN if float(fort.get("grace_s_left", 0.0)) > 0.0 else ""
+		var was_held := str(dive.get("fort", "")) == arrive_from and bool(dive.get("held", false))
+		return TAKEN if float(fort.get("grace_s_left", 0.0)) > 0.0 and not was_held else ""
 	if float(relish.get("dead_s_left", 0.0)) > 0.0 or str(relish.get("state", "")) == "dead":
 		return ""
 	return RETREAT

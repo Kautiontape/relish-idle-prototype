@@ -344,6 +344,7 @@ func _act_on(a: Dictionary) -> void:
 ## Leaves the map for `node_id`'s scene (the router: a fort id begins its dungeon, "vei" the boss
 ## fight, "covington" opens the town). The map never moves Relish through this.
 func _dive(node_id: String) -> void:
+	SetpieceLogic.note_dive(node_id, bool(model.fort(node_id).get("held", false)))  # so a held fort raided again is not "taken" on return
 	finished.emit({"v": 2, "teleport_to": node_id})
 
 

@@ -726,7 +726,7 @@
     "tell_label": "TELL",
     "tells_label": "TELLS",
     "loot": {
-      "first_clear_text": "taken first time: guaranteed blueprint"
+      "first_clear_text": "first taking: guaranteed blueprint"
     },
     "threat_head": "THREAT IN ADVANCE",
     "strength_fmt": "PARTY %s vs GARRISON %s",
@@ -1028,7 +1028,7 @@
     "switch_ratio": 0.5,
     "fall_fmt": "%s falls in %s: raise WAR or send Relish",
     "refilled_fmt": "%s refilled: raid it",
-    "first_clear_fmt": "%s: taken first time, it holds a blueprint",
+    "first_clear_fmt": "%s: take it for a guaranteed blueprint",
     "default_next_fmt": "%s Next: %s",
     "queue_text": "Queue empty: plan the next build in Covington",
     "vei_fmt": "Vei can be faced: your odds %d%%",
@@ -1119,7 +1119,7 @@
     "opening_s": 900.0,
     "response_frac": 0.25,
     "valve_text": "Drag the valve: toward WAR to garrison your forts, toward FLOOD to clog Vei's queue",
-    "send_fmt": "Send Relish to %s: taken first time, it holds a blueprint",
+    "send_fmt": "Send Relish to %s: take it for a guaranteed blueprint",
     "descend_fmt": "Descend into %s: break its warden to take it",
     "line_width_px": 1.0,
     "line_glow": 0.8,

@@ -112,9 +112,10 @@ func note_mount(away_opened: bool) -> void:
 
 
 ## The map mounted after a scene: `arrive_from` is the node just left. A raid that took the fort
-## (its fort_flipped, replayed by the router before this call, or a fort held within its grace)
-## says "<Fort> taken by you" through the flip set piece; one that left it Vei's says it stays hers
-## and you kept what you found (SetpieceLogic.return_kind). Returns the kind (TAKEN, RETREAT, "").
+## (its fort_flipped, replayed by the router before this call, or a fort held within its grace that
+## was not already held when the map dove into it, SetpieceLogic.note_dive) says "<Fort> taken by you"
+## through the flip set piece; one that left it Vei's says it stays hers and you kept what you found
+## (SetpieceLogic.return_kind); a held fort raided again says nothing. Returns the kind (TAKEN, RETREAT, "").
 func note_return(arrive_from: String) -> String:
 	var kind := SetpieceLogic.return_kind(arrive_from, model.fort(arrive_from), _taken_ids.has(arrive_from), model.relish)
 	if kind == SetpieceLogic.TAKEN and not _taken_ids.has(arrive_from):
