@@ -724,7 +724,7 @@
         "_doc": "The four place buttons' tooltips on a big undead's card (CryptLogic.place_tips); siege's {pct} is realm.json tithe.siege_block.",
         "crypt": "Crypt: it rests in the crypt and does no work until you place it.",
         "party": "Party: it goes into your next raid with Relish and fights there. If she dies in that raid, it's lost.",
-        "foreman": "Foreman at…: pick a building. Its speed speeds that building's jobs; its presence lifts the town's morale.",
+        "foreman": "Foreman at…: pick a building. Its speed makes that building's jobs go faster; its presence lifts the town's morale.",
         "siege": "Siege…: pick a fort. It blocks {pct}% of each tithe wave there (Vei's surge of the living to retake it), with no kills; a second there adds nothing."
       },
       "held": "held",

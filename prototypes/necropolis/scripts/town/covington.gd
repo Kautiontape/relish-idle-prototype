@@ -406,7 +406,9 @@ func _select_tab(i: int) -> void:
 	var p: Control = _panels[i]  # the Build tab is its own scroll; every other tab holds one
 	var scrolls := p.find_children("*", "ScrollContainer", true, false)
 	_cue.scroll = p if p is ScrollContainer else (scrolls[0] if not scrolls.is_empty() else null)
-	if not _last_views.is_empty() and (i != was or i == 0):  # a hidden panel is current the moment it shows
+	# a hidden panel is current the moment it shows, unless a refresh is due: then `_last_views` may predate a
+	# command (between its phase A and B) and would clear the Build tab's sent lots; phase B binds the tab on show
+	if not _last_views.is_empty() and (i != was or i == 0) and not _dirty and _pending.is_empty():
 		_panels[i].bind(_last_views)
 
 
