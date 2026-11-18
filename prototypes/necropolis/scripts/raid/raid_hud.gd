@@ -1141,9 +1141,9 @@ class WardenBlock:
 		_pack_row(w, x0, y + (44.0 if hw != null else 22.0))
 		# the new rows sit under the last of the existing ones (the Huntsman's catch row, a pack's row)
 		var ry := y + 22.0 * ((1.0 if hw != null else 0.0) + (1.0 if w.spec.has("pack") else 0.0))
-		for r in break_rows:
+		for line in break_rows:
 			ry += 20.0
-			_text(x0, ry, str(r), 13, "text_dim")
+			_text(x0, ry, str(line), 13, "text_dim")
 
 
 ## Screen-space pointers over the world (a Node2D: it takes no input). The loot pointer: a faint
