@@ -770,6 +770,12 @@ static func counter_role(sp: Dictionary) -> String:
 	return COUNTER_HELPS if t >= int(wp.get("counter_helps_from_tier", 1)) else COUNTER_NONE
 
 
+## counter_role for a fort named by id, tier and first-dungeon flag (what the map card knows), through the
+## same spec the raid builds (wardens.by_fort picks the archetype), so the card and the COUNTER row agree.
+static func counter_role_for_fort(fort_id: String, tier: int, first_dungeon: bool, cfg: Dictionary) -> String:
+	return counter_role(spec({"id": fort_id, "tier": tier, "first_dungeon": first_dungeon}, cfg))
+
+
 # ------------------------------------------------------------- pyre-priest ---
 ## The Pyre-priest's acolytes at its tier: attack.acolytes_base + acolytes_per_tier x tier, never
 ## below 0.

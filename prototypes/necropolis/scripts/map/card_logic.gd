@@ -318,11 +318,15 @@ static func fronts_short_text(vei: Dictionary) -> String:
 ## (view_party()). The same formula as GameState._garrison and _starter_units.
 static func comes_in(fort: Dictionary, party: Dictionary, raid_cfg: Dictionary, econ_cfg: Dictionary) -> Dictionary:
 	var mass: Dictionary = raid_cfg.get("mass", {})
-	var garrison := clampi(int(float(fort.get("undead", 0.0)) / float(mass.get("garrison_mass_div", 10.0))), 0, int(mass.get("garrison_max", 12)))
-	var starter := int(econ_cfg.get("opening", {}).get("starter_party", 0)) if bool(fort.get("first_dungeon", false)) else 0
+	var garrison := RaidLogic.garrison_count(float(fort.get("undead", 0.0)), raid_cfg)  # the raid's own count
+	var first := bool(fort.get("first_dungeon", false))
+	var starter := int(econ_cfg.get("opening", {}).get("starter_party", 0)) if first else 0
 	var bigs := (party.get("party", []) as Array).size()
+	# the counter's worth against THIS fort's warden: the raid's COUNTER-row rule (WardenLogic.counter_role)
+	var counter := WardenLogic.counter_role_for_fort(str(fort.get("id", "")), int(fort.get("tier", 1)), first, raid_cfg)
 	return {"garrison": garrison, "starter": starter, "bigs": bigs, "total": garrison + starter + bigs,
-		"war_here": maxf(float(fort.get("undead", 0.0)), 0.0), "garrison_max": int(mass.get("garrison_max", 12))}
+		"war_here": maxf(float(fort.get("undead", 0.0)), 0.0), "garrison_max": int(mass.get("garrison_max", 12)),
+		"garrison_div": int(mass.get("garrison_mass_div", 10.0)), "counter": counter}
 
 
 ## The standard party of tier `tier` (clamped 1..4): {undead, bigs}, from raid autopilot.party_profiles.
@@ -367,8 +371,10 @@ static func comes_plain_text(ci: Dictionary) -> String:
 		s = str(_c().get("comes_plain_bigs_only_one_fmt" if b == 1 else "comes_plain_bigs_only_fmt", "%d")) % b
 	else:
 		s = str(_c().get("comes_plain_one_fmt" if u == 1 else "comes_plain_fmt", "%d")) % u
-	if b == 0:
-		s += " " + str(_c().get("comes_plain_warden", ""))
+	if b == 0:  # a card without "counter" reads as "needed", as the sentence always did
+		var key: String = {"needed": "comes_plain_warden", "helps": "comes_plain_warden_helps"}.get(str(ci.get("counter", WardenLogic.COUNTER_NEEDED)), "")
+		if key != "":
+			s += " " + str(_c().get(key, ""))
 	return s
 
 
@@ -383,19 +389,23 @@ static func comes_in_text(ci: Dictionary) -> String:
 	var g := int(ci.get("garrison", 0))
 	var s := int(ci.get("starter", 0))
 	var b := int(ci.get("bigs", 0))
-	var here := roundf(float(ci.get("war_here", 0.0)))
+	# The count is the WHOLE undead, as the raid counts them (RaidLogic.garrison_count floors undead / div):
+	# 9.6 reads "9", never a "10" that would send one. Under 1 reads as none.
+	var here := floorf(float(ci.get("war_here", 0.0)))
 	var here_s := MapLogic.fmt_mass(here)
+	var div := int(ci.get("garrison_div", 10))
 	var one := is_equal_approx(here, 1.0)  # "the 1 WAR undead here is", "the 4 ... are"
 	var war_note := ""
 	if g == 0:
-		war_note = str(c.get("comes_who_few_one_fmt" if one else "comes_who_few_fmt", "%s")) % here_s if here > 0.0 else str(c.get("comes_who_no_war", ""))
+		war_note = str(c.get("comes_who_few_one_fmt" if one else "comes_who_few_fmt", "%s %d")) % [here_s, div] if here > 0.0 else str(c.get("comes_who_no_war", ""))
 	if g + s + b == 0:
-		return (str(c.get("comes_who_none_few_one_fmt" if one else "comes_who_none_few_fmt", "%s")) % here_s) if here > 0.0 else str(c.get("comes_who_none", ""))
+		return (str(c.get("comes_who_none_few_one_fmt" if one else "comes_who_none_few_fmt", "%s %d")) % [here_s, div]) if here > 0.0 else str(c.get("comes_who_none", ""))
 	var parts: Array = []
 	if g > 0:
-		var capped := g >= int(ci.get("garrison_max", 12)) and here >= float(g + 1) * 10.0
-		parts.append((str(c.get("comes_who_garrison_cap_fmt", "%d %s %d")) % [g, here_s, int(ci.get("garrison_max", 12))]) if capped
-			else (str(c.get("comes_who_garrison_fmt", "%d %s")) % [g, here_s]))
+		var gmax := int(ci.get("garrison_max", 12))
+		var capped := g >= gmax and here >= float(g + 1) * float(div)
+		parts.append((str(c.get("comes_who_garrison_cap_fmt", "%d %s %d %d")) % [g, here_s, div, gmax]) if capped
+			else (str(c.get("comes_who_garrison_fmt", "%d %s %d")) % [g, here_s, div]))
 	if s > 0:
 		parts.append(str(c.get("comes_who_starter_fmt", "%d")) % s)
 	if b > 0:
