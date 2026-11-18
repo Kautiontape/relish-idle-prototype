@@ -1,9 +1,12 @@
 extends RefCounted
 ## E4 step 9, the idle relic trickle (the run's manager's rulings on step 9 (3), 2026-11-17 12:45 and 14:24; MECHANICS
-## §2's relics row): one relic per economy.json relic_trickle.period_s of game time while every fort at or below the highest tier
-## ever flipped is held (GameState.relic_trickle_paying), read at each step's start; the accrued seconds are saved
-## (inventory.relic_trickle_s, written once non-zero, optional on load); view_hud shows highest_tier_flipped and
-## relic_trickle {paying, next_s}. Headless, no autoloads.
+## §2's relics row): one relic per economy.json relic_trickle.period_s of game time while it pays, read at each step's
+## start; the accrued seconds are saved (inventory.relic_trickle_s, written once non-zero, optional on load); view_hud
+## shows highest_tier_flipped and relic_trickle {paying, next_s}. Phase I P3 (R-b): it pays while some fort's hold has
+## lasted relic_trickle.hold_s unbroken (RealmSim's held_for_s: accrued while held, in grace and contested; 0 at a new
+## hold, a release and a retake; kept through a re-flip of a held fort; saved while held, optional on load). Revert
+## proofs: the accrual line out, 4 FAIL (_held_for: the age, the re-flip, the save, the load); hold() resetting a held
+## fort's age, 3 FAIL (the re-flip, the save, the load). Headless, no autoloads.
 
 var t: TestUtil
 
@@ -12,6 +15,7 @@ func run() -> int:
 	t = TestUtil.new()
 	t.suite("relic-trickle")
 	_condition()
+	_held_for()
 	_pays()
 	_store_cap()
 	_save()
@@ -22,17 +26,20 @@ func run() -> int:
 const CLOCK := 1_800_000_000
 
 
-## midgame_2flips with every t1 fort held (Ashgate and Old Sluice flipped, so tier 1 is the highest flipped) and the
-## trickle `s_in` seconds into its period. `breaker`: Greywall held past its grace on an empty garrison with the valve's
-## WAR at 0 and Relish home, so it breaks after hold.break_s and the trickle stops; else every t1 fort's grace is 2 days.
+## midgame_2flips with every t1 fort held and the trickle `s_in` seconds into its period. `breaker`: Greywall held past
+## its grace on an empty garrison with the valve's WAR at 0 and Relish home, so it breaks after hold.break_s, and it is
+## the one fort held relic_trickle.hold_s (the others' holds start now), so the trickle stops; else every t1 fort's
+## grace is 2 days and every one has been held hold_s.
 static func start(c: Dictionary, s_in: float, breaker: bool) -> GameState:
 	var conv = load("res://tests/slow/convergence.gd").new()
 	var s := GameState.new(c)
 	s.debug_enabled = true
 	s.from_dict(JSON.parse_string(conv.start_json("midgame_2flips")))
+	var need := float(c["economy"]["relic_trickle"]["hold_s"])
 	for f in s.realm.forts:
 		if int(f["tier"]) == 1:
 			s.realm.hold(str(f["id"]), 0.0 if breaker and str(f["id"]) == "greywall" else 2.0 * 86400.0)
+			f["held_for_s"] = need if not breaker or str(f["id"]) == "greywall" else 0.0
 	if breaker:
 		var g: Dictionary = s.realm.fort_by_id("greywall")
 		g["undead"] = 0.0
@@ -97,39 +104,82 @@ func _game() -> GameState:
 	return s
 
 
-## Every fort of `tier` held (its grace a day, so nothing retakes it in a test), the first of them flipped once.
+## The first t1 fort held (its grace a day, so nothing retakes it in a test) for relic_trickle.hold_s already, flipped
+## once: the trickle pays.
 func _hold_tier(s: GameState, tier: int) -> void:
-	var first := true
 	for f in s.realm.forts:
 		if int(f["tier"]) == tier:
 			s.realm.hold(str(f["id"]), 86400.0)
-			if first:
-				f["flipped_count"] = 1
-				first = false
+			f["flipped_count"] = 1
+			f["held_for_s"] = s._req_f("economy.relic_trickle.hold_s")
+			return
 
 
 func _condition() -> void:
 	var s := _game()
-	t.ok(s.highest_tier_flipped() == 0 and not s.relic_trickle_paying(), "a new game: no tier flipped, no trickle")
+	var need := s._req_f("economy.relic_trickle.hold_s")
+	t.ok(need == 86400.0, "relic_trickle.hold_s ships at a day (%.0f s)" % need)
+	t.ok(s.highest_tier_flipped() == 0 and not s.relic_trickle_paying(), "a new game: no fort held, no trickle")
 	var hv: Dictionary = s.view_hud()
 	t.ok(int(hv["highest_tier_flipped"]) == 0 and not bool(hv["relic_trickle"]["paying"]) and float(hv["relic_trickle"]["next_s"]) == -1.0,
 		"view_hud: highest_tier_flipped 0, relic_trickle {paying false, next_s -1.0}")
-	_hold_tier(s, 1)
-	var n1 := 0
-	for f in s.realm.forts:
-		n1 += 1 if int(f["tier"]) == 1 else 0
-	t.ok(s.highest_tier_flipped() == 1 and s.relic_trickle_paying(), "every t1 fort held (%d), one flipped: tier 1, paying" % n1)
+	var t2: Array = s.realm.forts.filter(func(f): return int(f["tier"]) == 2)
+	var f2: Dictionary = t2[0]
+	s.realm.hold(str(f2["id"]), 86400.0)
+	t.ok(float(f2["held_for_s"]) == 0.0 and not s.relic_trickle_paying(), "a fort just taken (%s, tier 2): its hold's age 0, no trickle" % f2["id"])
+	f2["held_for_s"] = need - 1.0
+	t.ok(not s.relic_trickle_paying(), "held a second short of a day: no trickle")
+	f2["held_for_s"] = need
+	t.ok(s.relic_trickle_paying(), "held a day, any tier, the others not held: it pays")
 	hv = s.view_hud()
 	t.ok(bool(hv["relic_trickle"]["paying"]) and float(hv["relic_trickle"]["next_s"]) == s._req_f("economy.relic_trickle.period_s"),
 		"view_hud: paying, a full period to the next relic")
 	var t1: Array = s.realm.forts.filter(func(f): return int(f["tier"]) == 1)
-	var lost: Dictionary = t1[-1]
-	lost["held"] = false
-	t.ok(not s.relic_trickle_paying(), "one t1 fort back with Vei (%s): no trickle" % lost["id"])
-	s.realm.hold(str(lost["id"]), 86400.0)
-	var t2: Array = s.realm.forts.filter(func(f): return int(f["tier"]) == 2)
-	t2[0]["flipped_count"] = 1
-	t.ok(s.highest_tier_flipped() == 2 and not s.relic_trickle_paying(), "a t2 flip raises the tier read; the t2 forts not held stop it")
+	s.realm.hold(str(t1[0]["id"]), 86400.0)
+	s.realm.release(str(f2["id"]))
+	t.ok(float(f2["held_for_s"]) == 0.0 and not s.relic_trickle_paying(), "that fort released (its age 0); another held for none of a day: no trickle")
+
+
+## The hold's age (RealmSim's held_for_s): it accrues in the realm step while held, in grace and contested; a re-flip of a
+## held fort (hold() again, as apply_result's warden_beaten calls it) keeps it; a retake sets it to 0; it is saved while
+## held, and a save without it loads 0.
+func _held_for() -> void:
+	var s := _game()
+	var f: Dictionary = s.realm.forts.filter(func(x): return int(x["tier"]) == 1)[0]
+	s.realm.hold(str(f["id"]), 3.0)  # 3 s of grace, then contested
+	s.tick(10.0)
+	t.ok(RealmSim.is_held(f) and float(f["grace_s"]) == 0.0 and absf(float(f["held_for_s"]) - 10.0) < 1e-6,
+		"held 10 s, through its 3 s grace and contested after: its age %.6f s" % float(f["held_for_s"]))
+	s.realm.hold(str(f["id"]), 3.0)
+	t.ok(absf(float(f["held_for_s"]) - 10.0) < 1e-6, "a re-flip of the held fort keeps its age (%.6f s)" % float(f["held_for_s"]))
+	var d := s.to_dict()
+	var fd: Dictionary = (d["realm"]["forts"] as Array).filter(func(x): return str(x["id"]) == str(f["id"]))[0]
+	var other: Dictionary = (d["realm"]["forts"] as Array).filter(func(x): return not bool(x["held"]))[0]
+	t.ok(absf(float(fd["held_for_s"]) - 10.0) < 1e-6 and not other.has("held_for_s"), "saved while held only: %s" % str(fd.get("held_for_s")))
+	var m := GameState.new(TestUtil.configs())
+	t.ok(m.from_dict(d)["ok"] and absf(float(m.realm.fort_by_id(str(f["id"]))["held_for_s"]) - 10.0) < 1e-6, "it loads back")
+	var d2: Dictionary = d.duplicate(true)
+	for x in d2["realm"]["forts"]:
+		(x as Dictionary).erase("held_for_s")
+	var d3: Dictionary = d.duplicate(true)
+	for x in d3["realm"]["forts"]:
+		if (x as Dictionary).has("held_for_s"):
+			x["held_for_s"] = "a day"
+	var cfgs := TestUtil.configs()
+	t.ok(SaveIO.problem(d2, cfgs) == "" and m.from_dict(d2)["ok"] and float(m.realm.fort_by_id(str(f["id"]))["held_for_s"]) == 0.0
+		and SaveIO.problem(d3, cfgs) != "", "a save without it (before v14, the fixtures) loads a held fort at 0; a non-number is corrupt")
+	f["undead"] = 0.0
+	f["living"] = 0.0
+	f["zero_s"] = 0.0
+	s.cmd_set_valve(0.85, 0.0, 0.15)
+	s.valve = s.valve_target.duplicate()
+	var gone := false
+	for i in 400:
+		s.tick(0.5)
+		if not RealmSim.is_held(f):
+			gone = true
+			break
+	t.ok(gone and float(f["held_for_s"]) == 0.0, "retaken (its garrison broken at 0): its age is 0 again (%s)" % str(f["held_for_s"]))
 
 
 func _pays() -> void:

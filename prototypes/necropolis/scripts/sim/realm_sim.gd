@@ -208,7 +208,9 @@ var _disp_lim: Array[float] = []
 ##   r_drain       undead draining on to Vei              r_shipped     Vei's living arriving (surge too)
 ##   r_surge       the tithe surge's part of r_shipped
 ## The hold (saved): held (flipped and not yet retaken), grace_s (grace left; contested at 0) and
-## zero_s (seconds the garrison has sat at 0 since it last wasn't, counted while contested). held_s is
+## zero_s (seconds the garrison has sat at 0 since it last wasn't, counted while contested). held_for_s (Phase I P3, R-b;
+## saved while held): the seconds the hold has lasted unbroken, in grace and contested, from the flip that started it (a
+## re-flip of a held fort keeps it), 0 again at a retake or a release; the relic trickle reads it. held_s is
 ## deprecated: a copy of grace_s kept for old readers, not saved. The loot yield (saved; GameState reads
 ## it, MECHANICS §5.3): yield_c, the yield just after the last clear that paid loot, and yield_t, the
 ## sim time of that clear; a retake leaves both as they are (the spent yield keeps recovering).
@@ -255,7 +257,7 @@ func setup(world: Dictionary, tunables: Dictionary) -> void:
 			"pos": _vec(f.get("pos", [0, 0])), "tier": int(f.get("tier", 1)), "cap": cap,
 			"living": float(f.get("living", cap * start_frac)),
 			"dead": float(f.get("dead", 0.0)), "undead": float(f.get("undead", 0.0)),
-			"held": false, "grace_s": 0.0, "zero_s": 0.0, "held_s": 0.0, "yield_c": 1.0, "yield_t": 0.0,
+			"held": false, "grace_s": 0.0, "zero_s": 0.0, "held_s": 0.0, "held_for_s": 0.0, "yield_c": 1.0, "yield_t": 0.0,
 			"r_in": 0.0, "r_drain": 0.0, "r_shipped": 0.0, "r_dead_out": 0.0, "r_raised": 0.0,
 			"r_staged": 0.0, "r_redirected": 0.0, "r_kills": 0.0, "r_surge": 0.0,
 		})
@@ -335,6 +337,8 @@ func hold(fort_id: String, grace: float) -> bool:
 	var f := fort_by_id(fort_id)
 	if f.is_empty():
 		return false
+	if not is_held(f):
+		f["held_for_s"] = 0.0  # (Phase I P3, R-b) a new hold starts its age; a re-flip of a held fort keeps it
 	f["held"] = true
 	f["grace_s"] = maxf(0.0, grace) if is_finite(grace) else 0.0
 	f["held_s"] = f["grace_s"]
@@ -351,6 +355,7 @@ func release(fort_id: String) -> bool:
 	f["held"] = false
 	f["grace_s"] = 0.0
 	f["held_s"] = 0.0
+	f["held_for_s"] = 0.0
 	f["zero_s"] = 0.0
 	return true
 
@@ -797,6 +802,8 @@ func _step_part(dt: float, inputs: Dictionary, at: float) -> void:
 		var f: Dictionary = forts[i]
 		if not held_i[i]:
 			continue
+		# (Phase I P3, R-b) the unbroken hold's age, in grace and contested alike; a retake below sets it back to 0
+		f["held_for_s"] = float(f.get("held_for_s", 0.0)) + dt
 		if grace_i[i]:
 			var g: float = float(f["grace_s"]) - dt
 			f["grace_s"] = g if g > _EPS_S else 0.0
@@ -1227,6 +1234,7 @@ func _retaken(f: Dictionary, i: int, cause: String, at: float) -> void:
 	f["held"] = false
 	f["grace_s"] = 0.0
 	f["held_s"] = 0.0
+	f["held_for_s"] = 0.0
 	f["zero_s"] = 0.0
 	f["clears_since_retaken"] = 0
 	var alive: Array = []

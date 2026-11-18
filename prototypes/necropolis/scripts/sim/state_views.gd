@@ -56,11 +56,14 @@ static func hud(gs: GameState) -> Dictionary:
 		# v12 (E4 step 9, ruling 3): the idle relic trickle, and the tier it reads
 		"highest_tier_flipped": gs.highest_tier_flipped(), "relic_trickle": relic_trickle(gs),
 		"sign": ro["sign"], "drain_s": ro["drain_s"], "odds": ro["odds"], "won": gs.won,
+		# v14 (Phase I P3, the odds split): `odds` is the first-attempt estimate (GameState.first_odds), `readiness` the
+		# win odds it reads (GameState.win_odds, the bots' Vei-ready), `backups` the count it reads (vei_backups)
+		"readiness": ro["readiness"], "backups": ro["backups"],
 	}
 
 
 ## view_hud.relic_trickle (v12, E4 step 9, ruling 3; GameState._relic_trickle): {paying, next_s}: whether it pays now
-## (every fort at or below highest_tier_flipped held), and the paying seconds left to its next relic (-1.0 while not).
+## (v14, R-b: some fort held relic_trickle.hold_s unbroken), and the paying seconds left to its next relic (-1.0 while not).
 static func relic_trickle(gs: GameState) -> Dictionary:
 	var on := gs.relic_trickle_paying()
 	var period := gs._req_f("economy.relic_trickle.period_s")
@@ -513,13 +516,34 @@ static func beat_id(gs: GameState) -> int:
 static func stances(gs: GameState) -> Dictionary:
 	var slots := gs._stance_slots()
 	var proj := stance_projections(gs)
+	var slotted := gs._slotted(gs.stances_on)  # (Phase I P3) a slot-free stance (Grow) takes none and is never suspended
 	var list: Array = []
 	for id in GameState.STANCE_IDS:
-		var idx := gs.stances_on.find(id)
-		list.append({"id": id, "on": idx >= 0, "suspended": idx >= slots, "active": gs._stance_active.has(id),
+		var idx := slotted.find(id)
+		list.append({"id": id, "on": gs.stances_on.has(id), "suspended": idx >= slots, "active": gs._stance_active.has(id),
 			"fired_beat_id": int(gs._stance_fired.get(id, -1)), "hold_s_left": maxf(0.0, float(gs._stance_hold.get(id, 0.0))),
 			"projected": (proj[id] as Dictionary).duplicate()})
-	return {"rev": gs.rev, "slots": slots, "used": mini(gs.stances_on.size(), slots), "beat_id": beat_id(gs), "stances": list}
+	return {"rev": gs.rev, "slots": slots, "used": mini(slotted.size(), slots), "beat_id": beat_id(gs), "stances": list,
+		"grow": grow_pick(gs).duplicate()}
+
+
+## view_stances' `grow` (STATE-API §5.11, v14; Phase I P3, the run's manager's ruling 3 on handoff 4): the Grow stance's
+## pick as BuildRules.grow_target reads it now, on or off (so the panel can say what it would do): {building_id, lot_id,
+## level, in_s}, building_id "" and in_s −1.0 when there is none; `held`, the reason of the queue head waiting on funds
+## at the last processing (gs._queue_held: Grow starts nothing while it is set), "" when none; `busy`, the constructions
+## under way at economy.json stance.grow.max_active (Grow starts nothing until one finishes). Pure; cached on
+## [rev, t, structure_rev] (gs._grow_view), as the projections are.
+static func grow_pick(gs: GameState) -> Dictionary:
+	var key := [gs.rev, gs.t, gs.town_sim.structure_rev]
+	var cached: Array = gs._grow_view
+	if not cached.is_empty() and cached[0] == key:
+		return cached[1]
+	var tg := BuildRules.grow_target(gs)
+	var out := {"building_id": str(tg.get("building_id", "")), "lot_id": str(tg.get("lot_id", "")), "level": int(tg.get("level", 0)),
+		"in_s": float(tg.get("in_s", -1.0)), "held": gs._queue_held,
+		"busy": BuildRules.constructions(gs) >= int(gs._req_f("economy.stance.grow.max_active"))}
+	gs._grow_view = [key, out]
+	return out
 
 
 ## view_stances' `projected` (STATE-API §5.11, E3-1): for each stance, the change in each net rate per second if it
@@ -544,10 +568,13 @@ static func stance_projections(gs: GameState) -> Dictionary:
 	var now := gs._acting_of(gs.stances_on)
 	var base := {}
 	for id in GameState.STANCE_IDS:
+		if id == "grow":
+			out[id] = {}  # (Phase I P3) Grow moves no rate while it acts: it spends at a start, as a queued build would
+			continue
 		var on_list: Array = gs.stances_on.duplicate()
 		if on_list.has(id):
 			on_list.erase(id)
-		elif on_list.size() < gs._stance_slots():
+		elif gs._stance_free.has(id) or gs._slotted(on_list).size() < gs._stance_slots():
 			on_list.append(id)
 		var acting := gs._acting_of(on_list)
 		if acting == now:
@@ -700,9 +727,11 @@ static func vei(gs: GameState) -> Dictionary:
 		"rev": gs.rev, "backlog": float(gs.realm.vei["undead_queue"]), "living_pool": float(gs.realm.vei["living_pool"]),
 		"pool_cap": gs._pool_cap(), "diff": float(ro["diff"]), "diff_ema": float(ro["diff_ema"]),
 		"sign": ro["sign"], "drain_s": ro["drain_s"], "odds": ro["odds"], "digest_q": gs.digest_q(),
-		# v12 (E4 step 9, option B): her strain, backlog / (backlog + K), which her tithe period, reship and need read;
-		# `odds` is the win odds (GameState.win_odds), the one odds a view shows
-		"strain": ro["strain"],
+		# v12 (E4 step 9, option B): her strain, backlog / (backlog + K), which her tithe period, reship and need read.
+		# v14 (Phase I P3, the odds split): `odds` is the first-attempt estimate a player reads (GameState.first_odds),
+		# `readiness` the win odds it reads (GameState.win_odds: the bots' Vei-ready, the boss seed's odds) and `backups`
+		# the count it reads (GameState.vei_backups)
+		"strain": ro["strain"], "readiness": ro["readiness"], "backups": ro["backups"],
 		"fronts": fronts, "fronts_required": gs._fronts_required(), "fronts_met": VeiFronts.fronts_met(fronts),
 		"tithe": vei_tithe(gs),
 		"can_begin": why == "", "reason": why, "won": gs.won,
@@ -1003,8 +1032,9 @@ static func away_before(gs: GameState) -> Dictionary:
 			unpaid.append(str(lot_id))
 		elif gs.town_sim.buildings[lot_id]["state"] == "thrift":
 			thrift.append(str(lot_id))
+	# backups (Phase I P3's odds split): the count the away's starting odds read (GameState.vei_backups)
 	return {"t": gs.t, "streams": away_streams(gs), "overflow": _overflow(gs), "forts": forts, "villages": villages,
-		"unpaid": unpaid, "thrift": thrift}
+		"unpaid": unpaid, "thrift": thrift, "backups": gs.vei_backups()}
 
 
 static func _overflow(gs: GameState) -> Dictionary:
@@ -1025,12 +1055,13 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 	var ready: Array = []
 	var losses: Array = []
 	# gains: each stream's net rate and net total, the backlog with its arrow and Vei's odds before and after (E4 step 3:
-	# "away: +N, odds A → B"; the win odds, MECHANICS §3 step 8: at the away's start from its age and backlog, and now
-	# view_vei's (E4 step 9, option B)
+	# "away: +N, odds A → B"; the odds a player reads, MECHANICS §3 step 8: at the away's start from its age, backlog and
+	# backups, and now view_vei's (E4 step 9, option B; Phase I P3's odds split: the first-attempt odds), as whole
+	# percents (odds_pct; the V-I1 round: "Vei's queue ▲ … · your odds 5% → 8%")
 	var now := away_streams(gs)
 	var k_odds := gs._req_f("realm.K")
 	var b0 := float(b["streams"]["backlog"])
-	var odds_from := gs.win_odds(float(b["t"]), b0 / (b0 + k_odds))
+	var odds_from := gs.first_odds(gs.win_odds(float(b["t"]), b0 / (b0 + k_odds)), int(b["backups"]))
 	var odds_to := float(gs._vei_readout()["odds"])
 	for id in rep["streams"]:
 		var total := float(now[id]) - float(b["streams"][id])
@@ -1039,15 +1070,19 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 		var fmt := str(rep["backlog_fmt"] if id == "backlog" else rep["stream_fmt"])
 		gains.append(_away_line(fmt.format({"label": str(rep["stream_labels"][id]), "arrow": arrow,
 			"rate": _fmt_rate(rep, rate), "total": _fmt_signed(rep, total),
-			"odds_from": "%.2f" % odds_from, "odds_to": "%.2f" % odds_to}), "stream", ""))
+			"odds_from": odds_pct(odds_from), "odds_to": odds_pct(odds_to)}), "stream", ""))
 	# builds finished, then each queued build that started, with when (since you left) and why
 	var done: Array = []
+	var done_lots: Array[String] = []  # api-request #19 (town-i, Phase I P3): each building_done's lot, as the names
 	for e in evs:
 		if e["type"] == "building_done":
 			done.append(_building_name(gs, rep, str(e["building_id"]), int(e["level"])))
+			done_lots.append(str(e["lot_id"]))
 	if not done.is_empty():
 		var fmt := str(rep["builds_one_fmt"] if done.size() == 1 else rep["builds_fmt"])
-		gains.append(_away_line(fmt.format({"n": _fmt_count(rep, done.size()), "names": str(rep["list_sep"]).join(PackedStringArray(done))}), "build", ""))
+		var line := _away_line(fmt.format({"n": _fmt_count(rep, done.size()), "names": str(rep["list_sep"]).join(PackedStringArray(done))}), "build", "")
+		line["lots"] = done_lots
+		gains.append(line)
 	for e in evs:
 		if e["type"] != "queue_started":
 			continue
@@ -1130,10 +1165,18 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 					stuck = false
 				# "queued" changes nothing: it sits behind a head (the queue never jumps), so it starts only if
 				# that head does, and a head that will be afforded has already cleared `stuck`
+		var never_said := {}  # P3 (ruling 3): the funds reasons (no_gold, no_bone) a skipped never-head's line has named
 		for i in rows.size():
 			var row: Dictionary = rows[i]
 			if row["status"] == "waiting_funds":
 				ready.append(_away_line(afford_text(gs, rep, row, str(w["waits"][i]), BuildRules.queue_net(gs), _move_down_helps(gs, i)), "queue", "queue"))
+			elif BuildRules.never_row(row):
+				# Phase I P3 (ruling 3): a head no income can pay is skipped and holds nothing, so its line is the never
+				# form without the move down (it is passed already): its store's rate and the lever that raises it. Only
+				# the first such entry on each store gets one: the ones behind it name the same rate and lever
+				if not never_said.has(str(row["reason"])):
+					never_said[str(row["reason"])] = true
+					ready.append(_away_line(afford_text(gs, rep, row, str(w["waits"][i]), BuildRules.queue_net(gs), false), "queue", "queue"))
 			elif i == wall and stuck:
 				ready.append(_away_line(afford_text(gs, rep, row, "relics", {}, false), "queue", "queue"))
 			elif i == upk:
@@ -1169,6 +1212,25 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 
 static func _away_line(text: String, kind: String, target: String) -> Dictionary:
 	return {"text": text, "kind": kind, "target": target}
+
+
+## Whether a new `building_id` (level 0, state constructing) stands on some lot and none of it is built yet (level >= 1).
+static func _producer_constructing(gs: GameState, building_id: String) -> bool:
+	var building := false
+	for lot_id in gs.town_sim.buildings:
+		var b: Dictionary = gs.town_sim.buildings[lot_id]
+		if str(b["building_id"]) != building_id:
+			continue
+		if int(b["level"]) >= 1:
+			return false
+		building = building or str(b["state"]) == "constructing"
+	return building
+
+
+## The away report's odds as the top bar prints them (HudLogic.status's odds_text, "YOUR ODDS 8%"; the V-I1 round, map-i):
+## a whole percent, 0..100.
+static func odds_pct(odds: float) -> String:
+	return "%d%%" % roundi(clampf(odds, 0.0, 1.0) * 100.0)
 
 
 ## R2 (the run's manager, from Shawn's "needs relics: raid a fort"; IDLE §7): every capped store, gold and bone, is
@@ -1236,10 +1298,15 @@ static func afford_text(gs: GameState, rep: Dictionary, row: Dictionary, store: 
 					"rate": _fmt_rate(rep, float(net.get(s, 0.0)))})
 			return str(rep["afford_living_fmt" if movable else "afford_living_last_fmt"]).format({"name": name,
 				"short": _fmt_count(rep, gshort), "rate": _fmt_rate(rep, float(net.get(s, 0.0)))})
-		var own := str(row["building_id"]) == str((rep["afford_producer"] as Dictionary).get(s, ""))
+		var prod := str((rep["afford_producer"] as Dictionary).get(s, ""))
+		var own := str(row["building_id"]) == prod
 		var fmt := ("afford_never_self" if own else "afford_never") + ("_fmt" if movable else "_last_fmt")
+		# Phase I P3's housekeeping: while a new producer of the store is under construction (level 0), "build a Bone
+		# Mill" names one already started, so the lever is afford_raise_building's, "wait for the Bone Mill to finish"
+		var raise := str(rep["afford_raise_self"][s]) if own else (str(rep["afford_raise_building"][s])
+			if _producer_constructing(gs, prod) else str(rep["afford_raise"][s]))
 		return str(rep[fmt]).format({"name": name, "store": str(rep["afford_stores"][s]),
-			"rate": _fmt_rate(rep, float(net.get(s, 0.0))), "raise": str(rep["afford_raise_self" if own else "afford_raise"][s])})
+			"rate": _fmt_rate(rep, float(net.get(s, 0.0))), "raise": raise})
 	return str(rep["afford_wait_fmt"]).format({"name": name, "store": str(rep["afford_stores"][s]),
 		"when": _when(rep, ceilf(a / 60.0) * 60.0)})
 

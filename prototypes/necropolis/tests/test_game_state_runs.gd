@@ -22,7 +22,7 @@ func run() -> int:
 	t.suite("game-state-runs")
 
 	# --- constants and construction ---
-	t.ok(GameState.API_VERSION == 13 and GameState.RELISH_STATES.size() == 7 and GameState.FRONT_IDS.size() == 4, "constants present")
+	t.ok(GameState.API_VERSION == 14 and GameState.RELISH_STATES.size() == 7 and GameState.FRONT_IDS.size() == 4, "constants present")
 	t.ok(GameState.DEBUG_GRANT_KEYS.size() == 11 and GameState.DEBUG_STATE_KEYS.size() == 7, "debug key lists")
 	var bare := GameState.new()
 	t.ok(bare._cfgs.is_empty(), "_init() with no configs leaves it unset")

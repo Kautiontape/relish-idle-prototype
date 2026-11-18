@@ -56,10 +56,27 @@ const CLOCK := 1_800_000_000  # a "now" for the saves (unix seconds)
 ## states only, since to_dict() carries api_version; the events and away reports don't move, and neither does any pin
 ## from the vat clip (no fixture tends a vat). The proof: the P2 tip with API_VERSION set back to 12 passes the old pins.
 ## Was: day1 60e6df8c…, midgame_2flips 033dd114…, pre_vei ae145315….
+## Re-pinned at Phase I P3 (API v14: wait_slot, the never head's skip, #19's lots, #20's revived_in_place and the odds
+## split; the standing re-pin rule): the three states (api_version 14) and the three away reports, whose backlog line's
+## "odds A → B" are now the first-attempt odds (GameState.first_odds on the readiness and the backups). The events
+## don't move. The proof: the v14 tree with API_VERSION set back to 13 and realm.json odds.backups_mid -1e9 (the
+## readiness bit for bit) passes every old pin in this suite, test_stances and test_big_undead (288 PASS, 0 FAIL).
+## Was: day1 e0c2c449… / ab49446c…, midgame_2flips 99fdcbb4… / 330008c2…, pre_vei 579ad780… / 50f7cc0b… (state / away).
+## Re-pinned at Phase I P3's Grow stance (API v14, STATE-API §10 A17; the standing re-pin rule): midgame_2flips' and
+## pre_vei's states and events. Both fixtures are past their first build, so Grow's condition holds at the first beat
+## and its `active` changes once: one more event (stance_fired {grow, active true}; 241 and 16) and the save's
+## stances.state gains grow. The fixtures load with Grow off (their on-list is []), so nothing else moves: the away
+## reports and day1 (not armed) are unchanged. The proof: this tree with grow out of GameState.STANCE_IDS passes every
+## old pin here and in test_big_undead (225 PASS, 0 FAIL). Was: midgame_2flips 9c683088… / d1014dba…, pre_vei
+## 45f2ea1c… / e3093d57… (state / events).
+## Re-pinned at the V-I1 round's report text (map-i; the standing re-pin rule): the three away reports only. The backlog
+## line's label is "Vei's queue" and its odds are whole percents ("your odds 5% → 8%", StateViews.odds_pct); every state
+## and event hash is unchanged. The proof: 180121f (the old text, the same sim) passes the old pins in its full suite.
+## Was: day1 836f4889…, midgame_2flips d172a2cf…, pre_vei 1d42c14b… (away).
 const TIP := {
-	"day1": {"state": "e0c2c449d10dfb43370d5dc819ef91fd94752a992c0384ea078b19de90a5e4c5",
+	"day1": {"state": "1ec82f7a6d729e068b3a2b676b3f4eabf48e7c5d45e8844f18d5b35be2c0ff25",
 		"events": "bf49daaddc2123e6ee4b4da8affd68561ee577d54c464d657e414d0452193d34",
-		"away": "ab49446c969569f989a1f08c655f3247f929c4c7837d0e7820a1f43e45afd839", "steps": 4320, "n_events": 2},
+		"away": "1428a98321b7f4c45c46c7c45c9b95fc1c72dcdf34907034f1e65e32fb8b1408", "steps": 4320, "n_events": 2},
 	# midgame's state and away report re-baselined at E3-3's foreman: its Market's foreman (u8, m 1.183, presence +0.064)
 	# takes its 12 h gold from +6,912 to +9,094, to the 9,750 cap (193 not stored), so the report's ready line is the
 	# stores-full raid prompt and it gains "Gold is full: 193 not stored"; its morale 0.630 -> 0.694. The events are
@@ -84,9 +101,13 @@ const TIP := {
 	# under hold.mint_ref), so α plays no part. The proof tree (the most-undead rule in _tithe_target and the train,
 	# mint_alpha 0.7, the old line, fort_retaken without the two keys) passes the old pins (was 54ae7149… / 7eb703c3… /
 	# e0a288bf…)
-	"midgame_2flips": {"state": "99fdcbb4e5a603810ad23f3bcfb1f4559728aab4e80aa944f914c94c50964b6f",
-		"events": "d1014dbadd6ad58404818316e0e65a295e012af5ef8675ffb59dd678d1899e90",
-		"away": "330008c2b9838f07917f3f4b503f5b83cf77bb43299b8ec361438f9cdb6991ec", "steps": 4356, "n_events": 240},
+	# Re-pinned at Phase I P3's R-b (the trickle's hold age; the standing re-pin rule): the state only, the forts still
+	# held at its end saving held_for_s (v14; the fixture's load at 0). The events and the report don't move (no fort
+	# reaches the day the trickle needs inside the 12 h). The proof: this tree with SaveIO's held_for_s writer off passes every old pin here,
+	# in test_stances and in test_big_undead (288 PASS, 0 FAIL). Was 1ab0643a…
+	"midgame_2flips": {"state": "bb6fc5dd7fc35fed7dc5cb3cefbbfae7b22146466e4e4ab72bbddb67e53cebb1",
+		"events": "47b8beb6aabf4999e69ed75d1752a7bb724cf79b98c595f6ad5c14e80344f355",
+		"away": "e3aacf3f4aba391b14fb5c661f6e431b50b6498cfaba4d7908da5f449ce262e6", "steps": 4356, "n_events": 241},
 	# pre_vei re-pinned at E4 step 4's resume rule (the manager's ruling (i) on the gold-trap stop; the standing re-pin
 	# rule): its floor sheds as before, but only one of the two Houses resumes, since the second would leave the gold
 	# income (0.60) exactly at the paying upkeep, so one building_unpaid event fewer (15, not 16); the gold climbs at
@@ -99,9 +120,9 @@ const TIP := {
 	# +1,868,492 (+1,867,726), the mint +2,251,317 (+2,251,104), the bone not stored 4,731 (4,730), the end bodies 0.34
 	# (0). The events are unchanged. day1's and midgame_2flips' convoys land nothing in these 12 h, so they don't move.
 	# The proof: the claim off (× 0) passes the old pins (was f23659ff… / a8a97ed8…).
-	"pre_vei": {"state": "579ad7808c60f00ca9581c077a31044c726877b255e51d6f5b35191d3dba441b",
-		"events": "e3093d57d7355dc31433aca50040e476c11b5e6fa89ed1372a608aa1860d5a84",
-		"away": "50f7cc0b2696b50d0f54f21abaddb8d858442e4410f8a7ad9148fa415774d44d", "steps": 4321, "n_events": 15},
+	"pre_vei": {"state": "68c68ffdc82dc8c62a249d8fe91f0fd2c184c5522775ce967a180a255297384a",
+		"events": "fb00b6b760bbd7366d217e5421aa89e3ea3aeef9909f2f64b947bc2aae796177",
+		"away": "f701ba3f7ca574714ae85e093e3813cbe9e7b2e2d441981a31b435e4b10b5ed2", "steps": 4321, "n_events": 16},
 }
 
 
@@ -498,26 +519,32 @@ func _catchup_hand() -> void:
 	while int(_tend(live)["slots"]) >= 1 and live.t - t0 < 400.0:
 		live.tick(live.substep_s())
 	var t_live := live.t - t0
-	var cu := GameState.new(c)
-	cu.debug_enabled = true
-	cu.save_dir = _dir
-	cu.clock_override = CLOCK + 43200
-	cu.cmd_load("hand", true)
-	cu._catchup.trace = []
-	var step := Catchup.base_dt(cu, 43200.0)
-	while cu.catching_up() and int(_tend(cu)["slots"]) >= 1:
-		cu.tick(cu.substep_s())
-	var t_cu := cu.t - t0
-	var on := false
-	for tr in cu._catchup.trace:
-		on = on or absf(float(tr[0]) + float(tr[1]) - (t0 + want)) < 1e-6
 	t.ok(live.view_backups()["vats"][1]["ready"] and t_live >= want - 1e-9 and t_live - want < live.substep_s() + 1e-9,
 		"live: vat 1 fills %.3f s in (vat_fill_s %.3f) and its hand is back at the next substep's end, %.2f s" % [want, want, t_live])
-	t.ok(absf(t_cu - t_live) <= live.substep_s() + 1e-9,
-		"caught up (%.0f s steps): the hand is back %.3f s in, %.3f s from live, within live's %.1f s substep (the bound before the clip: one step)" % [
-		step, t_cu, t_cu - t_live, live.substep_s()])
-	t.ok(on and float(cu.vats_grow[1]) == 1.0 and absf(t_cu - want) < 1e-6,
-		"a catch-up step ends on the fill (%.6f s in), with the vat at exactly 1 (%s): the float guard" % [want, str(cu.vats_grow[1])])
+	# Phase I P3 (the P2 review's item 3): the 10 s core step of a 12 h catch-up, and the 15 s long step
+	# (idle.catchup_dt_long_s) of a 7-day one, with idle.catchup_dt_long_after_s at 0 so the long step runs from the start
+	var c15: Dictionary = load("res://tests/test_stances.gd").cfgs({"economy.idle.catchup_steps_per_chunk": 1,
+		"economy.idle.catchup_dt_long_after_s": 0.0})
+	for k in [[c, 43200, false, 10.0], [c15, 604800, true, 15.0]]:
+		var cu := GameState.new(k[0])
+		cu.debug_enabled = true
+		cu.save_dir = _dir
+		cu.clock_override = CLOCK + int(k[1])
+		cu.cmd_load("hand", true)
+		cu._catchup.trace = []
+		var step := Catchup.base_dt(cu, float(k[1]), bool(k[2]))
+		t.ok(step == float(k[3]), "(setup) the catch-up's base step is %.0f s (%.2f)" % [float(k[3]), step])
+		while cu.catching_up() and int(_tend(cu)["slots"]) >= 1:
+			cu.tick(cu.substep_s())
+		var t_cu := cu.t - t0
+		var on := false
+		for tr in cu._catchup.trace:
+			on = on or absf(float(tr[0]) + float(tr[1]) - (t0 + want)) < 1e-6
+		t.ok(absf(t_cu - t_live) <= live.substep_s() + 1e-9,
+			"caught up (%.0f s steps): the hand is back %.3f s in, %.3f s from live, within live's %.1f s substep (the bound before the clip: one step)" % [
+			step, t_cu, t_cu - t_live, live.substep_s()])
+		t.ok(on and float(cu.vats_grow[1]) == 1.0 and absf(t_cu - want) < 1e-6,
+			"%.0f s steps: a catch-up step ends on the fill (%.6f s in), with the vat at exactly 1 (%s): the float guard" % [step, want, str(cu.vats_grow[1])])
 
 
 ## The tip's 12 h catch-up identity (TIP's function): the whole state (less the big undead's filled_slots, E3-3's

@@ -48,8 +48,12 @@ func run() -> int:
 	while s.t < T0 + SPAN - 1e-6:
 		fol._frames(1)
 	var open := s.town_sim.bone - b0
-	t.ok(open > 100.0 and s.town_sim.bone < s.town_sim.bone_cap() and s.build_queue.size() == q0,
-		"(setup) open, the hour makes %.3f bone, under the cap, the queue as saved (%d)" % [open, s.build_queue.size()])
+	# Phase I P3 (ruling 3): a head no income can pay no longer holds the queue for the hour, so an entry starts inside it
+	# in every run (the queue as saved, 9 entries at c159e64, isn't kept; P2's 122.99 bone open read before that); the
+	# setup checks each closed run ends with the open run's queue, and the bone comparison below is unchanged
+	var q_open: Array = s.build_queue.map(func(e): return "%s/%s" % [e["building_id"], e["lot_id"]])
+	t.ok(open > 50.0 and s.town_sim.bone < s.town_sim.bone_cap() and s.build_queue.size() <= q0,
+		"(setup) open, the hour makes %.3f bone, under the cap, the queue %d of the saved %d" % [open, s.build_queue.size(), q0])
 	for dt in BOUND:
 		var c: Dictionary = cfg.duplicate(true)
 		c["economy"]["idle"]["catchup_max_steps"] = SPAN / float(dt)
@@ -62,8 +66,9 @@ func run() -> int:
 		while n._catchup.active:
 			n._catchup.run(n, 1)
 		var made := n.town_sim.bone - nb0
-		t.ok(r["ok"] and absf(float(n._catchup.dt) - float(dt)) < 1e-9 and absf(n.t - (T0 + SPAN)) < 1e-6 and n.build_queue.size() == q0,
-			"(setup) caught up at %.1f s steps to %.2f s, the queue as saved (%d)" % [float(n._catchup.dt), n.t, n.build_queue.size()])
+		var q_n: Array = n.build_queue.map(func(e): return "%s/%s" % [e["building_id"], e["lot_id"]])
+		t.ok(r["ok"] and absf(float(n._catchup.dt) - float(dt)) < 1e-9 and absf(n.t - (T0 + SPAN)) < 1e-6 and q_n == q_open,
+			"(setup) caught up at %.1f s steps to %.2f s, the queue the open hour's (%d)" % [float(n._catchup.dt), n.t, n.build_queue.size()])
 		t.ok(absf(made - open) <= float(BOUND[dt]), "caught up at %.0f s the hour makes %.3f bone against %.3f open (%+.3f; bound ±%.1f, IDLE §8)" % [
 			float(dt), made, open, made - open, float(BOUND[dt])])
 	DirAccess.remove_absolute(_dir + "/hour.json")

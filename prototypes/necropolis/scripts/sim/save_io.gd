@@ -66,15 +66,28 @@ const SAVE_SPEC := {
 const _TOWN_OPTIONAL := {"morale": _F, "shock": _F, "rates": _D, "pending": [_D]}
 ## A realm fort's optional keys, checked when present: the hold as E2b-2 writes it (held, grace_s,
 ## zero_s) and as older saves wrote it (held_s: the seconds of hold left, read as the grace).
-const _FORT_OPTIONAL := {"held": _B, "grace_s": _F, "zero_s": _F, "held_s": _F, "yield_c": _F, "yield_t": _F}
+## v14 (Phase I P3, R-b): held_for_s, the unbroken hold's age, written only while the fort is held and it is above 0 (a
+## fixture's held fort loads at 0 and saves back as its file).
+const _FORT_OPTIONAL := {"held": _B, "grace_s": _F, "zero_s": _F, "held_s": _F, "held_for_s": _F, "yield_c": _F, "yield_t": _F}
 ## v8 (E3-1) adds "thrift": a building the Thrift stance idles (TownSim.buildings).
 const _BUILDING_STATES := ["constructing", "active", "idle", "unpaid", "thrift"]
 ## The stances' state (v8, E3-1): stances.state, optional, {stance id: this} for each stance whose condition has
 ## changed at least once (one never changed is inactive and never fired: a save without it, the fixtures').
 const _STANCE_STATE := {"active": _B, "fired_beat_id": _I}
 ## The build queue's entries as the save writes them (E2b-2 T3.2); the top-level `queue` key is optional
-## and `waited_on` within it too (both typed when present).
+## and `waited_on` within it too (both typed when present). Phase I P3 (ruling 3's hold timeout): `never_since`, a
+## float >= 0, optional, written only on a head reading dry (BuildRules.held_out).
 const _QUEUE_ENTRY := {"building_id": _S, "lot_id": _S, "upgrade": _B}
+
+
+## One build-queue entry as the save writes it: never_since only when the entry has one, so a queue with no head
+## reading dry saves as before P3.
+static func _queue_entry_out(e: Dictionary) -> Dictionary:
+	var out := {"building_id": str(e["building_id"]), "lot_id": str(e["lot_id"]), "upgrade": bool(e["upgrade"]),
+		"waited_on": str(e.get("waited_on", ""))}
+	if e.has("never_since"):
+		out["never_since"] = float(e["never_since"])
+	return out
 ## Relish's last walk home (E2b-2 T3.3c, view_relish().returned): relish.returned, optional, written once there is one.
 const _RETURNED := {"fort_id": _S, "cause": _S, "t": _F}
 ## The open run as the save writes it (E2b-2 T3.3c, IDLE I5; optional, written only while a run is open).
@@ -250,10 +263,11 @@ static func problem(m: Dictionary, cfgs: Dictionary) -> String:
 		if not (m["queue"] is Array):
 			return "queue"
 		for e in m["queue"]:
-			if not fits(e, _QUEUE_ENTRY) or (e.has("waited_on") and not fits(e["waited_on"], _S)):
+			if not fits(e, _QUEUE_ENTRY) or (e.has("waited_on") and not fits(e["waited_on"], _S)) \
+					or (e.has("never_since") and not (fits(e["never_since"], _F) and float(e["never_since"]) >= 0.0)):
 				return "queue"
 	if m.has("pending_retreat"):
-		var pr_why := _pending_retreat_problem(m["pending_retreat"], rl, fort_ids)
+		var pr_why := _pending_retreat_problem(m["pending_retreat"], rl, fort_ids, int(m["backups"]["phylactery_charges"]))
 		if pr_why != "":
 			return pr_why
 	var town_why := _town_problem(m["town"], cfgs, fort_ids)
@@ -321,7 +335,7 @@ static func _town_problem(tn: Dictionary, cfgs: Dictionary, fort_ids: Dictionary
 	var lot_ids := {}
 	for l in (lots_cfg if lots_cfg is Array else []):
 		lot_ids[str(l.get("id", ""))] = true
-	var sane := level_sanity_cap(bcfg, cfgs)
+	var sane := level_sanity_cap(cfgs)
 	var seen := {}
 	for b in tn["buildings"]:
 		if not lot_ids.has(b["lot_id"]) or seen.has(b["lot_id"]) or not bcfg.has(b["building_id"]):
@@ -357,19 +371,14 @@ static func _town_problem(tn: Dictionary, cfgs: Dictionary, fort_ids: Dictionary
 	return ""
 
 
-## The level sanity cap (Phase I P2, Q-d; STATE-API 9.1): economy.json save.level_sanity_mult × the highest max_level
-## any building has in `bcfg` (buildings.json; at least 1): 16 today. A save level above it is corrupt, not clamped:
-## no config has written a level past its own ladder's top, so the cap leaves a cut room to halve the ladder and
-## refuses what no ladder this size could have written (the E4 close-out review's 1e9). The level is compared as a
-## float, so a level past int's range can't wrap under it. A missing multiplier reads 2 (GameState.REQUIRED has it).
-static func level_sanity_cap(bcfg: Variant, cfgs: Dictionary) -> float:
-	var top := 1
-	if bcfg is Dictionary:
-		for bid in bcfg:
-			if bcfg[bid] is Dictionary:
-				top = maxi(top, int((bcfg[bid] as Dictionary).get("max_level", 1)))
-	var mult := float(((cfgs.get("economy", {}) as Dictionary).get("save", {}) as Dictionary).get("level_sanity_mult", 2.0))
-	return float(top) * mult
+## The level sanity cap (Phase I P2, Q-d; STATE-API 9.1): economy.json save.level_sanity_max (64), a fixed number,
+## REQUIRED (GameState.REQUIRED; no fallback). A save level above it is corrupt, not clamped (the E4 close-out
+## review's 1e9). Phase I P3 (the P2 review's items 1-2): it no longer follows today's ladders (P2's 2 × the top
+## max_level), so a later config that cuts a ladder by more than half leaves old saves loadable (clamped by the cut
+## rule); 64 sits far above any max_level the configs have had (8, P3's depth included). The level is compared as a
+## float, so a level past int's range can't wrap under it.
+static func level_sanity_cap(cfgs: Dictionary) -> float:
+	return float(cfgs["economy"]["save"]["level_sanity_max"])
 
 
 ## The level cut rule (STATE-API 9.1; the E4 final review's must-fix): a config that lowers a building's
@@ -400,8 +409,10 @@ static func clamp_levels(tn: Dictionary, bcfg: Dictionary) -> Dictionary:
 ## "" if the optional `pending_retreat` (E2b-2 T3.3c; the run open at the save) is sound: its keys typed, a
 ## known kind and outcome (a boss run's always "retreated"), a raid's fort a known fort with Relish saved
 ## at_fort there and a boss's "vei" with her at_vei (as dump writes them), and loot the raid result's
-## validator takes (Results.validate on the retreat result carrying it).
-static func _pending_retreat_problem(pr: Variant, rl: Dictionary, fort_ids: Dictionary) -> String:
+## validator takes (Results.validate on the retreat result carrying it). api-request #20 (Phase I P3): an optional
+## `revived_in_place`, an int from 1 to the save's phylactery `charges` (a raid's only; nothing changes the stock while
+## a run is open, so its checkpoint's count was within it).
+static func _pending_retreat_problem(pr: Variant, rl: Dictionary, fort_ids: Dictionary, charges: int) -> String:
 	if not fits(pr, _PENDING_RETREAT):
 		return "pending_retreat"
 	var raid: bool = pr["kind"] == "raid"
@@ -413,6 +424,9 @@ static func _pending_retreat_problem(pr: Variant, rl: Dictionary, fort_ids: Dict
 		return "pending_retreat fort"
 	if not Results.validate("raid", StateRuns.end_result(pr, pr["loot"], "retreated")).is_empty():
 		return "pending_retreat loot"
+	if pr.has("revived_in_place") and not (raid and fits(pr["revived_in_place"], _I) and int(pr["revived_in_place"]) >= 1
+			and int(pr["revived_in_place"]) <= charges):
+		return "pending_retreat revived"
 	return ""
 
 
@@ -579,6 +593,8 @@ static func dump(gs: GameState) -> Dictionary:
 			"r_in": f["r_in"], "r_drain": f["r_drain"], "r_shipped": f["r_shipped"],
 			"r_dead_out": f["r_dead_out"], "r_raised": f["r_raised"],
 		})
+		if RealmSim.is_held(f) and float(f.get("held_for_s", 0.0)) > 0.0:  # (v14, R-b) the hold's age, once it has one
+			forts[-1]["held_for_s"] = float(f.get("held_for_s", 0.0))
 	var villages: Array = []
 	for tw in gs.towns:
 		villages.append({"id": str(tw["id"]), "owner": {"green": "player", "orange": "vei"}.get(tw["control"], "none")})
@@ -627,8 +643,7 @@ static func dump(gs: GameState) -> Dictionary:
 		"ledger": gs._ledger.to_dict(),
 		"won": gs.won, "stats": gs.stats.duplicate(),
 		"cleared_forts": gs.cleared_forts.keys(), "first_dungeon": gs.first_dungeon_id,
-		"queue": gs.build_queue.map(func(e): return {"building_id": str(e["building_id"]), "lot_id": str(e["lot_id"]),
-			"upgrade": bool(e["upgrade"]), "waited_on": str(e.get("waited_on", ""))}),
+		"queue": gs.build_queue.map(func(e): return _queue_entry_out(e)),
 	}
 	(d["cleared_forts"] as Array).sort()
 	# IDLE I5 (E2b-2 T3.3c): the open run, as the retreat a load ends it with (its last checkpoint); written only
@@ -715,6 +730,8 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 			f["grace_s"] = hs
 			f["zero_s"] = 0.0
 		f["held_s"] = f["grace_s"]
+		# (v14, R-b) the hold's age: a save without it (before v14, the fixtures) loads a held fort at 0, a fresh hold
+		f["held_for_s"] = maxf(0.0, float(e.get("held_for_s", 0.0))) if f["held"] else 0.0
 		# the loot yield (api_version 6): a save without it read 1.0, so it loads at 1
 		f["yield_c"] = clampf(float(e.get("yield_c", 1.0)), 0.0, 1.0)
 		f["yield_t"] = float(e.get("yield_t", 0.0))
@@ -826,12 +843,14 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 	# dropped with a warning, and so is an upgrade to a level past its max_level (the level cut rule: it would
 	# hold its slot as a max_level gate for good) and any past the whole list's cap (Phase I P2's queue rule:
 	# BuildRules.queue_list_max, gated entries and all; before P2, queue.max_len). The slot count isn't checked here:
-	# entries whose gates cleared can hold more than queue.max_len slots, as they can in play
+	# the walk gives the slots (P3's A14 amendment: past queue.max_len an entry no gate holds reads wait_slot)
 	gs.build_queue = []
 	for e in m.get("queue", []):
 		var bid := str(e["building_id"])
 		var lot_id := str(e["lot_id"])
 		var entry := {"building_id": bid, "lot_id": lot_id, "upgrade": bool(e["upgrade"]), "waited_on": str(e.get("waited_on", ""))}
+		if e.has("never_since"):
+			entry["never_since"] = float(e["never_since"])  # P3, ruling 3's hold timeout (optional: a head reading dry)
 		if not BuildRules.buildings_cfg(gs).has(bid) or BuildRules.lot(gs, lot_id).is_empty():
 			push_warning("SaveIO: dropped a queued %s on %s: not in today's config" % [bid, lot_id])
 		elif entry["upgrade"] and int(BuildRules.queue_levels(gs, gs.build_queue + [entry]).back()) \

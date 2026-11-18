@@ -103,6 +103,7 @@ func run() -> int:
 	_td2(day1, mid)
 	_queue_eta(day1)
 	_stance_trade(mid)
+	_stance_trade_grow(mid)
 	_full_staffing_label()
 	_build_sort(day1)
 	_build_reasons(day1)
@@ -1664,7 +1665,8 @@ func _build_sort(day1: Dictionary) -> void:
 
 const ALL_REASONS := ["unknown_building", "unknown_lot", "lot_locked", "lot_taken", "lot_too_small", "empty_lot",
 	"under_construction", "needs_tier", "needs_blueprint", "needs_building", "no_lot", "no_gold", "no_bone", "no_relics",
-	"max_level", "protected", "not_building", "queue_full", "cost_exceeds_cap", "unknown_index", "bad_order", "unpaid", "unique"]
+	"max_level", "protected", "not_building", "queue_full", "cost_exceeds_cap", "unknown_index", "bad_order", "unpaid", "unique",
+	"wait_slot"]
 
 
 func _build_reasons(day1: Dictionary) -> void:
@@ -1677,7 +1679,7 @@ func _build_reasons(day1: Dictionary) -> void:
 		t.ok(txt != "" and txt != r and not txt.contains("_") and not txt.contains("{"), "reason '%s' has human text: %s" % [r, txt])
 	for r in vcfg["reasons"]:
 		if r != "_unknown":
-			t.ok(r in ALL_REASONS or r in ["no_cost", "just_queued", "catching_up", "wait_slot"], "view.reasons.%s is a documented reason id (no_cost and just_queued are the town's own: past level_costs, and a lot a Queue click took since the last bind, BuildSort.send_queue; catching_up is every command's, STATE-API §4; wait_slot is economy P3's queue reason, worded before it lands)" % r)
+			t.ok(r in ALL_REASONS or r in ["no_cost", "just_queued", "catching_up"], "view.reasons.%s is a documented reason id (no_cost and just_queued are the town's own: past level_costs, and a lot a Queue click took since the last bind, BuildSort.send_queue; catching_up is every command's, STATE-API §4; wait_slot is economy P3's queue reason)" % r)
 	t.ok(BuildSort.reason_text("needs_tier", row, st, bv, vcfg) == "needs Village tier", "reason: needs_tier uses requires.tier")
 	t.ok(BuildSort.reason_text("needs_blueprint", row, st, bv, vcfg) == "needs the Embalmer blueprint: dungeon loot", "reason: needs_blueprint names the blueprint")
 	t.ok(BuildSort.reason_text("needs_building", row, st, bv, vcfg) == "needs a House first", "reason: needs_building names the building")
@@ -3668,6 +3670,38 @@ func _stance_trade(mid: Dictionary) -> void:
 		var line := HudModel.parts_text(TownBehaviour.stance_trade(String(id), mid, before, proj.call(mid, TownBehaviour.stance_job(String(id), town, vcfg)), vcfg))
 		t.ok(line.begins_with("Now: ") and not line.contains("{") and vcfg["stance_trade"].has(id), "stance trade: %s has a line: %s" % [id, line])
 	t.ok(String(vcfg["behaviour"]["no_projection"]) == "projected rates: coming", "stance trade: rates still wait, and say so in player words")
+
+
+## Phase I P3 (the run's manager's ruling 3 on handoff 4): Grow's trade line, from view_stances' `grow` (its pick, what
+## holds it) and its row's `active` (the first finished build). midgame_2flips' own view first (a fixture load reads no
+## beat yet, so `active` is false), then the same view as Grow armed, with its pick on a wait, held by the queue, held
+## by the build under way, and with no pick. Names are buildings_view labels.
+func _stance_trade_grow(mid: Dictionary) -> void:
+	var bv: Dictionary = cfg["buildings_view"]
+	var g: Dictionary = mid["stances"]["grow"]
+	var name := BuildSort.label_of(String(g["building_id"]), bv)
+	var line := HudModel.parts_text(TownBehaviour.stance_trade("grow", mid, [], [], vcfg, bv))
+	t.ok(String(g["building_id"]) != "" and float(g["in_s"]) == 0.0 and String(g["held"]) == "" and not bool(g["busy"])
+		and line == "Now: no build finished yet → it wouldn't fire; if it did: upgrades %s to level %d now" % [name, int(g["level"])],
+		"stance trade: Grow in midgame_2flips' view names its pick (%s): '%s'" % [str(g), line])
+	var v: Dictionary = mid.duplicate(true)
+	for s in v["stances"]["stances"]:
+		if String(s["id"]) == "grow":
+			s["active"] = true
+	v["stances"]["grow"] = {"building_id": "bone_mill", "lot_id": "lot-07", "level": 3, "in_s": 720.0, "held": "", "busy": false}
+	var trade := func() -> String: return HudModel.parts_text(TownBehaviour.stance_trade("grow", v, [], [], vcfg, bv))
+	t.ok(trade.call() == "Now: your first build is done → it would fire; upgrades Bone Mill to level 3 in 12 min",
+		"stance trade: Grow armed, its pick on a wait: '%s'" % trade.call())
+	v["stances"]["grow"]["held"] = "no_bone"
+	t.ok(trade.call() == "Now: your first build is done → it would fire; Bone Mill level 3 waits: your queue is saving for its next build",
+		"stance trade: Grow held by a queue head waiting on funds: '%s'" % trade.call())
+	v["stances"]["grow"]["held"] = ""
+	v["stances"]["grow"]["busy"] = true
+	t.ok(trade.call() == "Now: your first build is done → it would fire; Bone Mill level 3 waits for the build under way",
+		"stance trade: Grow held by the build under way (max_active): '%s'" % trade.call())
+	v["stances"]["grow"] = {"building_id": "", "lot_id": "", "level": 0, "in_s": -1.0, "held": "", "busy": false}
+	t.ok(trade.call() == "Now: your first build is done → it would fire; nothing it can upgrade now",
+		"stance trade: Grow with no pick: '%s'" % trade.call())
 
 
 ## A stand-in rate of a building with job slots says "at full staffing"; projected rates say "now".

@@ -1949,11 +1949,17 @@ func held_by_income(lot_id: String) -> bool:
 	var b: Dictionary = buildings.get(lot_id, {})
 	if b.is_empty() or str(b["state"]) != "unpaid" or float(b["unpaid_s"]) > 0.0:
 		return false
+	var bid := str(b["building_id"])
+	return not _income_pays(gold_income(), gold_due(), upkeep_gold_of(bid), earns_gold(bid))
+
+
+## The gold upkeep a second the working buildings pay now (the resume rule's paying upkeep, `due` in _upkeep): the
+## bill held_by_income and the Grow stance's upkeep test (BuildRules.grow_target) set against gold_income().
+func gold_due() -> float:
 	var due := 0.0
 	for e in _lists()["work"]:
 		due += float(e[1])
-	var bid := str(b["building_id"])
-	return not _income_pays(gold_income(), due, upkeep_gold_of(bid), earns_gold(bid))
+	return due
 
 
 ## A building's gold upkeep a second (buildings.json `upkeep.gold`; flat per building, not per level), 0 for an

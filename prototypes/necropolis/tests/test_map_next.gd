@@ -853,9 +853,9 @@ func _payoff(t: TestUtil) -> void:
 	t.ok(gfv.vortex({"odds": 0.9, "readiness": 0.0, "sign": 1}) == Vector4.ZERO, "a shown odds alone does not draw the clot")
 	# Phase I P3: first_odds_of, and the payoff's projection through it
 	for r in [[9, 0.453], [5, 0.139], [3, 0.053], [0, 0.010]]:  # (P3's grade rows "1+8", "1+4", "1+2", "0+0" are charges + clones, so backups 9, 5, 3, 0)
-		t.near(ValveLogic.first_odds_of(0.6118, int(r[0]), 7.15, 1.76), float(r[1]), 1e-3, "first_odds_of at backups %d" % int(r[0]))
-	t.ok(ValveLogic.first_odds_of(0.6, 7, 7.15, 0.0) == 0.0 and ValveLogic.first_odds_of(0.6, 8, 7.15, 0.0) == 0.6, "scale 0: a step at mid")
-	t.ok(ValveLogic.first_odds_of(0.6, 100, 7.15, 1.76) <= 0.6 and ValveLogic.first_odds_of(0.6, -5, 7.15, 1.76) <= 0.6, "never above the readiness")
+		t.near(GameState.first_odds_of(0.6118, int(r[0]), 7.15, 1.76), float(r[1]), 1e-3, "first_odds_of at backups %d" % int(r[0]))
+	t.ok(GameState.first_odds_of(0.6, 7, 7.15, 0.0) == 0.0 and GameState.first_odds_of(0.6, 8, 7.15, 0.0) == 0.6, "scale 0: a step at mid")
+	t.ok(GameState.first_odds_of(0.6, 100, 7.15, 1.76) <= 0.6 and GameState.first_odds_of(0.6, -5, 7.15, 1.76) <= 0.6, "never above the readiness")
 	var ocfg := {"time_weight": 0.4, "time_s": 3600.0, "backlog_cap": 1.0}
 	var proj := {"split": {"work": 4.0, "war": 9.0, "flood": 7.0}, "backlog_diff": 6.1}
 	var plain := ValveLogic.payoff(vei, proj, k, ocfg, 1000.0)
@@ -866,7 +866,7 @@ func _payoff(t: TestUtil) -> void:
 	t.ok(ValveLogic.payoff(vei, proj, k, withcfg, 1000.0) == plain, "no backups in the vei dict: the readiness as before")
 	var fo := ValveLogic.payoff({"backlog": 18000.0, "diff_ema": 2.1, "backups": 4}, proj, k, withcfg, 1000.0)
 	for side in ["now", "then"]:
-		t.near(float(fo[side]["odds"]), ValveLogic.first_odds_of(float(plain[side]["odds"]), 4, 7.15, 1.76), 1e-12, "%s: first odds on that side's readiness" % side)
+		t.near(float(fo[side]["odds"]), GameState.first_odds_of(float(plain[side]["odds"]), 4, 7.15, 1.76), 1e-12, "%s: first odds on that side's readiness" % side)
 	t.ok(float(fo["now"]["odds"]) < float(plain["now"]["odds"]) and fo["now"]["diff"] == plain["now"]["diff"], "the shown odds are lower, the differential unchanged")
 	# the odds cap line: both strains at or past backlog_cap, neither draining
 	var capcfg := {"time_weight": 0.4, "time_s": 3600.0, "backlog_cap": 0.8}

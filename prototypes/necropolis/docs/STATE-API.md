@@ -432,6 +432,29 @@ from `BALANCE.md` §0.
     (§9.1).
   - **The catch-up clips at a tended vat's fill** (ruling 4, Q-c; `Catchup.vat_fill_s`, IDLE §4): no API change; it
     moves closed trajectories with a tended vat.
+  `api_version` 14 (Phase I P3; the run's manager's rulings of 2026-11-18) added:
+  - **`wait_slot`** (§10 A14's amendment, ruling 1): a new `view_town.queue[].reason` value on a `skipped_gate` row
+    past the first `queue.max_len` entries no gate holds; `cmd_queue_build` refuses `queue_full` for an entry the walk
+    would read so (§4.3, §5.9).
+  - **A never head's skip** (§10 A15, ruling 3): a head short of funds reading −1.0 can be `skipped_gate` with its
+    `no_gold`/`no_bone` reason, `starved` and `lever` (§5.9); the save queue's optional `never_since` (§9.1); the away
+    report's never line (§5.19).
+  - **#19's `lots`** on the away report's build-finished line (§5.19), and **#20's `revived_in_place`**: the 4th
+    argument of `cmd_run_checkpoint`, the checkpoint's key and `pending_retreat`'s (§4.5, §9.1).
+  - **The odds split** (the manager's ruling on P1's vision check (a); §10 A16): `view_hud.odds` and `view_vei.odds`
+    are now the first-attempt estimate, `GameState.first_odds` = `readiness` / (1 + exp(−(`backups` −
+    `odds.backups_mid`) / `odds.backups_scale`)), and two new keys on both views carry its inputs: `readiness` (float,
+    the v12 win odds, `GameState.win_odds`, unchanged) and `backups` (int, `GameState.vei_backups`: min(phylactery
+    charges, `phylactery.max_per_dungeon`) + clones ready). The away report's "odds A → B" and the save summary show
+    the new odds (A on the backups at the away's start). The boss seed's `odds` stays the readiness (§7), and the bots'
+    Vei-ready reads the readiness. `GameState.first_odds_of(readiness, backups, mid, scale)` is the pure form, which the
+    map valve can apply to `win_odds_of`'s projection.
+  - **The Grow stance** (Q-b, the manager's ruling of 2026-11-18, option (a); §10 A17; joined v14 because v14 wasn't
+    released yet): a sixth stance id, `grow`, on `view_stances.stances` and `cmd_set_stance`; it takes no slot
+    (`economy.json` `stance.slot_free`), so `used` leaves it out and it is never `suspended` (§5.11); a new game starts
+    with it on (`stance.grow.default_on`), and the save's `stances.on` keeps it (§9.1). A new event, `grow_started
+    {building_id, lot_id, level}` (§6), when it starts an upgrade. A new key, `view_stances.grow` (§5.11; the run's
+    manager's ruling 3 on handoff 4): Grow's pick, on or off, with what holds it, for the stances panel's trade line.
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -493,7 +516,7 @@ const RATE_IDS := ["mint", "work", "war", "flood", "workers", "bodies", "gold", 
 const HUD_RATE_IDS := ["mint", "workers", "bodies", "gold", "bone", "living"]
 const LANE_KINDS := ["war", "flood", "work", "dead", "living", "haul", "redirect"]
 const JOB_IDS := ["haul", "mill", "stall", "forge", "pit", "tend", "build"]
-const STANCE_IDS := ["vigil", "harvest", "thrift", "muster", "hearth"]
+const STANCE_IDS := ["vigil", "harvest", "thrift", "muster", "hearth", "grow"]  # grow: v14, §10 A17
 const FRONT_IDS := ["giants", "swarm", "carvers", "raw"]
 const CRAFT_IDS := ["simulacrum", "phylactery_charge"]
 const TIERS := ["hamlet", "village", "town", "city"]
@@ -1021,9 +1044,11 @@ Game.state.cmd_cancel_build("lot-05")  # -> {ok: true, reason: "", refund: {gold
   level it would build, below, is past `max_level`); `cost_exceeds_cap` (its gold, bone or relic cost is
   above that store's cap now); then `queue_full` again (v13, Phase I P2's queue rule) for an entry that would hold a
   slot (not `skipped_gate` on the walk with it appended) while `queue_slots` is already at `queue.max_len` (8). A
-  gated entry holds no slot, so it is accepted with the slots full while the list has room. Nothing is evicted: an
-  entry whose gate clears takes its slot back, so `queue_slots` can read above `queue_max`, and only new entries
-  that would hold a slot are refused then.
+  gated entry holds no slot, so it is accepted with the slots full while the list has room. Phase I P3 (§10 A14's
+  amendment): the walk gives the slots to the first `queue.max_len` entries no gate holds, in list order, and any
+  later one shows `skipped_gate` with the reason `wait_slot` ("waits for a slot"; it holds nothing). So
+  `queue_slots` never passes `queue_max`, and a new entry that would hold a slot (the walk with it appended reads
+  it `wait_slot`) is refused.
 - **Accepted as gates** (the run's manager, 2026-11-14: IDLE §5 over this request's first wording; the
   town adapts its UI in Phase I): `needs_tier`, `needs_blueprint`, `needs_building`, `lot_locked`, a
   relic shortfall (`no_relics`), and for an upgrade `under_construction` and `unpaid`. The entry shows
@@ -1283,17 +1308,22 @@ Game.state.cmd_begin_boss()  # -> {ok: true, reason: "", run_id: 9, seed_rev: 21
 Game.state.cmd_abort_dungeon()  # -> {ok: true, reason: "", run_id: 1}
 ```
 
-**`cmd_run_checkpoint(run_id: int, loot: Dictionary, outcome := "retreated")` · E2b-2** (api_version 6,
-T3.3c; api-request #4, IDLE I5)
+**`cmd_run_checkpoint(run_id: int, loot: Dictionary, outcome := "retreated", revived_in_place := 0)` · E2b-2** (api_version 6,
+T3.3c; api-request #4, IDLE I5; `revived_in_place` v14, api-request #20)
 - **Args:** `run_id` the open raid's; `loot` the raid result's `loot` shape (§8.1: `{relics, blueprints,
   husks: [{kind}], remnants: [{aspect, rarity, magnitude}], essence}`), what is banked so far; `outcome`
-  the exit the run would end in if it ended now: `"retreated"`, `"warden_beaten"` or `"relish_died"`.
+  the exit the run would end in if it ended now: `"retreated"`, `"warden_beaten"` or `"relish_died"`;
+  `revived_in_place` (v14) the phylactery revives spent so far this run (the raid's live count), so a run ended
+  from its checkpoint (a crash, a load, a gap) spends those charges as its result would (`StateRuns.end_result`),
+  and a crash after a revive doesn't give the charge back.
 - **Extras:** none (`{ok, reason}`).
 - **Reasons**, in check order: `no_run` (no run is open), `wrong_run` (`run_id` isn't the open run),
   `wrong_kind` (the open run is a boss run: a boss result carries no loot, §8.2, so there is nothing to
-  bank), `catching_up`, `invalid` (`Results.validate("raid", …)` rejects a retreat result carrying `loot`),
-  `bad_outcome`. A dead run's refusals come before `catching_up` (§4): no run is open during a catch-up.
-- **Effect:** the open raid records `{loot, outcome}` (a deep copy, ints as ints), **replacing its last
+  bank), `catching_up`, `invalid` (`Results.validate("raid", …)` rejects a retreat result carrying `loot`, or
+  `revived_in_place` is below 0 or above the seed's min(`phylactery_charges`, `phylactery_max_per_dungeon`), the
+  bound `apply_result` holds a result to), `bad_outcome`. A dead run's refusals come before `catching_up` (§4): no
+  run is open during a catch-up.
+- **Effect:** the open raid records `{loot, outcome, revived_in_place}` (a deep copy, ints as ints), **replacing its last
   checkpoint**; `rev` +1. Nothing else changes and no event is raised. **A checkpoint is only as good as
   its last call** (the run's manager): a close, a crash, a load or a gap ends the run from the last one,
   and whatever was found since is lost (the same bound as a death, MECHANICS §7).
@@ -1517,11 +1547,13 @@ Every field is live from E2a:
 | `hold_mult` | float | v11 (E4 step 5, ruling B1): Vei's pressure at held forts, max(1, (settled mint ÷ `hold.mint_ref`)^`hold.mint_alpha`); 1.0 in a new game (MECHANICS §3.4) |
 | `relics`, `relics_cap`, `essence`, `essence_cap` | int | |
 | `highest_tier_flipped` | int | v12 (E4 step 9, ruling 3): the top tier among forts ever flipped (`view_fort.flipped_count` > 0), 0 before any flip |
-| `relic_trickle` | Dictionary | v12 (E4 step 9, ruling 3; MECHANICS §2's relics row): `{paying: bool, next_s: float}`. The idle relic trickle pays one relic per `economy.json` `relic_trickle.period_s` (12 h) of game time while every fort at or below `highest_tier_flipped` is held (read at each step's start, open and caught up alike), into the relic store (lost at `relics_cap`). `next_s` is the paying seconds left to its next relic, `-1.0` while it doesn't pay; the accrued seconds are kept while it doesn't |
+| `relic_trickle` | Dictionary | v12 (E4 step 9, ruling 3; MECHANICS §2's relics row): `{paying: bool, next_s: float}`. The idle relic trickle pays one relic per `economy.json` `relic_trickle.period_s` (12 h) of game time while it pays (read at each step's start, open and caught up alike), into the relic store (lost at `relics_cap`). It pays while some fort's hold has lasted `relic_trickle.hold_s` (24 h) unbroken (v14, Phase I P3, R-b; §10 A18: `realm.forts[].held_for_s`); v12 to v13 it paid while every fort at or below `highest_tier_flipped` was held. `next_s` is the paying seconds left to its next relic, `-1.0` while it doesn't pay; the accrued seconds are kept while it doesn't |
 | `sign` | int | sustained-differential sign: `1` = ▲ (backlog growing), `-1` = ▼, `0` = holding |
 | `drain_s` | float | `backlog / -EMA` when the EMA < 0, else `-1.0` (holding) |
-| `odds` | float | The win odds, 0..1 (v12, E4 step 9; the manager's 2026-11-17 13:44 ruling, option B): `realm.json` `odds.time_weight` · t / (t + `odds.time_s`) + (1 − `time_weight`) · min(`odds.backlog_cap`, strain), t the game's age (`t` above) and strain `backlog / (backlog + K)` (`view_vei.strain`). Until v12, the strain itself. A meaning change, not a shape change: nothing in the fight reads them (her tithe period, reship and need read the strain), and the boss seed, the away report's "odds A → B", the save summary and the map valve's "odds in 10 min" show these same odds |
+| `odds` | float | v14 (Phase I P3, the odds split; §10 A16): the first-attempt estimate a player reads, 0..1: `readiness` / (1 + exp(−(`backups` − `realm.json` `odds.backups_mid`) / `odds.backups_scale`)) (`GameState.first_odds`), fit to the faithful grade at Vei-ready (refit at P3's re-grade: mid 5.57, scale 1.24). The away report's "odds A → B" and the save summary show these. Before v14 these were the readiness |
 | `won` | bool | |
+| `readiness` | float | v14: the win odds, 0..1 (v12, E4 step 9; the manager's 2026-11-17 13:44 ruling, option B): `odds.time_weight` · t / (t + `odds.time_s`) + (1 − `time_weight`) · min(`odds.backlog_cap`, strain), t the game's age (`t` above) and strain `backlog / (backlog + K)` (`view_vei.strain`); `GameState.win_odds`. `view_hud.odds` and `view_vei.odds` from v12 to v13. Nothing in the fight reads it (her tithe period, reship and need read the strain); the boss seed's `odds`, the bots' Vei-ready (≥ 0.6) and BALANCE's Vei-ready rows read it, and the map valve's "odds in 10 min" projects it (`GameState.win_odds_of`) |
+| `backups` | int | v14: the backups a first attempt on Vei could spend, min(phylactery charges, `backups.json` `phylactery.max_per_dungeon`) + clones ready (`GameState.vei_backups`), which `odds` reads |
 ```gdscript
 {rev: 3, game_id: "0000002a", t: 1.0, time_scale: 1.0, paused: false,
  rates: [{id: "mint", rate: 12.8, stock: -1.0, cap: -1.0, unit: "mass/s"},
@@ -1811,7 +1843,7 @@ until the first substep.
 | `gold`, `bone`, `bodies`, `bodies_cap` | float | stocks |
 | `queue` | Array[Dictionary] | the build queue in order (v6, E2b-2 T3.2, api-request #3; MECHANICS §4.4): one entry per queued build or upgrade (below). Always present: `[]` when empty, so the town's stand-in switches itself off |
 | `queue_max` | int | `economy.json` `queue.max_len` (8): the slots. A `skipped_gate` entry holds none (v13) |
-| `queue_slots` | int | v13 (Phase I P2): the `queue` rows that hold a slot, every one whose `status` isn't `skipped_gate`. Can read above `queue_max` after gates clear (nothing is evicted); `cmd_queue_build` refuses a new slot-holding entry while it is at or above `queue_max` |
+| `queue_slots` | int | v13 (Phase I P2): the `queue` rows that hold a slot, every one whose `status` isn't `skipped_gate`. At most `queue_max` (Phase I P3, §10 A14's amendment: past the first `queue_max` entries no gate holds, an entry reads `skipped_gate` `wait_slot`); `cmd_queue_build` refuses a new slot-holding entry while it is at `queue_max` |
 | `queue_list_max` | int | v13: the whole list's cap, `queue.max_len` × `queue.list_mult` (2): 16. `cmd_queue_build` refuses any entry once `queue` has this many |
 | `gold_cap`, `bone_cap` | float | the gold and bone caps (v6, E2b-2 T3.2): `gold.cap` / `bone.cap` plus the Market's and the Bone Mill's per-level `gold_cap` / `bone_cap` (MECHANICS §4.3). A store can sit above its cap after the cap drops; it keeps the excess and earns nothing until it is under |
 | `trade_rate` | float | stall sales per second (the town draws trade arcs from it) |
@@ -1831,7 +1863,7 @@ in it: that is correct, not a mismatch.
 | `cost` | Dictionary | `{gold: float, bone: float, relics: int}`: the construction's cost at `level` (`cost`, or `level_costs[level − 2]`) |
 | `work` | float | the build work its construction needs: `build_work · level` (TownSim's step 6) |
 | `status` | String | `"next"` (the first entry that isn't gated, and the stocks cover it; several can be `next` in a row, each paid for in turn, and all of them start in the next step), `"waiting_funds"` (that head, short of gold or bone: it holds the queue), `"skipped_gate"` (a gate holds it; the walk goes on past it), `"queued"` (behind a waiting head, or behind an entry for its lot that hasn't started) |
-| `reason` | String | `""` for `next` and `queued`; `no_gold`/`no_bone` for `waiting_funds`; for `skipped_gate` the gate: `needs_tier`, `needs_blueprint`, `needs_building`, `lot_locked`, `no_relics` (`view_catalog`'s key for a row the relics can't pay, with the same `cost.relics`, when gold and bone are covered; short of gold or bone too, the catalog says `no_gold`/`no_bone` while the queue still reads `no_relics`, a gate there), `lot_taken` (another entry or `cmd_build` took its lot first), `empty_lot` (an upgrade whose building is gone), `under_construction`, `unpaid`, `max_level`, `unique`, `lot_too_small`, `cost_exceeds_cap` (a cost now above its cap, after a cap building went) |
+| `reason` | String | `""` for `next` and `queued`; `no_gold`/`no_bone` for `waiting_funds`; for `skipped_gate` the gate: `needs_tier`, `needs_blueprint`, `needs_building`, `lot_locked`, `no_relics` (`view_catalog`'s key for a row the relics can't pay, with the same `cost.relics`, when gold and bone are covered; short of gold or bone too, the catalog says `no_gold`/`no_bone` while the queue still reads `no_relics`, a gate there), `lot_taken` (another entry or `cmd_build` took its lot first), `empty_lot` (an upgrade whose building is gone), `under_construction`, `unpaid`, `max_level`, `unique`, `lot_too_small`, `cost_exceeds_cap` (a cost now above its cap, after a cap building went), `wait_slot` (Phase I P3, §10 A14's amendment: past the first `queue_max` entries no gate holds), and `no_gold`/`no_bone` (Phase I P3, §10 A15: a head no income can pay, skipped at once when its store's producer has no staffed hands or after `queue.never_hold_s` when it has some; `affordable_in_s` −1.0, with `short`, `starved` and `lever` as a waiting head's) |
 | `waited_on` | String | the last reason that kept it from starting (a gate, or `no_gold`/`no_bone`), `""` if it never waited; set when queued and by each step's processing, never by a view. An entry `queued` behind a head waiting on funds takes the head's `no_gold`/`no_bone`. Saved. `queue_started.waited_on` carries it (§6) |
 | `affordable_in_s` | float | v7 (R2): when its funds come at the current net rates, in sim seconds from now: `0.0` when the stocks cover it now, the seconds until they do, or `-1.0` when they never will at these rates. Set by the same walk as `status` (below), so the two never disagree: a `next` entry reads `0.0` and a `waiting_funds` head never does. Never saved; a view changes nothing |
 | `short` | Dictionary | v11 (the A1 day-1 ruling): `{gold, bone}`, what a `waiting_funds` head is short of at the walk's stocks (its cost less what is left once the `next` entries ahead are paid); `0.0` each for every other status. With `affordable_in_s` at `-1.0` it names what a "never" waits on |
@@ -2042,9 +2074,10 @@ substep interval, the influence field's `advance()` pattern (§3 step 9):
 ### 5.11 `view_stances()` · E3 (E1: echoes `cmd_set_stance`; live from E3-1, v8)
 | key | type | meaning |
 |---|---|---|
-| `slots`, `used` | int | `stance.base_slots` + Guildhall + 1 while Relish is home |
+| `slots`, `used` | int | `stance.base_slots` + Guildhall + 1 while Relish is home. v14: `used` counts only the stances that take a slot (all but `stance.slot_free`'s: Grow) |
 | `beat_id` | int | the current sim beat, `floor(t / beat_s)` |
-| `stances` | Array[Dictionary] | one per `STANCE_IDS` (below) |
+| `stances` | Array[Dictionary] | one per `STANCE_IDS` (below). v14 adds `grow` (§10 A17), the last |
+| `grow` | Dictionary | v14 (Phase I P3): the Grow stance's pick as it reads now, whether Grow is on or off (`StateViews.grow_pick`, `BuildRules.grow_target`): `building_id`, `lot_id`, `level` (the level it would start) and `in_s` (the seconds until the stocks cover it at `queue_net`; 0.0 now), or `""`, `""`, 0 and −1.0 when nothing qualifies (§10 A17's rule); `held` (String), the waiting reason (`no_gold`, `no_bone`) of the queue head the last core step left waiting on funds, `""` when none: Grow starts nothing while it is set; `busy` (bool), the constructions under way at `stance.grow.max_active`: Grow starts nothing until one finishes. Pure, cached on [rev, t, structure_rev] |
 
 Each `stances` entry (MECHANICS §4.5 has each stance's condition and effect):
 
@@ -2052,7 +2085,7 @@ Each `stances` entry (MECHANICS §4.5 has each stance's condition and effect):
 |---|---|---|
 | `id` | String | |
 | `on` | bool | the player toggle |
-| `suspended` | bool | on, but no slot is free |
+| `suspended` | bool | on, but no slot is free. v14: never for a slot-free stance (Grow), which takes no slot |
 | `active` | bool | its condition is firing now. v8 (E3-1, the run's manager): the condition alone, computed for **every stance, on or off**, as the stance step last let it change (§3 step 1: at a beat, held by `stance.hold_s`). A stance acts only while it is on, not suspended and active, so an off or suspended stance can read `true` and do nothing. `false` after a new game and a fixture load until a beat reads the conditions |
 | `fired_beat_id` | int | the beat it last changed `active`, or `-1` (never since the new game; a save keeps it, §9.1) |
 | `hold_s_left` | float | the `stance.hold_s` remaining before `active` can change again (0.0 when none) |
@@ -2186,7 +2219,8 @@ and `have` were 0.0, `cleared` false and `fronts_met` 0.
 | `diff` | float | mass/s: the raw differential this substep (0.0 after a load until the first substep) |
 | `diff_ema` | float | mass/s: the EMA over `readout.ema_s` |
 | `sign`, `drain_s`, `odds` | int, float, float | as in `view_hud` |
-| `strain` | float | v12 (E4 step 9, option B): `backlog / (backlog + K)`, 0..1. Her tithe period, her reship into held forts and the one-wave need read it (MECHANICS §3.4); it is not shown as odds. `odds` is the win odds, which read it with the game's age (`view_hud.odds`) |
+| `readiness`, `backups` | float, int | v14 (the odds split): as in `view_hud` |
+| `strain` | float | v12 (E4 step 9, option B): `backlog / (backlog + K)`, 0..1. Her tithe period, her reship into held forts and the one-wave need read it (MECHANICS §3.4); it is not shown as odds. `readiness` is the win odds, which read it with the game's age (`view_hud.readiness`), and `odds` the first-attempt estimate on that |
 | `digest_q` | float | |
 | `fronts` | Array[Dictionary] | per `FRONT_IDS`: `{id: String, need: float, have: float, cleared: bool, assigned: Array[String], counted: Array[String]}`. `counted` (v8, E3-5): the uids `have` counts, `assigned`'s plus each unassigned party member on its best-stat front; `assigned`: the uids whose front is this one |
 | `fronts_required`, `fronts_met` | int | `fronts_met`: the fronts `cleared` |
@@ -2351,10 +2385,15 @@ The "While you were away" report, for the map's panel (`AwayLogic`, Phase I).
 - **gains** (`target` `""`):
   - each stream in `idle.report.streams`' order (`stream`): Vei's backlog (with ▲, ▼ or ■ for its net),
     the mint, workers, bodies, gold, bone and Covington's living, each its net rate over the absence and
-    its net total: `"backlog ▲ +2.1/s · +69,552"`. The totals are the ledger's and the stores' changes:
+    its net total: `"backlog ▲ +2.1/s · +69,552"`. From the V-I1 round (map-i's text pass) the backlog's label is
+    `"Vei's queue"` (the glossary's word, as STRAIN's tooltip has it) and its odds tail is whole percents, as the top
+    bar's YOUR ODDS: `"Vei's queue ▲ +2.1/s · +69,552 · your odds 5% → 8%"` (`StateViews.odds_pct`; the tokens after
+    `· your odds ` are percents, not masses). The totals are the ledger's and the stores' changes:
     the mint `ledger().sources.mint`'s, the backlog, bodies and workers their `held` pools' (workers in
     workers), gold, bone and living the town's; the rate is the total over `away_s`;
-  - the builds finished (`build`, `building_done` events): `"2 builds finished: Inn · Bakery"`;
+  - the builds finished (`build`, `building_done` events): `"2 builds finished: Inn · Bakery"`. v14 (api-request
+    #19, Phase I P3): this line alone also carries `lots: Array[String]`, each `building_done`'s `lot_id` in the
+    names' order, so the town's replay needn't match names back to buildings (two Houses);
   - each queued build that started (`build`, `queue_started` events), with when, measured from when you
     left, and why, one `idle.report.waited_on` template per `waited_on` value (`needs_tier` "when the tier
     rose", `no_gold` "when the gold came in", ...; `""` started at once): `"Bakery started 6 m after you left,
@@ -2428,7 +2467,7 @@ The "While you were away" report, for the map's panel (`AwayLogic`, Phase I).
 ```gdscript
 Game.state.view_away()  # midgame_2flips loaded 12 h after its save (shipped configs)
 # -> {rev: 4423, shown: true, away_s: 43200.0, capped: false,
-#     gains: [{text: "backlog ▲ +5.0/s · +216,247", kind: "stream", target: ""},
+#     gains: [{text: "Vei's queue ▲ +5.0/s · +216,247 · your odds …", kind: "stream", target: ""},
 #             {text: "mint +10/s · +446,432", kind: "stream", target: ""},
 #             {text: "workers 0/s · 0", kind: "stream", target: ""},
 #             {text: "bodies 0/s · −2", kind: "stream", target: ""},
@@ -2490,6 +2529,7 @@ Game.state.view_away()  # day1 with its bone spent and no mill, a House and a We
 | `fort_flipped` | `fort_id: String`, `run_id: int`, `hold_s: float` (the grace, `flip.hold_s · (1 + flip.tier_mult · tier)`; v6) | E1 (hold effects E2) |
 | `fort_retaken` | `fort_id: String`, `cause: String`: `broken` (v6: the garrison sat at 0 for `hold.break_s`, MECHANICS §3.4). `war_in: float` (v11, E4 step 5 B1 (ii)): the WAR it had at the retake (mass/s, its last `r_in`), and `pressure_mult: float` (v11) Vei's pressure there (`view_hud.hold_mult`); the away report names both (§5.19). E2a's `expired` and `tithe_wave` are no longer raised. `t` is its moment inside the substep (v6), and it is queued ahead of that substep's events stamped at its end, so `t` never decreases | E2 |
 | `queue_started` | `building_id: String`, `lot_id: String`, `level: int`, `upgrade: bool`, `waited_on: String`: a queued entry started (paid, construction begun) in the core step's processing (MECHANICS §4.4); `t` is that step's. **T3.3's away report reads `t` and `waited_on`** for "Village Market started 3 h 12 m after you left, when the tier rose" (W's wording): `needs_tier` → the tier rose, `needs_blueprint` → the blueprint came, `needs_building` → the building it needs was built, `lot_locked` → the lot opened (the tier rose), `no_relics` → relics came, `no_gold`/`no_bone` → the funds came, `lot_taken`/`empty_lot`/`under_construction`/`unpaid`/`cost_exceeds_cap` → its lot or cap came free; `""` → it started at once. Its `building_started` follows in the next substep, as after `cmd_build` | E2b-2 (v6, api-request #3) |
+| `grow_started` | `building_id: String`, `lot_id: String`, `level: int`: the Grow stance started an upgrade (paid, construction begun) in the core step, right after the queue's processing (`BuildRules.grow_step`; MECHANICS §4.5, §10 A17); `t` is that step's. Its `building_started` follows in the next substep, and its `building_done` is the away report's build-finished line like any other | v14 (Phase I P3, Q-b) |
 | `big_undead_returned` | `uid: String`, `fort_id: String`: a siege big undead at a retaken fort went back to the crypt (place `crypt`; IDLE I6). Right after its `fort_retaken`, same `t` | E2b-2 (v6) |
 | `relish_returned` | `fort_id: String`, `cause: String` (`retaken`): the fort Relish stood at (`at_fort`, there at the retake's moment: not a fort she reached later in the same step) was retaken, and she started home to Covington at `relish.travel_speed` from that moment, `t` (IDLE I5): by the step's end she has walked the rest of it, and she arrives as any journey does (a catch-up clips a step at her arrival). Right after its `fort_retaken` and that retake's `big_undead_returned`, same `t`. Live play and catch-up alike; during a reporting catch-up it is collected with the rest, and the away report's retake line says so (§5.19). Not raised while she is in that fort's dungeon: the run goes on, and when it ends she stands at the fort (`at_fort`, a retreat) | E2b-2 (v6, T3.3c) |
 | `counter_garrison_cleared` | `fort_id: String`, `killed_mass: float` (the writeback's clamped kill, §8.3 step 1): a held fort's raid cleared its counter-garrison (api-request #10). Raised by `apply_result("raid", …)`, after `loot_banked`, when the fort was held when the run began and is still held when the result is applied (a fort retaken mid-run raises no clear and spends no yield: its retreat banks loot as usual and its `yield_c` stays as the retake left it), the result is a retreat (not `relish_died`), and `killed_living_mass` ≥ the seed's `living` less half of one of the dungeon's living units: the dungeon spawns `clamp(round(living / cap · mass.enemies_per_cap), mass.enemy_min, mass.enemy_max)` enemies of `living / n` each (raid.json; `raid_populate.gd`), so the tolerance is `living / (2n)`. A seed's `living` at or under `hold.clear_min_living` (0.05, the dungeon's spawn floor, mirrored: it spawns none and clears after `held.empty_clear_s`) is all tolerated, so an empty held fort's clear raises it with `killed_mass` 0 | E2b-2 (v6) |
@@ -2566,7 +2606,7 @@ is a deep copy with no `rev`, and is checked by `Results.validate("raid_seed" | 
 | `rng_seed` | String | |
 | `backlog` | float | Vei's queue at issue (the horde) |
 | `living_pool` | float | |
-| `odds`, `sign`, `drain_s`, `digest_q` | float, int, float, float | as in `view_vei` |
+| `odds`, `sign`, `drain_s`, `digest_q` | float, int, float, float | as in `view_vei`, but `odds` is `view_vei.readiness` (v14's odds split, §10 A16: the seed keeps the v12 win odds, not the first-attempt estimate; nothing in the fight reads it) |
 | `vei_capacity` | float | `R_vei` |
 | `fronts` | Array[Dictionary] | `{id: String, need: float, have: float, assigned: Array[String]}`, per `FRONT_IDS`. Live from E3-5 (v8; 0.0 and 0.0 before, so the fight computed them): `VeiFronts.have_need(VeiFronts.info_from_boss_seed(seed), vei.json)`'s `need` and `have`, the fight's own recompute from this seed, exactly; they are `view_vei`'s at issue (§5.14: the same backlog, pool, q and party). `assigned` is `cmd_assign_front`'s echo; there is no `cleared` or `counted` here |
 | `fronts_required` | int | `vei.fronts_required` |
@@ -2802,8 +2842,8 @@ take the router's legacy path (§2.3).
 | `stats` | Dictionary | counters (raids, deaths, raised total, and from E3-4 `sims_built`: the simulacra crafted) |
 | `cleared_forts` | Array[String] | forts whose first clear is spent by a win (sorted) |
 | `first_dungeon` | String | the first dungeon's id until a won raid result (`warden_beaten`) clears it, then `""` |
-| `pending_retreat` | Dictionary | optional, additive at v6 (E2b-2 T3.3c; IDLE I5, api-request #4), written only while a run is open: `{run_id: int, kind: String, fort_id: String, seed_rev: int, loot: {relics, blueprints, husks, remnants, essence} (§8.1), outcome: String}`, the run's last checkpoint (`cmd_run_checkpoint`, §4.5), or empty loot and `"retreated"` when it has none (a boss run never has one; its `fort_id` is `"vei"`). `from_dict` ends the run with it (below). Present, it must match: a known `kind` and `outcome`, a raid's fort a known fort with `relish` saved `at_fort` there, a boss's `"vei"` with her `at_vei`, and loot `Results.validate` takes; else the save is `corrupt` |
-| `queue` | Array[Dictionary] | optional, additive at v6 (E2b-2 T3.2; `SAVE_VERSION` stays 2, as `game_id` did): the build queue, `[{building_id: String, lot_id: String, upgrade: bool, waited_on: String}]` in order. A save without it loads an empty queue; `waited_on` is optional (`""`). An entry of another shape makes the save `corrupt`; one naming a building or lot today's config lacks, an upgrade to a level past its building's `max_level` (the level cut rule, `town` below), or one past the list's cap (`queue_list_max`, 16, from v13; `queue.max_len` before), is dropped with a warning. The slots aren't checked on load: entries whose gates cleared can hold more than `queue.max_len`, as in play |
+| `pending_retreat` | Dictionary | optional, additive at v6 (E2b-2 T3.3c; IDLE I5, api-request #4), written only while a run is open: `{run_id: int, kind: String, fort_id: String, seed_rev: int, loot: {relics, blueprints, husks, remnants, essence} (§8.1), outcome: String}`, the run's last checkpoint (`cmd_run_checkpoint`, §4.5), or empty loot and `"retreated"` when it has none (a boss run never has one; its `fort_id` is `"vei"`). `from_dict` ends the run with it (below). Present, it must match: a known `kind` and `outcome`, a raid's fort a known fort with `relish` saved `at_fort` there, a boss's `"vei"` with her `at_vei`, and loot `Results.validate` takes; else the save is `corrupt`. v14 (api-request #20, Phase I P3): `revived_in_place` (int, optional, written only when the checkpoint has one or more), the checkpoint's phylactery revives, which the end of the run spends; present, it must be a raid's and from 1 to the save's `backups.phylactery_charges`, else `corrupt` |
+| `queue` | Array[Dictionary] | optional, additive at v6 (E2b-2 T3.2; `SAVE_VERSION` stays 2, as `game_id` did): the build queue, `[{building_id: String, lot_id: String, upgrade: bool, waited_on: String}]` in order. A save without it loads an empty queue; `waited_on` is optional (`""`). Phase I P3 (§10 A15): `never_since` (float ≥ 0, optional, written only while set), the game time a head no income can pay first read dry, which its hold timeout counts from. An entry of another shape makes the save `corrupt`; one naming a building or lot today's config lacks, an upgrade to a level past its building's `max_level` (the level cut rule, `town` below), or one past the list's cap (`queue_list_max`, 16, from v13; `queue.max_len` before), is dropped with a warning. The slots aren't checked on load: entries whose gates cleared can hold more than `queue.max_len`, as in play |
 
 **What each block holds** (v2; additive keys and E3 placeholders):
 - `realm`: `forts` (array in world order: `id`, `living`, `undead`, `dead`, the hold, `flipped_count`,
@@ -2816,7 +2856,10 @@ take the router's legacy path (§2.3).
   are optional on load and checked for type when present. A save from before v6 carries `held_s`
   instead, read only on load: `held_s > 0` loads held with `grace_s = held_s` and `zero_s = 0`; a
   fort with neither key loads unheld. The fixtures carry `held_s` and load this way (midgame_2flips:
-  Ashgate and Old Sluice held, 374.5 s of grace each).
+  Ashgate and Old Sluice held, 374.5 s of grace each). v14 (Phase I P3, R-b; §10 A18): `held_for_s: float`, the
+  seconds the hold has lasted unbroken (in grace and contested; a re-flip of a held fort keeps it, a retake or a release
+  sets it to 0), written only while held and above 0, optional and typed on load; a held fort without it (every save
+  before v14, the fixtures) loads at 0. The relic trickle reads it.
 - `realm.forts[]`'s loot yield (v6, MECHANICS §5.3): `yield_c: float` (the yield just after the
   fort's last clear that paid loot) and `yield_t: float` (the sim time of that clear). Optional on
   load: a save without them loads `yield_c` 1, the yield it showed.
@@ -2848,12 +2891,14 @@ take the router's legacy path (§2.3).
   dropped with a warning (`queue`, above). Nothing is refunded, because the cut levels buy nothing. A save
   within every `max_level` loads unchanged. `SAVE_VERSION` stays 2.
   **The level sanity cap** (Phase I P2, Q-d; `SaveIO.level_sanity_cap`): a `level` or `build_level` above
-  `economy.json` `save.level_sanity_mult` (2) × the highest `max_level` any building has in `buildings.json` (8), so
-  above 16 today, is `corrupt` ("building"), not clamped: a level of 1e9 no longer loads silently at the top. The
-  bound follows the ladder. No config has written a level past its own ladder's top, so 2× leaves a cut room to halve
-  the ladder and refuses what no ladder of this size could have written.
+  `economy.json` `save.level_sanity_max` (64; REQUIRED, no fallback) is `corrupt` ("building"), not clamped: a level
+  of 1e9 no longer loads silently at the top. Phase I P3 (the P2 review's items 1-2): a fixed number, independent of
+  today's ladders (P2's was 2 × the highest `max_level`, 16), so a later config that cuts a ladder by more than half
+  leaves old saves loadable, clamped by the cut rule. 64 is far above any `max_level` the configs have had (8).
 - `stances`: `on` (oldest first) and `hold` (E3 timers: from E3-1, stance id → the seconds left of its hold,
-  for each stance held; a key that isn't a stance, or a hold at 0, is dropped on load). From v8 (E3-1) the
+  for each stance held; a key that isn't a stance, or a hold at 0, is dropped on load). v14: `on` may hold `grow`
+  (§10 A17), which a new game puts there when `stance.grow.default_on`; a save is loaded as it says, so one without
+  it (every save before v14, the fixtures' among them) loads with Grow off: the on-list is the player's. From v8 (E3-1) the
   optional `state`: `{stance_id: {active: bool, fired_beat_id: int}}` for each stance whose condition has
   changed at least once, written once there is one (typed when present, else `corrupt`). A stance not in it
   loads inactive and never fired, so a save without it, the fixtures' `{hold: {}, on: []}` and every save before
@@ -3007,4 +3052,8 @@ no meaningful `saved_at` (it is a state, not a session's save), so neither catch
 | A11 | `view_rates` returns `{rev, rates: {id: …}}` and `view_lanes` returns `{rev, lanes: [...]}`, not MECHANICS' bare map and array. | Every view must carry `rev` (§1.3), and mixing `rev` into an id map would collide with the ids. |
 | A12 | **`to_dict()` writes floats at 15 significant digits**, as `JSON.stringify` prints them. | Godot's JSON parser is not exact for 17-digit floats (about 1 in 10 differs in the last bit), so `to_dict → JSON → from_dict → to_dict` could never be equal. A loaded float differs from the live one by at most 1e-15 relative. |
 | A13 | **Fixtures keep E2/E3 fields as stored values.** `realm.tithe`, `stances.hold` (live from E3-1: the holds left; the fixtures' is empty), `backups.phylactery_charges` and `readout` are saved and restored as is. E1 views show `phylactery_charges` (backups, relish, inventory and both seeds) from the stored value; the rest are read by no E1 view. The fronts are not stored: from E3-5 they are computed from the state (§5.14), and read 0 until then. | A fixture can carry them now, and E2/E3 read them without a save-shape change. |
-| A14 | **A gated queue entry holds no slot** (Phase I P2, the run's manager's ruling 1 of 2026-11-17 22:40, reversible; v13). "Gated" is the walk's `skipped_gate`, every reason included, so an upgrade waiting on its lot's construction (`under_construction`) and one behind a gated entry for its lot hold none either. The list caps at `queue.max_len` × `queue.list_mult`. Nothing is evicted when gates clear. | IDLE §5's "a gated entry holds nothing" now covers the slot too: eight gated entries no longer keep a relic-free build out (town_only's queue jammed at 8.0 h at c15f874), the gated entry stays as the player's intent and the wall's chip, and the list cap stops parking without end. One reason for every gate keeps the rule the walk already computes; a chain of upgrades queued while its lot builds can hold more than 8 entries' worth of building, bounded by the list cap. |
+| A14 | **A gated queue entry holds no slot** (Phase I P2, the run's manager's ruling 1 of 2026-11-17 22:40, reversible; v13). "Gated" is the walk's `skipped_gate`, every reason included, so an upgrade waiting on its lot's construction (`under_construction`) and one behind a gated entry for its lot hold none either. The list caps at `queue.max_len` × `queue.list_mult`. **Amended in Phase I P3** (the run's manager's ruling 1 of 2026-11-18 03:10, its stateless reading accepted the same day; reversible): the walk gives the slots to the first `queue.max_len` entries no gate holds, in list order (a `next` row holds one until it starts), and any later entry no gate holds is `skipped_gate` with the reason `wait_slot` (idle.report.waited_on "when a queue slot came free"), holding nothing. It differs from the ruling's literal form ("a cleared entry waits") in one case: a cleared entry ahead in the list takes the slot and the last slot-holder waits, since unstarted entries hold nothing and list order is the player's priority. No per-entry flag, no save change, the same in live play, catch-up, the view and the command. So `queue.max_len` limits the active queue, and parking can't open more than 8 (at fee92d6 a parking bot held up to 15). | IDLE §5's "a gated entry holds nothing" now covers the slot too: eight gated entries no longer keep a relic-free build out (town_only's queue jammed at 8.0 h at c15f874), the gated entry stays as the player's intent and the wall's chip, and the list cap stops parking without end. One reason for every gate keeps the rule the walk already computes; a chain of upgrades queued while its lot builds can hold more than 8 entries' worth of building, bounded by the list cap. |
+| A15 | **A head no income can pay doesn't hold the queue for good** (Phase I P3, the run's manager's ruling 3 of 2026-11-18 03:10 and its hold timeout, option (iv), the same day; reversible; the spine's "never stalls"). A head short of funds whose `_afford_at` reads −1.0 at the walk's stocks (`BuildRules.head_dry`: its store's net is 0 or below) is `skipped_gate` with its `no_gold` / `no_bone` (`BuildRules.never_row`), holding nothing and no slot, its `affordable_in_s` −1.0 and its `short`, `starved` and `lever` as a waiting head's: at once when that store's producer has no staffed hands (`producer_idle`: no staffed `mill` job for bone, no staffed `stall` for gold); otherwise once it has read −1.0 for `economy.json` `queue.never_hold_s` (600 s, REQUIRED) in a row. The count is the entry's `never_since` (the game time the core step's processing first saw it dry; cleared at any step it reads ≥ 0 or isn't a head short of funds, so a head that comes back holds again), saved on the entry only while set (§9.1). `Catchup.build_start_s` clips at the hold's end (`hold_left_s` + 1e-6 s), so a catch-up skips it when live play does (to 1e-6 s at 1 h, one go and in chunks). The away report gives the first never row on each store its line, without the move down. | Staffing alone (ruling 3's first reading) left one deadlock a closed game reaches: a staffed mill whose pits eat every body (pits-first, E2b-2) reads 0 bone for good, and midgame_2flips with the mill's level 2 queued on 50 bone and a House behind it started nothing in 24 h away (and live: rot 0.29 bodies/s against the pits' 0.6, no haul). A net-only test flickers (a convoy-fed mill reads 0 between convoys, and `TownSim.stance_flows`' haul reads 0 while no convoy is out), so the timeout keeps the hold for a convoy's gap (the new-game Pit-then-Mill town's longest dry run is 60 s) and ends it for a structural stall: the House starts at the hold's end and the mill's level keeps A1's pits_first line. Pits-first stays settled. |
+| A16 | **The odds split: `odds` is the first-attempt estimate, `readiness` the win odds** (Phase I P3, the run's manager's ruling on P1's vision check (a), as recommended; reversible; v14). `view_hud.odds` and `view_vei.odds` = `readiness` / (1 + exp(−(`backups` − `odds.backups_mid`) / `odds.backups_scale`)) (`GameState.first_odds`), `backups` = min(phylactery charges, `phylactery.max_per_dungeon`) + clones ready (`vei_backups`), `readiness` the v12 win odds unchanged (`win_odds`). The readiness drives the bots' Vei-ready, BALANCE's Vei-ready rows and the boss seed's `odds`; nothing in the fight reads either. `backups_mid` 7.15 and `backups_scale` 1.76 are the provisional fit to P1's faithful grade at sessions' Vei-ready (6dc16a2, score 65, readiness 0.6118): 1+8 won 9/20, 1+4 3/20, 1+2 1/20, 0+0 0/20, and the fit reads 0.45, 0.14, 0.05, 0.01. They are refit at P3's re-grade. `backups_mid` −1e9 is the readiness bit for bit (the revert proof; `test_win_odds` `_first_attempt`). | At Vei-ready the player read 0.61 while the bot's first attempt won 45% at 1+8 and 5% at 1+2 (P1): since P1's pressure, the backups decide the fight, and the old odds didn't know them. A logistic in the backups fits P1's four points within two points with two numbers, rises with every clone, and never passes the readiness, so the readiness bounds what backups can buy. The pool and the party aren't inputs: at Vei-ready the pool is her full 600 for sessions, and the per-profile clone counts and grade (P3's (b)) decide whether one is needed. The readiness keeps its own name so the ready gate, BALANCE's pacing rows and the seed don't move. |
+| A17 | **The Grow stance** (Phase I P3, Q-b: the run's manager's ruling of 2026-11-18, option (a), its form decided here; reversible; v14). A sixth stance, `grow` (`economy.json` `stance.grow`), on by default in a new game (`default_on`), taking no slot (`stance.slot_free`). Its condition: a build or upgrade has finished since the new game (the finished levels total more than the opening's). While it acts, in the core step right after the queue's processing, when no queue head is left waiting on funds and fewer than `max_active` (1) constructions are under way, it **starts** (not queues) an upgrade of a standing building in `order`, on a lot with no queue entry, whose next level passes the tier gate, costs no relics and fits under every cap now: the one affordable soonest at `BuildRules.queue_net`, ties in `order` then lot order; one no income can pay is passed over. A pick it can't afford yet holds nothing; catch-up clips at its time (`BuildRules.grow_start_s`). It never builds on an empty lot. **The upkeep test** (the run's manager's ruling 1 on P3's handoff 5): a level with a gold price is passed over while the gold income can't pay the working buildings' gold upkeep plus what the level adds (`TownSim.income_pays` at `gold_income()` and `gold_due()`, `held_by_income`'s margin), unless the building earns gold (stall jobs: the Market). Event `grow_started`. A save keeps it in `stances.on`; a save without it loads with it off. | **The upkeep test:** pre_vei's income (0.60 g/s) is under its bill (1.07 g/s); an ungated Grow spent its 3 616 gold on the living's levels and shed nine buildings 57 min in, against 2 h 8 min with Grow off (`test_grow`). Upkeep is per building (`buildings.json`), so a level adds none and the test reads "the town's gold net is above 0": Grow never spends the stock a town short on its bill lives on. The Market is exempt, as in `held_by_income`: its level is the income. Option (a) was recommended with the stop: the list's spare room holds only gated entries, so no config makes a pure_idle queue last 48–72 h. **Started, not queued:** a Grow entry in the queue would wait on funds as a head and hold the player's later entries behind it, which the ruling forbids ("never takes funds from a head waiting on funds"); a start that only happens when the stocks already cover it, while the player's queue saves for nothing, holds nothing. **Upgrades only:** the lots are the player's plan (the Chapel's, the Walls', the Reliquary's and the Ossuary's must stay free for the wall to be reachable), so Grow levels what the player put down. **Slot-free:** default-on with a slot would quietly take one of a new player's two slots and suspend their second stance. **One at a time:** builders sit at the top of the ladder, 3 to a site, so a burst at full stores would pull the producers' hands onto sites. **Soonest first:** every relic-free level gets bought either way; the soonest never leaves a covered store idle, and ties at 0 s go to the cap buildings first (the Bone Mill, the Market). The condition keeps the first step the player's. |
+| A18 | **The relic trickle pays on a fort held a day** (Phase I P3, R-b: the brief's "give it a condition a held fort can meet, such as holding any fort for 24 h"; reversible; v14). `GameState.relic_trickle_paying`: some fort is held and its `held_for_s` (RealmSim: accrued in each realm part while held, grace and contested alike; 0 at a new hold, a release and a retake; kept through a re-flip of a held fort) is at least `economy.json` `relic_trickle.hold_s` (86 400). Saved as `realm.forts[].held_for_s` while held and above 0 (§9.1). The rest of the trickle (one relic per `period_s`, read at each step's start, the accrued seconds kept while it doesn't pay) is E4's. | E4 step 9's condition (every fort at or below the highest tier ever flipped held) never paid in any profile (P2's batch). A day's hold is a thing a player can do and see, and it keeps the trickle a reward for holding, not for walling. Catch-up reads it at each step's start (at most one step's error at the day's crossing, as at a break). |

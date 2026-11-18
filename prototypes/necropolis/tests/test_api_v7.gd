@@ -9,7 +9,8 @@ var _dir := "user://test_saves_api_v7_%d" % OS.get_process_id()
 ## Builds and upgrades that fill a fixture's queue to queue.max_len (each tried in order; refusals skipped).
 const FILL := [["", "lot-02"], ["", "lot-04"], ["", "lot-04"], ["house", "lot-05"], ["well", "lot-06"], ["bakery", "lot-07"],
 	["bone_mill", "lot-08"], ["house", "lot-09"], ["well", "lot-10"], ["house", "lot-11"], ["well", "lot-12"], ["", "lot-03"],
-	["", "lot-03"], ["house", "lot-18"], ["well", "lot-19"], ["house", "lot-20"], ["", "lot-05"], ["", "lot-06"], ["", "lot-07"]]
+	["", "lot-03"], ["house", "lot-18"], ["well", "lot-19"], ["house", "lot-20"], ["", "lot-05"], ["", "lot-06"], ["", "lot-07"],
+	["", "lot-08"], ["well", "lot-21"]]  # (Phase I P3's depth: the Market's and the charnel house's L3 are over pre_vei's cap)
 
 
 func run() -> int:
@@ -31,7 +32,7 @@ func _fixture(name: String) -> GameState:
 
 
 func _version() -> void:
-	t.ok(GameState.API_VERSION == 13, "API_VERSION is 13: R2's additions joined R1's v7 entry (one milestone); E3's v8 entry follows (E3-1's save keys), then E4's v9 (the husk craft), v10 (the craft's at_cap), v11 (step 5: the muster's route and the hold forecast), v12 (step 9: the win odds and view_vei.strain) and Phase I's v13 (P2: view_town's queue_slots and queue_list_max, STATE-API §1.1)")
+	t.ok(GameState.API_VERSION == 14, "API_VERSION is 14: R2's additions joined R1's v7 entry (one milestone); E3's v8 entry follows (E3-1's save keys), then E4's v9 (the husk craft), v10 (the craft's at_cap), v11 (step 5: the muster's route and the hold forecast), v12 (step 9: the win odds and view_vei.strain), Phase I's v13 (P2: view_town's queue_slots and queue_list_max) and v14 (P3: wait_slot, the never head's skip, #19's lots, #20's revived_in_place, the odds split; STATE-API §1.1)")
 
 
 ## Every view_town().queue entry carries affordable_in_s, a float (the queue row's schema, ApiSchema.QUEUE_ENTRY):

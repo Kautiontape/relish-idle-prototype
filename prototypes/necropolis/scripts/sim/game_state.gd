@@ -6,7 +6,7 @@ extends RefCounted
 ## enforces this). No signals: consumers poll
 ## `rev` and drain_events(). The contract is docs/STATE-API.md.
 
-const API_VERSION := 13
+const API_VERSION := 14
 const SAVE_VERSION := 2
 const ARRIVE_EPS := 0.01  # px left at or under which Relish has arrived
 const RELISH_STATES := ["home", "travelling", "at_fort", "at_vei", "in_dungeon", "in_boss", "dead"]
@@ -14,7 +14,9 @@ const RATE_IDS := ["mint", "work", "war", "flood", "workers", "bodies", "gold", 
 const HUD_RATE_IDS := ["mint", "workers", "bodies", "gold", "bone", "living"]
 const LANE_KINDS := ["war", "flood", "work", "dead", "living", "haul", "redirect"]
 const JOB_IDS := ["haul", "mill", "stall", "forge", "pit", "tend", "build"]
-const STANCE_IDS := ["vigil", "harvest", "thrift", "muster", "hearth"]
+## Phase I P3 (Q-b, option (a)): Grow, the last, takes no slot (economy.json stance.slot_free) and is on in a new game
+## when stance.grow.default_on (BuildRules.grow_step).
+const STANCE_IDS := ["vigil", "harvest", "thrift", "muster", "hearth", "grow"]
 const FRONT_IDS := ["giants", "swarm", "carvers", "raw"]
 const CRAFT_IDS := ["simulacrum", "phylactery_charge"]
 const TIERS := ["hamlet", "village", "town", "city"]
@@ -36,10 +38,11 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	"economy.town.projection_refresh_s", "economy.town.projection_rows_per_call", "economy.town.projection_rows_per_frame",
 	"economy.town.projection_phase", "economy.town.projection_starve_frames", "economy.town.projection_tol.rel",
 	"economy.town.projection_tol.abs", "realm.flip.hold_s", "realm.flip.tier_mult", "economy.morale.death_shock", "vei.loss_backlog_keep",
-	"realm.relish.tide_bias", "economy.queue.max_len", "economy.queue.list_mult", "economy.save.level_sanity_mult",
-	"economy.relic_trickle.period_s",
+	"realm.relish.tide_bias", "economy.queue.max_len", "economy.queue.list_mult", "economy.queue.never_hold_s", "economy.save.level_sanity_max",
+	"economy.relic_trickle.period_s", "economy.relic_trickle.hold_s",
 	"realm.hold.mint_ref", "realm.hold.mint_alpha",  # (E4 step 5, B1: hold_mult)
 	"realm.odds.time_weight", "realm.odds.time_s", "realm.odds.backlog_cap",  # (E4 step 9, option B: win_odds)
+	"realm.odds.backups_mid", "realm.odds.backups_scale",  # (Phase I P3: the odds split, first_odds)
 	# T3.4a: the economy and realm tunables that had inline numeric fallbacks (the realm `field` block aside)
 	"economy.sim.substep_s", "economy.sim.max_substeps_per_frame", "economy.sim.autosave_s", "economy.sim.prewarm_dt",
 	"economy.sim.prewarm_ticks", "economy.opening.valve.work", "economy.opening.valve.war", "economy.opening.valve.flood",
@@ -63,6 +66,8 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	# thresholds, and the beat they are read at (Thrift's two keys are TownSim's)
 	"economy.stance.hold_s", "economy.stance.top_job", "economy.stance.priority", "economy.stance.harvest_bodies_frac",
 	"economy.stance.hearth_morale", "pulse.tempo_ms",
+	# Phase I P3 (Q-b, option (a)): the Grow stance (BuildRules.grow_step) and the stances that take no slot
+	"economy.stance.slot_free", "economy.stance.grow.default_on", "economy.stance.grow.order", "economy.stance.grow.max_active",
 	# E4 (the A1 day-1 ruling): a new game's bone edge (view_hud.bone_war_share) and the mill's lever per starved reason
 	"economy.opening.bone_edge.war_share", "economy.town.starved_lever",
 	# E3-2: the backups (MECHANICS §7): a tended vat's growth (_grow_vats), the death rule's respawns
@@ -93,6 +98,8 @@ const REPORT_KEYS := ["streams", "stream_labels", "stream_fmt", "backlog_fmt", "
 	# W: the unpaid line under a minute ("briefly") and, when it stopped nothing, without its tail; the stuck head
 	# short of relics in Shawn's words, with and without the move down
 	"unpaid_brief_fmt", "unpaid_none_fmt", "unpaid_none_brief_fmt", "afford_relics_last_fmt",
+	# Phase I P3's housekeeping: the never line's lever while its store's producer is under construction (level 0)
+	"afford_raise_building",
 	# W2: a start that waited but began within a minute of you leaving ("started within a minute of you leaving, ...")
 	"started_brief_fmt",
 	# E3-1: the losses' Thrift lines (one per building the Thrift stance idled during the absence; kind `unpaid`)
@@ -111,7 +118,7 @@ const REPORT_KEYS := ["streams", "stream_labels", "stream_fmt", "backlog_fmt", "
 	"unpaid_upkeep_living_fmt", "afford_living_falling_fmt", "afford_living_falling_last_fmt"]
 ## The reasons a queued build's waited_on can hold (STATE-API §6 queue_started): idle.report.waited_on words each.
 const REPORT_WAITED_ON := ["needs_tier", "lot_locked", "needs_blueprint", "needs_building", "no_relics", "no_gold",
-	"no_bone", "lot_taken", "empty_lot", "under_construction", "unpaid", "cost_exceeds_cap", "upkeep"]
+	"no_bone", "lot_taken", "empty_lot", "under_construction", "unpaid", "cost_exceeds_cap", "upkeep", "wait_slot"]
 ## The mass ledger (scripts/sim/ledger.gd; no class_name, see there).
 const Ledger := preload("res://scripts/sim/ledger.gd")
 ## Husk kinds (loot), STATE-API §1.4.
@@ -280,6 +287,13 @@ var _harvest_frac := 0.0  # economy.json stance.harvest_bodies_frac
 var _hearth_morale := 0.0  # economy.json stance.hearth_morale
 var _stance_priority: Array = []  # economy.json stance.priority: the ladder stances, top first when several act
 var _stance_top_job := {}  # economy.json stance.top_job: ladder stance id -> the job it lifts
+var _stance_free: Array = []  # economy.json stance.slot_free: the stances that take no slot (Phase I P3: Grow)
+var _grow_order: Array = []  # economy.json stance.grow.order: the buildings Grow levels, its tie order (BuildRules.grow_target)
+## The reason of the queue head the last core step's processing left waiting on funds, "" when none (BuildRules.
+## process_queue's return): Grow acts only when it is "", and catch-up's clip at Grow's pick reads it. Session only.
+var _queue_held := ""
+## view_stances' `grow` (Grow's pick), cached: [[rev, t, TownSim.structure_rev], {...}] (StateViews.grow_pick). Session only.
+var _grow_view: Array = []
 var _bone_war_share := 0.0  # economy.json opening.bone_edge.war_share (view_hud.bone_war_share)
 var _starved_lever := {}  # economy.json town.starved_lever: TownSim.mill_starved reason -> its lever id
 ## [TownSim.structure_rev, town_tier] when the core step last checked the tiers and none rose: the check
@@ -372,6 +386,10 @@ func setup(cfgs: Dictionary) -> void:
 	var top: Variant = _req("economy.stance.top_job")
 	_stance_priority = (pri as Array).duplicate() if pri is Array else []
 	_stance_top_job = (top as Dictionary).duplicate() if top is Dictionary else {}
+	var free: Variant = _req("economy.stance.slot_free")
+	_stance_free = (free as Array).duplicate() if free is Array else []
+	var gro: Variant = _req("economy.stance.grow.order")
+	_grow_order = (gro as Array).duplicate() if gro is Array else []
 	_bone_war_share = _req_f("economy.opening.bone_edge.war_share")
 	var lev: Variant = _req("economy.town.starved_lever")
 	_starved_lever = (lev as Dictionary).duplicate() if lev is Dictionary else {}
@@ -437,7 +455,7 @@ static func report_config_problem(cfgs: Dictionary) -> String:
 	# R2: the queue head's line names the store its time waits on, for every store a queue time can wait on, and
 	# what raises it, for gold and bone (W: relics' line is afford_relics_last_fmt's, "raid a fort"); the raid prompt's
 	# full_tol is a fraction of the cap
-	for pair in [["afford_stores", ["gold", "bone", "relics"]], ["afford_raise", ["gold", "bone"]]]:
+	for pair in [["afford_stores", ["gold", "bone", "relics"]], ["afford_raise", ["gold", "bone"]], ["afford_raise_building", ["gold", "bone"]]]:
 		for k in pair[1]:
 			if not (rep[pair[0]] is Dictionary and (rep[pair[0]] as Dictionary).has(k)):
 				return "config economy.idle.report.%s has no %s" % [pair[0], k]
@@ -640,10 +658,12 @@ func cmd_new_game(seed: int) -> Dictionary:
 	_stance_beat = -1
 	_stance_acting = {}
 	_stance_proj = []
+	_grow_view = []
 	blueprints = []
 	haul_target = "auto"
 	build_queue = []
-	stances_on = []
+	_queue_held = ""
+	stances_on = ["grow"] if bool(_req("economy.stance.grow.default_on")) else []  # Phase I P3 (Q-b): Grow starts on
 	vats_staffed = []
 	town_tier = "hamlet"
 	relish = {
@@ -907,7 +927,9 @@ func cmd_set_haul_target(target: String) -> Dictionary:
 # ------------------------------------------------------------------- runs ----
 ## The sustained-differential readout (MECHANICS §3.5) from `_diff` and the saved EMA: sign is ±1
 ## past ±readout.sign_eps, else 0; drain_s is backlog / −EMA while the EMA < 0, else −1.0 (and −1.0
-## if that would not be finite); odds is the win odds at the game's age (win_odds), strain her backlog / (backlog + K).
+## if that would not be finite); readiness is the win odds at the game's age (win_odds), strain her backlog / (backlog +
+## K); odds is the first-attempt estimate on that readiness and the backups now (first_odds; Phase I P3's odds split),
+## backups the count it reads (vei_backups).
 func _vei_readout() -> Dictionary:
 	var ema := float(_readout["diff_ema"])
 	var eps := _req_f("realm.readout.sign_eps")
@@ -917,18 +939,44 @@ func _vei_readout() -> Dictionary:
 		var d := backlog / -ema
 		drain = d if is_finite(d) else -1.0
 	var strain := realm.strain()
+	var ready := win_odds(t, strain)
+	var n := vei_backups()
 	return {
 		"diff": _diff, "diff_ema": ema,
-		"odds": win_odds(t, strain), "strain": strain,
+		"odds": first_odds(ready, n), "readiness": ready, "backups": n, "strain": strain,
 		"sign": 1 if ema > eps else (-1 if ema < -eps else 0),
 		"drain_s": drain,
 	}
 
 
+## The backups a first attempt on Vei could spend (Phase I P3's odds split): the phylactery revives a run may use,
+## min(charges, backups.phylactery.max_per_dungeon), plus the clones ready (her fight's backups_total less the charges a
+## run can't use).
+func vei_backups() -> int:
+	return mini(_phylactery_charges, _phylactery_max()) + clones_ready
+
+
+## The first-attempt odds (Phase I P3, the manager's odds split): the readiness `readiness` (win_odds) times a logistic
+## in the backups `backups` (vei_backups), on realm.json odds.backups_mid and backups_scale. The odds a player reads;
+## the bots' Vei-ready, the boss seed and the fight read the readiness or the strain, never these. Read live.
+func first_odds(readiness: float, backups: int) -> float:
+	return first_odds_of(readiness, backups, _req_f("realm.odds.backups_mid"), _req_f("realm.odds.backups_scale"))
+
+
+## first_odds on explicit tunables (pure; the map's valve can project with it on win_odds_of's readiness):
+## readiness / (1 + exp(-(backups - mid) / scale)). scale <= 0 is a step (readiness at or past mid, else 0); mid -1e9
+## is the readiness bit for bit (the revert proof).
+static func first_odds_of(readiness: float, backups: int, mid: float, scale: float) -> float:
+	if scale <= 0.0:
+		return readiness if float(backups) >= mid else 0.0
+	return readiness / (1.0 + exp(-(float(backups) - mid) / scale))
+
+
 ## The win odds (MECHANICS §3.5; E4 step 9, the manager's 2026-11-17 13:44 ruling, option B) at the game's age `age_s`
 ## (sim seconds since the new game, `t`) and Vei's strain `strain` (RealmSim.strain): realm.json odds.time_weight ·
-## age / (age + odds.time_s) + (1 − time_weight) · min(odds.backlog_cap, strain). The odds a player reads, the boss
-## seed's and the bots' Vei-ready are these; her tithe period, reship and one-wave need read the strain alone, so
+## age / (age + odds.time_s) + (1 − time_weight) · min(odds.backlog_cap, strain). Since Phase I P3's odds split this is
+## the readiness: the boss seed's odds and the bots' Vei-ready are these, and the odds a player reads are first_odds on
+## them; her tithe period, reship and one-wave need read the strain alone, so
 ## nothing in the fight reads them. Read live (a test may change the config after setup). time_weight 0 with
 ## backlog_cap 1 is the strain bit for bit (the revert proof).
 func win_odds(age_s: float, strain: float) -> float:
@@ -1140,8 +1188,8 @@ func cmd_abort_dungeon() -> Dictionary:
 ## its last checkpoint. A close, a crash, a load or a gap above idle.gap_s ends the run from it
 ## (StateRuns.end_open). Reasons: no_run, wrong_run, wrong_kind (a boss run banks nothing), catching_up,
 ## invalid, bad_outcome: a dead run's refusals come first.
-func cmd_run_checkpoint(run_id: int, loot: Dictionary, outcome := "retreated") -> Dictionary:
-	return StateRuns.checkpoint(self, run_id, loot, outcome)
+func cmd_run_checkpoint(run_id: int, loot: Dictionary, outcome := "retreated", revived_in_place := 0) -> Dictionary:
+	return StateRuns.checkpoint(self, run_id, loot, outcome, revived_in_place)
 
 
 func view_dungeon_seed(fort_id: String) -> Dictionary:
@@ -1330,14 +1378,14 @@ func cmd_set_stance(stance_id: String, on: bool) -> Dictionary:
 		return {"ok": false, "reason": "unknown_stance", "slots": 0, "used": 0}
 	var slots := _stance_slots()
 	if on and not stances_on.has(stance_id):
-		if stances_on.size() >= slots:
+		if not _stance_free.has(stance_id) and _slotted(stances_on).size() >= slots:
 			return {"ok": false, "reason": "no_slot", "slots": 0, "used": 0}
 		stances_on.append(stance_id)
 	elif not on:
 		stances_on.erase(stance_id)
 	_apply_stances(t)
 	rev += 1
-	return {"ok": true, "reason": "", "slots": slots, "used": mini(stances_on.size(), slots)}
+	return {"ok": true, "reason": "", "slots": slots, "used": mini(_slotted(stances_on).size(), slots)}
 
 
 # ------------------------------------------------------------------ the stances (E3-1) ----
@@ -1406,19 +1454,44 @@ func _stance_condition(id: String) -> bool:
 			return float(ts.staffing.get("idle", 0.0)) > 0.0 or float(ts.rates["workers"]["muster"]) > 0.0
 		"thrift":
 			return ts.trade_income() < ts.gold_bill()
+		"grow":
+			return _grow_armed()
 	return false
 
 
+## Grow's condition (Phase I P3, Q-b: it acts only after the player's first finished build, so the first step stays
+## theirs): the finished levels of the town's buildings total more than the opening's (economy.json opening.buildings,
+## each at level 1). A first build counts at its finish (a construction's level is 0 until then), an upgrade too.
+func _grow_armed() -> bool:
+	var n := 0
+	for lot_id in town_sim.buildings:
+		n += int(town_sim.buildings[lot_id]["level"])
+	return n > (town_sim._start["buildings"] as Dictionary).size()
+
+
+## Phase I P3: the stances in `on_list` that take a slot (all but economy.json stance.slot_free's), oldest first.
+func _slotted(on_list: Array) -> Array:
+	if _stance_free.is_empty():
+		return on_list
+	return on_list.filter(func(id): return not _stance_free.has(id))
+
+
 ## The stances that would act with `on_list` the toggles (oldest first): {id: true} for each on, not suspended (within
-## the slots, the oldest first) and active.
+## the slots, the oldest first; a slot-free one, Phase I P3's Grow, is never suspended) and active.
 func _acting_of(on_list: Array) -> Dictionary:
 	var out := {}
 	if on_list.is_empty():
 		return out
 	var slots := _stance_slots()
-	for i in mini(on_list.size(), slots):
-		if _stance_active.has(on_list[i]):
-			out[on_list[i]] = true
+	var used := 0
+	for id in on_list:
+		if _stance_free.has(id):
+			if _stance_active.has(id):
+				out[id] = true
+			continue
+		if used < slots and _stance_active.has(id):
+			out[id] = true
+		used += 1
 	return out
 
 
@@ -2688,17 +2761,17 @@ func highest_tier_flipped() -> int:
 	return h
 
 
-## The idle relic trickle pays (the same ruling, MECHANICS §2's relics row): no raidable fort remains, read as every fort at or
-## below the highest tier ever flipped being held, after at least one flip. A player walled at a tier (every fort they
-## can take is theirs, the next tier out of reach) still gets relics; one fort lost back to Vei stops it.
+## The idle relic trickle pays (MECHANICS §2's relics row; Phase I P3, R-b: the brief's "a condition a held fort can
+## meet, such as holding any fort for 24 h", replacing E4 step 9's "every fort at or below the highest tier ever flipped
+## held", which no profile ever met): some fort's hold has lasted economy.json relic_trickle.hold_s unbroken (its
+## held_for_s, RealmSim). A player who keeps one fort a day gets relics while idle; that fort lost back to Vei stops it
+## (another held long enough keeps it).
 func relic_trickle_paying() -> bool:
-	var h := highest_tier_flipped()
-	if h < 1:
-		return false
+	var need := _req_f("economy.relic_trickle.hold_s")
 	for f in realm.forts:
-		if int(f["tier"]) <= h and not RealmSim.is_held(f):
-			return false
-	return true
+		if RealmSim.is_held(f) and float(f.get("held_for_s", 0.0)) >= need:
+			return true
+	return false
 
 
 ## A step of the trickle while it pays: `dt` joins relic_trickle_s, and each economy.json relic_trickle.period_s of it
@@ -2855,7 +2928,9 @@ func _core_step(dt: float) -> Array:
 		_tiers_seen = [town_sim.structure_rev, town_tier]
 	# the build queue (IDLE §5, MECHANICS §4.4): right after the tiers, so a tier that rises this step
 	# opens its entries this step and this step's income counts
-	BuildRules.process_queue(self)
+	_queue_held = BuildRules.process_queue(self)
+	# Phase I P3 (Q-b): the Grow stance, right after the queue: it acts only when no head is left waiting on funds
+	BuildRules.grow_step(self, _queue_held)
 	# TownSim's muster joins this step's FLOOD, or its WAR while the Muster stance acts (_split_of; E4 step 5, A1)
 	_split = _split_of(mint, valve, float(town["muster_mass"]) / dt, town_sim.muster_all)
 	# §3 step 4: Relish's travel and state (her arrival's moment inside the step, for a walk home: _emit_realm)
@@ -3081,6 +3156,7 @@ func from_dict(d: Dictionary) -> Dictionary:
 	_catchup = Catchup.new()
 	_away = {}  # a load replaces the last report (the next catch-up's, if any, follows)
 	_tiers_seen = [-1, ""]
+	_queue_held = ""  # (Phase I P3) the next core step's processing sets it
 	# the vats come back after TownSim's own load: they open the tend slots (refilled, the saved
 	# states kept); a staffed vat holding a ready clone opens none (_tended_vats, E4 step 10), as live play left it
 	town_sim.set_vats(_tended_vats(), true)
@@ -3090,6 +3166,7 @@ func from_dict(d: Dictionary) -> Dictionary:
 	_stance_beat = beat_at(t)
 	_stance_acting = {}
 	_stance_proj = []
+	_grow_view = []
 	_apply_stances(t, true)
 	if not _stance_acting.has("thrift"):
 		town_sim.thrift_resume()

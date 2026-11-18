@@ -260,7 +260,7 @@ func _husk_policy(c: Dictionary) -> void:
 ## second, third and fourth asserts fail, with and without park_relics (6 FAIL).
 func _fill_skips_gated(c: Dictionary) -> void:
 	for park in [true, false]:
-		var b := Autoplayer._bot("keep_test_fill", c, {"print_rows": false})
+		var b := Autoplayer._bot("keep_test_fill", c, {"print_rows": false, "skip_fill": true})  # P3: the skip fill is the ablation's
 		b.record = true
 		b.park_relics = park
 		b.new_game()
@@ -285,9 +285,39 @@ func _fill_skips_gated(c: Dictionary) -> void:
 			"park %s: %s no_relics entry: %s" % [str(park), "one parked" if park else "no", str(relic)])
 		t.ok(counted == int(tn["queue_max"]) and int(tn["queue_slots"]) <= counted, "park %s: the fill still fills queue_max (%d counted, %d slots)" % [
 			str(park), counted, int(tn["queue_slots"])])
-		t.ok(queued.size() == rows.size() and queued.all(func(e): return bool(e["ok"])),
-			"park %s: a skipped item issues no command (it is read off the walk): %d queue commands, all kept" % [str(park), queued.size()])
+		# a refusal the walk can't see (cost_exceeds_cap: a cost over today's cap) is the fill's normal "a later look";
+		# since P3's ruling 3 a new game's fill passes over never heads (no mill: no bone) and reaches the mill's level 3
+		var kept: Array = queued.filter(func(e): return bool(e["ok"]))
+		var refused: Array = queued.filter(func(e): return not bool(e["ok"]))
+		t.ok(kept.size() == rows.size() and refused.all(func(e): return str(e["reason"]) == "cost_exceeds_cap"),
+			"park %s: a skipped item issues no command (it is read off the walk): %d queue commands, %d kept, the rest cost_exceeds_cap" % [
+			str(park), queued.size(), kept.size()])
 		b.cleanup()
+	# Phase I P3, ruling 2 (the parking fill, the default): the same new game's first fill, then the list's spare room
+	# takes the priority list's next items gated on a lasting gate (Autoplayer.PARK_GATES). The counted entries are the
+	# skip fill's, the slots stay within queue_max, and every parked entry is gated on one of PARK_GATES. Revert proof:
+	# _park not called (no parked entry: the second check fails)
+	var skip := Autoplayer._bot("keep_test_fill", c, {"print_rows": false, "skip_fill": true})
+	skip.new_game()
+	skip._crypt_up = true
+	skip._fill()
+	var base: Array = skip.s.view_town()["queue"].map(func(r): return "%s/%s/%d" % [r["building_id"], r["lot_id"], int(r["level"])])
+	skip.cleanup()
+	var p := Autoplayer._bot("keep_test_fill", c, {"print_rows": false})
+	p.new_game()
+	p._crypt_up = true
+	p._fill()
+	var tp := p.s.view_town()
+	var prow: Array = tp["queue"]
+	var head: Array = prow.slice(0, base.size()).map(func(r): return "%s/%s/%d" % [r["building_id"], r["lot_id"], int(r["level"])])
+	var extra: Array = prow.slice(base.size())
+	var off: Array = extra.filter(func(r): return not (str(r["status"]) == "skipped_gate" and Autoplayer.PARK_GATES.has(str(r["reason"]))))
+	t.ok(p.park_gated and head == base and int(tp["queue_slots"]) <= int(tp["queue_max"]),
+		"parking: the fill's first %d entries are the skip fill's, %d slots of %d" % [base.size(), int(tp["queue_slots"]), int(tp["queue_max"])])
+	t.ok(not extra.is_empty() and off.is_empty() and prow.size() <= int(tp["queue_list_max"]),
+		"parking: %d more parked, each gated on a lasting gate, the list %d of %d: %s" % [extra.size(), prow.size(), int(tp["queue_list_max"]),
+		str(extra.map(func(r): return "%s/%d:%s" % [r["building_id"], int(r["level"]), r["reason"]]))])
+	p.cleanup()
 
 
 static func _queued(gs: GameState, lot: String) -> bool:
@@ -400,16 +430,45 @@ func run() -> int:
 	var g := Autoplayer._bot("keep_test_odds", c0, {"print_rows": false})
 	g.new_game()
 	g._vei_check(g.s.t + 3600.0)
-	var odds_new := float(g.s.view_vei()["odds"])
+	# (Phase I P3's odds split) the gate reads view_vei's readiness, the win odds; its odds are the first-attempt estimate
+	var odds_new := float(g.s.view_vei()["readiness"])
 	t.ok(odds_new < Autoplayer.VEI_READY_ODDS and g.vei_ready_t < 0.0,
-		"fronts met but odds %.3f < %.1f: no Vei-ready" % [odds_new, Autoplayer.VEI_READY_ODDS])
-	g.s.realm.vei["undead_queue"] = 2.0 * float(c0["realm"]["K"])  # odds 2/3
+		"fronts met but readiness %.3f < %.1f: no Vei-ready" % [odds_new, Autoplayer.VEI_READY_ODDS])
+	g.s.realm.vei["undead_queue"] = 2.0 * float(c0["realm"]["K"])  # readiness 2/3
 	g._vei_check(g.s.t + 3600.0)
-	t.ok(g.vei_ready_t >= 0.0, "fronts met and odds %.3f: Vei-ready at %.0f s" % [float(g.s.view_vei()["odds"]), g.vei_ready_t])
+	t.ok(g.vei_ready_t >= 0.0 and float(g.s.view_vei()["odds"]) < Autoplayer.VEI_READY_ODDS,
+		"fronts met and readiness %.3f: Vei-ready at %.0f s, with the first-attempt odds at %.3f (no backups)" % [
+		float(g.s.view_vei()["readiness"]), g.vei_ready_t, float(g.s.view_vei()["odds"])])
 	g.cleanup()
 	_full_pool_ready(c)
 	_pump_lost_cause(c)
+	_muster_digest(c)
 	return t.failures
+
+
+## Q-h (Phase I P3): the digest's workers block carries the muster rate per day of live time (the share of the WORK
+## stream that musters on), not idle_max_after_1h, which sat at worker.idle_cap by design. An hour of a new game's live
+## play: one sample every FINE_S, the mean muster and WORK equal to GameState's split as sampled, the share their ratio.
+func _muster_digest(c: Dictionary) -> void:
+	var g := Autoplayer._bot("keep_test_muster", c, {"print_rows": false})
+	g.new_game()
+	g._tick_to(3600.0)  # _frame samples every FINE_S
+	var md: Dictionary = g._muster_out()
+	var d0: Dictionary = md.get("0", {})
+	var raw: Dictionary = g._muster_day.get("0", {})
+	var n := int(raw.get("n", 0))
+	var mu := float(raw.get("muster_sum", 0.0))
+	var wk := float(raw.get("work_sum", 0.0))
+	t.ok(n >= int(3600.0 / Autoplayer.FINE_S) - 1 and int(d0.get("n", 0)) == n, "an hour of live play: %d muster samples (one per %.0f s)" % [n, Autoplayer.FINE_S])
+	t.ok(wk > 0.0 and is_equal_approx(float(d0["work_mean"]), snappedf(wk / n, 0.0001))
+		and is_equal_approx(float(d0["muster_mean"]), snappedf(mu / n, 0.0001)),
+		"day 0: muster %.4f/s of WORK %.4f/s, the sampled split's means" % [float(d0["muster_mean"]), float(d0["work_mean"])])
+	t.ok(float(d0["muster_share"]) >= 0.0 and float(d0["muster_share"]) <= 1.0 and is_equal_approx(float(d0["muster_share"]), snappedf(mu / wk, 0.0001)),
+		"the muster's share of WORK: %.4f" % float(d0["muster_share"]))
+	var src := FileAccess.get_file_as_string("res://tests/autoplay/autoplayer.gd")
+	t.ok(src.contains("\"muster_per_day\": _muster_out()") and not src.contains("\"idle_max_after_1h\""),
+		"summary's workers block is the muster rate, not idle_max_after_1h")
+	g.cleanup()
 
 
 ## E4 review item 11 (a): prepare_away's WAR pump (_pump_war) lets a lost cause go, as _war_topup does in a session.
