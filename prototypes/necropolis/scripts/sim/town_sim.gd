@@ -575,6 +575,9 @@ func clone() -> TownSim:
 	# projection reads pit_weight() before its first step's restaff refills it (StateViews._proj_step's mint)
 	c.staffing = staffing.duplicate(true)
 	c._by_lot = _by_lot.duplicate(true)
+	# the last step's reasons (the E4 final review's item 6): a queue walk on the twin reads them as on this one
+	c.mill_starved = mill_starved
+	c.trade_starved = trade_starved
 	c._mark_rooms()
 	return c
 

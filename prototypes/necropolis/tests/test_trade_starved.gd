@@ -24,6 +24,9 @@ extends RefCounted
 ##   same rule: with a working Bone Mill and mill_starved set to pits_first by hand, a timed wait on bone reads "";
 ##   with the mill gone, the never on bone reads pits_first and raise_war. Revert proof: on 2a9e596 both timed heads
 ##   read the flag (gold short and not bone: trade_starved; bone short: mill_starved).
+## - (g) TownSim.clone() copies both flags (the E4 final review's item 6): (a)'s state, mill_starved set to no_bodies by
+##   hand, cloned; the twin reads living_first and no_bodies, and a queue walk with the twin as the town reads the
+##   head's living_first and raise_living as the town itself does. Revert proof: on 2a9e596 the twin reads "" and "".
 
 var t := TestUtil.new()
 var _dir := "user://test_trade_starved_%d" % OS.get_process_id()
@@ -41,6 +44,7 @@ func run() -> int:
 	_upkeep(c, rep)
 	_tie(c)
 	_timed(c)
+	_clone(c)
 	_cleanup()
 	return t.failures
 
@@ -181,6 +185,27 @@ func _timed(c: Dictionary) -> void:
 	var nh: Dictionary = b.view_town()["queue"][0]
 	t.ok(str(nh["reason"]) == "no_bone" and float(nh["affordable_in_s"]) == -1.0 and str(nh["starved"]) == "pits_first"
 		and str(nh["lever"]) == "raise_war", "(f) with no mill the head is a never on bone and reads pits_first, raise_war: %s" % JSON.stringify(nh))
+
+
+func _clone(c: Dictionary) -> void:
+	var s := _with_house(c)
+	s.town_sim.living = 1.0
+	s.town_sim.gold = 30.0
+	s.town_sim.bone = 30.0
+	t.ok(s.cmd_queue_build("", "lot-07")["ok"], "(setup) (g) the House's level 2 queued")
+	s.tick(s.substep_s())
+	s.town_sim.mill_starved = "no_bodies"  # by hand, so both flags are non-empty
+	var own: Dictionary = BuildRules.queue_walk(s, s.build_queue)["rows"][0]
+	t.ok(s.town_sim.trade_starved == "living_first" and str(own["starved"]) == "living_first", "(setup) (g) the town reads living_first, and so does its head")
+	var tw := s.town_sim.clone()
+	t.ok(tw.trade_starved == "living_first" and tw.mill_starved == "no_bodies",
+		"(g) the clone copies trade_starved and mill_starved: %s, %s" % [tw.trade_starved, tw.mill_starved])
+	var live := s.town_sim
+	s.town_sim = tw
+	var row: Dictionary = BuildRules.queue_walk(s, s.build_queue)["rows"][0]
+	s.town_sim = live
+	t.ok(str(row["starved"]) == "living_first" and str(row["lever"]) == "raise_living" and float(row["affordable_in_s"]) == -1.0,
+		"(g) a queue walk on the twin reads the head's living_first and raise_living: %s" % JSON.stringify(row))
 
 
 func _cleanup() -> void:
