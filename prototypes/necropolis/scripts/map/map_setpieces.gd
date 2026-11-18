@@ -19,7 +19,8 @@ extends Node
 ##   victory       vei_result won (or won at map open): every lane runs green toward Vei for 2
 ##                 beats, then every dash stops and the victory line shows. It plays once per
 ##                 game (MapSeen VICTORY, per game_id); a later mount of a won game settles
-##                 straight to that end state (dashes stopped, the victory line up).
+##                 straight to its end state at mount (dashes stopped, the victory line up),
+##                 without waiting for the camera ease.
 ##   build         building_done (or a lot whose level rose while the map was not up, found at mount):
 ##                 a plate above Covington, "Inn built · MINT +0.8/s", the sim's own projection for it
 ##                 (MapModel.proj_store) named by its biggest rate; several builds read as one plate.
@@ -63,6 +64,8 @@ var _swing := {}  # {from, to, start_ms} while the valve swing runs
 var _valve_rev := -1  # the model.rev the idle valve target was last read at
 var _taken_ids: Array = []  # forts whose fort_flipped this map heard (the router replays the ones it held): note_return's "taken"
 var _won := false  # victory has played, is playing or was settled: once per map
+var _chips_sig: Array = []  # the inputs _chips_key_cache was measured for
+var _chips_key_cache: Array = []  # _chips_key's last result
 var _won_at_mount := false  # the game was already won when the map mounted: its victory is seen, an away_report replays nothing
 var _placed_used := {}  # the _placed keys drawn this frame: the rest are pruned at its end
 var _builds: Array = []  # the finished builds the callout at Covington names: [{lot_id, building_id, level}]
@@ -130,8 +133,12 @@ func _after_away() -> void:
 ## The map mounted: the builds that finished while it was not up (model.mount_rises, found by its first
 ## refresh) get their callout, unless `away_opened` (the away panel opened for this return, and its report
 ## already lists them). They take the same path as the live event, so one that is both is named once.
+## A won game whose victory was already seen settles to its end state here, not at go_live (which waits
+## for the camera ease): the map never shows live lanes first. The first play still waits for go_live.
 func note_mount(away_opened: bool) -> void:
 	_won_at_mount = bool(model.hud.get("won", false))
+	if SetpieceLogic.victory_settle_at_mount(_won_at_mount, seen.has(MapSeen.VICTORY)):
+		_start({"kind": SetpieceLogic.VICTORY, "fort_id": "", "n": -1})
 	for b in SetpieceLogic.mount_builds(model.mount_rises, away_opened):
 		_note_build(b)
 
@@ -371,15 +378,28 @@ func _callout(id: String, text: String, alpha: float, key := "undead") -> Array:
 
 
 ## The held forts' chip rects as the placement reads them (zoomed frame), in whole px: part of the cache
-## key, since a chip's width ticks with its text between revs.
+## key, since a chip's width ticks with its text between revs. The rects cost a measure per held fort,
+## so they are re-measured only when their inputs change (SetpieceLogic.chips_sig), not every frame.
 func _chips_key(z: float, tier: String) -> Array:
+	var ctx := nodes.ctx
+	var grid := float(MapLogic.cfg()["callouts"]["token_key_px"])
+	var tok := ctx.relish_pos * ctx.zoom
+	var travelling := str(ctx.relish.get("state", "")) == "travelling"
+	var shares: Dictionary = ctx.valve_shares if not ctx.valve_shares.is_empty() else model.hud.get("valve_target", model.hud.get("valve", {}))  # as MapFortIdle._layout
+	var extra := [model.forts.size(), travelling, ctx.relish_pos if not travelling else Vector2.ZERO, roundi(float(ctx.vei.get("backlog", 0.0)) * 1000.0),
+		roundi(ctx.vei_radius * 10.0), ctx.cov_pos, ctx.vei_pos]
+	var sig := SetpieceLogic.chips_sig(model.rev, z, tier, model.margin_sig, ctx.chip_fx, Vector2(roundi(tok.x / grid), roundi(tok.y / grid)), NodeLogic.panel_key(ctx.panel), shares, extra)
+	if sig == _chips_sig:
+		return _chips_key_cache
+	_chips_sig = sig
 	var rects: Array = []
 	if IdleLogic.chip_shown(tier, z):
 		for g in model.forts:
 			if bool(g.get("held", false)):
 				var r := nodes.chip_world_rect(g)
 				rects.append(Rect2(r.position * z, r.size * z))
-	return HudLogic.rects_key(rects)
+	_chips_key_cache = HudLogic.rects_key(rects)
+	return _chips_key_cache
 
 
 ## Where `text` goes for the fort `id`: {lines: [{pos (world), text}], choice: {form, place, slide}}.

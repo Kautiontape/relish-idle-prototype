@@ -222,6 +222,30 @@ static func victory_start(already: bool, seen: bool) -> String:
 	return VICTORY_SETTLE if seen else VICTORY_PLAY
 
 
+## Whether a map mounting now settles its victory at once, without waiting for the camera: the game
+## is `won` and its victory was already `seen` (MapSeen.VICTORY). The first play waits for go_live.
+static func victory_settle_at_mount(won: bool, seen: bool) -> bool:
+	return won and seen
+
+
+## The inputs of the held forts' chip rects (MapFortIdle.chip_world_rect), as a cheap signature so
+## MapSetpieces._chips_key measures the chips only when one changes: the model rev, the zoom (to
+## 0.001) and tier, `margin_sig` (the chips' margin, rate and fall text), `chip_fx` (the garrison set
+## piece rewrites a chip's text between revs), Relish's token `cell` on the callouts' grid, the open
+## card's `panel_key`, the valve `shares` Covington's labels are drawn with (rounded to 0.001: a valve
+## swing moves them with no rev), and `extra`: the rest of MapFortIdle._layout's key (fort count, token
+## state, backlog, Vei's radius, node positions). Containers are copied, so a later in-place change
+## to them shows as a different sig.
+static func chips_sig(rev: int, zoom: float, tier: String, margin_sig, chip_fx: Dictionary, cell, panel_key: Array, shares: Dictionary, extra := []) -> Array:
+	var sh: Array = []
+	var keys := shares.keys()
+	keys.sort()
+	for k in keys:
+		sh.append([str(k), roundi(float(shares[k]) * 1000.0)])
+	var ms = margin_sig.duplicate(true) if (margin_sig is Array or margin_sig is Dictionary) else margin_sig
+	return [rev, roundi(zoom * 1000.0), tier, ms, chip_fx.duplicate(true), cell, panel_key.duplicate(true), sh, extra.duplicate(true)]
+
+
 ## A fort's name and tag plates in the frame (`zoom` x world): NodeLogic.fort_label_rects at the label
 ## anchor MapFortRing draws them from. `tag_w` < 0: no tag line. The same plates the lane callouts keep clear of.
 ## `panel` (NodeLogic.panel_of; {} closed): the open card, which shifts or hides the plates as they are drawn.

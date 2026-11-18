@@ -716,6 +716,34 @@ func _victory(t: TestUtil, c: Dictionary) -> void:
 	var pr := sp.substr(p0, sp.find("\n\n\n", p0) - p0)
 	t.ok(pr.contains("_victory_tick(t, rm or bool(p.get(\"settle\", false)))"), "_process settles a settled victory like reduced motion")
 	t.ok(sp.contains("var seen: MapSeen"), "the set pieces hold the game's seen flags")
+	# a later mount of a won game settles at mount, not after the camera ease
+	t.ok(SetpieceLogic.victory_settle_at_mount(true, true), "settle at mount: won and seen")
+	t.ok(not SetpieceLogic.victory_settle_at_mount(true, false) and not SetpieceLogic.victory_settle_at_mount(false, true) and not SetpieceLogic.victory_settle_at_mount(false, false), "settle at mount: never for the first play, nor a game not won")
+	var n0 := sp.find("func note_mount(")
+	var nmt := sp.substr(n0, sp.find("\n\n\n", n0) - n0)
+	t.ok(nmt.contains("SetpieceLogic.victory_settle_at_mount(_won_at_mount, seen.has(MapSeen.VICTORY))") and nmt.contains("_start("), "note_mount settles a seen victory itself, without waiting for go_live")
+	# the chip rects are measured when their inputs change, not every frame
+	var shares := {"work": 0.4, "war": 0.45, "flood": 0.15}
+	var fx := {"a": {"text": "x", "key": "k"}}
+	var base := func(rev := 3, z := 1.0, tier := "near", ms = [["a", 1]], f := fx, cell := Vector2(2, 3), pk := [10, 0], sh := shares): return SetpieceLogic.chips_sig(rev, z, tier, ms, f, cell, pk, sh)
+	var b0: Array = base.call()
+	t.ok(b0 == base.call(), "chips_sig: equal inputs, equal sig")
+	t.ok(b0 != base.call(4), "chips_sig: the rev changes it")
+	t.ok(b0 != base.call(3, 1.25), "chips_sig: the zoom changes it")
+	t.ok(b0 != base.call(3, 1.0, "mid"), "chips_sig: the tier changes it")
+	t.ok(b0 != base.call(3, 1.0, "near", [["a", 2]]), "chips_sig: the margin sig changes it")
+	t.ok(b0 != base.call(3, 1.0, "near", [["a", 1]], {"a": {"text": "y", "key": "k"}}), "chips_sig: a chip_fx text changes it")
+	t.ok(b0 != base.call(3, 1.0, "near", [["a", 1]], fx, Vector2(3, 3)), "chips_sig: Relish's token cell changes it")
+	t.ok(b0 != base.call(3, 1.0, "near", [["a", 1]], fx, Vector2(2, 3), [12, 0]), "chips_sig: the open card changes it")
+	t.ok(b0 != base.call(3, 1.0, "near", [["a", 1]], fx, Vector2(2, 3), [10, 0], {"work": 0.3, "war": 0.55, "flood": 0.15}), "chips_sig: a valve share changes it")
+	t.ok(b0 == base.call(3, 1.0, "near", [["a", 1]], fx, Vector2(2, 3), [10, 0], {"work": 0.4001, "war": 0.45, "flood": 0.15}), "chips_sig: shares are rounded to 0.001")
+	var live := {"a": {"text": "x", "key": "k"}}
+	var kept: Array = SetpieceLogic.chips_sig(3, 1.0, "near", [], live, Vector2.ZERO, [], shares)
+	live["a"]["text"] = "z"
+	t.ok(kept != SetpieceLogic.chips_sig(3, 1.0, "near", [], live, Vector2.ZERO, [], shares), "chips_sig: a chip_fx edited in place later is a different sig")
+	var c0 := sp.find("func _chips_key(")
+	var ck := sp.substr(c0, sp.find("\n\n\n", c0) - c0)
+	t.ok(ck.contains("SetpieceLogic.chips_sig(") and ck.contains("sig == _chips_sig") and ck.find("sig == _chips_sig") < ck.find("nodes.chip_world_rect("), "_chips_key compares the input sig to _chips_sig before measuring any chip")
 	var wm := FileAccess.get_file_as_string("%s/world_map.gd" % MAP_DIR)
 	var w0 := wm.find("setpieces.seen = seen")
 	t.ok(w0 >= 0 and w0 < wm.find("add_child(setpieces)"), "the world map hands the seen flags over before the set pieces enter the tree")
