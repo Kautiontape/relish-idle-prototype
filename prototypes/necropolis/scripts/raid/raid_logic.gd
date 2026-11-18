@@ -541,7 +541,7 @@ static func risk_phrase(words: Dictionary, c: Dictionary) -> String:
 		if n > 0:
 			parts.append("%d %s" % [n, k if n > 1 else k.trim_suffix("s")])
 	if int(c.get("essence", 0)) > 0:
-		parts.append("%d essence" % int(c["essence"]))
+		parts.append(word_fmt(words, "risk_essence", [int(c["essence"])]))
 	return str(words.get("risk_none", "")) if parts.is_empty() else word_fmt(words, "risk_some", [" + ".join(parts)])
 
 
@@ -925,11 +925,12 @@ static func death_card_rows(words: Dictionary, cause: String, banked_counts: Dic
 
 ## A wait for the death card's AFTER row, with its unit: "45 s" under a minute; from 60 s minutes ("10 min",
 ## "1 min 30 s"); never "0 s", never a bare m:ss.
-static func death_wait_text(secs: float) -> String:
+## `words` is the `death` block (wait_s, wait_min, wait_min_s).
+static func death_wait_text(words: Dictionary, secs: float) -> String:
 	var n := maxi(1, roundi(secs))
 	if n < 60:
-		return "%d s" % n
-	return "%d min" % (n / 60) if n % 60 == 0 else "%d min %d s" % [n / 60, n % 60]
+		return word_fmt(words, "wait_s", [n])
+	return word_fmt(words, "wait_min", [n / 60]) if n % 60 == 0 else word_fmt(words, "wait_min_s", [n / 60, n % 60])
 
 
 ## The death card's AFTER row {label, text, key}: what a run-ending death costs in time. Read from the raid
@@ -952,7 +953,7 @@ static func death_next_row(seed: Dictionary, words: Dictionary) -> Dictionary:
 		clone = int(seed.get("clones_ready", 0)) > 0
 	var text := str(words.get("after_clone", "")) if clone else str(words.get("after_unmade", ""))
 	if secs > 0.0:
-		text += str(words.get("after_in", "")) + death_wait_text(secs)
+		text += str(words.get("after_in", "")) + death_wait_text(words, secs)
 	if not clone:
 		text += str(words.get("after_shock", ""))
 	return {"label": str(words.get("label_after", "")), "text": text, "key": "text" if clone else "danger"}

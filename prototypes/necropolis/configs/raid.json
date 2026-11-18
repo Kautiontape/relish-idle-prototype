@@ -160,6 +160,7 @@
       "push_exit_next": "exit %s, next room",
       "push_exit_rooms": "exit %s, %d rooms",
       "risk_none": "nothing at risk",
+      "risk_essence": "%d essence",
       "risk_some": "%s at risk"
     }
   },
@@ -224,7 +225,7 @@
     "tag": "· guards ×{mult}"
   },
   "death": {
-    "_doc": "The death frame (RaidDeathCard): card_s is how long the death beat holds the card before the result goes out (the measuring bot never waits, it keeps the 0.9 s beat; 0 = no card), skip_after_s when a click or SPACE may end it early, fade_s its fade-in (none under reduced motion). The AFTER row's words (RaidLogic.death_next_row, read by the death card, the retreat panel's IF RELISH FALLS column and Vei's loss card): after_clone when a clone wakes her, after_unmade when she is unmade, after_in then the wait (' in 10 min') when the seed gives one, after_shock last for an unmade death (the town takes the morale shock). label_* are the card's row labels, cause_* / tell_* the KILLED BY and MISSED words ('%s' the warden's name), nothing / lost_bigs / shut_text the LOST, BANKED and SHUT IN texts.",
+    "_doc": "The death frame (RaidDeathCard): card_s is how long the death beat holds the card before the result goes out (the measuring bot never waits, it keeps the 0.9 s beat; 0 = no card), skip_after_s when a click or SPACE may end it early, fade_s its fade-in (none under reduced motion). The AFTER row's words (RaidLogic.death_next_row, read by the death card, the retreat panel's IF RELISH FALLS column and Vei's loss card): after_clone when a clone wakes her, after_unmade when she is unmade, after_in then the wait (' in 10 min') when the seed gives one, after_shock last for an unmade death (the town takes the morale shock). wait_* the AFTER wait's units ('%d' each). label_* are the card's row labels, cause_* / tell_* the KILLED BY and MISSED words ('%s' the warden's name), nothing / lost_bigs / shut_text the LOST, BANKED and SHUT IN texts.",
     "card_s": 4.5,
     "skip_after_s": 0.8,
     "fade_s": 0.3,
@@ -235,6 +236,9 @@
     "after_unmade": "unmade · reforms at Covington",
     "after_in": " in ",
     "after_shock": " · the town takes a morale shock",
+    "wait_s": "%d s",
+    "wait_min": "%d min",
+    "wait_min_s": "%d min %d s",
     "label_killed_by": "KILLED BY",
     "label_missed": "MISSED",
     "label_banked": "BANKED",

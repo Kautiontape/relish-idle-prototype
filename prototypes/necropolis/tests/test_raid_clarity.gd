@@ -239,7 +239,7 @@ func _clear_card_tests(t: TestUtil) -> void:
 	t.ok(code_rest.count("build_result(") == 0 and code_body.count("build_result(") == 2, "the card path never rebuilds it (only the bot's fallback does)")
 	t.ok(body.contains("e.finish(e.win_result if not e.win_result.is_empty() else e.build_result(\"warden_beaten\"))")
 		and rest.contains("card.dismissed.connect(finish_win)") and rest.contains("timeout.connect(finish_win)"), "the dismissal and the timer both finish with the stored dict")
-	t.ok(body.contains("loot_counts(e.win_result[\"loot\"])") and body.contains("hud.on_clear(won)") and rest.contains("warden_name, won)"), "the card and the HUD read the win's own loot")
+	t.ok(body.contains("loot_counts(e.win_result[\"loot\"])") and body.contains("hud.on_clear(won)") and rest.contains("clear_card_rows(") and rest.contains("warden_name, won)"), "the card and the HUD read the win's own loot")
 	var es := FileAccess.get_file_as_string("res://scripts/raid/raid_endings.gd")
 	var cr := es.find("func close_request")
 	var cbody := es.substr(cr, es.find("\n# ---", cr) - cr)
@@ -376,7 +376,7 @@ func _goal_tests(t: TestUtil) -> void:
 	for call in ["RaidLogic.goal_rows(", "RaidLogic.route_line(","WardenLogic.break_line(", "WardenLogic.takes_line(", "WardenLogic.counter_line(", "RaidLogic.no_army("]:
 		t.ok(hud_src.contains(call), "the HUD takes its words from %s" % call)
 	var logic_src := FileAccess.get_file_as_string("res://scripts/raid/raid_logic.gd")
-	t.ok(_func_src(logic_src, "static func goal_rows(").contains("goal_line(") and _func_src(logic_src, "static func goal_rows(").contains("\"no_army\""), "goal_rows words its rows with goal_line and hud.goal's no_army")
+	t.ok(_func_src(logic_src, "static func goal_rows(").contains("goal_line(") and _func_src(logic_src, "static func goal_rows(").contains("\"no_army_short\" if compact else \"no_army\""), "goal_rows words its rows with goal_line and hud.goal's no_army")
 	t.ok(hud_src.contains("RaidHud.break_rows(raid, w.spec, int(w.meter_n))") and hud_src.contains("break_rows(raid, sp, int(w.meter_n))"),
 		"the WardenBlock and the GoalBlock take their break rows with the warden node's meter_n")
 	t.ok(hud_src.contains("\"WARDEN\")") and hud_src.contains("_edge(_wp, view, Palette.c(\"vei\"), \"WARDEN\")"), "the Pointers class draws a WARDEN edge chevron")

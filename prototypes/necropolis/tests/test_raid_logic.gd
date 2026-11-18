@@ -2124,8 +2124,8 @@ func _vis_tests(t: TestUtil, cfg: Dictionary) -> void:
 	t.ok(_nx({"death_ends": {"outcome": "clone", "respawn_s": 60.0}})["text"] == "wakes at Covington in 1 min"
 		and _nx({"death_ends": {"outcome": "clone", "respawn_s": 150.0}})["text"] == "wakes at Covington in 2 min 30 s"
 		and _nx({"death_ends": {"outcome": "clone", "respawn_s": 0.3}})["text"] == "wakes at Covington in 1 s", "minutes with the unit from 60 s; a fraction rounds up to 1 s, never 0")
-	t.ok(RaidLogic.death_wait_text(30.0) == "30 s" and RaidLogic.death_wait_text(60.0) == "1 min" and RaidLogic.death_wait_text(90.0) == "1 min 30 s"
-		and RaidLogic.death_wait_text(600.0) == "10 min", "death_wait_text: seconds under 60, minutes with the unit after, never m:ss")
+	t.ok(RaidLogic.death_wait_text(_dw(), 30.0) == "30 s" and RaidLogic.death_wait_text(_dw(), 60.0) == "1 min" and RaidLogic.death_wait_text(_dw(), 90.0) == "1 min 30 s"
+		and RaidLogic.death_wait_text(_dw(), 600.0) == "10 min", "death_wait_text: seconds under 60, minutes with the unit after, never m:ss")
 	var nx_600 := _nx({"death_ends": {"outcome": "unmade", "respawn_s": 600.0}})
 	t.ok(nx_600["text"] == "unmade · reforms at Covington in 10 min · the town takes a morale shock", "unmade at 600 s: reforms at Covington in 10 min, the town takes a morale shock (%s)" % nx_600["text"])
 	t.ok(RaidLogic.phylactery_word(_hs(), 0).contains("the raid") and not RaidLogic.phylactery_word(_hs(), 0).contains("the run") and RaidLogic.phylactery_word(_hs(), 1) == "", "the PHYLACT. word says a death ends the raid, not the run")

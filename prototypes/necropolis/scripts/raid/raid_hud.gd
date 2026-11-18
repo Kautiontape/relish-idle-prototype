@@ -132,6 +132,7 @@ func build(p_raid: Node, boss_mode: bool) -> void:
 	var hint_cfg: Dictionary = raid.rcfg().get("hud", {}).get("hint", {})
 	_hint = _mk_label(self, int(hint_cfg.get("font_px", 19)), Palette.c("text"))
 	_hint.text = str(hint_cfg.get("idle_text", ""))
+	_cue_undead_lines = str(raid.rcfg().get("hud", {}).get("cues", {}).get("undead_text", "")).replace(" · ", "\n")
 	_hint.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
 	_hint.anchor_top = 1.0
 	_hint.offset_top = -52.0
@@ -722,7 +723,7 @@ func show_cue(text: String, secs: float, color_key: String) -> void:
 ## The one-shot "your undead fight on their own" toast is on screen: the idle sub-line says the same words, so it
 ## waits (the banner's text is the cue's, broken at its " · ").
 ## The undead cue as the banner shows it (its " · " parts on their own lines), made once: compared every frame.
-var _cue_undead_lines := str(ConfigDb.data.get("raid", {}).get("hud", {}).get("cues", {}).get("undead_text", "")).replace(" · ", "\n")
+var _cue_undead_lines := ""   # set in setup from hud.cues undead_text
 
 
 func _undead_cue_up() -> bool:
