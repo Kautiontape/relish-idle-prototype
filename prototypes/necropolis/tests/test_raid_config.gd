@@ -72,6 +72,19 @@ const WORDS := [
 	"hud.text.trance_focus", "hud.text.trance_cooldown", "hud.text.edge_exit", "hud.text.edge_warden", "hud.text.edge_loot",
 	"hud.text.exit_off", "hud.text.exit_retreat", "hud.text.exit_banks",
 	"ghost_ring.label",
+	"vei_loss.keep_text", "relish.word_struck", "relish.word_soaked",
+	"trace_notch.grade_head", "trace_notch.tier_tail", "trace_notch.not_circle", "trace_notch.word_perfect", "trace_notch.word_great",
+	"trace_notch.word_good", "trace_notch.word_okay", "trace_notch.word_shaky", "trace_notch.word_poor", "trace_notch.word_awful",
+	"vei_fight.name", "vei_fight.banner_court", "vei_fight.banner_front", "vei_fight.banner_break", "vei_fight.banner_crack",
+	"vei_fight.banner_weave", "vei_fight.crack_phyl", "vei_fight.crack_clone", "vei_fight.plural", "vei_fight.hint_fronts", "vei_fight.hint_break",
+	"vei_fight.lane_have", "vei_fight.lane_short", "vei_fight.lane_cleared", "vei_fight.lane_sends", "vei_fight.lane_met", "vei_fight.safe_cue",
+	"vei_fight.hud_fronts", "vei_fight.hud_need", "vei_fight.hud_time", "vei_fight.hud_broken", "vei_fight.hud_broken_note",
+	"vei_fight.hud_backlog", "vei_fight.hud_ferried", "vei_fight.hud_she_breaks", "vei_fight.hud_lost", "vei_fight.hud_winning",
+	"vei_fight.hud_losing", "vei_fight.hud_break", "vei_fight.hud_backups", "vei_fight.hud_left", "vei_fight.hud_cracked",
+	"vei_fight.eta", "vei_fight.lapse", "vei_fight.rule", "vei_fight.rule_cost", "vei_fight.rule_reset",
+	"vei_fight.card_title_win", "vei_fight.card_title_lose", "vei_fight.card_sub_win", "vei_fight.card_time", "vei_fight.card_backups",
+	"vei_fight.card_of", "vei_fight.card_none", "vei_fight.card_party", "vei_fight.card_backlog", "vei_fight.card_backlog_spent",
+	"vei_fight.card_button",
 ]
 
 ## The death card's numbers (raid.json death, read by RaidDeathCard and the clear card): each must be a number above zero.
@@ -114,6 +127,11 @@ const FORMATS := {
 	"hud.stats.loose": ["%d"], "hud.stats.on_floor": ["%d"],
 	"hud.text.title_tier": ["%s", "%d"], "hud.text.raised_big": ["%d", "%d"], "hud.text.raised_ranks": ["%d", "%d", "%d"],
 	"hud.text.checkpoint": ["%d", "%d", "%d", "%d", "%d"],
+	"vei_loss.keep_text": ["%d"], "relish.word_struck": ["%d"], "trace_notch.grade_head": ["%d", "%s"], "trace_notch.tier_tail": ["%d", "%s"],
+	"vei_fight.banner_court": ["%d"], "vei_fight.banner_front": ["%s", "%d", "%d"], "vei_fight.banner_crack": ["%s", "%d", "%s"],
+	"vei_fight.lane_have": ["%d", "%d"], "vei_fight.lane_short": ["%d"], "vei_fight.safe_cue": ["%d"], "vei_fight.hud_need": ["%d"],
+	"vei_fight.hud_ferried": ["%.2f"], "vei_fight.hud_left": ["%d", "%s"], "vei_fight.hud_cracked": ["%d"], "vei_fight.eta": ["%d"],
+	"vei_fight.lapse": ["%d", "%d", "%s"], "vei_fight.rule": ["%d"], "vei_fight.rule_cost": ["%d"], "vei_fight.card_of": ["%d", "%d"],
 }
 
 

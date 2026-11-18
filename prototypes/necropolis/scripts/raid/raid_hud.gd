@@ -1697,42 +1697,43 @@ class BossBlock:
 		if info.is_empty():
 			return
 		draw_rect(Rect2(Vector2(0.0, 0.0), Vector2(size.x, H_BREAK if bool(info["break_began"]) else H_FRONTS)), Palette.c("ground", 0.62))
+		var vw: Dictionary = raid.vwords()   # raid.json vei_fight: the block's words
 		var x0 := 12.0
 		var col2 := 108.0
 		var y := 26.0
 		if not bool(info["break_began"]):
-			var x := _label(x0, y, "FRONTS")
+			var x := _label(x0, y, str(vw.get("hud_fronts", "")))
 			x = _text(col2, y, "%d/4" % int(info["met"]), 20)
-			x = _text(x + 8.0, y, "· need %d" % int(info["required"]), 15)
+			x = _text(x + 8.0, y, RaidLogic.word_fmt(vw, "hud_need", [int(info["required"])]), 15)
 			var tx := size.x - 150.0
-			_label(tx, y, "TIME")
+			_label(tx, y, str(vw.get("hud_time", "")))
 			_text(tx + 44.0, y, "%d / %d s" % [floori(float(info["t"])), roundi(float(info["max_t"]))], 15)
 			y += 28.0
-			_label(x0, y, "BROKEN")
+			_label(x0, y, str(vw.get("hud_broken", "")))
 			for i in 4:
 				_pip(Vector2(col2 + 8.0 + 20.0 * i, y - 5.0), 6.0, Palette.c("undead"), i < int(info["met"]), true)
-			_text(col2 + 96.0, y, "a front breaks when its stream reaches her court", 13, "text_dim")
+			_text(col2 + 96.0, y, str(vw.get("hud_broken_note", "")), 13, "text_dim")
 		else:
 			# the backlog (the seed's horde), the ferry's rate in words, and which side the beat is going to.
 			# The backlog drains by deaths, not by this clock (it would take ~90 min): no minus, no slant.
-			_label(x0, y, "BACKLOG")
+			_label(x0, y, str(vw.get("hud_backlog", "")))
 			var x2 := _text(col2, y, thousands(roundi(float(info["horde"]))), 20)
-			x2 = _text(x2 + BossLogic.GAP_FERRY, y, "ferried %.2f/s" % float(info["ferry"]), 13, "text_dim")
+			x2 = _text(x2 + BossLogic.GAP_FERRY, y, RaidLogic.word_fmt(vw, "hud_ferried", [float(info["ferry"])]), 13, "text_dim")
 			var tag := str(info["pressure_tag"])   # "· guards ×2.3" only when her pool presses the break (BossLogic.pressure_tag)
 			if tag != "":
 				x2 = _text(x2 + BossLogic.GAP_TAG, y, tag, 13, "text_dim")   # dim like "ferried": it qualifies the ferry, and the orange status after it stays its own phrase
 			x2 += BossLogic.GAP_STATUS
 			if bool(info["won"]):
-				_text(x2, y, "SHE BREAKS", 15, "vei")
+				_text(x2, y, str(vw.get("hud_she_breaks", "")), 15, "vei")
 			elif bool(info["over"]):
-				_text(x2, y, "the fight is lost", 13, "danger")
+				_text(x2, y, str(vw.get("hud_lost", "")), 13, "danger")
 			elif bool(info["winning"]):
-				_text(x2, y, "raise > ferry", 13, "undead")
+				_text(x2, y, str(vw.get("hud_winning", "")), 13, "undead")
 			else:
-				_text(x2, y, "raise < ferry", 13, "living")
+				_text(x2, y, str(vw.get("hud_losing", "")), 13, "living")
 			y += 28.0
 			# the break meter, as the wardens': lit from the left, notched, a lapse's pips slashed
-			_label(x0, y, "BREAK")
+			_label(x0, y, str(vw.get("hud_break", "")))
 			var n := int(info["break_beats"])
 			var st := int(info["streak"])
 			var notch := maxi(1, int(info["notch"]))
@@ -1766,9 +1767,9 @@ class BossBlock:
 			if bool(info["rule_on"]):
 				tx = _text(x0, y, str(info["rule"]), 13, "text") + 18.0
 			if nl > 0:
-				_text(tx, y, BossLogic.lapse_text(nl, int(info["lapse_lost"])), 13, "danger" if hi > 0 else "text_dim")
+				_text(tx, y, BossLogic.lapse_text(nl, int(info["lapse_lost"]), vw), 13, "danger" if hi > 0 else "text_dim")
 		y += 28.0
-		_label(x0, y, "BACKUPS")
+		_label(x0, y, str(vw.get("hud_backups", "")))
 		var px := col2 + 8.0
 		for i in int(info["phyl_left"]):
 			_pip(Vector2(px, y - 5.0), 6.5, Palette.c("relish"), true, true)
@@ -1781,5 +1782,5 @@ class BossBlock:
 			_cracked(Vector2(px, y - 5.0), 6.5, i)
 			px += 18.0
 		var left := int(info["phyl_left"]) + int(info["clones_left"])
-		_text(px + 4.0, y, "%d left%s" % [left, "" if spent == 0 else " · %d cracked" % spent], 15,
+		_text(px + 4.0, y, RaidLogic.word_fmt(vw, "hud_left", [left, "" if spent == 0 else RaidLogic.word_fmt(vw, "hud_cracked", [spent])]), 15,
 			"text" if left > 0 else "danger")

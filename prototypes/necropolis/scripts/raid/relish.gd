@@ -136,7 +136,8 @@ func catch_marks() -> int:
 ## so reduced motion shows the same. (A blow that is not lethal always reaches her hp: the chain soaks only
 ## a lethal one, and never a warden's tell-attack.)
 func _draw_hit_cue() -> void:
-	var hold := float(ConfigDb.data.get("raid", {}).get("relish", {}).get("hit_cue_s", 1.2))
+	var rw: Dictionary = ConfigDb.data.get("raid", {}).get("relish", {})   # the cue's words and its hold
+	var hold := float(rw.get("hit_cue_s", 1.2))
 	var z: float = maxf(0.05, raid.cam.zoom.x) if raid.cam != null else 1.0
 	var fs := roundi(float(ConfigDb.data.get("raid", {}).get("wardens", {}).get("label_px", 15)) / z)
 	var text := ""
@@ -147,12 +148,12 @@ func _draw_hit_cue() -> void:
 			pts.append(Vector2.RIGHT.rotated(TAU * k / 16.0) * (radius + (17.0 if k % 2 == 0 else 7.0)))
 		draw_polyline(pts, Palette.c("ground", 0.95), 6.0)
 		draw_polyline(pts, Palette.c("danger"), 2.5)
-		text = "STRUCK −%d" % roundi(_struck_amt)
+		text = RaidLogic.word_fmt(rw, "word_struck", [roundi(_struck_amt)])
 		col = Palette.c("danger")
 	elif _soaked_t < hold:
 		draw_arc(Vector2.ZERO, radius + 12.0, 0.0, TAU, 32, Palette.c("ground", 0.95), 6.0)
 		draw_arc(Vector2.ZERO, radius + 12.0, 0.0, TAU, 32, Palette.c("undead"), 2.5)
-		text = "SOAKED"
+		text = str(rw.get("word_soaked", ""))
 		col = Palette.c("undead")
 	if text == "":
 		return

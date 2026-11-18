@@ -31,6 +31,7 @@ const STACK_AFTER := 30.0  # and the pitch from the value's last baseline to the
 var _info := {}
 var _rows: Array = []   # layout_rows of rows_for(_info), made once in setup
 var _cfg := {}
+var _words := {}   # raid.json `vei_fight`: the card's words (card_*)
 var _on_back := Callable()
 var _hover := false
 var _pressed := false
@@ -38,12 +39,14 @@ var _t := 0.0
 var _skip_after := 0.8
 
 
-func setup(info: Dictionary, cfg: Dictionary, on_back: Callable) -> void:
+## `words` is raid.json's `vei_fight` block (the card's words).
+func setup(info: Dictionary, cfg: Dictionary, on_back: Callable, words: Dictionary) -> void:
 	_info = info
 	_cfg = cfg
+	_words = words
 	_on_back = on_back
 	_skip_after = float(cfg.get("skip_after_s", 0.8))
-	_rows = [] if info.is_empty() else layout_rows(rows_for(info), value_w(cfg), ThemeDB.fallback_font)
+	_rows = [] if info.is_empty() else layout_rows(rows_for(info, words), value_w(cfg), ThemeDB.fallback_font)
 	set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 	size = get_viewport_rect().size   # a CanvasLayer parent gives the anchors nothing to resolve against
 	mouse_filter = Control.MOUSE_FILTER_STOP
@@ -76,26 +79,26 @@ static func value_w(cfg: Dictionary) -> float:
 
 ## The card's rows as [{label, text, key, id}], in order. `id` marks a row with an extra drawing ("backups").
 ## A loss's `info.cause` and `info.pressure_row` ({label, text, key}, BossLogic.loss_cause / pressure_row) come first,
-## in that order. Add a row here and layout_rows sizes it.
-static func rows_for(info: Dictionary) -> Array:
+## in that order. Add a row here and layout_rows sizes it. `words` is raid.json's `vei_fight` block.
+static func rows_for(info: Dictionary, words: Dictionary) -> Array:
 	var rows: Array = []
 	# a loss names its cause first (BossLogic.loss_cause), then the guards' pressure when the break had any (BossLogic.pressure_row)
 	for k in ["cause", "pressure_row"]:
 		var extra: Dictionary = info.get(k, {})
 		if not extra.is_empty():
 			rows.append({"label": str(extra["label"]), "text": str(extra["text"]), "key": str(extra.get("key", "text")), "id": k})
-	rows.append({"label": "FIGHT TIME", "text": str(info["time_text"]), "key": "text", "id": "time"})
+	rows.append({"label": str(words.get("card_time", "")), "text": str(info["time_text"]), "key": "text", "id": "time"})
 	var total := int(info["backups_total"])
-	rows.append({"label": "BACKUPS SPENT", "text": ("%d of %d" % [int(info["spent"]), total]) if total > 0 else "none to spend", "key": "text", "id": "backups"})
-	rows.append({"label": "BIG UNDEAD LOST", "text": "%d of %d" % [int(info["party_lost"]), int(info["party"])], "key": "text", "id": "party"})
+	rows.append({"label": str(words.get("card_backups", "")), "text": RaidLogic.word_fmt(words, "card_of", [int(info["spent"]), total]) if total > 0 else str(words.get("card_none", "")), "key": "text", "id": "backups"})
+	rows.append({"label": str(words.get("card_party", "")), "text": RaidLogic.word_fmt(words, "card_of", [int(info["party_lost"]), int(info["party"])]), "key": "text", "id": "party"})
 	if bool(info.get("lost", false)):
 		# a loss keeps a share of the backlog (economy's rule; the card prints the share, never a made-up number)
-		rows.append({"label": "BACKLOG", "text": str(info["keep_text"]), "key": "text", "id": "backlog"})
+		rows.append({"label": str(words.get("card_backlog", "")), "text": str(info["keep_text"]), "key": "text", "id": "backlog"})
 		var af: Dictionary = info.get("after", {})
 		if not af.is_empty():
 			rows.append({"label": str(af["label"]), "text": str(af["text"]), "key": str(af["key"]), "id": "after"})
 	else:
-		rows.append({"label": "BACKLOG SPENT", "text": _thousands(roundi(float(info["backlog_spent"]))), "key": "text", "id": "backlog"})
+		rows.append({"label": str(words.get("card_backlog_spent", "")), "text": _thousands(roundi(float(info["backlog_spent"]))), "key": "text", "id": "backlog"})
 	return rows
 
 
@@ -226,8 +229,8 @@ func _draw() -> void:
 		draw_arc(Vector2(cx, cy), r, a0, a0 + (TAU if lost else TAU * 0.78), 48 if lost else 28, Palette.c("vei", 0.95 - 0.15 * i), 2.5)
 	draw_circle(Vector2(cx, cy), 4.0, Palette.c("text"))
 
-	_txt(pl.position.x, pl.position.y + 150.0, "VEI HOLDS" if lost else "VEI BREAKS", 46, "danger" if lost else "vei", HORIZONTAL_ALIGNMENT_CENTER, pl.size.x)
-	_txt(pl.position.x, pl.position.y + 178.0, str(_info.get("ended", "the fight is lost")) if lost else "the game is beaten", 18, "text_dim", HORIZONTAL_ALIGNMENT_CENTER, pl.size.x)
+	_txt(pl.position.x, pl.position.y + 150.0, str(_words.get("card_title_lose", "")) if lost else str(_words.get("card_title_win", "")), 46, "danger" if lost else "vei", HORIZONTAL_ALIGNMENT_CENTER, pl.size.x)
+	_txt(pl.position.x, pl.position.y + 178.0, str(_info.get("ended", "")) if lost else str(_words.get("card_sub_win", "")), 18, "text_dim", HORIZONTAL_ALIGNMENT_CENTER, pl.size.x)
 
 	var lx := pl.position.x + SIDE_PAD
 	var rx := pl.end.x - SIDE_PAD
@@ -256,7 +259,7 @@ func _draw() -> void:
 	draw_rect(b, vei if live else Palette.c("vei", 0.5), false, 3.0 if (_hover and live) else 2.0)
 	if has_focus() and live:
 		draw_rect(b.grow(5.0), Palette.c("text", 0.8), false, 1.5)
-	_txt(b.position.x, b.position.y + b.size.y * 0.5 + 7.0, "BACK TO THE REALM", 20, "text" if live else "text_dim", HORIZONTAL_ALIGNMENT_CENTER, b.size.x)
+	_txt(b.position.x, b.position.y + b.size.y * 0.5 + 7.0, str(_words.get("card_button", "")), 20, "text" if live else "text_dim", HORIZONTAL_ALIGNMENT_CENTER, b.size.x)
 
 
 ## The backups: a cracked ring per one spent, a violet diamond (phylactery) or dot (clone) per one left,

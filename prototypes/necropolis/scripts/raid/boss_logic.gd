@@ -386,26 +386,27 @@ static func break_eta_s(hist: Array, streak: int, need: int, lapse_cost: int, te
 	return eta if eta <= max_s else -1.0
 
 
-## eta_text(eta_s) -> String    "~30 s at this pace", rounded to 5 s from 10 s up; "" for no hint (< 0).
-static func eta_text(eta_s: float) -> String:
+## The words of the three read-outs below are raid.json's `vei_fight` block, passed as `words`.
+## eta_text(eta_s, words) -> String    "~30 s at this pace", rounded to 5 s from 10 s up; "" for no hint (< 0).
+static func eta_text(eta_s: float, words: Dictionary) -> String:
 	if eta_s < 0.0:
 		return ""
 	var s := roundi(eta_s) if eta_s < 10.0 else roundi(eta_s / 5.0) * 5
-	return "~%d s at this pace" % maxi(1, s)
+	return RaidLogic.word_fmt(words, "eta", [maxi(1, s)])
 
 
-## lapse_text(lapses, lost) -> String    the meter's running count: "" before the first lapse, else
+## lapse_text(lapses, lost, words) -> String    the meter's running count: "" before the first lapse, else
 ##   "LAPSES ×4 · −10 beats" (the beats the streak actually lost, capped by what it held).
-static func lapse_text(lapses: int, lost: int) -> String:
+static func lapse_text(lapses: int, lost: int, words: Dictionary) -> String:
 	if lapses <= 0:
 		return ""
-	return "LAPSES ×%d · −%d beat%s" % [lapses, lost, "" if lost == 1 else "s"]
+	return RaidLogic.word_fmt(words, "lapse", [lapses, lost, "" if lost == 1 else str(words.get("plural", ""))])
 
 
-## phase2_hint(break_beats, lapse_cost) -> String    the line under the meter for the break's first seconds.
-static func phase2_hint(break_beats: int, lapse_cost: int) -> String:
-	var s := "keep raise > ferry for %d beats" % break_beats
-	return s + (" · a lapse costs %d" % lapse_cost if lapse_cost >= 0 else " · a lapse resets the count")
+## phase2_hint(break_beats, lapse_cost, words) -> String    the line under the meter for the break's first seconds.
+static func phase2_hint(break_beats: int, lapse_cost: int, words: Dictionary) -> String:
+	var s := RaidLogic.word_fmt(words, "rule", [break_beats])
+	return s + (RaidLogic.word_fmt(words, "rule_cost", [lapse_cost]) if lapse_cost >= 0 else str(words.get("rule_reset", "")))
 
 
 ## card_unlocked(t, skip_after) -> bool
@@ -547,7 +548,7 @@ static func loss_card(seed: Dictionary, spent: Dictionary, party_lost: Array, fi
 	info["ended"] = str((loss_words.get("ended", {}) as Dictionary).get(end_reason, loss_words.get("ended_unknown", "")))
 	var pct := clampi(roundi(keep * 100.0), 0, 100)
 	info["keep_pct"] = pct
-	info["keep_text"] = "%d%% stays" % pct
+	info["keep_text"] = RaidLogic.word_fmt(loss_words, "keep_text", [pct])
 	var after := {}
 	if end_reason == "relish_unmade":
 		var de: Variant = seed.get("death_ends", null)

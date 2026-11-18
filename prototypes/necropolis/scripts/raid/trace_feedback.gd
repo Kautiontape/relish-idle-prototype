@@ -30,17 +30,22 @@ func _process(delta: float) -> void:
 	queue_redraw()
 
 
-## Score bands keep their words and thresholds; colour comes from Palette keys
-## only, picked apart by luminance (no rainbow).
+## Score bands keep their thresholds; their words are raid.json trace_notch `word_<id>`. Colour comes
+## from Palette keys only, picked apart by luminance (no rainbow).
 const BANDS := [
-	{ "min": 98, "key": "vei", "word": "PERFECT!" },
-	{ "min": 90, "key": "undead_core", "word": "GREAT" },
-	{ "min": 80, "key": "undead", "word": "GOOD" },
-	{ "min": 70, "key": "undead", "word": "OKAY" },
-	{ "min": 60, "key": "undead", "word": "SHAKY" },
-	{ "min": 50, "key": "text_dim", "word": "POOR" },
-	{ "min": 0, "key": "text_dim", "word": "AWFUL" },
+	{ "min": 98, "key": "vei", "id": "perfect" },
+	{ "min": 90, "key": "undead_core", "id": "great" },
+	{ "min": 80, "key": "undead", "id": "good" },
+	{ "min": 70, "key": "undead", "id": "okay" },
+	{ "min": 60, "key": "undead", "id": "shaky" },
+	{ "min": 50, "key": "text_dim", "id": "poor" },
+	{ "min": 0, "key": "text_dim", "id": "awful" },
 ]
+
+
+## raid.json `trace_notch`: the notches' numbers and the feedback's words.
+static func _words() -> Dictionary:
+	return ConfigDb.data.get("raid", {}).get("trace_notch", {})
 
 
 func _band() -> Dictionary:
@@ -51,7 +56,7 @@ func _band() -> Dictionary:
 
 
 func _grade_word() -> String:
-	return _band().word
+	return str(_words().get("word_" + str(_band().id), ""))
 
 
 func _grade_color() -> Color:
@@ -83,19 +88,19 @@ func _draw() -> void:
 		_draw_notches(c, ring_col)
 		var text_col := col
 		text_col.a = a
-		var head := "%d — %s" % [score, _grade_word()]
+		var head := RaidLogic.word_fmt(_words(), "grade_head", [score, _grade_word()])
 		_plate(c + Vector2(0, -fitted_radius - 14), head, a)
 		draw_string(ThemeDB.fallback_font, c + Vector2(-80, -fitted_radius - 14),
 			head, HORIZONTAL_ALIGNMENT_CENTER, 160, 22, text_col)
 		if raised_n > 0 and raised_tier != "":
-			var tail := "×%d %s" % [raised_n, raised_tier.to_upper()]
+			var tail := RaidLogic.word_fmt(_words(), "tier_tail", [raised_n, raised_tier.to_upper()])
 			_plate(c + Vector2(0, fitted_radius + 28), tail, a)
 			draw_string(ThemeDB.fallback_font, c + Vector2(-80, fitted_radius + 28),
 				tail, HORIZONTAL_ALIGNMENT_CENTER, 160, 22, text_col)
 	else:
 		var c2 := to_local(trace[trace.size() / 2]) if trace.size() > 0 else Vector2.ZERO
 		draw_string(ThemeDB.fallback_font, c2 + Vector2(-80, -20),
-			"0 — NOT A CIRCLE", HORIZONTAL_ALIGNMENT_CENTER, 160, 22, Palette.c("danger", a))
+			str(_words().get("not_circle", "")), HORIZONTAL_ALIGNMENT_CENTER, 160, 22, Palette.c("danger", a))
 
 
 ## A thin dark plate under a centred 22 px label whose baseline sits at `base` (walls and strokes
