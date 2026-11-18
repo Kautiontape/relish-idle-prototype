@@ -208,7 +208,7 @@ func refresh(force := false) -> void:
 	var payoff := " | ".join(PackedStringArray(pay_parts.map(func(q): return q["text"])))
 	var over := ValveLogic.overflow_parts(ValveLogic.war_overflow(model.hud, proj, _dragging))
 	var bone := _bone_text(shown)
-	var explain_on := HudLogic.goal_shown(model.hud) and pay_parts.is_empty()
+	var explain_on := HudLogic.valve_explain_shown(model.hud) and pay_parts.is_empty()
 	var sig := "%s|%s|%s|%s|%s|%s|%s|%s" % [str(ValveLogic.percents(shown)), str(proj["split"]), str(proj["workers_steady"]), str(proj["war_supports"]), str(payoff), str(over), bone, str(explain_on)]
 	var cur_sig := str(model.hud.get("valve", {})) + (str(model.rev) if payoff != "" else "")
 	if not force and sig + cur_sig == _sig:

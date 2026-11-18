@@ -272,9 +272,20 @@ static func front_rows(fronts: Array, names: Dictionary, vei_cfg: Dictionary = {
 	return out
 
 
-## "fronts met 3 of 3 required".
+## "fronts met 1 · any 3 of the 4 are needed": the fight counts any `fronts_required` cleared fronts
+## (VeiFronts.required, vei.json), so with more fronts than that the line says "any N of the M"; when
+## every front is needed (or the view lists none) it reads "fronts met 1 of the 3 needed".
 static func fronts_met_text(vei: Dictionary) -> String:
-	return str(_c().get("fronts_met_fmt", "%d %d")) % [int(vei.get("fronts_met", 0)), int(vei.get("fronts_required", 0))]
+	return _fronts_fmt(vei, "fronts_met_fmt", "fronts_met_all_fmt")
+
+
+static func _fronts_fmt(vei: Dictionary, any_key: String, all_key: String) -> String:
+	var met := int(vei.get("fronts_met", 0))
+	var need := int(vei.get("fronts_required", 0))
+	var n := (vei.get("fronts", []) as Array).size()
+	if n > need:
+		return str(_c().get(any_key, "%d %d %d")) % [met, need, n]
+	return str(_c().get(all_key, "%d %d")) % [met, need]
 
 
 ## The BEGIN dialog's text: repeats the odds, the sign and the drain time ("∞" when holding,
@@ -290,12 +301,13 @@ static func confirm_text(readout: Dictionary, vei: Dictionary = {}) -> String:
 	return text + "\n" + short if short != "" else text
 
 
-## "Fronts met 1 of 3 required: Vei will likely win. Assign big undead to the open fronts." while the
-## fronts met are fewer than required, else "".
+## "Fronts met 1; any 3 of the 4 are needed, or Vei will likely win. Assign big undead to the open
+## fronts." while the fronts met are fewer than required, else "" (the "of the N needed" form as
+## fronts_met_text picks it).
 static func fronts_short_text(vei: Dictionary) -> String:
-	var met := int(vei.get("fronts_met", 0))
-	var need := int(vei.get("fronts_required", 0))
-	return str(_c().get("fronts_short_fmt", "%d %d")) % [met, need] if met < need else ""
+	if int(vei.get("fronts_met", 0)) >= int(vei.get("fronts_required", 0)):
+		return ""
+	return _fronts_fmt(vei, "fronts_short_fmt", "fronts_short_all_fmt")
 
 
 # --- who comes into a raid ---------------------------------------------------------------
@@ -359,9 +371,28 @@ static func comes_plain_text(ci: Dictionary) -> String:
 	return s
 
 
-## "from: garrison 2 (WAR) · starter 8 · big undead 1" (the plain line above it has the count).
+## Who they are, in one plain sentence (the glossary's "Who comes into a raid"; the plain line above
+## has the count): each source that sends any, then what you raise inside, and a note when the WAR
+## stream sends none. Day 1: "They're your 8 starter undead, plus any you raise inside; none come from
+## your WAR stream yet." Nobody: "None come from your WAR stream yet, and your Party has no big undead."
 static func comes_in_text(ci: Dictionary) -> String:
-	return str(_c().get("comes_in_fmt", "%d %d %d")) % [ci["garrison"], ci["starter"], ci["bigs"]]
+	var c := _c()
+	var g := int(ci.get("garrison", 0))
+	var s := int(ci.get("starter", 0))
+	var b := int(ci.get("bigs", 0))
+	if g + s + b == 0:
+		return str(c.get("comes_who_none", ""))
+	var parts: Array = []
+	if g > 0:
+		parts.append(str(c.get("comes_who_garrison_fmt", "%d")) % g)
+	if s > 0:
+		parts.append(str(c.get("comes_who_starter_fmt", "%d")) % s)
+	if b > 0:
+		parts.append(str(c.get("comes_who_bigs_fmt", "%d")) % b)
+	var who := str(parts[0])
+	for i in range(1, parts.size()):
+		who += str(c.get("comes_who_and" if i == parts.size() - 1 else "comes_who_sep", ", ")) + str(parts[i])
+	return str(c.get("comes_who_fmt", "%s%s")) % [who, str(c.get("comes_who_no_war", "")) if g == 0 else ""]
 
 
 ## The tide bias as the card says it: 3.0 reads "3", 2.5 reads "2.5".

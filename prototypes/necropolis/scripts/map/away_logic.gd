@@ -16,6 +16,17 @@ static func cfg() -> Dictionary:
 	return MapLogic.cfg().get("idle", {}).get("away", {})
 
 
+## Where the away panel goes (V-I1 item 7): centred between the top bar's plate (`bar_bottom`, screen px)
+## and the viewport's bottom, `margin` px in from each, so its edge never cuts the bar's rows. `body_h` is
+## its content's height and `pad` the plate's padding. Returns {top, bottom (px up from the viewport's
+## bottom), body_h (the scroll's height: the body's own, or less when it doesn't fit), scroll (whether it
+## scrolls then)}.
+static func panel_fit(vp_h: float, bar_bottom: float, body_h: float, pad: float, margin: float) -> Dictionary:
+	var top := bar_bottom + margin
+	var room := maxf(vp_h - margin - top - pad * 2.0, 0.0)
+	return {"top": top, "bottom": margin, "body_h": minf(body_h, room), "scroll": body_h > room}
+
+
 ## The report to show: `demo` (the --away=demo debug report) when given, else the state's
 ## view_away(); with no state, nothing ({shown: false}).
 static func report(state, demo := {}) -> Dictionary:

@@ -24,6 +24,7 @@ var _legend_key: Array = []  # what refresh() last ran for (HudLogic.legend_key)
 ## One state's glyph in a small box: its ring and its shape, drawn as the fort layer draws them.
 class Glyph extends Control:
 	var state := ""
+	var retaken := false  # the RETAKEN row: the map's broken danger frame round the square
 
 	func _draw() -> void:
 		var cfg := MapLogic.cfg()
@@ -42,6 +43,8 @@ class Glyph extends Control:
 			draw_arc(c, r, 0.0, TAU, LineGlow.segments(r, TAU), Palette.c(str(n["hairline_key"]), float(n["hairline_alpha"])), hw)
 		MapFortGlyph.draw_state(self, state, c, float(n["state_glyph_px"]) * 0.5, float(n["state_stroke_px"]),
 			float(n["state_halo_max_px"]), float(n["state_slash_px"]), n)
+		if retaken:
+			MapFortGlyph.draw_retaken(self, c, float(n["state_glyph_px"]) * 0.5, float(n["retaken_frame_px"]), float(n["retaken_frame_gap_px"]), n)
 
 
 func _ready() -> void:
@@ -80,6 +83,7 @@ func _row(row: Dictionary, lc: Dictionary) -> Control:
 	h.add_theme_constant_override("separation", int(lc["glyph_gap_px"]))
 	var g := Glyph.new()
 	g.state = _glyph_state(str(row["state"]))
+	g.retaken = HudLogic.legend_glyph_retaken(str(row["state"]))
 	var side := float(lc["glyph_px"])
 	g.custom_minimum_size = Vector2(side, side)
 	g.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -113,7 +117,7 @@ func _tag_line() -> Label:
 
 
 ## The map's state a legend row draws: Vei's and retaken are both a fort of hers (a living square;
-## the map tells a retaken one by its danger tag), held draws safe, overrun is its own hollow square.
+## retaken adds the map's broken danger frame), held draws safe, overrun is its own hollow square.
 func _glyph_state(id: String) -> String:
 	return HudLogic.legend_glyph_state(id)
 

@@ -187,7 +187,14 @@ func _vei(t: TestUtil) -> void:
 	t.ok(rows[0]["assigned"] == "assigned: Old Gristle" and rows[1]["assigned"] == "no one assigned", "assigned names")
 	_vei_counted(t)
 	t.ok(CardLogic.front_name("carvers") == "Carvers" and CardLogic.front_name("raw") == "Raw", "front display names")
-	t.ok(CardLogic.fronts_met_text({"fronts_met": 3, "fronts_required": 3}) == "fronts met 3 of 3 required", "met count text")
+	t.ok(CardLogic.fronts_met_text({"fronts_met": 3, "fronts_required": 3}) == "fronts met 3 of the 3 needed", "met count text, no fronts listed: every one is needed")
+	# V-I1 item 5: the fight counts any fronts_required cleared fronts, so four listed and three needed says "any 3 of the 4"
+	var four := [{"id": "giants"}, {"id": "swarm"}, {"id": "carvers"}, {"id": "raw"}]
+	t.ok(CardLogic.fronts_met_text({"fronts_met": 1, "fronts_required": 3, "fronts": four}) == "fronts met 1 · any 3 of the 4 are needed", "four fronts, three needed: which ones (any)")
+	t.ok(CardLogic.fronts_met_text({"fronts_met": 2, "fronts_required": 4, "fronts": four}) == "fronts met 2 of the 4 needed", "every front needed: no 'any'")
+	t.ok(CardLogic.fronts_short_text({"fronts_met": 1, "fronts_required": 3, "fronts": four}) == "Fronts met 1; any 3 of the 4 are needed, or Vei will likely win. Assign big undead to the open fronts.", "the shortfall says which too")
+	t.ok(CardLogic.fronts_short_text({"fronts_met": 3, "fronts_required": 3, "fronts": four}) == "", "three of four met: no shortfall")
+	t.ok(not CardLogic.fronts_met_text({"fronts_met": 1, "fronts_required": 3, "fronts": four}).contains("required"), "no 'required' over a list longer than the need")
 	var win := CardLogic.confirm_text({"odds": 0.61, "sign": 1, "drain_s": 200.0})
 	t.ok(win.contains("61%") and win.contains("▲") and win.contains("3m 20s"), "confirm repeats odds, sign and drain: " + win)
 	var hold := CardLogic.confirm_text({"odds": 0.5, "sign": 0, "drain_s": -1.0})
@@ -310,8 +317,8 @@ func _blocks(t: TestUtil) -> void:
 	t.ok(by["backlog"]["mass"] == "18,450" and by["backlog"]["text"] == " massed at her gates", "backlog line")
 	t.ok(by["odds"]["value"] == "61%" and by["sign"]["value"] == "▲" and by["diff"]["value"] == "+6.1/s" and by["drain"]["value"] == "∞", "odds, sign, differential, drain (holding is ∞)")
 	t.ok(by["diff"]["vkind"] == "rate" and by["odds"]["vkind"] == "mass", "the differential is a rate, odds a mass")
-	t.ok(by.has("front_giants") and by["fronts_met"]["text"] == "fronts met 1 of 3 required", "front row and the met count")
-	t.ok(by["fronts_hint"]["text"] == "Front: one part of Vei's final test. The big undead you put on it (picked on the Vei card), plus Vei's own queue for some fronts (Swarm and Raw count her backlog, Carvers her digest queue), must add up to what the front needs.", "the fronts hint is the glossary's Front line")
+	t.ok(by.has("front_giants") and by["fronts_met"]["text"] == "fronts met 1 of the 3 needed", "front row and the met count")
+	t.ok(by["fronts_hint"]["text"] == "Front: one part of Vei's final test. The big undead you put on it (picked on the Vei card), plus Vei's own queue for some fronts (Swarm and Raw count her queue, Carvers her digest queue), must add up to what the front needs.", "the fronts hint is the glossary's Front line")
 	t.ok(by.has("party_empty") and by["party_empty"]["text"].contains("crypt slab"), "an empty party says where to raise them")
 	var party := [{"uid": "u1", "name": "Old Gristle", "kind": "hulk", "role": "brute", "front": "giants"}]
 	var vp := CardBlocksLogic.vei_card({"fronts": [{"id": "giants"}, {"id": "swarm"}, {"id": "carvers"}, {"id": "raw"}]}, "", party, {}, {})
@@ -499,7 +506,7 @@ func _comes(t: TestUtil) -> void:
 		wb[b["id"]] = b
 		wids.append(b["id"])
 	t.ok(wids.filter(func(i): return want.has(i)) == want and not wids.has("comes_warn"), "even with a warning due, the card shows it once, not as a block (the pinned line has it): " + str(wids))
-	t.ok(wb["comes_in_head"]["text"] == "WHO COMES IN" and wb["comes_in"]["face"] == "text" and wb["comes_in"]["text"] == "from: garrison 0 (WAR) · starter 0 · big undead 0", "the head and the breakdown (no leading count: the plain line has it), in the text face: " + str(wb["comes_in"]["text"]))
+	t.ok(wb["comes_in_head"]["text"] == "WHO COMES IN" and wb["comes_in"]["face"] == "text" and wb["comes_in"]["text"] == "None come from your WAR stream yet, and your Party has no big undead.", "the head and who they are (no leading count: the plain line has it), in the text face: " + str(wb["comes_in"]["text"]))
 	t.ok(wb["bring_more"]["key"] == "text_dim" and wb["bring_more"]["text"].contains("draws 3× its share") and wb["bring_more"]["text"].begins_with("More: raise WAR on the valve") and wb["bring_more"]["text"].contains("crypt slab"), "the tide bias reads from config: " + str(wb["bring_more"]["text"]))
 	var warden_s := "To answer a warden, make a big undead at the Crypt slab and put it in your Party."
 	t.ok(wb["comes_plain"]["text"] == "No undead come with you. " + warden_s and wb["comes_plain"]["face"] == "text", "the card leads with a plain line: " + str(wb["comes_plain"]["text"]))
@@ -516,7 +523,16 @@ func _comes(t: TestUtil) -> void:
 	t.ok(CardLogic.comes_plain_text({"garrison": 1, "starter": 0, "bigs": 1, "total": 2}) == "1 undead and 1 big undead come with you.", "one of each: 'come'")
 	t.ok(CardLogic.bring_more_text(2.5).contains("2.5×") and CardLogic.bring_more_text(3.0).contains("3×") and not CardLogic.bring_more_text(3.0).contains("3.0"), "no trailing .0")
 	# the pinned line and the descend dialog text
-	t.ok(CardLogic.comes_in_text({"garrison": 2, "starter": 8, "bigs": 1, "total": 11}) == "from: garrison 2 (WAR) · starter 8 · big undead 1", "the breakdown states no count")
+	# who they are, one plain sentence (V-I1 item 1): each source that sends any, what you raise, and WAR's none
+	t.ok(CardLogic.comes_in_text({"garrison": 2, "starter": 8, "bigs": 1, "total": 11}) == "They're the 2 your WAR stream sent here, your 8 starter undead and 1 big undead from your Party, plus any you raise inside.", "all three sources, joined: " + CardLogic.comes_in_text({"garrison": 2, "starter": 8, "bigs": 1, "total": 11}))
+	t.ok(CardLogic.comes_in_text({"garrison": 0, "starter": 8, "bigs": 0, "total": 8}) == "They're your 8 starter undead, plus any you raise inside; none come from your WAR stream yet.", "day 1: the starters, and WAR has sent none")
+	t.ok(CardLogic.comes_in_text({"garrison": 4, "starter": 0, "bigs": 0, "total": 4}) == "They're the 4 your WAR stream sent here, plus any you raise inside.", "garrison only: no WAR note")
+	t.ok(CardLogic.comes_in_text({"garrison": 3, "starter": 0, "bigs": 2, "total": 5}) == "They're the 3 your WAR stream sent here and 2 big undead from your Party, plus any you raise inside.", "two sources: 'and', no comma")
+	t.ok(CardLogic.comes_in_text({"garrison": 0, "starter": 0, "bigs": 1, "total": 1}) == "They're 1 big undead from your Party, plus any you raise inside; none come from your WAR stream yet.", "bigs only: the WAR note")
+	t.ok(CardLogic.comes_in_text({"garrison": 0, "starter": 0, "bigs": 0, "total": 0}) == "None come from your WAR stream yet, and your Party has no big undead.", "nobody: why, in one sentence")
+	for ci in [{"garrison": 0, "starter": 8, "bigs": 0}, {"garrison": 2, "starter": 8, "bigs": 1}, {"garrison": 0, "starter": 0, "bigs": 0}]:
+		var who := CardLogic.comes_in_text(ci)
+		t.ok(not who.contains("from:") and not who.contains("(WAR)") and not who.contains(" · "), "no breakdown jargon: " + who)
 	t.ok(not MapLogic.cfg()["cards"].has("comes_count_fmt"), "the pinned count line's text is gone from the config")
 	t.ok(CardLogic.descend_confirm_text(w0) == w0["text"] + "\n\nDescend anyway?", "the descend dialog's text")
 	t.ok(CardLogic.descend_confirm_text(wp) == wp["text"] + "\n\nDescend anyway?", "the dialog opens for the corpse-pile case too")
@@ -537,7 +553,7 @@ func _comes(t: TestUtil) -> void:
 	t.ok(fa_ok[fa_oi - 1]["act"] != "" and fa_ok[fa_oi - 1]["kind"] == "button" and not fa_ok.any(func(i): return str(i["text"]).contains("come in")), "no warning: no count line above DESCEND (MOVE/CANCEL button directly before)")
 	# vei: fronts short versus met
 	var short := {"fronts_met": 1, "fronts_required": 3}
-	var sentence := "Fronts met 1 of 3 required: Vei will likely win. Assign big undead to the open fronts."
+	var sentence := "Fronts met 1 of the 3 needed: Vei will likely win. Assign big undead to the open fronts."
 	var ro := {"odds": 0.61, "sign": 1, "drain_s": 200.0}
 	t.ok(CardLogic.confirm_text(ro, short).ends_with("\n" + sentence), "confirm_text appends the shortfall on its own line")
 	t.ok(CardLogic.confirm_text(ro, {"fronts_met": 3, "fronts_required": 3}) == CardLogic.confirm_text(ro) and not CardLogic.confirm_text(ro, {"fronts_met": 3, "fronts_required": 3}).contains("Fronts met"), "fronts met: no shortfall line")

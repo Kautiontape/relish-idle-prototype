@@ -88,8 +88,9 @@ var _sign: Label
 var _drain: Label
 var _tithe: Label
 var _speed_tag: Label
+var _cue: Label  # the bar's last cell: the key to its words on first view, then the hover cue (HudLogic.bar_cue)
 var _objective: Button
-var _goal: Label  # the game's goal under the strip, while no fort has been taken (HudLogic.goal_shown)
+var _goal: Label  # the game's goal under the strip, at every tier until the game is won (HudLogic.goal_shown)
 var _goal_plate: ColorRect
 var _leave: Label  # the quiet state's "Safe to leave" line under the strip (not clickable)
 var _leave_plate: ColorRect
@@ -373,12 +374,14 @@ func _build_bar(items: Array) -> void:
 	_tithe.visible = false
 	_speed_tag = _bar_label(status)
 	MapType.style_label(_speed_tag, "select")
-	# the cue that the words above explain themselves: the bar's last cell, so it follows the status
-	# on the second row (wrap_rows puts it on its own row only when it does not fit there)
+	# the key to the bar's words on first view (V-I1 item 2), else the cue that they explain themselves on
+	# hover: the bar's last cell, so it follows the status on the second row (wrap_rows puts it on its own
+	# row only when it does not fit there)
 	var cue := Label.new()
 	cue.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	MapType.style_label(cue, str(cfg["clarity"]["hover_cue_key"]))
+	MapType.style_label(cue, str(cfg["clarity"]["hover_cue_key"]), int(cfg["clarity"]["hover_cue_size_px"]))
 	cue.text = HudLogic.hover_cue()
+	_cue = cue
 	_cells.append(cue)
 
 
@@ -513,6 +516,9 @@ func refresh(force := false) -> void:
 		_tithe.text = tl["text"]
 		_tithe.visible = tl["text"] != ""
 	_speed_tag.text = HudLogic.speed_text(hud)
+	var cue_text := HudLogic.bar_cue(hud)
+	if _cue != null and _cue.text != cue_text:
+		_cue.text = cue_text
 	_refresh_next()
 	_wrap_cells()
 	_relayout()

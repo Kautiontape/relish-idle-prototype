@@ -87,10 +87,16 @@ static func objective_text(hud: Dictionary) -> String:
 	return str(cfg.get("objective_won_text", "")) if hud.get("won", false) else str(cfg.get("objective_text", ""))
 
 
-## Whether your goal and the valve's one-line explanation show: while no fort has been taken
-## (view_hud.highest_tier_flipped is 0: existing state, no save flag). After that the goal line is
-## gone and the valve's explanation stays as its hover tooltip.
+## Whether your goal shows under the strip: at every tier (V-I1 item 9), until the game is won (the
+## won strip and the victory set piece say the rest).
 static func goal_shown(hud: Dictionary) -> bool:
+	return not bool(hud.get("won", false))
+
+
+## Whether the valve's one-line explanation shows: while no fort has been taken (view_hud's
+## highest_tier_flipped is 0: existing state, no save flag). After that it stays as its hover tooltip,
+## which keeps the left column short once the player knows the valve.
+static func valve_explain_shown(hud: Dictionary) -> bool:
 	return int(hud.get("highest_tier_flipped", 0)) == 0 and not bool(hud.get("won", false))
 
 
@@ -121,6 +127,20 @@ static func held_tag_line() -> String:
 ## The cue on the bar that its jargon words explain themselves on hover.
 static func hover_cue() -> String:
 	return str(MapLogic.cfg()["clarity"]["hover_cue"])
+
+
+## The bar's last cell (V-I1 item 2: every readout means something on first view): while no fort has been
+## taken (bar_key_shown) the key to its jargon in the glossary's words ("MINT: undead your pits make ·
+## ODDS: ... · STRAIN: ... · DRAIN: ..."), on the second row beside them, so it costs no height; after that
+## the hover cue, since each word still explains itself on hover.
+static func bar_cue(hud: Dictionary) -> String:
+	return str(MapLogic.cfg()["clarity"]["bar_key"]) if bar_key_shown(hud) else hover_cue()
+
+
+## Whether the bar's key shows: on first view, while no fort has been taken (view_hud's
+## highest_tier_flipped is 0: existing state, no save flag), and not once the game is won.
+static func bar_key_shown(hud: Dictionary) -> bool:
+	return int(hud.get("highest_tier_flipped", 0)) == 0 and not bool(hud.get("won", false))
 
 
 ## The look of every map tooltip: {plate, border, text, size, pad}. The plate is the panels' own
@@ -160,7 +180,7 @@ static func legend_place(chip: Rect2, valve: Rect2, x: float, w: float, h_full: 
 
 
 ## The fort state a legend row draws: Vei's and retaken are both a fort of hers (a living square;
-## the map tells a retaken one by its danger tag), held draws safe (a diamond), overrun its hollow square.
+## retaken adds its broken frame, legend_glyph_retaken), held draws safe (a diamond), overrun its hollow square.
 static func legend_glyph_state(id: String) -> String:
 	match id:
 		"held":
@@ -168,6 +188,12 @@ static func legend_glyph_state(id: String) -> String:
 		"overrun":
 			return NodeLogic.OVERRUN
 	return NodeLogic.HERS
+
+
+## Whether a legend row's glyph wears the retaken mark (the map's broken frame, NodeLogic.retaken):
+## only RETAKEN's, so it and VEI'S differ by shape (V-I1, cr-3 #5).
+static func legend_glyph_retaken(id: String) -> bool:
+	return id == "retaken"
 
 
 ## Where the card's top edge sits: `high` (near the screen's top, the whole height for the card)

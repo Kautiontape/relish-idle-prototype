@@ -324,11 +324,30 @@ static func name_tag(f: Dictionary) -> Dictionary:
 	if first_dungeon_pulse(f):
 		return {"text": str(n["label_first_dungeon"]), "key": str(keys["first"])}
 	if not bool(f.get("held", false)):
-		if int(f.get("flipped_count", 0)) > 0:
+		if retaken(f):
 			return {"text": str(n["label_retaken"]), "key": str(keys["retaken"])}
 		if fort_state(f, "") == OVERRUN:
 			return {"text": str(n["label_overrun"]), "key": str(keys["overrun"])}
 	return {}
+
+
+## A fort Vei took back: not held, and taken before (flipped_count > 0). Its name tag reads
+## "retaken" and its glyph wears the broken frame (MapFortGlyph.draw_retaken), which the legend's
+## RETAKEN row draws too, so it never looks like a fort that was always hers.
+static func retaken(f: Dictionary) -> bool:
+	return not bool(f.get("held", false)) and int(f.get("flipped_count", 0)) > 0
+
+
+## The retaken mark: a broken square frame `half` from `p` to each side, only its corners drawn, each
+## corner two arms `arm` long (segment pairs for draw_multiline: 4 corners x 2 arms). Corners only, so
+## it is a different shape from the overrun's whole hollow square, in greyscale too.
+static func broken_frame(p: Vector2, half: float, arm: float) -> PackedVector2Array:
+	var out := PackedVector2Array()
+	for sx in [-1.0, 1.0]:
+		for sy in [-1.0, 1.0]:
+			var c := p + Vector2(sx, sy) * half
+			out.append_array([c, c - Vector2(sx * arm, 0.0), c, c - Vector2(0.0, sy * arm)])
+	return out
 
 
 ## The tag line's font size in screen px (the name's is font_label).

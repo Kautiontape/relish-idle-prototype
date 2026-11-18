@@ -210,7 +210,9 @@ func _clarity(t: TestUtil) -> void:
 	t.suite("map_hud-clarity")
 	t.ok(HudLogic.goal_shown({"highest_tier_flipped": 0}), "no fort taken: the goal shows")
 	t.ok(HudLogic.goal_shown({}), "a view without the field reads as a new game")
-	t.ok(not HudLogic.goal_shown({"highest_tier_flipped": 1}), "a fort taken: the goal is gone")
+	t.ok(HudLogic.goal_shown({"highest_tier_flipped": 1}) and HudLogic.goal_shown({"highest_tier_flipped": 4}), "V-I1 item 9: a fort taken, any tier: the goal stays")
+	t.ok(HudLogic.valve_explain_shown({"highest_tier_flipped": 0}) and HudLogic.valve_explain_shown({}), "no fort taken: the valve's explanation shows")
+	t.ok(not HudLogic.valve_explain_shown({"highest_tier_flipped": 1}) and not HudLogic.valve_explain_shown({"highest_tier_flipped": 0, "won": true}), "a fort taken, or won: the valve's explanation is its tooltip only")
 	t.ok(not HudLogic.goal_shown({"highest_tier_flipped": 0, "won": true}), "won: no goal line")
 	var goal := HudLogic.goal_text()
 	t.ok(goal == "Your goal: take Vei's forts, then beat Vei. Beating Vei wins the game.\nFLOOD clogs her queue and raises your odds; face her when they're good.", "the goal line is the glossary's, verbatim: " + goal)
@@ -304,6 +306,7 @@ func _clarity(t: TestUtil) -> void:
 	MapSeen.forget_memory()
 	DirAccess.remove_absolute(spath)
 	t.ok(HudLogic.legend_glyph_state("held") == IdleLogic.SAFE and HudLogic.legend_glyph_state("overrun") == NodeLogic.OVERRUN and HudLogic.legend_glyph_state("hers") == NodeLogic.HERS and HudLogic.legend_glyph_state("retaken") == NodeLogic.HERS, "each legend row draws the map's own state glyph")
+	t.ok(HudLogic.legend_glyph_retaken("retaken") and not HudLogic.legend_glyph_retaken("hers") and not HudLogic.legend_glyph_retaken("held") and not HudLogic.legend_glyph_retaken("overrun"), "only RETAKEN's glyph wears the broken frame: VEI'S and RETAKEN differ by shape")
 	var lc: Dictionary = MapLogic.cfg()["clarity"]["legend"]
 	t.ok((lc["rows"] as Array).size() == 4, "four states in the legend")
 	var lplate := Palette.c("ground").lightened(float(MapLogic.cfg()["panel_bg_lighten"]))
@@ -334,6 +337,16 @@ func _clarity(t: TestUtil) -> void:
 	var cue_ratio := MapLogic.contrast_ratio(Palette.c(cue_key), through)
 	t.ok(cue_ratio >= 4.5, "the hover cue (%s) reads %.1f:1 on the bar's plate (>= 4.5)" % [cue_key, cue_ratio])
 	t.ok(HudLogic.hover_cue() == "hover a word for what it means", "the cue's words")
+	# V-I1 item 2: on first view the bar's last cell is the key to its jargon (no added height), then the hover cue
+	t.ok(cue_key == "text" and int(MapLogic.cfg()["clarity"]["hover_cue_size_px"]) >= 13, "the cue/key is in the text colour at 13 px or more, not the greyest text")
+	var key := HudLogic.bar_cue({"highest_tier_flipped": 0})
+	t.ok(key == str(MapLogic.cfg()["clarity"]["bar_key"]) and HudLogic.bar_cue({}) == key, "no fort taken: the key")
+	for w in ["MINT: undead your pits make", "ODDS: to beat Vei now", "STRAIN: how backed up her queue is", "DRAIN: till it empties"]:
+		t.ok(key.contains(w), "the key glosses the word in the glossary's meaning: " + w)
+	t.ok(key.ends_with("hover a word for more"), "and still points to the hover lines")
+	t.ok(HudLogic.bar_cue({"highest_tier_flipped": 1}) == HudLogic.hover_cue() and HudLogic.bar_cue({"highest_tier_flipped": 0, "won": true}) == HudLogic.hover_cue(), "a fort taken (or won): the hover cue")
+	t.ok(HudLogic.bar_key_shown({}) and not HudLogic.bar_key_shown({"highest_tier_flipped": 2}), "the key keys off highest_tier_flipped (no seen flag)")
+	t.ok(hs.contains("var cue_text := HudLogic.bar_cue(hud)") and hs.contains("_cue.text = cue_text"), "refresh sets the bar's last cell from bar_cue")
 	# the tooltip's own plate: opaque, and its text reads on it
 	var ts := HudLogic.tooltip_style()
 	var plate: Color = ts["plate"]

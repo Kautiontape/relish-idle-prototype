@@ -158,6 +158,8 @@ func _countdowns(t: TestUtil) -> void:
 	var over := _fort(100.0, 0.0, 60.0, 0.0)
 	var tag := NodeLogic.name_tag(over)
 	t.ok(NodeLogic.fort_state(over, "") == NodeLogic.OVERRUN and tag.get("text", "") == n["label_overrun"] and tag.get("key", "") == "text", "overrun, never taken: Vei's tag in full text (it read dim at the whole-map zoom)")
+	# V-I1 item 4: the tag still says it's hers, and is no wider than a short fort name (the long one hit its neighbours' names)
+	t.ok(str(n["label_overrun"]).contains("Vei's") and MapNodeLayer.label_width(str(n["label_overrun"]), NodeLogic.tag_size()) <= MapNodeLayer.label_width("Lantern Keep", int(MapLogic.cfg()["font_label"])), "the overrun tag is short: " + str(n["label_overrun"]))
 	var first := _fort(100.0, 0.0, 60.0, 0.0)
 	first["first_dungeon"] = true
 	first["first_clear"] = true
@@ -167,6 +169,18 @@ func _countdowns(t: TestUtil) -> void:
 	back["flipped_count"] = 1
 	tag = NodeLogic.name_tag(back)
 	t.ok(tag.get("text", "") == n["label_retaken"] and tag.get("key", "") == "danger", "retaken (flipped before, not held): danger tag")
+	# V-I1 item 3 (cr-3 #5): a retaken fort wears the broken frame; the tag and the frame share one predicate
+	t.ok(NodeLogic.retaken({"held": false, "flipped_count": 1}) and not NodeLogic.retaken({"held": true, "flipped_count": 1}) \
+		and not NodeLogic.retaken({"held": false, "flipped_count": 0}) and not NodeLogic.retaken({}), "retaken: not held and taken before")
+	var bf := NodeLogic.broken_frame(Vector2(10, 20), 11.0, 5.0)
+	var corners_ok := bf.size() == 16
+	for i in range(0, bf.size(), 2):
+		var a: Vector2 = bf[i]
+		var b: Vector2 = bf[i + 1]
+		corners_ok = corners_ok and absf(absf(a.x - 10.0) - 11.0) < 0.001 and absf(absf(a.y - 20.0) - 11.0) < 0.001 and is_equal_approx(a.distance_to(b), 5.0)
+		corners_ok = corners_ok and (b - Vector2(10, 20)).length() < (a - Vector2(10, 20)).length()  # each arm runs from a corner inward along a side
+	t.ok(corners_ok, "the broken frame: 4 corners x 2 arms, each from a corner, 5 long, along a side (%d points)" % bf.size())
+	t.ok(str(n["retaken_frame_key"]) == "danger" and float(n["retaken_frame_arm_frac"]) < 0.5, "the frame is danger, and its arms leave each side's middle open (broken, not the overrun's whole square)")
 	t.ok(NodeLogic.name_tag(_fort(100.0, 40.0, 0.0, 0.0)).is_empty(), "a plain hers fort has no tag")
 	var held := _fort(100.0, 0.0, 60.0, 0.0)
 	held["held"] = true
