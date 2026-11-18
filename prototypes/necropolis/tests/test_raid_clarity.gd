@@ -43,6 +43,47 @@ func _fake(kind := "big", role := "party", beef := 0.0, alive := true) -> FakeUn
 	return u
 
 
+## V-I1 T2: the COUNTER row is true per warden and tier (WardenLogic.counter_role, raid.json's counter_*_from_tier). At
+## tier 1 and in the first dungeon no warden has its pack or the risk lever, so a big undead only helps (the Bellringer,
+## Huntsman, Pyre-priest) or is what breaks it (the Shieldwall's shield takes x0.1 from the front): never "make one at
+## the Crypt slab" for a counter the fight does not need; a role "none" leaves the row off.
+func _counter_role_tests(t: TestUtil) -> void:
+	var cfg: Dictionary = TestUtil.load_json("res://configs/raid.json")
+	var ww: Dictionary = cfg["wardens"]["words"]
+	var want := {"bellringer": ["helps", "needed"], "huntsman": ["helps", "needed"], "shieldwall": ["needed", "needed"], "pyre_priest": ["helps", "needed"]}   # tier 1, tier 3
+	for a in want:
+		var t1 := RaidLogic.warden_spec({"id": "x", "tier": 1, "archetype": a}, cfg)
+		var t3 := RaidLogic.warden_spec({"id": "x", "tier": 3, "archetype": a}, cfg)
+		var fd := RaidLogic.warden_spec({"id": "x", "tier": 3, "archetype": a, "first_dungeon": true}, cfg)
+		t.ok(WardenLogic.counter_role(t1) == want[a][0] and WardenLogic.counter_role(t3) == want[a][1], "%s: counter role t1 %s, t3 %s (got %s, %s)" % [a, want[a][0], want[a][1], WardenLogic.counter_role(t1), WardenLogic.counter_role(t3)])
+		t.ok(WardenLogic.counter_role(fd) == want[a][0], "%s: the first dungeon counts as tier 1 whatever its fort's tier" % a)
+		for vals in [[], [0.0], [99.0]]:
+			var l1 := WardenLogic.counter_line(ww, t1, vals)
+			var l3 := WardenLogic.counter_line(ww, t3, vals)
+			t.ok(l1.begins_with("COUNTER · a big undead with "), "%s t1 %s: still a COUNTER row" % [a, str(vals)])
+			if want[a][0] == "helps":
+				t.ok(not l1.contains("Crypt") and not l1.contains("you have none") and (l1.ends_with(str(ww["counter_helps"])) or not vals.is_empty() and vals[0] > 50.0),
+					"%s t1 %s: it helps, no 'make one at the Crypt slab': %s" % [a, str(vals), l1])
+			else:
+				t.ok(vals.size() == 1 and vals[0] > 50.0 or l1.contains("Crypt"), "%s t1 %s: needed keeps the slab advice: %s" % [a, str(vals), l1])
+			t.ok(vals.size() == 1 and vals[0] > 50.0 or l3.contains("Crypt"), "%s t3 %s: needed keeps the slab advice: %s" % [a, str(vals), l3])
+	# the exact tier-1 and tier-3 rows
+	var bt1 := RaidLogic.warden_spec({"id": "old-sluice", "tier": 1}, cfg)
+	var bt3 := RaidLogic.warden_spec({"id": "vespers", "tier": 2}, cfg)
+	t.ok(WardenLogic.counter_line(ww, bt1, []) == "COUNTER · a big undead with beef 6+ muffles its slams · helps, not needed here"
+		and WardenLogic.counter_line(ww, bt1, [], true) == WardenLogic.counter_line(ww, bt1, [])
+		and WardenLogic.counter_line(ww, bt1, [7.0]) == "COUNTER · a big undead with beef 6+ muffles its slams · 1 in your party"
+		and WardenLogic.counter_line(ww, bt3, []) == "COUNTER · a big undead with beef 6+ muffles its slams · you have none: make one at the Crypt slab",
+		"Old Sluice (tier 1): helps, not needed here; Vespers (tier 2): today's line")
+	# a role of none: the row is left off ("" from counter_line; RaidHud.break_rows skips it)
+	var none_sp := {"tier": 1, "weak_point": {"stat": "beef", "threshold": 6.0, "effect": "muffle", "counter_helps_from_tier": 3, "counter_needed_from_tier": 4}}
+	t.ok(WardenLogic.counter_role(none_sp) == "none" and WardenLogic.counter_line(ww, none_sp, []) == "" and WardenLogic.counter_line(ww, none_sp, [9.0], true) == ""
+		and WardenLogic.counter_role({"tier": 3, "weak_point": none_sp["weak_point"]}) == "helps" and WardenLogic.counter_role({"tier": 4, "weak_point": none_sp["weak_point"]}) == "needed"
+		and WardenLogic.counter_role({"weak_point": {"stat": "beef"}}) == "needed", "counter_role: none below helps_from, helps up to needed_from, needed from it; no numbers is needed")
+	var hsrc := FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd")
+	t.ok(_func_src(hsrc, "static func break_rows(").contains("if cl != \"\":"), "break_rows leaves the COUNTER row off when counter_line is empty")
+
+
 ## Clarity round 2, task A: the counter advice, the retreat panel's two columns, the undead hint, the uses line,
 ## the PHYLACT. explanation.
 func _round2_tests(t: TestUtil) -> void:
@@ -64,6 +105,7 @@ func _round2_tests(t: TestUtil) -> void:
 	t.ok(WardenLogic.counter_line(ww, sp, [], true) == "COUNTER · a big undead with beef 6+ muffles its slams · you have none"
 		and WardenLogic.counter_line(ww, sp, [5.0], true) == "COUNTER · a big undead with beef 6+ muffles its slams · none in your party"
 		and WardenLogic.counter_line(ww, sp, [6.0, 2.0], true) == "COUNTER · a big undead with beef 6+ muffles its slams · 1 in your party", "the compact rows read as they did")
+	_counter_role_tests(t)
 	var holder := _fake("big", "party", 9.0)
 	var pool := [_fake("big", "party", 7.0), _fake("chaff", "party", 99.0), _fake("big", "raised", 99.0), _fake("big", "party", 8.0, false), holder, _fake("big", "party", 3.0)]
 	var vals := RaidLogic.counter_party_values(pool, "beef", holder)
@@ -390,8 +432,9 @@ func _goal_tests(t: TestUtil) -> void:
 			var wp: Dictionary = ac["weak_point"]
 			var thr := int(wp["threshold"])
 			var base := str(ww["counter_line"]) % [str(wp["stat"]), thr, verbs[a]]
-			t.ok(WardenLogic.counter_line(ww, sp, []) == base + str(ww["counter_none"]) + str(ww["counter_make"]), "%s: the counter line, no bigs" % tag)
-			t.ok(WardenLogic.counter_line(ww, sp, [thr - 1, 0]) == base + str(ww["counter_none_party"]) + str(ww["counter_make"]), "%s: the counter line, none meets it" % tag)
+			var helps_only := WardenLogic.counter_role(sp) == WardenLogic.COUNTER_HELPS   # T2: the line follows the role (a tier-1 big does not break a warden)
+			t.ok(WardenLogic.counter_line(ww, sp, []) == base + (str(ww["counter_helps"]) if helps_only else str(ww["counter_none"]) + str(ww["counter_make"])), "%s: the counter line, no bigs" % tag)
+			t.ok(WardenLogic.counter_line(ww, sp, [thr - 1, 0]) == base + (str(ww["counter_helps"]) if helps_only else str(ww["counter_none_party"]) + str(ww["counter_make"])), "%s: the counter line, none meets it" % tag)
 			t.ok(WardenLogic.counter_line(ww, sp, [thr, thr + 3, thr - 1]) == base + str(ww["counter_have"]) % 2, "%s: the counter line, 2 of 3 meet it" % tag)
 			# row 1 of the awake block (raid_hud.gd WardenBlock._draw): the pips, their count, then the archetype's
 			# counter tally or teach label, then its status word: the widest it can be stays inside the plate's inset

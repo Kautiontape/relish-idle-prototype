@@ -917,7 +917,7 @@ static func death_card_rows(words: Dictionary, cause: String, banked_counts: Dic
 	var nothing := str(words.get("nothing", ""))
 	var rows: Array = [{"label": str(words.get("label_killed_by", "")), "text": cause, "key": "danger"}]
 	if missed != "":
-		rows.append({"label": str(words.get("label_missed", "")), "text": missed, "key": "danger"})
+		rows.append({"label": str(words.get("label_missed", "")), "text": word_fmt(words, "missed_row", [missed]), "key": "danger"})   # V-I1: the tell's name in a plain sentence (the capture's missed_tell stays the bare name)
 	rows.append({"label": str(words.get("label_banked", "")), "text": bl if bl != "" else nothing, "key": "text" if bl != "" else "text_dim"})
 	rows.append({"label": str(words.get("label_lost", "")), "text": lost, "key": "danger" if lost != nothing else "text_dim"})
 	if not after.is_empty():

@@ -551,7 +551,9 @@ static func break_rows(raid: Node, sp: Dictionary, meter_n := -1, compact := fal
 	# the bigs the warden's own counter checks count (RaidLogic.counter_party_values): not the one spent on the door's plate
 	var hd = raid.held_door
 	var vals: Array = RaidLogic.counter_party_values(raid.allies, stat, hd.holder if hd != null and hd.committed() else null)
-	rows.append(WardenLogic.counter_line(words, sp, vals, compact))
+	var cl := WardenLogic.counter_line(words, sp, vals, compact)
+	if cl != "":   # "" when the counter changes nothing in this fight (WardenLogic.counter_role)
+		rows.append(cl)
 	return rows
 
 

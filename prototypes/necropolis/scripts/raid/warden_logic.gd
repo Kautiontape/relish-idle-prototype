@@ -723,6 +723,9 @@ static func takes_line(words: Dictionary, sp: Dictionary) -> String:
 ## `compact` leaves the "make one at the Crypt slab" advice (words.counter_make) off the two "none" forms: the goal
 ## block's row over a sleeping warden's ring (RaidHud.break_rows builds it for goal_rows' break_rows_compact).
 static func counter_line(words: Dictionary, sp: Dictionary, party_values: Array, compact := false) -> String:
+	var role := counter_role(sp)
+	if role == COUNTER_NONE:
+		return ""   # it changes nothing in this fight: no row
 	var wp: Dictionary = sp.get("weak_point", {})
 	var thr := float(wp.get("threshold", 0.0))
 	var verb := ""
@@ -736,14 +739,35 @@ static func counter_line(words: Dictionary, sp: Dictionary, party_values: Array,
 		"snuff":
 			verb = str(words.get("counter_snuff", ""))
 	var s := RaidLogic.word_fmt(words, "counter_line", [str(wp.get("stat", "")), int(thr), verb])
-	var make := "" if compact else str(words.get("counter_make", ""))
+	var helps := role == COUNTER_HELPS   # the fight does not need it here: no "make one" advice, and the "none" forms say so
+	var make := "" if (compact or helps) else str(words.get("counter_make", ""))
 	if party_values.is_empty():
-		return s + str(words.get("counter_none", "")) + make   # circles raise chaff to elites; only the slab makes bigs
+		return s + str(words.get("counter_helps" if helps else "counter_none", "")) + make   # circles raise chaff to elites; only the slab makes bigs
 	var k := 0
 	for v in party_values:
 		if float(v) >= thr:
 			k += 1
-	return s + (str(words.get("counter_none_party", "")) + make if k == 0 else RaidLogic.word_fmt(words, "counter_have", [k]))
+	if k > 0:
+		return s + RaidLogic.word_fmt(words, "counter_have", [k])
+	return s + (str(words.get("counter_helps", "")) if helps else str(words.get("counter_none_party", "")) + make)
+
+
+const COUNTER_NEEDED := "needed"
+const COUNTER_HELPS := "helps"
+const COUNTER_NONE := "none"
+
+
+## What the warden's counter is worth in THIS fight, from the spec: "needed" (the counter is what breaks it: today's
+## COUNTER line), "helps" (it speeds the fight but the warden breaks without it: the line says so, no advice) or
+## "none" (it changes nothing: no row). Read from its weak_point's counter_needed_from_tier and counter_helps_from_tier
+## (raid.json) against the fight's tier, the first dungeon counting as tier 1 (no pack, no risk lever there). A spec
+## without the numbers is "needed" (the line as it always was).
+static func counter_role(sp: Dictionary) -> String:
+	var wp: Dictionary = sp.get("weak_point", {})
+	var t := 1 if bool(sp.get("first_dungeon", false)) else maxi(1, int(sp.get("tier", 1)))
+	if t >= int(wp.get("counter_needed_from_tier", 1)):
+		return COUNTER_NEEDED
+	return COUNTER_HELPS if t >= int(wp.get("counter_helps_from_tier", 1)) else COUNTER_NONE
 
 
 # ------------------------------------------------------------- pyre-priest ---

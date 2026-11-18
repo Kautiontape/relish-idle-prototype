@@ -356,7 +356,7 @@
     "card_button": "BACK TO THE REALM"
   },
   "death": {
-    "_doc": "The death frame (RaidDeathCard): card_s is how long the death beat holds the card before the result goes out (the measuring bot never waits, it keeps the 0.9 s beat; 0 = no card), skip_after_s when a click or SPACE may end it early, fade_s its fade-in (none under reduced motion). The AFTER row's words (RaidLogic.death_next_row, read by the death card, the retreat panel's IF RELISH FALLS column and Vei's loss card): after_clone when a clone wakes her, after_unmade when she is unmade, after_in then the wait (' in 10 min') when the seed gives one, after_shock last for an unmade death (the town takes the morale shock). wait_* the AFTER wait's units ('%d' each). The card's geometry (RaidDeathCard and the clear card read it): card_w its width, card_pad its padding, label_w the label column, value_px / label_px / foot_px / sub_px the row, label, footer and sub-line font sizes, sub_h the sub-line's height, backdrop_a the world-dimming rect behind the card (deep enough that the card reads on its own), plate_a the card's own ground plate (the contrast test composites both over the brightest world colour). label_* are the card's row labels, cause_* / tell_* the KILLED BY and MISSED words ('%s' the warden's name), nothing / lost_bigs / shut_text the LOST, BANKED and SHUT IN texts.",
+    "_doc": "The death frame (RaidDeathCard): card_s is how long the death beat holds the card before the result goes out (the measuring bot never waits, it keeps the 0.9 s beat; 0 = no card), skip_after_s when a click or SPACE may end it early, fade_s its fade-in (none under reduced motion). The AFTER row's words (RaidLogic.death_next_row, read by the death card, the retreat panel's IF RELISH FALLS column and Vei's loss card): after_clone when a clone wakes her, after_unmade when she is unmade, after_in then the wait (' in 10 min') when the seed gives one, after_shock last for an unmade death (the town takes the morale shock). wait_* the AFTER wait's units ('%d' each). The card's geometry (RaidDeathCard and the clear card read it): card_w its width, card_pad its padding, label_w the label column, value_px / label_px / foot_px / sub_px the row, label, footer and sub-line font sizes, sub_h the sub-line's height, backdrop_a the world-dimming rect behind the card (deep enough that the card reads on its own), plate_a the card's own ground plate (the contrast test composites both over the brightest world colour). label_* are the card's row labels (label_missed is the RED TELL row's), cause_* the KILLED BY words ('%s' the warden's name), tell_* the names of the tell the killing blow showed (the same words the capture's missed_tell records: the Bellringer's slam ring, its toll, the Huntsman's line, the Shieldwall's lit arc and the Pyre-priest's marked ground are all drawn in red before they land) and missed_row the RED TELL row's sentence around one of them ('%s' the tell: what hit her, that it was marked in red first, and that stepping out of it is the answer; a pack, the living or a wound have no tell and no row), nothing / lost_bigs / shut_text the LOST, BANKED and SHUT IN texts.",
     "card_s": 4.5,
     "skip_after_s": 0.8,
     "fade_s": 0.3,
@@ -381,7 +381,8 @@
     "wait_min": "%d min",
     "wait_min_s": "%d min %d s",
     "label_killed_by": "KILLED BY",
-    "label_missed": "MISSED",
+    "label_missed": "RED TELL",
+    "missed_row": "It was marked in red before it hit (%s). Keep Relish out of it.",
     "label_banked": "BANKED",
     "label_lost": "LOST",
     "label_after": "AFTER",
@@ -868,7 +869,7 @@
     "relish_dmg_mult": 1.0,
     "pack_spawn_wall_px": 10.0,
     "words": {
-      "_doc": "The wardens' player-facing words, word for word as they were in the scripts (T2). Read with a blank fallback; a word with % keeps its placeholders (tests/test_raid_config.gd FORMATS). WardenLogic's pure helpers take this block (pack_teach, pack_label, shield_label, break_line, takes_line, counter_line, pyre_label, catch_label, pack_verb); the warden scripts read it through RaidWarden.wwords(). word_* are the one-blow kill verbs (the pack row, the draws over a Bellringer, Huntsman, Shieldwall and Pyre-priest). tally_* / row_* / took_tag / pack_more / pack_horn_coming are the awake warden block's tallies and row words (RaidHud.WardenBlock; '%d' and '%s' filled by the code). counter_make is the COUNTER row's advice tail: the compact row (the sleeping warden's ring under the goal block) is the same line built without it (counter_line compact := true). join_and and join_comma join the list of notches and gates; ord_* are the ordinal endings.",
+      "_doc": "The wardens' player-facing words, word for word as they were in the scripts (T2). Read with a blank fallback; a word with % keeps its placeholders (tests/test_raid_config.gd FORMATS). WardenLogic's pure helpers take this block (pack_teach, pack_label, shield_label, break_line, takes_line, counter_line, pyre_label, catch_label, pack_verb); the warden scripts read it through RaidWarden.wwords(). word_* are the one-blow kill verbs (the pack row, the draws over a Bellringer, Huntsman, Shieldwall and Pyre-priest). tally_* / row_* / took_tag / pack_more / pack_horn_coming are the awake warden block's tallies and row words (RaidHud.WardenBlock; '%d' and '%s' filled by the code). counter_make is the COUNTER row's advice tail: the compact row (the sleeping warden's ring under the goal block) is the same line built without it (counter_line compact := true). The COUNTER row follows WardenLogic.counter_role (each archetype's weak_point.counter_needed_from_tier and counter_helps_from_tier, read against the fight's tier, the first dungeon counting as tier 1): from counter_needed_from_tier the counter is what breaks the warden (the line above, with its none / none_party / make advice); from counter_helps_from_tier up to it the counter only helps (counter_helps replaces the none forms, and no advice); below counter_helps_from_tier it changes nothing and the row is left off. counter_helps is that ' · helps, not needed here' tail. join_and and join_comma join the list of notches and gates; ord_* are the ordinal endings.",
       "plate_head": "WARDEN",
       "plate_foot": "break it to take this fort",
       "wake_banner": "%s WAKES · %s",
@@ -924,6 +925,7 @@
       "counter_snuff": "snuffs an acolyte in one blow",
       "counter_none": " · you have none",
       "counter_none_party": " · none in your party",
+      "counter_helps": " · helps, not needed here",
       "counter_make": ": make one at the Crypt slab",
       "counter_have": " · %d in your party",
       "catch_label": "each catch costs Relish %d hp%s · it hunts faster at %s catches",
@@ -1027,6 +1029,8 @@
         "weak_point": {
           "stat": "beef",
           "threshold": 6,
+          "counter_helps_from_tier": 1,
+          "counter_needed_from_tier": 2,
           "effect": "muffle",
           "dmg_mult": 0.35,
           "label": "a beefy big undead braced at the bell muffles its slams"
@@ -1076,6 +1080,8 @@
         "weak_point": {
           "stat": "speed",
           "threshold": 4,
+          "counter_helps_from_tier": 1,
+          "counter_needed_from_tier": 2,
           "effect": "intercept",
           "intercept_px": 40.0,
           "stun_beats": 3,
@@ -1127,6 +1133,8 @@
         "weak_point": {
           "stat": "wits",
           "threshold": 4,
+          "counter_helps_from_tier": 1,
+          "counter_needed_from_tier": 1,
           "effect": "flank",
           "flank_gap_px": 3.0,
           "flank_spread_deg": 34.0,
@@ -1184,6 +1192,8 @@
         "weak_point": {
           "stat": "power",
           "threshold": 6,
+          "counter_helps_from_tier": 1,
+          "counter_needed_from_tier": 2,
           "effect": "snuff",
           "label": "a power big undead snuffs an acolyte in one blow"
         },

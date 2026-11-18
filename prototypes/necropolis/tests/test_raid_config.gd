@@ -57,7 +57,7 @@ const WORDS := [
 	"wardens.words.pyre_at_relish", "wardens.words.break_line", "wardens.words.takes_head", "wardens.words.takes_stunned",
 	"wardens.words.takes_shield", "wardens.words.takes_acolyte", "wardens.words.takes_pack", "wardens.words.counter_line",
 	"wardens.words.counter_muffle", "wardens.words.counter_intercept", "wardens.words.counter_flank", "wardens.words.counter_snuff",
-	"wardens.words.counter_none", "wardens.words.counter_none_party", "wardens.words.counter_make", "wardens.words.counter_have",
+	"wardens.words.counter_none", "wardens.words.counter_none_party", "wardens.words.counter_make", "wardens.words.counter_have", "wardens.words.counter_helps", "death.missed_row",
 	"wardens.words.catch_label", "wardens.words.catch_ally", "wardens.words.join_and", "wardens.words.join_comma",
 	"wardens.words.tally_muffled", "wardens.words.tally_intercepted", "wardens.words.tally_flanked", "wardens.words.tally_snuffed",
 	"wardens.words.row_braced", "wardens.words.row_stunned", "wardens.words.row_phase", "wardens.words.row_caught",
@@ -95,6 +95,10 @@ const NUMBERS := [
 	"death.card_w", "death.card_pad", "death.label_w", "death.value_px", "death.label_px", "death.foot_px", "death.sub_px",
 	"death.sub_h", "death.backdrop_a", "death.plate_a", "hud.retreat.margin", "hud.retreat.gap",
 	"hud.stats.plate_w", "hud.stats.label_col", "hud.stats.value_pad",
+	"wardens.archetypes.bellringer.weak_point.counter_needed_from_tier", "wardens.archetypes.huntsman.weak_point.counter_needed_from_tier",
+	"wardens.archetypes.shieldwall.weak_point.counter_needed_from_tier", "wardens.archetypes.pyre_priest.weak_point.counter_needed_from_tier",
+	"wardens.archetypes.bellringer.weak_point.counter_helps_from_tier", "wardens.archetypes.huntsman.weak_point.counter_helps_from_tier",
+	"wardens.archetypes.shieldwall.weak_point.counter_helps_from_tier", "wardens.archetypes.pyre_priest.weak_point.counter_helps_from_tier",
 	"trace_notch.live_font_px", "trace_notch.live_ladder_px", "trace_notch.live_gap_px", "trace_notch.live_pad_px", "trace_notch.live_plate_alpha",
 ]
 
@@ -111,7 +115,7 @@ const FORMATS := {
 	"held.banner_holds": ["%s"], "held.payoff": ["%d", "%d", "%d"], "held.payoff_husk": ["%d"], "held.map_effect": ["%d"],
 	"death.cause_slam": ["%s"], "death.cause_toll": ["%s"], "death.cause_lunge": ["%s"], "death.cause_bash": ["%s"], "death.cause_rush": ["%s"],
 	"death.cause_fire": ["%s"], "death.cause_hound": ["%s"], "death.cause_pack": ["%s"],
-	"death.killed_missed": ["%s", "%s"], "death.lost_bigs": ["%d"], "death.shut_text": ["%s"],
+	"death.missed_row": ["%s"], "death.killed_missed": ["%s", "%s"], "death.lost_bigs": ["%d"], "death.shut_text": ["%s"],
 	"clear.title": ["%s"],
 	"held_door.label_held": ["%s"], "held_door.label_sent": ["%s"], "held_door.label_shut": ["%s"], "held_door.label_freed": ["%s"],
 	"held_door.row_held": ["%s"], "held_door.row_shut": ["%s"],
