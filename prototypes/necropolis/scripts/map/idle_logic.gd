@@ -188,11 +188,13 @@ static func chip_place(p: Vector2, r: float, zoom: float, second_line: bool, wid
 ## stable from frame to frame. A chip first tries its default (`chip_place`: under the name,
 ## clear of the token), then above its ring (chip_ring_gap_px off it: clear of the tithe ring), right
 ## of it, left of it (chip_side_gap_px off it: clear of the tithe countdown and the raid word), then
-## under the name slid sideways by each of chip_slide_fracs of its width (right, left), and takes the first that overlaps no other fort's ring, name or tag plate (the plates
+## under the name slid sideways by each of chip_slide_fracs of its width (right, left), then the
+## same slides on the row above the ring, and takes the first that overlaps no other fort's ring, name or tag plate (the plates
 ## NodeLogic.fort_label_rects gives, as MapCallouts._label_rects uses them), no chip placed before
 ## it and not Relish's token, and whose centre is nearer its own fort than any other. When none is
-## clear it keeps the one overlapping least.
-static func chip_layout(forts: Array, zoom: float, has_token: bool, token: Vector2, token_r: float) -> Dictionary:
+## clear it keeps the one overlapping least. `nodes` are the non-fort obstacles (`node_obstacles`:
+## Covington and Vei), each {pos, r (disc radius), rects (world-px plates)}, avoided the same way.
+static func chip_layout(forts: Array, zoom: float, has_token: bool, token: Vector2, token_r: float, nodes := []) -> Dictionary:
 	var z := maxf(zoom, 0.001)
 	var c := cfg()
 	var gap := float(c["chip_ring_gap_px"]) / z
@@ -229,10 +231,14 @@ static func chip_layout(forts: Array, zoom: float, has_token: bool, token: Vecto
 		for frac in c["chip_slide_fracs"]:  # last: under the name, slid right then left by a share of its width
 			cands.append(Rect2(base.position + Vector2(base.size.x * float(frac), 0.0), base.size))
 			cands.append(Rect2(base.position - Vector2(base.size.x * float(frac), 0.0), base.size))
+		for frac in c["chip_slide_fracs"]:  # and last of all, the same slides on the row above the ring
+			var up: Rect2 = cands[1]
+			cands.append(Rect2(up.position + Vector2(up.size.x * float(frac), 0.0), up.size))
+			cands.append(Rect2(up.position - Vector2(up.size.x * float(frac), 0.0), up.size))
 		var best: Rect2 = cands[0]
 		var best_cost := INF
 		for cand in cands:
-			var cost := _chip_cost(cand, f, forts, plates, out, tok, has_token, others)
+			var cost := _chip_cost(cand, f, forts, plates, out, tok, has_token, others, nodes)
 			if cost < best_cost:
 				best_cost = cost
 				best = cand
@@ -245,8 +251,16 @@ static func chip_layout(forts: Array, zoom: float, has_token: bool, token: Vecto
 ## How wrong a chip place is, in world px squared: the area it overlaps other forts' rings, name and
 ## tag plates, the chips already placed (`placed`, {id: Rect2}) and the token's rect (`tok`), plus
 ## its whole area when its centre is not nearer its own fort than every other. 0.0 is clear.
-static func _chip_cost(rect: Rect2, f: Dictionary, forts: Array, plates: Array, placed: Dictionary, tok: Rect2, has_token: bool, others: Array) -> float:
+static func _chip_cost(rect: Rect2, f: Dictionary, forts: Array, plates: Array, placed: Dictionary, tok: Rect2, has_token: bool, others: Array, nodes: Array) -> float:
 	var cost := 0.0
+	for nd in nodes:
+		var np: Vector2 = nd["pos"]
+		var nr := float(nd["r"])
+		if _disc_hits(rect, np, nr):
+			cost += maxf(rect.intersection(Rect2(np - Vector2(nr, nr), Vector2(nr, nr) * 2.0)).get_area(), 1.0)
+		for pr in nd["rects"]:
+			if rect.intersects(pr):
+				cost += rect.intersection(pr).get_area()
 	if has_token and rect.intersects(tok):
 		cost += rect.intersection(tok).get_area()
 	for g in forts:
@@ -265,6 +279,31 @@ static func _chip_cost(rect: Rect2, f: Dictionary, forts: Array, plates: Array, 
 	if not _nearest_own(rect, f["pos"], others):
 		cost += rect.get_area()
 	return cost
+
+
+## Covington's and Vei's obstacles for `chip_layout`, in world px, from the geometry the node layers
+## draw: Covington's glyph disc (cov_half_px), her name and the valve's stream labels (the rects
+## NodeLogic.valve_label_layout gives, screen px from her centre, so /zoom); Vei's reach disc
+## (NodeLogic.vei_reach) and her "VEI'S DOMAIN" plate (right-aligned, left of her stack, as MapVei
+## draws it). `shares` is the valve's {work, war, flood}; `centroid` the forts' mean position;
+## `text_w` the label widths in screen px keyed war / flood / work / covington / vei; `labels_on`:
+## the stream labels show (not at far zoom).
+static func node_obstacles(cov: Vector2, vei: Vector2, vei_radius: float, backlog: float, shares: Dictionary, centroid: Vector2, zoom: float, labels_on: bool, text_w: Dictionary) -> Array:
+	var z := maxf(zoom, 0.001)
+	var n := NodeLogic.ncfg()
+	var size := int(MapLogic.cfg()["font_label"])
+	var rects: Array = []
+	var lay := NodeLogic.valve_label_layout(NodeLogic.valve_dirs(cov, centroid, vei), NodeLogic.valve_widths(shares), labels_on, z, text_w, float(size))
+	for k in lay:
+		var r: Rect2 = lay[k]["rect"]
+		rects.append(Rect2(cov + r.position / z, r.size / z))
+	var b := NodeLogic.backlog_rings(backlog)
+	var r_out := NodeLogic.vei_struct_radius(vei_radius) + float(n["backlog_first_gap_px"]) + maxi(int(b["rings"]) - 1, 0) * float(n["backlog_step_px"])
+	var vw := float(text_w["vei"])
+	var vp := NodeLogic.label_plate(-vw, vw, size, size * float(n["text_mid_ratio"]))
+	var at := Vector2(vei.x - r_out - float(n["odds_gap_px"]), vei.y)
+	return [{"pos": cov, "r": float(n["cov_half_px"]), "rects": rects},
+		{"pos": vei, "r": NodeLogic.vei_reach(vei_radius, backlog), "rects": [Rect2(at + vp.position / z, vp.size / z)]}]
 
 
 ## Whether the disc at `c` (radius `r`) touches `rect`.

@@ -89,7 +89,14 @@ func _layout(c: Dictionary) -> Dictionary:
 			"w": _chip_width(g, ctx.model.clock_of(str(g["id"])), c) if held else 0.0,
 			"name_w": font.get_string_size(str(g["name"]), HORIZONTAL_ALIGNMENT_LEFT, -1, size).x if shown else -1.0, "tag_w": tag_w})
 	var tr := float(NodeLogic.relish_radii(ctx.zoom)["halo"]) + ctx.px(float(NodeLogic.ncfg()["relish_halo_max_px"]) * 0.5)
-	_layout_cache = IdleLogic.chip_layout(items, ctx.zoom, not ctx.relish.is_empty(), ctx.relish_pos, tr)
+	# Covington's glyph, name and stream labels and Vei's reach and name, measured as their layers do
+	var names := {"war": "WAR", "flood": "FLOOD", "work": "WORK", "covington": "COVINGTON", "vei": "VEI'S DOMAIN"}
+	var text_w := {}
+	for k in names:
+		text_w[k] = font.get_string_size(names[k], HORIZONTAL_ALIGNMENT_LEFT, -1, size).x
+	var shares: Dictionary = ctx.valve_shares if not ctx.valve_shares.is_empty() else ctx.model.hud.get("valve_target", ctx.model.hud.get("valve", {}))  # as MapCovington._shares
+	var nodes := IdleLogic.node_obstacles(ctx.cov_pos, ctx.vei_pos, ctx.vei_radius, float(ctx.vei.get("backlog", 0.0)), shares, NodeLogic.fort_centroid(ctx.forts), ctx.zoom, ctx.tier != "far", text_w)
+	_layout_cache = IdleLogic.chip_layout(items, ctx.zoom, not ctx.relish.is_empty(), ctx.relish_pos, tr, nodes)
 	_layout_key = key
 	return _layout_cache
 

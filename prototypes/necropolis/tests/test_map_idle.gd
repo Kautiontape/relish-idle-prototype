@@ -119,6 +119,30 @@ func _chips(t: TestUtil) -> void:
 		var lay := IdleLogic.chip_layout(tagged, zoom, false, Vector2.ZERO, 0.0)
 		var hits := _chip_hits(lay["ashgate"], tagged[0], tagged, lay, zoom)
 		t.ok(hits.is_empty(), "zoom %.3f: Ashgate's chip, its neighbours tagged, touches nothing %s" % [zoom, str(hits)])
+	# Covington and Vei are obstacles too: their discs, Covington's name and the valve's stream labels, Vei's name
+	var world := TestUtil.load_json("res://configs/world.json")
+	var cov := Vector2(float(world["covington"]["pos"][0]), float(world["covington"]["pos"][1]))
+	var vei := Vector2(float(world["vei"]["pos"][0]), float(world["vei"]["pos"][1]))
+	var cen := NodeLogic.fort_centroid(items.map(func(g): return {"pos": [g["pos"].x, g["pos"].y]}))
+	var tw := {}
+	for k in {"war": "WAR", "flood": "FLOOD", "work": "WORK", "covington": "COVINGTON", "vei": "VEI'S DOMAIN"}:
+		tw[k] = 7.0 * {"war": 3, "flood": 5, "work": 4, "covington": 9, "vei": 12}[k]
+	for zoom in [0.55, 0.57, 0.585, 0.7]:
+		var nodes := IdleLogic.node_obstacles(cov, vei, float(world["vei"]["radius"]), 0.0, {"work": 0.4, "war": 0.45, "flood": 0.15}, cen, zoom, true, tw)
+		t.ok(nodes.size() == 2 and (nodes[0]["rects"] as Array).size() == 4, "zoom %.3f: Covington has a name and three stream labels as plates" % zoom)
+		var lay := IdleLogic.chip_layout(items, zoom, false, Vector2.ZERO, 0.0, nodes)
+		for f in [ash, slu]:
+			var r: Rect2 = lay[f["id"]]
+			var bad: Array = _chip_hits(r, f, items, lay, zoom)
+			for nd in nodes:
+				var np: Vector2 = nd["pos"]
+				var near := Vector2(clampf(np.x, r.position.x, r.end.x), clampf(np.y, r.position.y, r.end.y))
+				if near.distance_to(np) < float(nd["r"]):
+					bad.append("node disc at " + str(np))
+				for pr in nd["rects"]:
+					if r.intersects(pr):
+						bad.append("node plate " + str(pr))
+			t.ok(bad.is_empty(), "zoom %.3f: %s's chip hits no ring, node disc or plate %s" % [zoom, f["id"], str(bad)])
 	# a chip that is already clear does not move: Old Sluice alone, and Ashgate with nobody near
 	var alone := IdleLogic.chip_layout(_chip_items(["greywall"], w), 1.0, false, Vector2.ZERO, 0.0)
 	var gw: Dictionary = _chip_items(["greywall"], w)[2]
