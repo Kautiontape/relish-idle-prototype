@@ -9,7 +9,8 @@ extends RefCounted
 ##   share first, have and need from the fight's own state in the lane labels' rounding (a raise mid-fight counts);
 ##   the advice names the two cheapest, the two the fight still needed (never Raw); FRONTS drops its held clause.
 ## - pre_vei to the break, then a final death: the fronts it needed fell, so only the backups are short ("backups 2 for
-##   3 falls"), Raw held but unlisted; the advice is clones, then the skill tip for what struck her last.
+##   3 falls"), Raw held but unlisted; the advice is clones, then the skill tip for what struck her last (the guards
+##   tip names the fronts that held: "Break through Raw first").
 ## - a final death in phase 1 (in play only a dev kill: guards and her weave come only in the break): the fronts and
 ##   the backups, biggest share first; the advice is the fronts line alone.
 ## - midgame_2flips (nothing met, no backups): five entries, ties in FRONT_IDS order with backups last; the plate at
@@ -156,13 +157,23 @@ func _final_death() -> void:
 	t.ok(BossLogic.short_row(sf, lw)["text"] == "backups 2 for 3 falls", "the row: " + str(BossLogic.short_row(sf, lw)["text"]))
 	var cases := [
 		["weave", "Grow more clones in the Chapel of Vats' staffed vats. Step off her thread on the beat."],
-		["living", "Grow more clones in the Chapel of Vats' staffed vats. Break through more fronts first: each front left standing keeps sending guards."],
+		["living", "Grow more clones in the Chapel of Vats' staffed vats. Break through Raw first: each front left standing keeps sending guards."],
 		["slam", "Grow more clones in the Chapel of Vats' staffed vats."],
 		["", "Grow more clones in the Chapel of Vats' staffed vats."],
 	]
 	for c in cases:
 		var adv := BossLogic.loss_advice("relish_unmade", sf, {"last_hit_src": c[0], "fronts_cleared": st["fronts_cleared"]}, lw)
 		t.ok(adv["label"] == "BEFORE YOU TRY AGAIN" and adv["text"] == c[1], "struck last by '%s': clones, then its tip if it has one: %s" % [c[0], adv["text"]])
+	# the guards tip names the fronts still standing, from the cleared list frozen at the break (the manager's ruling
+	# on Session 7): another held front, two (joined as FELL SHORT joins), and none (no guard is sent: no tip)
+	var held_cases := [
+		[["swarm", "carvers", "raw"], "Grow more clones in the Chapel of Vats' staffed vats. Break through Giants first: each front left standing keeps sending guards."],
+		[["giants", "carvers"], "Grow more clones in the Chapel of Vats' staffed vats. Break through Swarm · Raw first: each front left standing keeps sending guards."],
+		[["giants", "swarm", "carvers", "raw"], "Grow more clones in the Chapel of Vats' staffed vats."],
+	]
+	for c in held_cases:
+		var adv := BossLogic.loss_advice("relish_unmade", sf, {"last_hit_src": "living", "fronts_cleared": c[0]}, lw)
+		t.ok(adv["text"] == c[1], "guards, %s cleared: the tip names what held: %s" % [str(c[0]), adv["text"]])
 	# the same fight ending as her queue runs out: nothing fell short, so the row is gone and TRY NEXT stays
 	var sh := BossLogic.shortfall(st, "horde_ferried", vc)
 	var facts := {"last_hit_src": "", "fronts_cleared": st["fronts_cleared"]}
