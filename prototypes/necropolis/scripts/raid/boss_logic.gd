@@ -529,7 +529,8 @@ static func _join_names(names: Array, words: Dictionary) -> String:
 
 
 ## The loss card's first row, naming the cause: {label, text, key}, or {} for a reason it has no row for.
-## `facts`: last_hit_src (Relish.last_hit_src), streak_max, break_beats, fronts_cleared (ids), fronts_required.
+## `facts`: last_hit_src (Relish.last_hit_src), streak_max, break_beats, fronts_cleared (ids), fronts_required, and
+## held_listed: true when the FELL SHORT row lists the fronts that held (short_row), so FRONTS leaves out its held clause.
 static func loss_cause(reason: String, facts: Dictionary, words: Dictionary) -> Dictionary:
 	match reason:
 		"relish_unmade":
@@ -549,7 +550,7 @@ static func loss_cause(reason: String, facts: Dictionary, words: Dictionary) -> 
 					held.append(str(names.get(id, id)))
 			var text := _fmt(str(words.get("fronts_text", "")), {"fell": FRONT_IDS.size() - held.size(), "total": FRONT_IDS.size(),
 				"need": int(facts.get("fronts_required", 0))})
-			if not held.is_empty():
+			if not held.is_empty() and not bool(facts.get("held_listed", false)):
 				text += _fmt(str(words.get("held_clause", "")), {"held": _join_names(held, words)})
 			return {"label": str(words.get("fronts_label", "")), "text": text, "key": "text"}
 	return {}
@@ -589,6 +590,125 @@ static func loss_change(reason: String, facts: Dictionary, words: Dictionary) ->
 	if text == "":
 		return {}
 	return {"label": str(words.get("change_label", "")), "text": text, "key": "text"}
+
+
+## --- What a lost fight fell short of (V-I2 Top three #3; the manager's ruling of 2026-11-19) ---------------------
+## The shortfall is measured against what the fight needed, never against every front:
+## - fronts only when the break never began (phase1_s < 0) and fewer fronts were met (have >= need, the rule a front
+##   clears by) than fronts_required. Then each front with have < need is listed. A held front after the break isn't:
+##   the fight had the fronts it needed;
+## - backups only on a final death (relish_unmade): have = the backups the seed brought (phylactery_charges +
+##   clones_ready), need = the times she fell (`deaths`, the fight's own count);
+## - her queue running out (horde_ferried) lists nothing: its cause row gives the streak against the break.
+
+## The share an entry is short, (need - have) / need, on the fight's own floats (0 when need <= 0).
+static func _short_share(have: float, need: float) -> float:
+	return (need - have) / need if need > 0.0 else 0.0
+
+
+## shortfall(state, end_reason, cfg) -> {items: Array, fronts_needed: int}
+##   `state` is VeiBoss.fight_state() (RESULT_KEYS: its p1, phase1_s, deaths and seed are read); `cfg` is vei.json.
+##   items, biggest gap first (the share short, ties in FRONT_IDS order, backups after the fronts):
+##     a front {kind: "front", id, have, need, gap, share}: have, need and gap in the lane labels' rounding (BossLanes
+##       lane_text: have floored, need and the gap rounded up), share on the floats;
+##     backups {kind: "backups", id: "backups", have, need, gap, share}.
+##   fronts_needed: fronts_required less the fronts met, when fronts are listed; else 0.
+static func shortfall(state: Dictionary, end_reason: String, cfg: Dictionary) -> Dictionary:
+	var items: Array = []
+	var needed := 0
+	if float(state.get("phase1_s", -1.0)) < 0.0:
+		var fronts: Array = (state.get("p1", {}) as Dictionary).get("fronts", [])
+		var met := 0
+		for f in fronts:
+			if float(f["have"]) >= float(f["need"]):
+				met += 1
+		if met < VeiFronts.required(cfg):
+			needed = VeiFronts.required(cfg) - met
+			for f in fronts:
+				var have := float(f["have"])
+				var need := float(f["need"])
+				if have < need:
+					items.append({"kind": "front", "id": String(f["id"]), "have": floori(have + 0.0001), "need": ceili(need - 0.0001),
+						"gap": ceili(need - have - 0.0001), "share": _short_share(have, need)})
+	if end_reason == "relish_unmade":
+		var sd: Dictionary = state.get("seed", {})
+		var brought := int(sd.get("phylactery_charges", 0)) + int(sd.get("clones_ready", 0))
+		var fell := int(state.get("deaths", 0))
+		if fell > brought:
+			items.append({"kind": "backups", "id": "backups", "have": brought, "need": fell, "gap": fell - brought,
+				"share": _short_share(float(brought), float(fell))})
+	items.sort_custom(_short_first)
+	return {"items": items, "fronts_needed": needed}
+
+
+## The FELL SHORT order: the larger share first; ties in FRONT_IDS order, backups last.
+static func _short_first(a: Dictionary, b: Dictionary) -> bool:
+	if not is_equal_approx(float(a["share"]), float(b["share"])):
+		return float(a["share"]) > float(b["share"])
+	return _short_rank(a) < _short_rank(b)
+
+
+static func _short_rank(e: Dictionary) -> int:
+	var i := FRONT_IDS.find(String(e["id"]))
+	return i if i >= 0 else FRONT_IDS.size()
+
+
+## The loss card's FELL SHORT row: {label, items, sep, text, key}, one item per shortfall entry in its order ("Raw 16 of
+## 58", "backups 2 for 3 falls"), text the items joined by sep (short_join); {} when nothing fell short. VeiCard packs the
+## items into lines whole (layout_rows), so no entry splits across two lines.
+static func short_row(sf: Dictionary, words: Dictionary) -> Dictionary:
+	var items: Array = sf.get("items", [])
+	if items.is_empty():
+		return {}
+	var names: Dictionary = words.get("front_names", {})
+	var out: Array = []
+	for e in items:
+		if str(e["kind"]) == "backups":
+			out.append(_fmt(str(words.get("short_backups_one" if int(e["need"]) == 1 else "short_backups", "")), {"have": int(e["have"]), "need": int(e["need"])}))
+		else:
+			out.append(_fmt(str(words.get("short_front", "")), {"name": str(names.get(e["id"], e["id"])), "have": int(e["have"]), "need": int(e["need"])}))
+	var sep := str(words.get("short_join", " · "))
+	return {"label": str(words.get("short_label", "")), "items": out, "sep": sep, "text": sep.join(PackedStringArray(out)), "key": "text"}
+
+
+## short_fix(sf, reason, facts, words) -> {label, text, key}, or {} when nothing fell short: what to change before
+## trying again, in one line.
+##   - fronts listed (the break never began): the fronts the fight still needed, the fronts_needed cheapest of them
+##     (the smallest gap first, ties in FRONT_IDS order), each fix_front.<id> with its {gap}, joined into fix_fronts.
+##     Nothing else: the break, where her guards, her weave and the backups come in, never began (VeiBoss spawns
+##     guards and starts weaves only in the break, so in play a final death always comes after it).
+##   - else, on a final death: fix_backups (clones, the fight's backups a player can grow), then the skill tip for what
+##     struck her last (`tip`, keyed as loss_change_key keys TRY NEXT: weave, living; none for any other cause), so a
+##     player who misplayed isn't only told to bring more (the manager's ruling of 2026-11-19).
+## `facts`: last_hit_src, fronts_cleared, as loss_change takes them.
+static func short_fix(sf: Dictionary, reason: String, facts: Dictionary, words: Dictionary) -> Dictionary:
+	var items: Array = sf.get("items", [])
+	if items.is_empty():
+		return {}
+	var parts: Array = []
+	var fronts: Array = items.filter(func(e: Dictionary) -> bool: return str(e["kind"]) == "front")
+	if not fronts.is_empty():
+		fronts.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+			return int(a["gap"]) < int(b["gap"]) if int(a["gap"]) != int(b["gap"]) else _short_rank(a) < _short_rank(b))
+		var fw: Dictionary = words.get("fix_front", {})
+		var named: Array = []
+		for e in fronts.slice(0, maxi(1, int(sf.get("fronts_needed", 1)))):
+			named.append(_fmt(str(fw.get(e["id"], e["id"])), {"gap": int(e["gap"])}))
+		parts.append(_fmt(str(words.get("fix_fronts", "")), {"fronts": _join_names(named, words)}))
+	elif items.any(func(e: Dictionary) -> bool: return str(e["kind"]) == "backups"):
+		parts.append(str(words.get("fix_backups", "")))
+		if reason == "relish_unmade":
+			parts.append(str((words.get("tip", {}) as Dictionary).get(loss_change_key(reason, facts), "")))
+	var text := " ".join(PackedStringArray(parts.filter(func(p: String) -> bool: return p != "")))
+	if text == "":
+		return {}
+	return {"label": str(words.get("fix_label", "")), "text": text, "key": "text"}
+
+
+## The loss card's advice row: short_fix when the fight fell short of something, else TRY NEXT (loss_change).
+static func loss_advice(reason: String, sf: Dictionary, facts: Dictionary, words: Dictionary) -> Dictionary:
+	var fix := short_fix(sf, reason, facts, words)
+	return fix if not fix.is_empty() else loss_change(reason, facts, words)
 
 
 ## loss_card(seed, spent, party_lost, fight_t, end_reason, keep, death_words) -> Dictionary

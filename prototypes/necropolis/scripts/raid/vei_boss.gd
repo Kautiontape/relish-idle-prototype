@@ -815,10 +815,16 @@ func _lose_card() -> void:
 	if _card == null:
 		var lw: Dictionary = rcfg().get("vei_loss", {})
 		var info := BossLogic.loss_card(seed_data, spent, party_lost, fight_t, end_reason, float(vcfg().get("loss_backlog_keep", 0.35)), rcfg().get("death", {}), lw)
-		info["cause"] = BossLogic.loss_cause(end_reason, {"last_hit_src": relish.last_hit_src if relish != null else "", "streak_max": streak_max,
-			"break_beats": int(vcfg().get("break_beats", 8)), "fronts_cleared": _cleared_now(), "fronts_required": VeiFronts.required(vcfg())}, lw)
+		# what the fight needed and didn't have, from its own state (BossLogic.shortfall): FELL SHORT lists it, the
+		# advice row names what fills it (or TRY NEXT's line when nothing fell short)
+		var sf := BossLogic.shortfall(fight_state(), end_reason, vcfg())
+		var tips := {"last_hit_src": relish.last_hit_src if relish != null else "", "fronts_cleared": _cleared_now()}
+		info["cause"] = BossLogic.loss_cause(end_reason, {"last_hit_src": tips["last_hit_src"], "streak_max": streak_max,
+			"break_beats": int(vcfg().get("break_beats", 8)), "fronts_cleared": _cleared_now(), "fronts_required": VeiFronts.required(vcfg()),
+			"held_listed": int(sf["fronts_needed"]) > 0}, lw)
+		info["short"] = BossLogic.short_row(sf, lw)
 		info["pressure_row"] = BossLogic.pressure_row(pressure, float(seed_data.get("living_pool", 0.0)), lw) if phase1_s >= 0.0 else {}
-		info["change"] = BossLogic.loss_change(end_reason, {"last_hit_src": relish.last_hit_src if relish != null else "", "fronts_cleared": _cleared_now()}, lw)
+		info["change"] = BossLogic.loss_advice(end_reason, sf, tips, lw)
 		info["phyl_total"] = int(seed_data.get("phylactery_charges", 0))
 		info["clones_total"] = int(seed_data.get("clones_ready", 0))
 		_card = VeiCard.new()
