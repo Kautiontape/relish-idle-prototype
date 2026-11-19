@@ -109,8 +109,7 @@ var _toast_t := 0.0
 var _last_inset := -1.0
 var _hint_default := ""
 var _rev := -2
-var _clock := 0.0  # real seconds since this HUD was built (tick): BONE's warning hold
-var _warn_held := {}  # HudLogic.show_bone_warn's last return: the line it holds and when the stall was last seen
+var _bone_warn: BoneWarn  # BONE's stall warning, its hold on this HUD's real clock (built with the bar)
 
 
 func _ready() -> void:
@@ -343,6 +342,7 @@ func _build_bar(items: Array) -> void:
 			parts["warn"] = _bar_label(box)
 			MapType.style_label(parts["warn"], str(cfg["bone_line"]["key"]))
 			(parts["warn"] as Label).visible = false
+			_bone_warn = BoneWarn.new(parts["warn"] as Label)
 		_items.append(parts)
 	var status := HBoxContainer.new()
 	status.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -505,7 +505,7 @@ func refresh(force := false) -> void:
 		(w["stock"] as Label).text = it["stock_text"]
 		(w["cap"] as Label).text = it["cap_mark"]
 		if w.has("warn"):  # held 10 s and its room kept once shown, so it never re-wraps the bar or moves the camera
-			_warn_held = HudLogic.show_bone_warn(w["warn"] as Label, HudLogic.bone_line(model.mill, model.queue_stall, _building_names()), _warn_held, _clock)
+			_bone_warn.set_line(HudLogic.bone_line(model.mill, model.queue_stall, _building_names()))
 	var ro := model.readout()
 	var st := HudLogic.status(ro)
 	_odds.text = st["odds_text"]
@@ -549,8 +549,8 @@ func _fort_names() -> Dictionary:
 	return names
 
 
-## Lays the bar's cells into rows by HudLogic.wrap_rows (the one wrapping rule), rebuilding the
-## row boxes only when the rows changed.
+## Lays the bar's cells into rows by HudLogic.wrap_rows (the one wrapping rule), moving them only when the rows
+## changed (HudLogic.place_rows keeps the row boxes and moves only the cells whose row changed).
 func _wrap_cells() -> void:
 	var cfg := MapLogic.cfg()
 	var widths: Array = _cells.map(func(c): return (c as Control).get_combined_minimum_size().x)
@@ -558,29 +558,7 @@ func _wrap_cells() -> void:
 	if str(rows) == _row_sig:
 		return
 	_row_sig = str(rows)
-	# The row boxes are kept and only the cells whose row changed are moved: a moved cell re-themes and re-shapes
-	# every Label in it, and rebuilding every row on each re-wrap cost ~12 ms a time (economy P9 C-d's pre_vei frame
-	# spikes: the BONE cell's stall warning comes and goes there, re-wrapping the bar every few seconds).
-	var boxes: Array = _bar.get_children()
-	while boxes.size() < rows.size():
-		var row := HBoxContainer.new()
-		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		row.add_theme_constant_override("separation", int(cfg["topbar_gap_px"]))
-		_bar.add_child(row)
-		boxes.append(row)
-	for ri in rows.size():  # each cell is in exactly one row, so once every row is placed no box holds a stray
-		var box: Node = boxes[ri]
-		var r: Array = rows[ri]
-		for k in r.size():
-			var cell: Control = _cells[r[k]]
-			if cell.get_parent() != box:
-				if cell.get_parent() != null:
-					cell.get_parent().remove_child(cell)
-				box.add_child(cell)
-			box.move_child(cell, k)
-	for ri in range(rows.size(), boxes.size()):  # rows no longer needed: empty by now
-		_bar.remove_child(boxes[ri])
-		(boxes[ri] as Node).queue_free()
+	HudLogic.place_rows(_bar, _cells, rows, int(cfg["topbar_gap_px"]))
 
 
 ## A strip click: the pick's action, except that an opening ask with nothing to select (the valve)
@@ -648,7 +626,8 @@ func _sign_key(sign: int) -> String:
 
 
 func tick(delta: float) -> void:
-	_clock += delta
+	if _bone_warn != null:  # every frame: a held warning runs out on time even while the model has no new rev (paused)
+		_bone_warn.tick(delta)
 	if _tip_word != null:  # a resting bar word: its plate after the delay, gone with the word
 		if not is_instance_valid(_tip_word) or not _tip_word.is_visible_in_tree():
 			_hide_tip()
