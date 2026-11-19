@@ -741,6 +741,7 @@ static func _afford_at(gs: GameState, cost: Dictionary, tl: Dictionary, holds: b
 ## unpaid (unpaid, or idled by Thrift), needs_tier. A new build: unique, lot_locked, lot_taken (a building stands or is under
 ## construction there), lot_too_small, needs_tier, needs_blueprint, needs_building. Then both:
 ## cost_exceeds_cap (a cost over its store's cap now, after a cap building went), no_relics.
+## A new code needs its words in town.json: test_town_queue._every_reason reads the codes off this function's source.
 static func _queue_gate(gs: GameState, e: Dictionary, level: int, cost: Dictionary, lots: Dictionary, pending: Dictionary,
 		relics: int) -> String:
 	var lot_id: String = e["lot_id"]

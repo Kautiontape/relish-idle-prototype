@@ -169,13 +169,15 @@ static func return_kind(arrive_from: String, fort: Dictionary, taken_event: bool
 	return "" if stale else RETREAT
 
 
-## The return line for `kind` (TAKEN or RETREAT) at a fort named `fort_name`; "" for any other kind.
-static func return_text(kind: String, fort_name: String) -> String:
+## The return line for `kind` (TAKEN or RETREAT) at a fort named `fort_name`; "" for any other kind. Once the game is
+## `won` (the fort's own stamp, MapModel's view_hud.won) a retreat reads retreat_won_fmt: Vei is dead, so the fort no
+## longer stays hers, and it still isn't taken (ruling 2's words).
+static func return_text(kind: String, fort_name: String, won := false) -> String:
 	match kind:
 		TAKEN:
 			return _s("taken_fmt") % fort_name
 		RETREAT:
-			return _s("retreat_fmt") % fort_name
+			return _s("retreat_won_fmt" if won else "retreat_fmt") % fort_name
 	return ""
 
 

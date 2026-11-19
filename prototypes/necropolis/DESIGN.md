@@ -2,9 +2,25 @@
 
 ## What this tests
 
-Does the whole Relish concept-stack cohere as ONE game: strategic necrosis map
+First (2026-08-29): does the whole Relish concept-stack cohere as ONE game: strategic necrosis map
 + circle-raid combat + town factory + hidden-number idle escalation against a
 single recycling enemy?
+
+Now (the realm run, 2026-11-13 to 11-19): is it the game in Shawn's `vision.md`, one a new player can
+follow from a new game to a won one? That means an idle necropolis that keeps streaming undead while you're away,
+raids worth playing by hand, real risk with backups, and Vei as the final test. Beating her wins the game.
+
+## Status (2026-11-19, after the realm run's Phase I)
+
+- **Playable end to end:** a new game, raids with circle-raising and wardens to break, the town and its
+  build queue, aways with a catch-up and an away report, Vei's fight, and a won game that runs on.
+- **Phase I is closed.** The V-I3 vision check met 36 of 51 rows, with 14 partial and 1 miss (the soft wall).
+  `CLOSING.md` at the repo root says what merged, the gate, the accepted balance misses, the Phase II backlog, what
+  to play first and what waits on Shawn.
+- **The design docs are `docs/`:** GAMEPLAY (what the player does), MECHANICS (systems and formulas), BALANCE
+  (numbers and pacing), IDLE (the idle model), STATE-API, VISUAL-LANGUAGE and VISUAL-TOOLKIT. Where they and the
+  notes below differ, `docs/` wins. The notes below are the 2026-08-29 baseline. The pacing section in particular is
+  superseded: Vei-ready now comes after days of sessions (about 5.2 days on the bots' sessions profile), not hours.
 
 ## The model (canonical + extensions)
 

@@ -114,6 +114,25 @@ func _won_forts(t: TestUtil) -> void:
 		if bool(b["ok"]) and g.won and not (b["seed"] as Dictionary).is_empty():
 			opened.append(f["id"])
 	t.ok(opened.size() == tagged.size(), "a raid really starts at every fort the won map tags 'raid': %s of %s" % [str(opened), str(tagged.map(func(f): return f["id"]))])
+	# the closing round: the card's retreat line at each of those forts, through MapModel's stamp and fort_card
+	var lines := {}
+	for f in tagged:
+		lines[_retreat_block(m, str(f["id"]))] = true
+	t.ok(lines.keys() == ["Retreat at any exit: keep all you found; the fort isn't yours."],
+		"won: every fort the map tags 'raid' says it isn't yours, not that it stays Vei's: %s" % str(lines.keys()))
+	s.cmd_debug_set_state({"won": false})
+	m.refresh(true)
+	t.ok(_retreat_block(m, str(tagged[0]["id"])) == "Retreat at any exit: keep all you found; the fort stays Vei's.", "the same fort on a live game: it stays Vei's")
+
+
+## The fort card's retreat line for fort `id` as the map builds it (CardBlocksLogic.fort_card on the model's fort).
+func _retreat_block(m: MapModel, id: String) -> String:
+	var card := CardBlocksLogic.fort_card(m.fort(id), "", {}, m.names, TestUtil.load_json("res://configs/loot.json"), {"party": []},
+		TestUtil.load_json("res://configs/raid.json"), TestUtil.load_json("res://configs/economy.json"), 0.0)
+	for b in card["blocks"]:
+		if str(b.get("id", "")) == "retreat":
+			return str(b["text"])
+	return ""
 
 
 func _slab_names(t: TestUtil) -> void:

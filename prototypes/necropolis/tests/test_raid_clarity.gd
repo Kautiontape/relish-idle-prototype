@@ -1385,7 +1385,7 @@ func _t5_tests(t: TestUtil) -> void:
 		"700 px: the panel's columns are %.0f px wide and both buttons lie inside its %.0f px plate" % [cw, p7.size.x])
 	p7.free()
 	var lpx := int(rcfg["line_px"])
-	for k in ["keep_all", "fort_vei", "fall_revive"]:
+	for k in ["keep_all", "fort_vei", "fort_vei_won", "fall_revive"]:
 		var sz := fnt.get_multiline_string_size(str(rcfg[k]), HORIZONTAL_ALIGNMENT_LEFT, cw, lpx)
 		t.ok(sz.x <= cw, "700 px: the retreat line %s wraps within the %.0f px column (%.0f px)" % [k, cw, sz.x])
 	t.ok(RaidLogic.retreat_col_w(100.0, 18.0, 32.0) == 16.0 and RaidLogic.retreat_col_w(20.0, 18.0, 32.0) == 0.0, "retreat_col_w halves what padding and gap leave, never below 0")
@@ -1500,6 +1500,15 @@ func _retreat_line_tests(t: TestUtil) -> void:
 	t.ok(e[1]["text"].contains("nothing found yet"), "nothing found: 'nothing found yet'")
 	t.ok(e[2]["text"] == "The fort stays yours.", "a held fort stays yours")
 	t.ok(e.size() == 4 and e[3]["text"] == "Bone Knight is on the plate · lost if you retreat.", "the held door's line, without its newline")
+	# the closing round (ruling 2's words): once won, Vei is dead, so the fort no longer stays hers; a held one stays yours
+	var w := RaidLogic.retreat_keep_lines(_hr(), _lu(), false, keep, "", true)
+	t.ok(w[w.size() - 1]["text"] == "The fort isn't yours · you can come back and break its warden." and w.size() == l.size(),
+		"won: what stays reads '%s'" % w[w.size() - 1]["text"])
+	t.ok(RaidLogic.retreat_keep_lines(_hr(), _lu(), true, keep, "", true)[w.size() - 1]["text"] == "The fort stays yours.", "won, a held fort: it stays yours")
+	# raid.gd and raid_hud.gd name the Game autoload (no headless compile): the won they pass is pinned as text
+	var rsrc := FileAccess.get_file_as_string("res://scripts/raid/raid.gd")
+	t.ok(rsrc.contains("won = _from_run and not boss and bool(Game.state.view_hud().get(\"won\", false))"), "the raid reads won from view_hud on a run (false in the demo and the boss fight)")
+	t.ok(_func_src(FileAccess.get_file_as_string("res://scripts/raid/raid_hud.gd"), "func _retreat_lines(").contains("else \"\", raid.won),"), "the HUD hands the panel the raid's won")
 	var paid := RaidLogic.loot_counts(RaidLogic.result_loot("retreated", false, {"relics": 2, "husks": [{"kind": "skeleton"}]}, 5, {}))
 	t.ok(paid["relics"] == keep["relics"] and paid["husks"] == keep["husks"] and paid["essence"] == keep["essence"],
 		"the counts shown are what result_loot pays a retreat")

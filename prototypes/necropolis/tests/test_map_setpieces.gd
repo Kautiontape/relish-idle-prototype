@@ -189,10 +189,18 @@ func _return(t: TestUtil, c: Dictionary) -> void:
 	t.ok(SetpieceLogic.return_text(SetpieceLogic.RETREAT, "Ashgate") == "Ashgate stays Vei's: you kept all you found", "retreat line: both halves of the glossary's meaning (the fort stays Vei's, you keep what you found)")
 	t.ok(int(c["callout_font_two"]) >= 14 and int(c["callout_font_two"]) <= int(c["callout_font"]), "the two-line form is set no smaller than 14 px, and no bigger than the one line")
 	t.ok(SetpieceLogic.return_text("", "Ashgate") == "", "no kind, no line")
+	# the closing round (ruling 2's words): once won, Vei is dead, so a retreat no longer says the fort stays hers
+	t.ok(SetpieceLogic.return_text(SetpieceLogic.RETREAT, "Ashgate", true) == "Ashgate not taken: you kept all you found",
+		"retreat line once won: '%s'" % SetpieceLogic.return_text(SetpieceLogic.RETREAT, "Ashgate", true))
+	t.ok(SetpieceLogic.return_text(SetpieceLogic.TAKEN, "Ashgate", true) == "Ashgate taken by you", "the taken line once won: unchanged")
+	t.ok(SetpieceLogic.split_text(SetpieceLogic.return_text(SetpieceLogic.RETREAT, "Old Sluice", true)) == ["Old Sluice not taken:", "you kept all you found"],
+		"the won line still splits into the two-line form at its colon")
 	t.ok(SetpieceLogic.KINDS.has(SetpieceLogic.RETREAT), "the retreat line is a set piece (debug trigger)")
 	t.ok(float(c["callout_beats"]) > 0.0, "the line's time is configured")
 	var src := FileAccess.get_file_as_string("%s/map_setpieces.gd" % MAP_DIR)
 	t.ok(src.contains("SetpieceLogic.return_kind(") and src.contains("func note_return("), "MapSetpieces decides the return line through the pure function")
+	t.ok(src.contains("SetpieceLogic.return_text(SetpieceLogic.RETREAT, str(model.names.get(id, id)), bool(model.fort(id).get(\"won\", false)))"),
+		"the retreat callout reads the fort's won stamp (source pin: MapSetpieces names the Game autoload, so it can't compile headless)")
 	var wm := FileAccess.get_file_as_string("res://scripts/map/world_map.gd")
 	t.ok(wm.contains("setpieces.note_return("), "world_map hands the arrival's fort to the set pieces")
 	t.ok(src.contains("func note_return(arrive_from: String, stale := false)") and src.contains(", stale)\n") and wm.contains("setpieces.note_return(_arrive_from, _arrive_stale)") and wm.contains("args.get(\"stale\""), "a stale arrival (args.stale) reaches return_kind through note_return")
@@ -323,14 +331,15 @@ func _shot_geometry(t: TestUtil, c: Dictionary) -> void:
 	var sluice := Vector2(1420.0, 1305.0)
 	var screen_pt := (sluice - shot_cam) * shot_z + vp * 0.5
 	var texts := {"retreat": SetpieceLogic.return_text(SetpieceLogic.RETREAT, "Old Sluice"),
-		"taken": SetpieceLogic.return_text(SetpieceLogic.TAKEN, "Old Sluice"), "garrison": SetpieceLogic.garrison_text(36)}
+		"taken": SetpieceLogic.return_text(SetpieceLogic.TAKEN, "Old Sluice"), "garrison": SetpieceLogic.garrison_text(36),
+		"retreat_won": SetpieceLogic.return_text(SetpieceLogic.RETREAT, "Old Sluice", true)}
 	# the winner at each zoom: [form, place, slide, font, clean]. 0.4 is too crowded for any clean place (the lane
 	# callouts and Covington close in): the least hard overlap is taken there, and the pin says so.
 	var want := {
-		shot_z: {"retreat": ["two", "right", 0.0, 14, true], "taken": ["one", "right", 0.0, 16, true], "garrison": ["one", "right", 0.0, 16, true]},
-		0.4: {"retreat": ["one", "right", 0.0, 16, false], "taken": ["one", "right", 0.0, 16, false], "garrison": ["two", "right", 0.0, 14, false]},
-		0.8: {"retreat": ["two", "above", -0.2, 14, true], "taken": ["one", "above", -0.2, 16, true], "garrison": ["one", "above", -0.2, 16, true]},
-		1.2: {"retreat": ["two", "above", 0.0, 14, true], "taken": ["one", "above", 0.0, 16, true], "garrison": ["one", "above", 0.0, 16, true]}}
+		shot_z: {"retreat": ["two", "right", 0.0, 14, true], "taken": ["one", "right", 0.0, 16, true], "garrison": ["one", "right", 0.0, 16, true], "retreat_won": ["two", "right", 0.0, 14, true]},
+		0.4: {"retreat": ["one", "right", 0.0, 16, false], "taken": ["one", "right", 0.0, 16, false], "garrison": ["two", "right", 0.0, 14, false], "retreat_won": ["one", "right", 0.0, 16, false]},
+		0.8: {"retreat": ["two", "above", -0.2, 14, true], "taken": ["one", "above", -0.2, 16, true], "garrison": ["one", "above", -0.2, 16, true], "retreat_won": ["two", "above", -0.2, 14, true]},
+		1.2: {"retreat": ["two", "above", 0.0, 14, true], "taken": ["one", "above", 0.0, 16, true], "garrison": ["one", "above", 0.0, 16, true], "retreat_won": ["two", "above", 0.0, 14, true]}}
 	var clean_zooms := 0
 	for zoom in [shot_z, 0.4, 0.8, 1.2]:
 		var z: float = zoom

@@ -535,7 +535,7 @@
         "vei": "face Vei when your odds are good. Return to the realm to face her.",
         "vei_short": "next: face Vei when your odds are good → Return to the realm",
         "won_head": "You beat Vei: the game is won.",
-        "won": "Your town and forts are still yours: keep building, or stop here.",
+        "won": "Your town is still yours: keep building, or stop here.",
         "won_short": "next: Vei is beaten · keep building, or stop here",
         "fort_any": "a fort Vei holds",
         "tiers": ["hamlet", "village"],

@@ -333,7 +333,7 @@ func _flip_tick(p: Dictionary, t: float, rm: bool, items: Array) -> bool:
 	return done and t >= maxf(float(c["ripple_beats"]), float(c["callout_beats"]))
 
 
-## A retreat: the fort stays Vei's, so no re-ink and no sound, just the line over the fort for
+## A retreat: the fort stays Vei's (once won, not taken), so no re-ink and no sound, just the line over the fort for
 ## callout_beats (a plain word colour: it is not a win).
 func _retreat_tick(p: Dictionary, t: float, rm: bool, items: Array) -> bool:
 	var id := str(p["fort_id"])
@@ -342,7 +342,7 @@ func _retreat_tick(p: Dictionary, t: float, rm: bool, items: Array) -> bool:
 		return true
 	var a := SetpieceLogic.callout_alpha(t, float(c["callout_beats"]), rm)
 	if a > 0.0:
-		items.append_array(_callout(id, SetpieceLogic.return_text(SetpieceLogic.RETREAT, str(model.names.get(id, id))), a, "text"))
+		items.append_array(_callout(id, SetpieceLogic.return_text(SetpieceLogic.RETREAT, str(model.names.get(id, id)), bool(model.fort(id).get("won", false))), a, "text"))
 	return t >= float(c["callout_beats"])
 
 

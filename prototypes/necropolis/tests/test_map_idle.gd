@@ -477,7 +477,7 @@ func _panel_fit(t: TestUtil) -> void:
 		and float(ft["top"]) + float(ft["body_h"]) + 44.0 + 54.0 <= 900.0 - 8.0 + 0.001, "with the footer, the scroll leaves it room on screen (%s)" % str(ft))
 	var asrc := FileAccess.get_file_as_string("res://scripts/map/map_away.gd")
 	t.ok(asrc.contains("_col.add_child(_scroll)") and asrc.contains("_col.add_child(_foot)") and not asrc.contains("_body.add_child(b)")
-		and asrc.contains("float(c[\"top_gap_px\"]), foot)"), "DISMISS is the footer outside the scroll, and the fit takes its height (source pin: MapAway can't compile headless)")
+		and asrc.contains("float(c[\"top_gap_px\"]), foot)"), "DISMISS is the footer outside the scroll, and the fit takes its height (source pin: MapAway names the ConfigDb autoload, so it can't compile headless; the footer's math is panel_fit's, tested above)")
 	t.ok(int(AwayLogic.cfg()["top_gap_px"]) > 0, "a gap under the bar")
 	var src := FileAccess.get_file_as_string("res://scripts/map/map_away.gd")
 	t.ok(src.contains("AwayLogic.panel_fit(vp.y, bar, body_h") and src.contains("_centre.offset_top = float(f[\"top\"])") and src.contains("_scroll.custom_minimum_size.y = float(f[\"body_h\"])"), "the panel sizes itself from panel_fit")
