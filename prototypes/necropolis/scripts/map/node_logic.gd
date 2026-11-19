@@ -686,11 +686,11 @@ static func backlog_rings(backlog: float) -> Dictionary:
 	return {"rings": shown, "overflow": total - shown}
 
 
-## The backlog her queue stack is drawn from: `backlog` (view_vei's), or 0 once the game is won
-## (HudLogic.vei_queue_shown): no rings, no "+N", and no room kept for them (her name's place, her reach,
-## the lanes' ends, the chips' obstacles, the camera fit). MapModel.drawn_backlog feeds every one of them.
-static func drawn_backlog(backlog: float, hud: Dictionary) -> float:
-	return backlog if HudLogic.vei_queue_shown(hud) else 0.0
+## The backlog her queue stack is drawn from: `backlog` (view_vei's), or 0 once the game is won and its victory
+## set piece has ended (HudLogic.vei_queue_shown): no rings, no "+N", and no room kept for them (her name's place,
+## her reach, the lanes' ends, the chips' obstacles, the camera fit). MapModel.drawn_backlog feeds every one of them.
+static func drawn_backlog(backlog: float, hud: Dictionary, victory_ended := true) -> float:
+	return backlog if HudLogic.vei_queue_shown(hud, victory_ended) else 0.0
 
 
 ## Digestion rings' angular speed, rad/s, proportional to Vei's capacity R_vei.

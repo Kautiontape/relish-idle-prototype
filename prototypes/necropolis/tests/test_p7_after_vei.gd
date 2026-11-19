@@ -113,11 +113,14 @@ func _won_overflow() -> void:
 		"the valve passes its view_hud")
 
 
-## Ruling 1 (Session 3's open 1): once won, Vei's queue stack is drawn from no backlog: no rings, no "+N", and no
-## room kept for them. The control is pre_vei before the win (her stack drawn from her backlog); won and 10 min on,
-## her queue is still past a ring (#21: it grows) but MapModel.drawn_backlog is 0, so her reach is her structure's
-## and beat ring's alone. Every site that drew the stack or kept room for it reads drawn_backlog (source pins: the
-## scenes can't load headless). Revert proof: vei_queue_shown always true.
+## Ruling 1 (Session 3's open 1), keyed on the victory's END by ruling 2 on Session 4: once won and the victory set
+## piece has ended, Vei's queue stack is drawn from no backlog: no rings, no "+N", and no room kept for them. The
+## control is pre_vei before the win (her stack drawn from her backlog); won and 10 min on, her queue is still past a
+## ring (#21: it grows): while the victory runs (RUN, STOP) the stack is drawn from it, so the headline shows over her
+## drowned stack; once it has ended (MapModel.victory_ended) drawn_backlog is 0, so her reach is her structure's and
+## beat ring's alone. Every site that drew the stack or kept room for it reads drawn_backlog, and MapSetpieces sets
+## victory_ended at END and at a settled mount (source pins: the scenes can't load headless). Revert proofs:
+## vei_queue_shown always true; vei_queue_shown ignoring victory_ended.
 func _won_queue() -> void:
 	MapLogic.configure(cfg["map_view"])
 	var c := GameState.new(cfg)
@@ -136,9 +139,15 @@ func _won_queue() -> void:
 	m.refresh(true)
 	var backlog := float(m.vei["backlog"])
 	var full := NodeLogic.backlog_rings(backlog)
+	t.ok(bool(m.hud.get("won", false)) and not m.victory_ended and int(full["rings"]) > 0 and m.drawn_backlog() == backlog,
+		"won, the victory still running: her stack is drawn from her queue (%.0f: %d rings, +%d), under the headline" % [backlog, full["rings"], full["overflow"]])
+	m.victory_ended = true
 	var b := NodeLogic.backlog_rings(m.drawn_backlog())
-	t.ok(bool(m.hud.get("won", false)) and int(full["rings"]) > 0 and m.drawn_backlog() == 0.0 and int(b["rings"]) == 0 and int(b["overflow"]) == 0,
-		"won: her queue (%.0f: %d rings, +%d) is drawn from 0: no rings, no '+N'" % [backlog, full["rings"], full["overflow"]])
+	t.ok(m.drawn_backlog() == 0.0 and int(b["rings"]) == 0 and int(b["overflow"]) == 0, "won, the victory ended: her queue is drawn from 0: no rings, no '+N'")
+	var cm_end := MapModel.new(c)
+	cm_end.refresh(true)
+	cm_end.victory_ended = true
+	t.ok(cm_end.drawn_backlog() == float(cm_end.vei["backlog"]), "the control: not won, victory_ended alone hides nothing")
 	var r := float(m.realm["vei"]["radius"])
 	t.ok(NodeLogic.vei_reach(r, m.drawn_backlog()) == NodeLogic.vei_reach(r, 0.0) and NodeLogic.vei_reach(r, 0.0) < NodeLogic.vei_reach(r, backlog),
 		"won: her reach keeps no room for the stack (%.1f, not %.1f)" % [NodeLogic.vei_reach(r, 0.0), NodeLogic.vei_reach(r, backlog)])
@@ -152,6 +161,12 @@ func _won_queue() -> void:
 	if not model_src.contains("float(realm[\"vei\"].get(\"radius\", 0.0)), drawn_backlog()) + float(cfg[\"fit_pad_px\"])"):
 		missed.append("map_model (_vei_rect)")
 	t.ok(missed.is_empty(), "every site that draws her stack or keeps room for it reads drawn_backlog (missed: %s)" % str(missed))
+	var sp := FileAccess.get_file_as_string("res://scripts/map/map_setpieces.gd")
+	var tick_src := sp.substr(sp.find("func _victory_tick("), sp.find("# --- debug") - sp.find("func _victory_tick("))
+	t.ok(tick_src.contains("if ph == SetpieceLogic.END:\n\t\tmodel.victory_ended = true")
+		and sp.contains("model.victory_ended = SetpieceLogic.victory_settle_at_mount(bool(model.hud.get(\"won\", false)), seen.has(MapSeen.VICTORY))")
+		and sp.find("model.victory_ended = SetpieceLogic.victory_settle_at_mount(") < sp.find("func _exit_tree("),
+		"MapSetpieces ends the stack at the victory's END, and in _ready for a settled mount (before world_map's first fit)")
 
 
 ## The away panel on a won game (handoff-10 item 1; reports/screens/after/p7-map-reload-vei.png had "Vei's queue ▲

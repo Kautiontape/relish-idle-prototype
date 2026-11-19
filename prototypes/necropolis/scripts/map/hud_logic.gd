@@ -94,12 +94,14 @@ static func vei_readout_shown(hud: Dictionary) -> bool:
 	return not bool(hud.get("won", false))
 
 
-## Whether Vei's queue stack shows at her node (its rings and the "+N" past them): not once the game is won
-## (the manager's ruling on Session 3's open 1). After #21 her queue still grows on a won map (the forts' FLOOD
-## drain, WAR with no target), and a beaten Vei's climbing count reads as a threat with nothing to do about
-## it. NodeLogic.drawn_backlog applies it; the away panel's queue row goes too (AwayLogic.gains_row_shown).
-static func vei_queue_shown(hud: Dictionary) -> bool:
-	return not bool(hud.get("won", false))
+## Whether Vei's queue stack shows at her node (its rings and the "+N" past them): not once the game is won and
+## the victory set piece has ended (`victory_ended`, MapModel's; the manager's ruling on Session 3's open 1, then
+## ruling 2 on Session 4: through RUN and STOP "VEI HAS DROWNED IN THE DEAD" shows over her drowned stack, and the
+## stack goes at END, with her lanes). After #21 her queue still grows on a won map (the forts' FLOOD drain, WAR with
+## no target), and a beaten Vei's climbing count reads as a threat with nothing to do about it.
+## NodeLogic.drawn_backlog applies it; the away panel's queue row goes at the win (AwayLogic.gains_row_shown).
+static func vei_queue_shown(hud: Dictionary, victory_ended := true) -> bool:
+	return not bool(hud.get("won", false)) or not victory_ended
 
 
 ## Whether the valve panel shows its FLOOD row and corner button: not once the game is won. The panel, its
@@ -364,6 +366,27 @@ static func stalled_head(head: Dictionary) -> Dictionary:
 ## Whether the pits-first stall is live: the Bone Mill row ({starved, lever}) or the queue head says so.
 static func pits_stalled(mill: Dictionary, head: Dictionary) -> bool:
 	return str(mill.get("starved", "")) == "pits_first" or not stalled_head(head).is_empty()
+
+
+## BONE's stall warning on its bar label (the manager's ruling 1 on Session 4, 2026-11-18, option b). `line` is bone_line's
+## text now, `now` the HUD's own clock (real seconds: MapHud.tick), `held` what the last call returned ({} at a mount). A
+## line shows at once; once the stall is gone, its last line stays up until bone_line.hold_s has passed since the stall was
+## last seen, so a stall that comes and goes every few seconds can't blink it. Once a line has shown, the label keeps the
+## room of the widest line it has held, blank when off, until the map reloads (a new MapHud), so the bar keeps its rows and
+## the camera its fit. On pre_vei the stall came and went every few seconds, and each re-wrap moved the camera (economy
+## P9 C-d's frame spikes). Returns the next `held`.
+static func show_bone_warn(warn: Label, line: String, held: Dictionary, now: float) -> Dictionary:
+	var out := held
+	if line != "":
+		out = {"text": line, "seen": now}
+	var on := out.has("seen") and now - float(out["seen"]) < float(MapLogic.cfg()["bone_line"]["hold_s"])
+	var text := str(out["text"]) if on else ""
+	if warn.text != text:
+		warn.text = text
+	if text != "":
+		warn.visible = true  # and it stays in the row from now on, blank when off
+		warn.custom_minimum_size.x = maxf(warn.custom_minimum_size.x, warn.get_minimum_size().x)
+	return out
 
 
 ## The lever the stall names: the head's, else the mill's.
