@@ -475,6 +475,21 @@ static func remove_big_undead(gs: GameState, uid: String) -> void:
 	gs.party_uids.erase(uid)
 
 
+## The balance pass (the P9 review's should-fix #2, gated): a raid result that did nothing, no living killed, no
+## warden beaten, nothing raised and no loot of any kind (a retreat at the entrance door, or a held re-raid at a fort
+## with no living and an empty roll). stats.raids still counts it (STATE-API §4.5); stats.raids_empty counts it too, so
+## GameState.raid_credit pays only for the rest.
+static func raid_result_empty(r: Dictionary) -> bool:
+	if float(r["killed_living_mass"]) > 0.0 or bool(r["warden_beaten"]):
+		return false
+	for e in r["raised"]:
+		if float(e["mass"]) > 0.0:
+			return false
+	var loot: Dictionary = r["loot"]
+	return int(loot["relics"]) <= 0 and int(loot["essence"]) <= 0 and (loot["blueprints"] as Array).is_empty() \
+		and (loot["husks"] as Array).is_empty() and (loot["remnants"] as Array).is_empty()
+
+
 ## §8.3 raid steps 1-11 (E3-2: each revive in place spends a charge and raises relish_died{phylactery, in_place}; a
 ## death that ends the run is death()'s). The result is already validated and matched to the open run. Returns the
 ## minted uids.
@@ -484,6 +499,8 @@ static func writeback_raid(gs: GameState, r: Dictionary) -> Array:
 	var fort_id: String = gs.run["fort_id"]
 	var f := gs.realm.fort_by_id(fort_id)
 	gs.stats["raids"] += 1
+	if raid_result_empty(r):  # (should-fix #2's gate) counted, but earns no raid credit (GameState.raid_credit)
+		gs.stats["raids_empty"] = int(gs.stats.get("raids_empty", 0)) + 1
 	# 1. kills, against the live fort
 	var k := minf(float(r["killed_living_mass"]), float(f["living"]))
 	f["living"] -= k

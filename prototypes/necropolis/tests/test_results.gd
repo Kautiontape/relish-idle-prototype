@@ -105,7 +105,42 @@ func run() -> int:
 	_mass_and_charges()
 	_parity()
 	_misc()
+	_credit_gate()
 	return t.failures
+
+
+## The balance pass (the P9 review's should-fix #2, gated; MECHANICS §3.5): a raid result that did nothing (a retreat
+## at the entrance door: nothing killed, raised or banked) still counts in stats.raids but earns no raid credit; one
+## that killed a living earns it. stats.raids_empty is optional in the save: absent until a raid comes back empty, so a
+## save with none is the same bits as before, and a load reads it back (absent, 0). Revert proof: raid_credit on
+## stats.raids alone fails the first two credit checks.
+func _credit_gate() -> void:
+	t.suite("results-credit-gate")
+	var per := float(TestUtil.configs()["realm"]["odds"]["raid_credit"])
+	var s := _mk()
+	_set_fort(s, "old-sluice", 60.0, 30.0, 25.0)
+	var sd := _begin(s)
+	t.ok(s.apply_result("raid", _raid_res(sd))["ok"], "(setup) an empty retreat applied")
+	t.ok(s.stats["raids"] == 1 and int(s.stats.get("raids_empty", 0)) == 1 and s.raid_credit() == 0.0,
+		"an empty retreat counts as a raid (%d) but earns no credit (%.5f)" % [s.stats["raids"], s.raid_credit()])
+	sd = _begin(s)
+	t.ok(s.apply_result("raid", _raid_res(sd, {"killed_living_mass": 5.0, "garrison_mass": sd["garrison_in_mass"]}))["ok"],
+		"(setup) a retreat that killed 5 living applied")
+	t.ok(s.stats["raids"] == 2 and int(s.stats["raids_empty"]) == 1 and s.raid_credit() == per,
+		"a raid that killed earns one raid's credit (%.5f of %.5f)" % [s.raid_credit(), per])
+	t.ok(StateRuns.raid_result_empty(_raid_res(sd)) and not StateRuns.raid_result_empty(_raid_res(sd, {"warden_beaten": true}))
+		and not StateRuns.raid_result_empty(_raid_res(sd, {"raised": [{"score": 50, "count": 1, "mass": 1.0}]}))
+		and not StateRuns.raid_result_empty(_raid_res(sd, {"loot": {"relics": 0, "blueprints": [], "husks": [], "remnants": [], "essence": 1}})),
+		"empty means nothing at all: a beaten warden, a raise or any loot makes a raid count")
+	var d: Dictionary = JSON.parse_string(JSON.stringify(s.to_dict()))
+	var n := GameState.new(TestUtil.configs())
+	t.ok(n.from_dict(d)["ok"] and int(n.stats["raids_empty"]) == 1 and n.raid_credit() == s.raid_credit(),
+		"a save keeps stats.raids_empty (%s) and the credit" % str(n.stats.get("raids_empty")))
+	d["stats"]["raids_empty"] = 3
+	t.ok(not GameState.new(TestUtil.configs()).from_dict(d)["ok"], "a save with more empty raids than raids is refused")
+	var fresh := _mk()
+	var fd: Dictionary = JSON.parse_string(JSON.stringify(fresh.to_dict()))
+	t.ok(not (fd["stats"] as Dictionary).has("raids_empty"), "a game with no empty raid saves no raids_empty (the save as before)")
 
 
 # ------------------------------------------------------------------ validate ----

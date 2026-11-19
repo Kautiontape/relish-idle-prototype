@@ -621,6 +621,17 @@ away, and it runs in chunks of 90 core steps (median 31–39 ms) behind the catc
 responsive. **To reverse it:** 10 s again needs about 35 µs off each core step (`fort_step`, `_dispatch`,
 TownSim.step) with every catch-up pin re-proved bit for bit: the solver-speed unit, on the Phase II backlog.
 
+### The balance pass (Phase I, 2026-11-19; `reports/economy/phase-i-balance.md`)
+**Ruling B1 (reversible): the raid credit counts only a raid that did something** (the P9 review's should-fix #2,
+gated; MECHANICS §3.5). A result with nothing killed, beaten, raised or banked counts in `stats.raids` and in the
+optional `stats.raids_empty`, and earns no credit. **No re-size:** with the gate, vr_probe2 (P3's, to Vei-ready on
+seeds 1–4, on b4dd4e1 with the gate) reads sessions 5.1667, 5.3334, 5.0087, 5.1667 and continuous 4.7950, 4.8236,
+4.8091, 5.1019. That is P3b's round 2 (5.167, 5.333, 5.009, 5.167; 4.795, 4.824, 4.809, 5.102) to its last digit, with
+the same backups (sessions 1+6, 1+10, 1+8, 1+10; continuous 1+10, 1+12, 1+8, 1+10). The bots' held re-raids always bank
+the stand-in resolver's loot, so sessions makes no empty result (0 of 104–125 raids to day 7), and continuous makes 2
+(of 149–169, the first an early greywall run). `raid_credit` 0.00075 and `time_s` 4.5 days stand. **To reverse it:**
+`raid_credit()` on `stats.raids` alone (test_results' `_credit_gate` then fails twice).
+
 ## 6. Known balance risks
 - **The knife edge** (systems review S5). Odds of 0.6 need a backlog of about 18,000 raw. Vei's undead
   capacity is about 42/s at q 1.2 and about 20/s at q 2.5, so the active run needs about 5–8 pits and

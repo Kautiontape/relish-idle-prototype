@@ -998,10 +998,12 @@ func win_odds(age_s: float, strain: float, credit := -1.0) -> float:
 ## P3b (V-I2 (a), the run's manager's re-set aim: continuous play Vei-ready 5-10% sooner than sessions): what active
 ## play adds to the readiness's strain term, realm.json odds.raid_credit per raid finished (stats.raids, saved: every
 ## raid result applied, a gap's or a load's end of one included), up to odds.raid_credit_cap, which bounds what active
-## play can gain. raid_credit 0 is the readiness without it bit for bit (the revert proof). P9 (the P3b review's
-## should-fix 2, recorded): an empty result counts too, a retreat at the entrance included (MECHANICS §3.5's exposure).
+## play can gain. raid_credit 0 is the readiness without it bit for bit (the revert proof). The balance pass (the P9
+## review's should-fix #2, gated): only a raid that did something earns it, stats.raids less stats.raids_empty
+## (StateRuns.raid_result_empty: a retreat at the entrance with nothing killed, raised or banked earns nothing).
 func raid_credit() -> float:
-	return minf(_req_f("realm.odds.raid_credit_cap"), maxf(0.0, _req_f("realm.odds.raid_credit")) * float(stats.get("raids", 0)))
+	var credited := int(stats.get("raids", 0)) - int(stats.get("raids_empty", 0))
+	return minf(_req_f("realm.odds.raid_credit_cap"), maxf(0.0, _req_f("realm.odds.raid_credit")) * float(credited))
 
 
 ## win_odds on explicit tunables (pure; the map's valve payoff projects with it from realm.json): w · age / (age + T) +

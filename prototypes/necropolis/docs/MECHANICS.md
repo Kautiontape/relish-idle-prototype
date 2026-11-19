@@ -781,18 +781,22 @@ corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
   boss seed, the tithe, reship, need) keep reading the readiness or the strain.
 - **The raid credit** (P3b, V-I2 (a); STATE-API §5.1's `raid_credit`): the readiness is `time_weight · age / (age +
   time_s) + (1 − time_weight) · min(backlog_cap, strain + credit)`, `credit = GameState.raid_credit() =
-  min(odds.raid_credit_cap, odds.raid_credit × stats.raids)` (`stats.raids`: every raid result applied; saved), sized
-  in BALANCE §5's P3b rows. Only the readiness reads it: `RealmSim.strain()` and what reads it (the tithe period,
-  reship, need) don't move. `raid_credit` 0 is the readiness above bit for bit (`ValveLogic.odds_at` takes it as
-  `credit`).
-  - **Every applied result counts, an empty one too** (P9, the P3b review's should-fix 2; recorded, not gated). A raid
-    begun and left at once by the entrance's door (a few seconds, nothing killed or banked) writes back `"retreated"`
-    and counts as a cleared fort does, and so does a gap's or a load's end of a run with no checkpoint (STATE-API
-    §4.5). `cmd_abort_dungeon` writes nothing back, so an abort doesn't count. The exposure: 160 such retreats
-    (`raid_credit_cap` / `raid_credit`) reach the cap, at most (1 − `time_weight`) × `raid_credit_cap` = 0.036 of
-    readiness, the same ceiling real raids have. Gating it on a raid that did something needs a new saved counter
-    (every state-hash pin moves) or a narrower `stats.raids` (STATE-API §4.5's +1 for an ended run changes), and the
-    bots' sizing (BALANCE §5's P3b rows, ruling 35) counted every result, so a gate waits for the next balance batch.
+  min(odds.raid_credit_cap, odds.raid_credit × (stats.raids − stats.raids_empty))` (`stats.raids`: every raid result
+  applied; `stats.raids_empty`: those that did nothing, below; both saved), sized in BALANCE §5's P3b rows. Only the
+  readiness reads it: `RealmSim.strain()` and what reads it (the tithe period, reship, need) don't move.
+  `raid_credit` 0 is the readiness above bit for bit (`ValveLogic.odds_at` takes it as `credit`).
+  - **Only a raid that did something earns it** (the balance pass, the P9 review's should-fix #2, gated). A result
+    with no living killed, no warden beaten, nothing raised and no loot of any kind (`StateRuns.raid_result_empty`)
+    still counts in `stats.raids` (STATE-API §4.5's +1 for an ended run stands) and counts in `stats.raids_empty`
+    too, so it earns no credit. That is a raid begun and left at once by the entrance's door (Shawn's capture raids
+    4–9 ended so in 6–18 s), or a gap's or a load's end of a run that did nothing. `cmd_abort_dungeon` writes nothing
+    back, so an abort counts in neither. `stats.raids_empty` is optional in the save: absent until a raid comes back
+    empty (absent, it loads as 0; above `stats.raids` the save is refused), so a game with no empty raid saves the
+    same bits as before and no state-hash pin moves. It was recorded, not gated, at P9, when the exposure was 160 such
+    retreats reaching the cap (at most (1 − `time_weight`) × `raid_credit_cap` = 0.036 of readiness).
+    **The bots almost never make one:** the stand-in resolver opens the chest at yield 0, so every held re-raid banks
+    loot. To day 7 on seeds 1–4, sessions makes 0 empty results in 104–125 raids and continuous 2 in 149–169, and both
+    modes' Vei-ready is P3b's to its last digit, so ruling 35's sizing stands (BALANCE §5, the balance pass's ruling B1).
   - **The away report's start odds** (P9, the P3b review's should-fix 3): "odds A → B" reads A on the credit at the
     away's start (`StateViews.away_before`'s `raid_credit`), as it reads that start's backups. A gap's or a load's end
     of an open run is applied before that snapshot (its events are queued as live, before the time away), so its
