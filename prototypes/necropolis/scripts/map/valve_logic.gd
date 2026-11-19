@@ -215,6 +215,13 @@ static func overflow_parts(overflow: float, hud := {}) -> Dictionary:
 	return {"rate": MapLogic.fmt_rate(overflow), "text": str(_c().get(key, ""))}
 
 
+## Whether the WAR overflow line sits on its own line under WAR's feed ("→ the forts"), not beside it: once won
+## (view_hud.won). Its won words don't fit beside the feed in the rows' width (valve_rows_w_px); the FLOOD row is
+## gone then, so the line's height is kept while won and the panel never jumps as the overflow comes and goes.
+static func overflow_own_line(hud: Dictionary) -> bool:
+	return bool(hud.get("won", false))
+
+
 # --- the payoff ---------------------------------------------------------------------
 
 ## Vei's differential (mass/s) at a dragged valve: view_projection(valve).backlog_diff.

@@ -72,6 +72,7 @@ func _won_valve() -> void:
 			out.append((v._corner_btns[k] as Control).tooltip_text)
 		return out
 	t.ok((tips.call() as Array).all(func(x): return x == war_line), "the control: not won, the valve's WAR and FLOOD names and corners carry the glossary's line")
+	t.ok(not v._over_won_row.visible, "the control: not won, the overflow has no line of its own (it sits beside WAR's feed)")
 	s.cmd_debug_set_state({"won": true})
 	for i in 10:
 		s.tick(60.0, s.max_substeps_per_frame())
@@ -79,8 +80,16 @@ func _won_valve() -> void:
 	m.refresh(true)
 	v.refresh()
 	t.ok(bool(m.hud.get("won", false)) and (tips.call() as Array).all(func(x): return x == war_won), "won: the same valve re-tips them with the won line (%s)" % str(tips.call()[0]))
-	t.ok(float(m.hud.get("war_overflow", 0.0)) > 0.0 and v._over_rate.text == MapLogic.fmt_rate(float(m.hud["war_overflow"])) and v._over_text.text == "lost: your forts are full",
-		"won: the valve's overflow line reads '%s %s'" % [v._over_rate.text, v._over_text.text])
+	t.ok(float(m.hud.get("war_overflow", 0.0)) > 0.0 and v._over_won_rate.text == MapLogic.fmt_rate(float(m.hud["war_overflow"])) and v._over_won_text.text == "lost: your forts are full",
+		"won: the valve's overflow line reads '%s %s'" % [v._over_won_rate.text, v._over_won_text.text])
+	# its words don't fit beside "→ the forts" in the rows' width (a 1600×900 shot had "are full" past the plate), so
+	# once won the line is its own, under the feed. The fit is read from the shot: headless font metrics run ~1.4× the
+	# window's here, so a pixel check would not mean what it says.
+	t.ok(v._over_won_row.visible and v._over_won_row.custom_minimum_size.y > 0.0 and v._over_rate.text == "" and v._over_text.text == "",
+		"won: the overflow is on its own line, its height kept, none beside the feed")
+	m.hud["war_overflow"] = 0.0  # the overflow flickers to 0 between steps (a won pre_vei: about a third of reads)
+	v.refresh()
+	t.ok(v._over_won_row.visible and v._over_won_text.text == "", "won with no overflow: the line stays, empty, so the panel doesn't jump")
 	v.free()
 
 
