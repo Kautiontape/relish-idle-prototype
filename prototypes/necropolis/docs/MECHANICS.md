@@ -723,12 +723,24 @@ corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
       they die shrink the room while their pull eats the garrison, and with no living to clear them they never go
       (midgame_2flips won 1 h: the tier-4 forts ended at 155–162 of 460–520).
     So WAR falls through to her queue (`r_war_to_vei`, `split.war_overflow`, the valve's won line "lost: your forts
-    are full") only once every garrison is at its cap, and then all of it does; `war_route` reads `"vei"` then, else
-    `"forts"`. Measured (`test_won_war`: 20 min of live play, then the rest as a 10 s catch-up): pre_vei won 2 h,
+    are full") only when every fort's limit binds: each garrison takes all the room it has this step, so it is at its
+    cap within a rounding (the P9b review's should-fix 3). `war_route` reads `"vei"` when all of WAR falls through
+    (`left > 0` and `left >= war`), and `"forts"` while any fort takes some of it, a sliver included, so the valve's
+    "forts are full" line is true to that rounding. At a fort that still holds her living the rounding is wider, and
+    the step ends a little under the cap:
+    - their pull destroys some of the garrison inside the step (the next step tops it up);
+    - the raise is kept for the most corpses the step can make (`_won_raise`, should-fix 1): the kills at most all her
+      living there and at most k_kill × the garrison's most over the step, the pull at most k_destroy (q 1) × the
+      living now. That is never less than `fort_step` raises, so no step passes the cap. What it keeps above the
+      raise falls through, a sliver. In `test_won_war`'s `_living_raise` (greywall with 2 living and no corpses, one
+      10 s step), the garrison takes 29.88 of its 30 room; it took 2.00 when the whole raise want was kept.
+
+    Measured (`test_won_war`: 20 min of live play, then the rest as a 10 s catch-up): pre_vei won 2 h,
     every garrison is at its cap 120 s in and stays there, none falls; midgame_2flips won 1 h, every garrison reaches its
     cap by 840 s, held Ashgate included (80 of 80, against 10 233 before). Pre-win play is bit-identical. Left as it is:
     a garrison already above its cap at the win (a held fort with WAR to spare) keeps that mass and takes none; with
-    no drain it doesn't shrink. Once her living at a fort are dead its corpses stay (clearing is k_clear · L̄), so
+    no drain it doesn't shrink. `test_won_war`'s `_cross_win` crosses the win mid-play: Ashgate set 50 over its cap
+    keeps 130.000 for 10 min and through a save and load, and un-won (`set_won(false)`) the drain is back and it drains. Once her living at a fort are dead its corpses stay (clearing is k_clear · L̄), so
     a won fort's load can sit above its cap; nothing reads that once she ships nothing.
 
 ### 3.5 Readouts

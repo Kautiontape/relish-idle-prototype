@@ -138,7 +138,8 @@ var hold_mult := 1.0
 ## fort as corpses (no dead fort->vei). The player's WAR, the garrisons and the holds run, with three changes (P9b,
 ## ruling 36): no garrison drains on to her queue (set_won zeroes _r_drain), every fort is a WAR target, and no
 ## garrison is filled past its cap (_dispatch's limits, step 1's raise room), so WAR falls through to her queue (the
-## realm's sink) only once every garrison is at its cap. Not saved: GameState's `won` is.
+## realm's sink) only when every garrison takes all the room it has (at its cap within a rounding: MECHANICS §3.4).
+## Not saved: GameState's `won` is.
 var won := false
 ## The one-wave need's tunables (E4 step 5, ruling B1 (ii); need_of) and the target rule's tie (_lowest_margin).
 var _need_tol := 0.0  # hold.need_tol: the bisection stops when its bracket is this narrow, mass/s
@@ -1332,11 +1333,19 @@ func _won_room(f: Dictionary, dt: float) -> float:
 
 ## P9b: the raise a beaten fort's room is kept for (_dispatch's limit is the room less this), mass/s. With no living
 ## there the corpses only fall (no kills, no pull to destroy undead), so fort_step raises at most the corpses now
-## cover (_raise_rate); with living, their kills can add corpses inside the step, so the whole `want` (already cut to
-## the room: step 1) is kept for it.
+## cover (_raise_rate). With living, the step's kills and the undead their pull destroys (kept as corpses once won:
+## fort_step's keep) add corpses inside it, so the raise is kept for the most those can add (the P9b review's
+## should-fix 1; it used to keep the whole `want`, and a fort with few corpses raised less than that, so WAR fell
+## through to her queue for a step while the garrison sat short of its cap). Nothing arrives once won (no shipping, no
+## surge), so the living only fall: the kills are at most all of them and at most k_kill × the garrison's most over
+## the step (its start or its cap: the room keeps it under), and the pull at most k_destroy (q 1, its largest) × the
+## living now. It is never below what fort_step raises, so a step never passes the cap; what it keeps above that (the
+## pull's and the kills' bounds, and the corpses the living clear) still falls through, a sliver (MECHANICS §3.4).
 func _won_raise(f: Dictionary, dt: float, want: float) -> float:
-	if float(f["living"]) > 0.0:
-		return maxf(0.0, want)
+	var l0 := float(f["living"])
+	if l0 > 0.0:
+		var kills := minf(l0, _k_kill * maxf(maxf(0.0, float(f["undead"])), float(f["cap"])) * dt)
+		return _raise_rate(f, dt, want, kills + _k_dq(f, 1.0) * l0 * dt)
 	return _raise_rate(f, dt, want, 0.0)
 
 
@@ -1364,9 +1373,10 @@ func _won_raise(f: Dictionary, dt: float, want: float) -> float:
 ##
 ## P9b (ruling 36): once won every fort is a target, held or not, with living or not, and each takes at most the
 ## WAR that brings its garrison to its cap (_won_room, less the raise kept for: _won_raise). With no drain (set_won)
-## a full garrison takes nothing, so WAR falls through to her queue (the realm's sink, r_war_to_vei) only once every
-## garrison is at its cap, and the valve's overflow line is true whenever it shows. A garrison above its cap at the
-## win keeps it and takes nothing. war_route reads "vei" when all of it falls through, else "forts". Shipping is 0
+## a full garrison takes nothing, so WAR falls through to her queue (the realm's sink, r_war_to_vei) only when every
+## fort's limit binds (each garrison at its cap within a rounding, a little wider at a fort with her living:
+## MECHANICS §3.4), and the valve's overflow line is true to that rounding whenever it shows. A garrison above its cap
+## at the win keeps it and takes nothing. war_route reads "vei" when all of it falls through, else "forts". Shipping is 0
 ## once won, so the fill-cap re-split below never runs.
 func _dispatch(war: float, dt: float, held_i: Array[bool], arriving: Array[float], surge_fort: int,
 		tide_fort: String, tide_bias: float, want_r: Array[float]) -> Array[float]:

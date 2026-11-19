@@ -17,8 +17,10 @@ extends RefCounted
 ## garrisons sit below their caps); the won limit for unheld forts only (held forts INF again), 5 FAIL (Ashgate 10 303
 ## of 80, old-sluice 7 002; the tier-3 and tier-4 forts never get a garrison; _raise); the won limit for forts without living only
 ## (living forts INF again), 2 FAIL (whitecross 953.5 of 520, greywall 184.7 of 90); step 1 without the raise room,
-## 2 FAIL (greywall 143.8 of 90 in midgame, where a simulacrum raises; _raise 138.4 of 80). Asserted only: _won_raise's
-## living branch (no fixture raises at a fort with living once won).
+## 2 FAIL (greywall 143.8 of 90 in midgame, where a simulacrum raises; _raise 138.4 of 80). The P9b review's
+## should-fixes 1 and 2 (_living_raise, _cross_win): _won_raise's living branch keeping the whole want again, 1 FAIL
+## (greywall takes 2.002 of its 30 room, WAR 0); set_won(false) keeping the zeroed drain, 2 FAIL (the drain stays 0, and
+## un-won Ashgate grows 130.000 to 250.574 instead of draining).
 
 var t := TestUtil.new()
 const Ledger := preload("res://scripts/sim/ledger.gd")
@@ -34,6 +36,8 @@ func run() -> int:
 	_span("pre_vei", 7200.0)
 	_span("midgame_2flips", 3600.0)
 	_raise()
+	_living_raise()
+	_cross_win()
 	print("  [won_war] %.1f s wall" % ((Time.get_ticks_msec() - u0) / 1000.0))
 	return t.failures
 
@@ -154,3 +158,82 @@ func _raise() -> void:
 	t.ok(d0 > 50.0 and raised > 0.0, "(setup) old-sluice starts with %.1f corpses; Relish raised %.1f of them" % [d0, raised])
 	t.ok(u_most <= float(f["cap"]) * (1.0 + REL) and _full(f),
 		"won, Relish raising at a fort full of corpses: the garrison fills to its cap and no further (most %.3f of %.0f)" % [u_most, float(f["cap"])])
+
+
+## RealmSim alone (the P9b review's should-fix 1): won, Relish raising at a fort that still holds a sliver of her living
+## (greywall: 2 living, no corpses, its garrison 30 under its cap 90; its simulacrum raises there too), every other fort
+## full with no living, so it is the only fort with room, and WAR to spare. One 10 s step. The raise covers only the
+## corpses the step makes (the 2 living's), so the room the rest of the raise was kept for must go to WAR: the garrison
+## takes its room (WAR plus the raise) to within 1%, the rest falls through to her queue, and it never passes its cap.
+## Before the fix _won_raise kept the whole raise want (3/s, the room) at a fort with living, so greywall took no WAR,
+## ended about 28 short of its cap and all 50/s fell through.
+func _living_raise() -> void:
+	var s := GameState.new(TestUtil.configs())
+	s.debug_enabled = true
+	s.cmd_debug_load_fixture("midgame_2flips")
+	var r := s.realm
+	r.set_won(true)
+	for f in r.forts:
+		if f["id"] != "greywall":
+			f["living"] = 0.0
+			f["undead"] = float(f["cap"])
+	var f: Dictionary = r.fort_by_id("greywall")
+	f["living"] = 2.0
+	f["dead"] = 0.0
+	f["undead"] = float(f["cap"]) - 30.0
+	var dt := 10.0
+	var room := float(f["cap"]) - float(f["undead"])
+	r.step(dt, {"war": 50.0, "flood": 0.0, "digest_q": 1.0, "redirect_fort": "greywall", "redirect_rate": 20.0})
+	var took := (float(f["r_in"]) + float(f["r_raised"])) * dt
+	t.ok(float(f["r_raised"]) > 0.0 and float(f["living"]) < 2.0 and r.r_war_to_vei > 0.0,
+		"(setup) greywall raised %.3f/s from its living's kills; %.2f/s fell through to her queue" % [float(f["r_raised"]), r.r_war_to_vei])
+	t.ok(took >= room * 0.99 and float(f["undead"]) <= float(f["cap"]) * (1.0 + REL),
+		"won, a raise at a fort with living: the garrison takes its room (%.3f of %.1f, WAR %.3f/s) before WAR falls through, and ends at %.3f of its cap %.0f"
+		% [took, room, float(f["r_in"]), float(f["undead"]), float(f["cap"])])
+
+
+## The win mid-play (the P9b review's should-fix 2): midgame_2flips played 10 min unbeaten, then Ashgate's garrison set
+## 50 over its cap and the game won (debug's won, the boss writeback's _sync_won). Won, no garrison drains, so Ashgate
+## keeps its mass and takes no WAR for 10 min (MECHANICS §3.4: a garrison over its cap at the win keeps it); a save of
+## that game loads won with the same garrison and no drain; un-won again (_sync_won's set_won(false), as a new game or a
+## load of an unbeaten save does) the config's drain is back, its caches cleared, and Ashgate drains.
+func _cross_win() -> void:
+	var c := TestUtil.configs()
+	var r_cfg := float(c["realm"]["r_drain"])
+	var s := GameState.new(c)
+	s.debug_enabled = true
+	s.cmd_debug_load_fixture("midgame_2flips")
+	for i in 10:
+		s.tick(TICK)
+	var a: Dictionary = s.realm.fort_by_id("ashgate")
+	var drained := float(a["r_drain"])
+	t.ok(not s.won and s.realm._r_drain > 0.0 and drained > 0.0,
+		"(setup) unbeaten at t %.0f: the drain runs (%.3f, Ashgate %.4f/s)" % [s.t, s.realm._r_drain, drained])
+	var r0 := s.realm._r_drain
+	a["undead"] = float(a["cap"]) + 50.0
+	s.cmd_debug_set_state({"won": true})
+	var u_win := float(a["undead"])
+	t.ok(s.won and s.realm.won and s.realm._r_drain == 0.0, "the win zeroes the drain at once (%.3f)" % s.realm._r_drain)
+	var took := 0.0
+	var drain_most := 0.0
+	for i in 10:
+		s.tick(TICK)
+		took = maxf(took, float(a["r_in"]))
+		drain_most = maxf(drain_most, float(a["r_drain"]))
+	t.ok(absf(float(a["undead"]) - u_win) <= 1e-9 * u_win and took == 0.0 and drain_most == 0.0,
+		"won mid-play, a garrison over its cap keeps its mass: Ashgate %.3f at the win, %.3f 10 min on (cap %.0f; WAR in at most %.4f/s, drain %.4f/s)"
+		% [u_win, float(a["undead"]), float(a["cap"]), took, drain_most])
+	var d: Dictionary = JSON.parse_string(JSON.stringify(s.to_dict()))
+	var n := GameState.new(TestUtil.configs())
+	t.ok(n.from_dict(d)["ok"], "(setup) the won save loaded")
+	var na: Dictionary = n.realm.fort_by_id("ashgate")
+	t.ok(n.won and n.realm._r_drain == 0.0 and absf(float(na["undead"]) - float(a["undead"])) <= 1e-9 * u_win,
+		"a won save loads won, no drain, the garrison as saved (%.3f of %.3f)" % [float(na["undead"]), float(a["undead"])])
+	s.cmd_debug_set_state({"won": false})
+	t.ok(not s.realm.won and s.realm._r_drain == r0 and r0 == r_cfg and is_nan(s.realm._lc_dt)
+		and (s.realm._need_cache as Dictionary).is_empty(),
+		"un-won, the config's drain is back (%.3f) and its caches are cleared" % s.realm._r_drain)
+	var u1 := float(a["undead"])
+	s.tick(TICK)
+	t.ok(float(a["r_drain"]) > 0.0 and float(a["undead"]) < u1,
+		"un-won, the over-cap garrison drains again (%.4f/s; %.3f to %.3f)" % [float(a["r_drain"]), u1, float(a["undead"])])
