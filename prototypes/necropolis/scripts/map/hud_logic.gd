@@ -396,7 +396,8 @@ static func pits_stalled(mill: Dictionary, head: Dictionary) -> bool:
 
 
 ## BONE's stall warning on its bar label (the manager's ruling 1 on Session 4, 2026-11-18, option b). `line` is bone_line's
-## text now, `now` the HUD's own clock (real seconds: MapHud.tick), `held` what the last call returned ({} at a mount). A
+## text now, `now` the HUD's own clock (real seconds: BoneWarn.tick, which calls it every frame while a line is up or
+## held, so the hold runs out on time with no new rev), `held` what the last call returned ({} at a mount). A
 ## line shows at once; once the stall is gone, its last line stays up until bone_line.hold_s has passed since the stall was
 ## last seen, so a stall that comes and goes every few seconds can't blink it. Once a line has shown, the label keeps the
 ## room of the widest line it has held, blank when off, until the map reloads (a new MapHud), so the bar keeps its rows and

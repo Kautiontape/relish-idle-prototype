@@ -109,8 +109,7 @@ var _toast_t := 0.0
 var _last_inset := -1.0
 var _hint_default := ""
 var _rev := -2
-var _clock := 0.0  # real seconds since this HUD was built (tick): BONE's warning hold
-var _warn_held := {}  # HudLogic.show_bone_warn's last return: the line it holds and when the stall was last seen
+var _bone_warn: BoneWarn  # BONE's stall warning, its hold on this HUD's real clock (built with the bar)
 
 
 func _ready() -> void:
@@ -343,6 +342,7 @@ func _build_bar(items: Array) -> void:
 			parts["warn"] = _bar_label(box)
 			MapType.style_label(parts["warn"], str(cfg["bone_line"]["key"]))
 			(parts["warn"] as Label).visible = false
+			_bone_warn = BoneWarn.new(parts["warn"] as Label)
 		_items.append(parts)
 	var status := HBoxContainer.new()
 	status.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -505,7 +505,7 @@ func refresh(force := false) -> void:
 		(w["stock"] as Label).text = it["stock_text"]
 		(w["cap"] as Label).text = it["cap_mark"]
 		if w.has("warn"):  # held 10 s and its room kept once shown, so it never re-wraps the bar or moves the camera
-			_warn_held = HudLogic.show_bone_warn(w["warn"] as Label, HudLogic.bone_line(model.mill, model.queue_stall, _building_names()), _warn_held, _clock)
+			_bone_warn.set_line(HudLogic.bone_line(model.mill, model.queue_stall, _building_names()))
 	var ro := model.readout()
 	var st := HudLogic.status(ro)
 	_odds.text = st["odds_text"]
@@ -626,7 +626,8 @@ func _sign_key(sign: int) -> String:
 
 
 func tick(delta: float) -> void:
-	_clock += delta
+	if _bone_warn != null:  # every frame: a held warning runs out on time even while the model has no new rev (paused)
+		_bone_warn.tick(delta)
 	if _tip_word != null:  # a resting bar word: its plate after the delay, gone with the word
 		if not is_instance_valid(_tip_word) or not _tip_word.is_visible_in_tree():
 			_hide_tip()

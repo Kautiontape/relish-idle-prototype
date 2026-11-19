@@ -543,10 +543,34 @@ func _bone_warn(t: TestUtil) -> void:
 	HudLogic.show_bone_warn(w, "", held, 31.0 + hold)
 	t.ok(w.text == "" and w.visible and room.call() == head_w, "blank again, the widest room kept")
 	w.free()
+	# BoneWarn, MapHud's wiring of the above (the Session 5 review): the model's line on each rev, the hold on the
+	# HUD's real clock every frame, so a paused game (no new rev) still ends a held line 10 s after its stall
+	var bl := Label.new()
+	bl.visible = false
+	var bw := BoneWarn.new(bl)
+	bw.tick(0.5)
+	t.ok(bl.text == "" and not bl.visible and bw.clock == 0.5, "BoneWarn: no stall, nothing shown, the clock runs")
+	bw.set_line(mill)
+	t.ok(bl.text == mill and bl.visible, "a rev with a stall: the line shows at once")
+	for k in 60:  # paused 30 s with the stall still in the model: it is still seen
+		bw.tick(0.5)
+	t.ok(bl.text == mill, "paused 30 s with the stall still there: the line stays")
+	bw.set_line("")  # the stall gone at the next rev, at 30.5 s
+	t.ok(bl.text == mill, "the stall gone at a rev: the line holds, counted from the last frame it was seen (30.5 s), not the last rev with it (0.5 s)")
+	for k in 19:  # paused again: no rev until the hold is past
+		bw.tick(0.5)
+	t.ok(bl.text == mill, "paused, %.1f s on: still up just short of the hold" % (bw.clock - 30.5))
+	bw.tick(0.5)
+	t.ok(bl.text == "" and bl.visible and maxf(bl.custom_minimum_size.x, bl.get_minimum_size().x) == mill_w,
+		"paused, the hold past with no new rev: blank, not hidden, its room kept (%.1f s)" % (bw.clock - 30.5))
+	bw.set_line(head)
+	t.ok(bl.text == head, "and the next stall shows at once")
+	bl.free()
 	var src := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
-	t.ok(src.contains("_warn_held = HudLogic.show_bone_warn(w[\"warn\"] as Label, HudLogic.bone_line(model.mill, model.queue_stall, _building_names()), _warn_held, _clock)")
-		and src.contains("func tick(delta: float) -> void:\n\t_clock += delta") and not src.contains("warn.visible = line != \"\""),
-		"map_hud.gd sets BONE's warning through show_bone_warn on the HUD's own clock (source pin: MapHud can't compile headless)")
+	t.ok(src.contains("_bone_warn.set_line(HudLogic.bone_line(model.mill, model.queue_stall, _building_names()))")
+		and src.contains("_bone_warn = BoneWarn.new(parts[\"warn\"] as Label)") and src.contains("func tick(delta: float) -> void:\n\tif _bone_warn != null:")
+		and src.contains("\t\t_bone_warn.tick(delta)") and not src.contains("warn.visible = line != \"\""),
+		"map_hud.gd builds BONE's warning as a BoneWarn, gives it the model's line on each rev and ticks it every frame (source pin: MapHud can't compile headless)")
 
 
 func _hud(rates: Array, extra := {}) -> Dictionary:
