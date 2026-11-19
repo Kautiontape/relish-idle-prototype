@@ -54,6 +54,7 @@ func run() -> int:
 	_never_head_line()
 	_starved_hold()
 	_grow_report()
+	_village_neutral()
 	_cleanup()
 	return t.failures
 
@@ -837,6 +838,40 @@ func _report_start(c: Dictionary) -> GameState:
 	s.cmd_debug_grant({"gold": 5000.0 - s.town_sim.gold})
 	s.drain_events()
 	return s
+
+
+## The V-I3 round, ruling 4 (economy §14.5 (b)): a village of yours that goes neutral while you're away is named under
+## LOSSES, in the village line's kind (village_lost), as "village Saltcreek is no longer yours". On the shipped field
+## (the 128 x 90 field, where economy's neglected seeds lose Quiet Mill to neutral on 3 of 4 and no village to Vei) a
+## midgame_2flips 12 h away at the neglected arm's valve (the new game's 0.25/0.60/0.15) leaves Saltcreek and Lorn
+## neutral and takes Tarnish to Vei; Saltcreek and Tarnish are set yours at the leave, as _report_start sets Tarnish.
+## The full neglected run (economy's vil_probe2, VIL_FULL=1, seed 1) is the report's, not the suite's (about 8 min).
+## Revert proof: the neutral branch removed.
+func _village_neutral() -> void:
+	t.suite("away-village-neutral")
+	var c := TestUtil.configs()
+	c["economy"]["sim"]["prewarm_ticks"] = 0
+	var s := _mk(c)
+	s.cmd_debug_load_fixture("midgame_2flips")
+	s.tick(2.0)
+	s.cmd_set_valve(0.25, 0.60, 0.15)
+	for tw in s.towns:
+		if tw["id"] in ["saltcreek", "tarnish"]:
+			tw["control"] = "green"
+	s.drain_events()
+	var n := _away(c, s, "vneutral", 43200)
+	var ctl := {}
+	for tw in n.towns:
+		ctl[str(tw["id"])] = str(tw["control"])
+	t.ok(ctl["saltcreek"] == "none" and ctl["tarnish"] == "orange" and ctl["lorn"] == "none",
+		"(setup) after 12 h on the shipped field: Saltcreek neutral, Tarnish Vei's, Lorn neutral as at the leave: %s" % str(ctl))
+	var rep := n.view_away()
+	var vil: Array = (rep["losses"] as Array).filter(func(l): return str(l["kind"]) == "village_lost")
+	t.ok(vil.has({"text": "village Saltcreek is no longer yours", "kind": "village_lost", "target": ""}),
+		"losses: the village gone neutral is named in the village line's kind: %s" % str(vil))
+	t.ok(vil.has({"text": "village Tarnish lost to Vei", "kind": "village_lost", "target": ""}) and vil.size() == 2,
+		"the one Vei took reads as before, and a village neutral at the leave too (Lorn) has no line: %s" % str(vil.map(func(l): return l["text"])))
+	t.ok(AwayLogic.losses_count(rep["losses"]).contains("2 villages lost"), "the map's LOSSES count takes both: %s" % AwayLogic.losses_count(rep["losses"]))
 
 
 ## A gold-short midgame_2flips with two queued builds for a 1 h report: an Inn on lot-13 (the fixture is a
