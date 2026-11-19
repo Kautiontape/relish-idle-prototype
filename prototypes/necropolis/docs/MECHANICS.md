@@ -1482,7 +1482,13 @@ processing does.
     income before the clip (`trade`, `mill`) less the upkeep, since an entry ahead that spends the store
     brings it back. Relics have none, so a relic shortfall is `-1.0` ("raid for relics"). Catch-up's clip at
     the head's start (`Catchup.build_start_s`, IDLE §4) reads the same helper, `BuildRules.queue_net`, since
-    F1, so the two never drift (it read the HUD's clipped net before, which agreed below the cap only);
+    F1, so the two never drift (it read the HUD's clipped net before, which agreed below the cap only). Since
+    ruling B4 (BALANCE §5) that last-step time is `affordable_in_s_step`, catch-up's twin and the bots' read.
+    `affordable_in_s` itself holds the bone at `BuildRules.shown_net`: the Bone Mill's mean bone over its last
+    `queue.shown_window_s` (60 s) of game time, fed by every live substep and catch-up step and never saved, less
+    the upkeep. A convoy-fed mill mills nothing in a step whose body store stands empty between landings, so the
+    last step alone read `-1.0` for a build an hour off. With no staffed mill or an empty window it is the last
+    step's, and a row the core skipped as never reads `-1.0` in both;
   - **in queue order:** the entries that aren't gated start in order, each when the stocks, grown at those
     rates up to their caps and less what the entries ahead paid at their own starts, cover it. Up to the head
     those stocks are the walk's own copy, so `next` reads `0.0` and `waiting_funds` never does, and no entry

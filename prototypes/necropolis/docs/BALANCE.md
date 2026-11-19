@@ -702,7 +702,7 @@ next_affordable matches the digest above to the digit. Seeds 2–4 show the spre
     day 5's 00:00 session (t 96.3 h).
 - **Proposed rewording (the run's manager's call; not adopted here):** "next affordable: S0's first close starts the
   next build within 10–40 min of the last; S1 and S2 (to day 5): every away block starts at least one build". S1 and
-  S2 would then read met (59 of 60 blocks).
+  S2 would then read met (59 of 60 blocks). Adopted on 2026-11-18 as ruling B3 (the close-out, below).
 - S3 (days 6–8) has no target. There, 10 of 24 day blocks start none. Their heads wait on bone too, with the queue
   thinned to 6–13 entries.
 
@@ -738,6 +738,114 @@ next_affordable matches the digest above to the digit. Seeds 2–4 show the spre
 - **Not tuned.** A prepared away loses no fort (the batch, on the harness field). A neglected one loses about a
   third: 20 of 66 on the harness field, 5 of 20 on the four shipped seeds. WAR 0 loses all 6 forts and, on the harness
   field, every village but the home town's neighbour (§6.4 of the report).
+- **Settled (the close-out's brief):** a neglected away's village loss is a harness-field reading. On the shipped field
+  no village goes to Vei, and Quiet Mill goes neutral on 3 of 4 neglected seeds. Nothing to tune.
+
+### The close-out (Phase I, 2026-11-19; `reports/economy/phase-i-balance.md` §14)
+**Ruling B3 (the run's manager, 2026-11-18; reversible): next affordable is measured per close and per away block.**
+V-I2's rewording is adopted, with no cost-curve unit.
+- **Before:** "next affordable, as gaps between queue starts: S0 10–40 min, S1 1–3 h, S2 4–10 h". At faaec49 that
+  read S0 11 min, S1 19 min and S2 1.6 h (medians): S0 met, S1 and S2 missed.
+- **After:** "next affordable: S0's first close starts the next build within 10–40 min of the last; S1 and S2 (to day
+  5): every away block starts at least one build".
+- **At faaec49's tree (V-I2, seeds 1–4):**
+  - S0 is met: 22 min on seed 1, 20–26 min on seeds 1–4.
+  - S1 and S2 are met in 59 of the 60 away blocks. The one miss is seed 3's 3.7 h block after day 5's 00:00 session
+    (t 96.3 h), whose head waited on bone.
+  - The batch's `next_aff` line still prints the old gaps.
+- **To reverse it:** read the bands from `next_aff` again.
+
+**Ruling B4 (the run's manager, 2026-11-19, on the close-out's flag (c); reversible): the player's queue times read
+the Bone Mill's last live minute, not its last step.**
+- **The misread:** at 37 of the 60 S0–S2 session ends (seeds 1–4, the batch's sessions profile, on a48406d's tree,
+  which is sim-identical to faaec49) the queue head's
+  `affordable_in_s` read −1.0. So did 662 of the 1 200 live minutes in those sessions.
+  - Every one is the convoy flicker. Between convoy landings the body store can stand empty for a whole 0.5 s step.
+    The pits take the whole rot return first (`pits_first`), the mill mills 0, `queue_net`'s bone reads 0 less the
+    upkeep, and the walk returns −1.0.
+  - The town row then said the head can't be afforded at today's bone income, raise WAR on the map. Meanwhile the
+    mean bone net over the last 600 s was above 0 at all 37 ends (and over 60 s too).
+  - The heads started a median of 59.8 min after the session's end (max 4.9 h): 36 in the next away, 1 in the one
+    after.
+  - So it was a misread, not a wall. In about 55% of live minutes it showed a new player the wrong lever.
+- **What changes:** `BuildRules.shown_net(gs)` is `queue_net` with its bone replaced by the mill's mean bone over its
+  last `economy.json` `queue.shown_window_s` (60 s) of live time, less the bone upkeep (`GameState.mill_mean()`).
+  - The window (`GameState._mill_win`) is derived and never saved.
+  - Each live substep feeds it (`_tick`, after `_core_step`). Since the manager's option (a) (2026-11-19), so does each
+    catch-up step (`Catchup.run`, 0.5–15 s each). So the window is the mill's last minute of game time, live or caught
+    up, and the away report, built at a reporting catch-up's end, reads the away's last minute.
+  - A new game and a load (`from_dict`) empty it. A load is followed by its catch-up, which fills the window again.
+  - An empty window, or no staffed mill (`producer_idle`), reads `queue_net`: the ruled fallback.
+- **The shown read** (`shown_net`, the queue walk's timeline) feeds what the player sees:
+  - `view_town().queue[].affordable_in_s`, with its `starved` and `lever`;
+  - the town row's never text;
+  - the away report's waiting line (`afford_text`): with option (a), the away's last minute;
+  - the map's `stalled_head`.
+  - "Never" now shows only when the minute's mean, less the upkeep, is at or below 0, or when the core has skipped
+    the head as never (`never_row`: `head_never` on the last step, with its producer idle or its hold run out). Such a
+    row reads its step time, −1.0, in both reads, because the queue has already passed it.
+- **The step read** (`queue_net`) is unchanged. Every row also carries it as `affordable_in_s_step`. It is read by:
+  - the bots: `_reorder`, `_observe`, `_queue_wall`, `_next_afford` and the rows' head;
+  - the core: `head_dry` and the hold timeout;
+  - Grow's pick (`grow_target`);
+  - the catch-up's head start (`Catchup.build_start_s`, F1);
+  - the away report's never line.
+- **So the bots, the batch and the core sim are bit-identical:**
+  - The 15-profile batch's digest is faaec49's, all 183 lines, on B4's tree and again with option (a). sessions_open
+    keeps its known 3 FAIL, word for word, on both.
+  - The smoke hash is `4ee4a6a006d493ad…` on a48406d, on B4 and with option (a).
+  - `api_version` stays 14, as with P3b's additions, because a bump would change `to_dict` and the smoke hash.
+- **The numbers** (the trace, seeds 1–4):
+  - At the 600 s mean, the 37 heads would start a median of 60.3 min later (max 5.2 h).
+  - 640 of the 662 flicker minutes had a 600 s mean above 0. The other 22 were a session's minute 0, before the
+    probe's window held any live time. Re-timed at that mean, 55 of the 640 start inside the session and 585 after it.
+  - On seed 1 on the B4 tree, all 8 of its −1 session ends and all 160 of its −1 minutes read a time.
+    `affordable_in_s_step` equals the old read at all 480 samples.
+- **After an away, and option (a)** (`resid_probe.gd`, the batch's sessions profile, seeds 1–4; the bots'
+  `next_affordable` matches to the digit on both trees):
+  - **B4 alone** (`begin` emptied the window and the catch-up never fed it):
+    - A session's first reads were the last step's. In 29 of the 60 S0–S2 sessions the head first read −1.0 (22 at
+      the start, 7 in the first frames), and it read a time after a median of 2.5 s of live play (max 7.0 s).
+    - The away report, built once at the catch-up's end (`GameState._report_away`), always read the last step. 22 of
+      the 56 S0–S2 returns that show a report carried the pits-first never line, "Stables can't be afforded, 151
+      bone short at the current income of 0/s bone: the pits are eating every body. Raise WAR, or move it down". S3
+      had 18 of 36. The line stays until it's dismissed.
+  - **With option (a)** (the run's manager, 2026-11-19: "the away report is the first thing a returning player
+    reads"):
+    - 0 of the 56 S0–S2 reports carry a never line (33 carry the waiting line with a time). S3 has 0 of 36.
+    - No session's head first reads −1.0: 0 of 57 in S0–S2, 0 of 90 over all 96 sessions.
+- **Tests:**
+  - `test_shown_net` is new: 28 rows with B4, 33 with option (a) (the away report's two reads; the gap's catch-up
+    fills the window).
+  - `test_catchup`'s F1 rows compare against `affordable_in_s_step`, and against the shown value too, on a gold head
+    where the two are equal.
+  - **Pins that moved** (8 FAIL on B4's first full suite, all fixed in the tests, none on a bot output, F1 or a batch
+    number):
+    - `test_build_queue`'s new-build row now has `affordable_in_s_step`;
+    - its six timed-against-untimed rows erase that key with `affordable_in_s`;
+    - `test_away`'s starved-hold setup now reads the core's dry read: `affordable_in_s_step` −1.0 and TownSim's
+      `mill_starved`. The row's `starved` follows the shown time.
+  - **Revert proofs** (each alone, `--only=shown_net`):
+
+    | revert | B4's tree | with option (a) |
+    |---|---|---|
+    | `shown_net` returns `queue_net(gs)` | 3 FAIL | 4 |
+    | `_tick` doesn't call `_note_mill` | 4 | 4 |
+    | `Catchup.begin` doesn't empty the window (B4 only; (a) drops that line) | 1 | – |
+    | `Catchup.run` doesn't call `_note_mill` ((a)) | – | 1 |
+    | `from_dict` doesn't empty it | 2 | 2 |
+    | the walk's `never_row` line is removed | 1 | 1 |
+    | `shown_net` doesn't check `producer_idle` | 1 | 1 |
+    | the away report's waiting line at `queue_net` ((a); the source pin only, because the line's time is the row's) | – | 1 |
+- **To reverse it:** have `shown_net` return `queue_net(gs)`.
+
+**Phase II (economy's lane): the bots, Grow and the catch-up on the shown read.**
+- Today's last-step reads: the bots' queue reads (`affordable_in_s_step`), Grow's pick (`grow_target`'s `queue_net`)
+  and the catch-up's head start (`Catchup.build_start_s`).
+- Moving them changes when builds start, live and away, so it needs the batch and the faithful grade run again.
+- The mill row's own `starved` reads `pits_first` whenever the mill milled less than it wanted, which is most steps
+  under convoys. It feeds `HudLogic.pits_stalled` beside `stalled_head`. It isn't in B4's list. Decide it with the
+  rest.
 
 ## 6. Known balance risks
 - **The knife edge** (systems review S5). Odds of 0.6 need a backlog of about 18,000 raw. Vei's undead
