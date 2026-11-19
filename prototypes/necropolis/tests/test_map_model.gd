@@ -82,12 +82,40 @@ func run() -> int:
 	t.ok(th.refresh(), "and read once the interval has passed")
 	_builds(t)
 	_slab_names(t)
+	_won_forts(t)
 	return t.failures
 
 
 ## A big undead that still carries the mint default ("Big u1") shows its slab name on the map: through
 ## `unit_names` (CryptLogic.display_names with town.json slab, set by world_map as slab_cfg). With an empty
 ## slab_cfg the model falls back to the view's own name, the mint default.
+## The V-I3 round, ruling 2: the model stamps view_hud.won on each fort (NodeLogic.name_tag and CardLogic.fort_state
+## word it), and the raid tags stay on a won game because a raid really starts there: on a won pre_vei, Relish walks to
+## each fort in the model's raid set and cmd_begin_dungeon opens its run.
+func _won_forts(t: TestUtil) -> void:
+	var s := GameState.new(TestUtil.configs())
+	s.debug_enabled = true
+	s.cmd_debug_load_fixture("pre_vei")
+	var m := MapModel.new(s)
+	m.refresh(true)
+	t.ok(m.forts.all(func(f): return f.has("won") and not bool(f["won"])), "a live game: every fort reads won false")
+	s.cmd_debug_set_state({"won": true})
+	m.refresh(true)
+	t.ok(bool(m.hud["won"]) and m.forts.all(func(f): return bool(f["won"])) and bool(m.fort(str(m.forts[0]["id"]))["won"]), "won: every fort reads won true")
+	var tagged: Array = m.forts.filter(func(f): return m.raid_why(str(f["id"])) != "")
+	t.ok(not tagged.is_empty(), "(setup) a won pre_vei still tags forts to raid: %s" % str(tagged.map(func(f): return f["id"])))
+	var opened: Array = []
+	for f in tagged:
+		var g := GameState.new(TestUtil.configs())
+		g.debug_enabled = true
+		g.cmd_debug_load_fixture("pre_vei")
+		g.cmd_debug_set_state({"won": true, "relish_at": str(f["id"])})
+		var b := g.cmd_begin_dungeon(str(f["id"]))
+		if bool(b["ok"]) and g.won and not (b["seed"] as Dictionary).is_empty():
+			opened.append(f["id"])
+	t.ok(opened.size() == tagged.size(), "a raid really starts at every fort the won map tags 'raid': %s of %s" % [str(opened), str(tagged.map(func(f): return f["id"]))])
+
+
 func _slab_names(t: TestUtil) -> void:
 	t.suite("map_model-slab-names")
 	var s := GameState.new(TestUtil.configs())

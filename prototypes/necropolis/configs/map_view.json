@@ -284,6 +284,7 @@
     "label_first_dungeon": "your first dungeon",
     "label_retaken": "retaken: raid it back",
     "label_overrun": "still Vei's",
+    "label_overrun_won": "not taken",
     "village_size_px": 10.0,
     "village_fill_alpha": 0.55,
     "village_edge_px": 1.5,
@@ -606,7 +607,8 @@
       "rows": [
         {"state": "hers", "word": "VEI'S", "key": "text", "line": "Not taken yet. Raid it and break its warden to take it."},
         {"state": "held", "word": "HELD", "key": "undead", "line": "Yours, taken by breaking its warden. Vei contests it when its timer ends; WAR troops hold it."},
-        {"state": "overrun", "word": "OVERRUN", "key": "text", "line": "Your WAR killed its living and your undead fill it, but it is still Vei's until you break its warden."},
+        {"state": "overrun", "word": "OVERRUN", "key": "text", "line": "Your WAR killed its living and your undead fill it, but it is still Vei's until you break its warden.",
+          "line_won": "Your WAR killed its living and fills it, but it isn't yours until you break its warden."},
         {"state": "retaken", "word": "RETAKEN", "key": "danger", "line": "Vei won it back; its name is tagged \"retaken\". Raid it to win it back."}
       ]
     }
@@ -911,7 +913,8 @@
       "held_contested": "Taken by you. Vei contests it now: keep WAR coming, or stand Relish here.",
       "retaken": "Vei won it back.",
       "veis": "Not taken yet.",
-      "veis_overrun": "Your undead fill it, but it's still Vei's."
+      "veis_overrun": "Your undead fill it, but it's still Vei's.",
+      "veis_overrun_won": "WAR fills it, but it isn't yours until you break its warden."
     },
     "raid_take": "Raid: break the warden to take it. Loot: relics, husks, essence.",
     "raid_again_fmt": "Raid it again for loot: less each time; it recovers over %d h.",

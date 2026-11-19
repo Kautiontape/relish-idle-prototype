@@ -316,7 +316,9 @@ static func first_dungeon_pulse(f: Dictionary) -> bool:
 ## The one line under a fort's name, {text, key} (key: a Palette key), or {} for none:
 ##   the first dungeon (its first clear still pays a blueprint): relish;
 ##   retaken (not held, flipped before: Vei took it back): danger;
-##   overrun (not held, your undead inside, never taken): `label_tag_keys.overrun` (text).
+##   overrun (not held, your undead inside, never taken): `label_tag_keys.overrun` (text): "still Vei's", or once
+##   the game is won (the fort's `won`, MapModel's stamp of view_hud.won) label_overrun_won, "not taken" (the V-I3
+##   round, ruling 2: after her death it is no longer hers, and it still isn't yours).
 ## Drawn at tag_size() px, at least the name's.
 static func name_tag(f: Dictionary) -> Dictionary:
 	var n := ncfg()
@@ -327,7 +329,7 @@ static func name_tag(f: Dictionary) -> Dictionary:
 		if retaken(f):
 			return {"text": str(n["label_retaken"]), "key": str(keys["retaken"])}
 		if fort_state(f, "") == OVERRUN:
-			return {"text": str(n["label_overrun"]), "key": str(keys["overrun"])}
+			return {"text": str(n["label_overrun_won" if bool(f.get("won", false)) else "label_overrun"]), "key": str(keys["overrun"])}
 	return {}
 
 

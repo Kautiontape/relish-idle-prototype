@@ -173,6 +173,12 @@ static func legend_user(closed_by_player: bool) -> int:
 	return 0 if closed_by_player else -1
 
 
+## A legend row's line (clarity.legend.rows[]): its `line`, or once the game is won its `line_won` where it has one
+## (the V-I3 round, ruling 2: OVERRUN's "still Vei's" is not true after her death).
+static func legend_line(row: Dictionary, won: bool) -> String:
+	return str(row["line_won"]) if won and row.has("line_won") else str(row["line"])
+
+
 ## The legend's line under HELD: what the held fort's tag can read, in the chip's own words
 ## (IdleLogic.word of each margin).
 static func held_tag_line() -> String:

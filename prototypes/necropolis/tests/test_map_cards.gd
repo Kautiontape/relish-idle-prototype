@@ -139,6 +139,12 @@ func _state(t: TestUtil) -> void:
 	t.ok(veis["line"] == "Not taken yet.", "its line: " + str(veis["line"]))
 	var over := CardLogic.fort_state({"held": false, "cap": 80.0, "living": 0.0, "undead": 30.0, "flipped_count": 0})
 	t.ok(over["state"] == "veis" and over["chip"]["text"] == "VEI'S" and over["line"] == "Your undead fill it, but it's still Vei's.", "an overrun fort is still Vei's: " + str(over["line"]))
+	# the V-I3 round, ruling 2: once won (MapModel's stamp) its line is true after her death; a fort with living keeps its own
+	var wover := CardLogic.fort_state({"held": false, "cap": 80.0, "living": 0.0, "undead": 30.0, "flipped_count": 0, "won": true})
+	t.ok(wover["line"] == "WAR fills it, but it isn't yours until you break its warden." and not str(wover["line"]).contains("Vei"),
+		"an overrun fort on a won game: " + str(wover["line"]))
+	var wveis := CardLogic.fort_state({"held": false, "cap": 80.0, "living": 60.0, "undead": 2.0, "flipped_count": 0, "won": true})
+	t.ok(wveis["line"] == "Not taken yet.", "a fort with living on a won game: not taken yet, as before")
 	var grace := CardLogic.fort_state({"held": true, "grace_s_left": 374.0, "margin": "thin"})
 	t.ok(grace["state"] == "held" and grace["chip"]["text"] == "HELD · Vei contests in 6:14" and grace["chip"]["key"] == "undead", "held in grace: " + str(grace["chip"]))
 	t.ok(grace["line"] == "Taken by you. Vei contests it when the clock runs out.", "grace line: " + str(grace["line"]))

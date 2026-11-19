@@ -173,7 +173,8 @@ static func status_chips(fort: Dictionary, names: Dictionary, siege_block := 0.0
 
 ## The fort's owner in the glossary's words: {state ("held" / "retaken" / "veis"), chip {text, key},
 ## line (how it got that way and what to do next)}. Retaken is a Vei's fort the player once held
-## (flipped_count > 0); a Vei's fort with undead inside and no living (NodeLogic's overrun) says so.
+## (flipped_count > 0); a Vei's fort with undead inside and no living (NodeLogic's overrun) says so, and once the
+## game is won (the fort's `won`: MapModel's stamp) says it in words true after her death (veis_overrun_won).
 static func fort_state(fort: Dictionary) -> Dictionary:
 	var ch := _table("chips")
 	var keys := _table("chip_keys")
@@ -186,7 +187,7 @@ static func fort_state(fort: Dictionary) -> Dictionary:
 			"line": str(words.get("retaken", ""))}
 	var overrun := NodeLogic.fort_state(fort, "") == NodeLogic.OVERRUN
 	return {"state": "veis", "chip": {"text": str(ch.get("veis", "")), "key": keys.get("veis", "text")},
-		"line": str(words.get("veis_overrun" if overrun else "veis", ""))}
+		"line": str(words.get(("veis_overrun_won" if bool(fort.get("won", false)) else "veis_overrun") if overrun else "veis", ""))}
 
 
 ## The held chip. While the grace clock runs, "HELD · Vei contests in 6:14" (the hold's own colour);

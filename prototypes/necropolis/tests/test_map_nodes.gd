@@ -160,6 +160,21 @@ func _countdowns(t: TestUtil) -> void:
 	t.ok(NodeLogic.fort_state(over, "") == NodeLogic.OVERRUN and tag.get("text", "") == n["label_overrun"] and tag.get("key", "") == "text", "overrun, never taken: Vei's tag in full text (it read dim at the whole-map zoom)")
 	# V-I1 item 4: the tag still says it's hers, and is no wider than a short fort name (the long one hit its neighbours' names)
 	t.ok(str(n["label_overrun"]).contains("Vei's") and MapNodeLayer.label_width(str(n["label_overrun"]), NodeLogic.tag_size()) <= MapNodeLayer.label_width("Lantern Keep", int(MapLogic.cfg()["font_label"])), "the overrun tag is short: " + str(n["label_overrun"]))
+	# the V-I3 round, ruling 2: once won (MapModel stamps view_hud.won on each fort) the tag is true after her death: not
+	# hers, and still not yours (never "held"), as short as before
+	var won_over := over.duplicate()
+	won_over["won"] = true
+	var wtag := NodeLogic.name_tag(won_over)
+	t.ok(wtag.get("text", "") == n["label_overrun_won"] and wtag["text"] == "not taken" and wtag.get("key", "") == "text"
+		and not str(wtag["text"]).contains("Vei") and not str(wtag["text"]).to_lower().contains("held"),
+		"overrun on a won game: '%s', not Vei's and not held" % str(wtag.get("text", "")))
+	t.ok(MapNodeLayer.label_width(str(n["label_overrun_won"]), NodeLogic.tag_size()) <= MapNodeLayer.label_width("Lantern Keep", int(MapLogic.cfg()["font_label"])),
+		"the won overrun tag is as short: " + str(n["label_overrun_won"]))
+	t.ok(NodeLogic.fort_static_sig(won_over, {}) != NodeLogic.fort_static_sig(over, {}), "the won tag changes the fort's static sig, so its layer redraws")
+	var won_back := _fort(100.0, 40.0, 0.0, 0.0)
+	won_back["flipped_count"] = 1
+	won_back["won"] = true
+	t.ok(NodeLogic.name_tag(won_back).get("text", "") == n["label_retaken"], "a retaken fort keeps its tag once won (Vei did win it back)")
 	var first := _fort(100.0, 0.0, 60.0, 0.0)
 	first["first_dungeon"] = true
 	first["first_clear"] = true

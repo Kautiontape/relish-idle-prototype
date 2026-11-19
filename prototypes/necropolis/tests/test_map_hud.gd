@@ -331,6 +331,16 @@ func _clarity(t: TestUtil) -> void:
 	t.ok(not MapSeen.new(spath, true).get_global(MapSeen.LEGEND_CLOSED), "and never wrote it to the file")
 	MapSeen.forget_memory()
 	DirAccess.remove_absolute(spath)
+	# the V-I3 round, ruling 2: once won, OVERRUN's line is true after her death; the rows without a won line keep theirs
+	var rows: Array = MapLogic.cfg()["clarity"]["legend"]["rows"]
+	var orow: Dictionary = rows.filter(func(r): return str(r["state"]) == "overrun")[0]
+	t.ok(HudLogic.legend_line(orow, false) == str(orow["line"]) and str(orow["line"]).contains("still Vei's"), "OVERRUN's line, live: " + HudLogic.legend_line(orow, false))
+	t.ok(HudLogic.legend_line(orow, true) == "Your WAR killed its living and fills it, but it isn't yours until you break its warden."
+		and not HudLogic.legend_line(orow, true).contains("Vei's"), "OVERRUN's line once won: " + HudLogic.legend_line(orow, true))
+	t.ok(rows.all(func(r): return r.has("line_won") or HudLogic.legend_line(r, true) == str(r["line"])), "a row with no won line reads the same once won")
+	var lsrc := FileAccess.get_file_as_string("res://scripts/map/map_legend.gd")
+	t.ok(lsrc.contains("line.text = HudLogic.legend_line(row, _won)") and lsrc.contains("\t_sync_won()\n"),
+		"the legend words its rows with legend_line at the mount and re-words them when won changes (source pin: MapLegend can't compile headless)")
 	t.ok(HudLogic.legend_glyph_state("held") == IdleLogic.SAFE and HudLogic.legend_glyph_state("overrun") == NodeLogic.OVERRUN and HudLogic.legend_glyph_state("hers") == NodeLogic.HERS and HudLogic.legend_glyph_state("retaken") == NodeLogic.HERS, "each legend row draws the map's own state glyph")
 	t.ok(HudLogic.legend_glyph_retaken("retaken") and not HudLogic.legend_glyph_retaken("hers") and not HudLogic.legend_glyph_retaken("held") and not HudLogic.legend_glyph_retaken("overrun"), "only RETAKEN's glyph is cracked: VEI'S and RETAKEN differ by shape")
 	var lc: Dictionary = MapLogic.cfg()["clarity"]["legend"]
