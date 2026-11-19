@@ -338,9 +338,39 @@ func _clarity(t: TestUtil) -> void:
 	t.ok(HudLogic.legend_line(orow, true) == "Your WAR killed its living and fills it, but it isn't yours until you break its warden."
 		and not HudLogic.legend_line(orow, true).contains("Vei's"), "OVERRUN's line once won: " + HudLogic.legend_line(orow, true))
 	t.ok(rows.all(func(r): return r.has("line_won") or HudLogic.legend_line(r, true) == str(r["line"])), "a row with no won line reads the same once won")
-	var lsrc := FileAccess.get_file_as_string("res://scripts/map/map_legend.gd")
-	t.ok(lsrc.contains("line.text = HudLogic.legend_line(row, _won)") and lsrc.contains("\t_sync_won()\n"),
-		"the legend words its rows with legend_line at the mount and re-words them when won changes (source pin: MapLegend can't compile headless)")
+	# the real legend (it names no autoload), outside a tree: _ready by hand words its rows at the mount; _process
+	# re-words them when the model's won changes (the review's should-fix 1: behaviour, not a source pin)
+	var ws := GameState.new(TestUtil.configs())
+	ws.debug_enabled = true
+	t.ok(ws.cmd_debug_load_fixture("midgame_2flips")["ok"], "(setup) the fixture loads")
+	var wm := MapModel.new(ws)
+	wm.refresh(true)
+	var lg := MapLegend.new()
+	lg.model = wm
+	lg._ready()
+	var shown := func() -> String:
+		for pair in lg._lines:
+			if str(pair[0]["state"]) == "overrun":
+				return (pair[1] as Label).text
+		return ""
+	t.ok(shown.call() == str(orow["line"]), "MapLegend at the mount, not won: OVERRUN's own line ('%s')" % shown.call())
+	ws.won = true
+	wm.refresh(true)
+	lg._process(0.0)
+	t.ok(shown.call() == str(orow["line_won"]), "won under a mounted legend: _process re-words OVERRUN ('%s')" % shown.call())
+	ws.won = false
+	wm.refresh(true)
+	lg._process(0.0)
+	t.ok(shown.call() == str(orow["line"]), "and back when won clears")
+	lg.free()
+	var won_lg := MapLegend.new()
+	ws.won = true
+	wm.refresh(true)
+	won_lg.model = wm
+	won_lg._ready()
+	t.ok(won_lg._lines.any(func(p): return str(p[0]["state"]) == "overrun" and (p[1] as Label).text == str(orow["line_won"])),
+		"a legend mounted on a won map words OVERRUN won from the first frame")
+	won_lg.free()
 	t.ok(HudLogic.legend_glyph_state("held") == IdleLogic.SAFE and HudLogic.legend_glyph_state("overrun") == NodeLogic.OVERRUN and HudLogic.legend_glyph_state("hers") == NodeLogic.HERS and HudLogic.legend_glyph_state("retaken") == NodeLogic.HERS, "each legend row draws the map's own state glyph")
 	t.ok(HudLogic.legend_glyph_retaken("retaken") and not HudLogic.legend_glyph_retaken("hers") and not HudLogic.legend_glyph_retaken("held") and not HudLogic.legend_glyph_retaken("overrun"), "only RETAKEN's glyph is cracked: VEI'S and RETAKEN differ by shape")
 	var lc: Dictionary = MapLogic.cfg()["clarity"]["legend"]
@@ -609,10 +639,24 @@ func _bone_warn(t: TestUtil) -> void:
 	t.ok(src.contains("_bone_warn.set_line(HudLogic.bone_line(model.mill, model.queue_stall, _building_names(), hud), HudLogic.bone_quiet(hud))")
 		and src.contains("_bone_warn = BoneWarn.new(parts[\"warn\"] as Label)") and src.contains("func tick(delta: float) -> void:\n\tif _bone_warn != null:")
 		and src.contains("\t\t_bone_warn.tick(delta)") and not src.contains("warn.visible = line != \"\""),
-		"map_hud.gd builds BONE's warning as a BoneWarn, gives it the model's line (with the hud, for FULL and won) on each rev and ticks it every frame (source pin: MapHud can't compile headless)")
-	var vsrc := FileAccess.get_file_as_string("res://scripts/map/map_valve.gd")
-	t.ok(vsrc.contains("HudLogic.pits_stalled(model.mill, model.queue_stall, model.hud)"),
-		"the valve's bone line reads the same stall, with the hud (source pin: MapValve can't compile headless)")
+		"map_hud.gd builds BONE's warning as a BoneWarn, gives it the model's line (with the hud, for FULL and won) on each rev and ticks it every frame (source pin: MapHud names the Game autoload, so it can't compile headless; BoneWarn and bone_quiet are tested above)")
+	# the real valve (it names no autoload), outside a tree: its bone line speaks for the pits' own stall, and is
+	# silent at BONE ▮ FULL and once won, as BONE's warning is (the review's should-fix 1: behaviour, not a source pin)
+	var vm := MapModel.new(GameState.new(TestUtil.configs()))
+	var v := MapValve.new()
+	v.model = vm
+	vm.mill = {"starved": "pits_first"}
+	vm.queue_stall = {}
+	var low := [{"id": "bone", "stock": 120.0, "cap": 300.0}]
+	vm.hud = {"rates": low, "won": false}
+	var said: String = v._bone_text({"war": 0.5})
+	t.ok(said != "" and said == ValveLogic.bone_readout(true, HudLogic.lever_text(HudLogic.stall_lever(vm.mill, vm.queue_stall)), false, 0.5, 0.0),
+		"MapValve: the pits starved with BONE below its cap: the valve says the stall ('%s')" % said)
+	vm.hud = {"rates": [{"id": "bone", "stock": 300.0, "cap": 300.0}], "won": false}
+	t.ok(v._bone_text({"war": 0.5}) == "", "MapValve: the same stall at BONE ▮ FULL: silent")
+	vm.hud = {"rates": low, "won": true}
+	t.ok(v._bone_text({"war": 0.5}) == "", "MapValve: the same stall once won: silent")
+	v.free()
 
 
 func _hud(rates: Array, extra := {}) -> Dictionary:

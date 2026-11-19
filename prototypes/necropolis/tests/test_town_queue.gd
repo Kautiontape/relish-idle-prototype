@@ -237,7 +237,13 @@ func _p2_counts() -> void:
 ## that right now", 05b's two upkeep rows). Revert proof: the upkeep keys dropped.
 func _every_reason() -> void:
 	var unknown := String(vcfg["reasons"]["_unknown"])
-	var codes: Array = GameState.REPORT_WAITED_ON + ["max_level", "unique", "lot_too_small"]
+	# the review's should-fix 2: the codes come from the walk itself, so a new gate code fails here until it has words.
+	# Every `why = "<code>"` in BuildRules.queue_walk and _queue_gate, every `return "<code>"` in req_reason (which
+	# _queue_gate returns), and the walk's "no_<store>" (the never head's, and waiting_funds' no_gold / no_bone).
+	var codes := _walk_codes()
+	var hand: Array = GameState.REPORT_WAITED_ON + ["max_level", "unique", "lot_too_small"]
+	t.ok(hand.all(func(c): return codes.has(c)) and codes.has("upkeep") and codes.has("wait_slot"),
+		"(setup) the codes read off the walk's source cover the old hand-kept list (%d read): %s" % [codes.size(), str(codes)])
 	var bad: Array = []
 	for code in codes:
 		var e := {"status": "skipped_gate", "reason": code, "building_id": "house", "lot_id": "lot-05", "upgrade": false, "level": 1,
@@ -260,6 +266,28 @@ func _every_reason() -> void:
 	up["upgrade"] = true  # build_rules: an upgrade of an unpaid building the income test holds off; the same words hold
 	t.ok(BuildSort.queue_detail(up, {}, {}, cfg["buildings_view"], vcfg)["text"] == d["text"], "an upgrade held by the income test reads the same")
 	t.ok(String(BuildSort.ghosts([upk], {}, {}, cfg["buildings_view"], vcfg)[0]["shape"]) == "plain", "its ghost is plain, not struck")
+
+
+## Every reason code BuildRules' queue walk can put on a row, read off its source: the walk's and _queue_gate's
+## `why = "<code>"`, req_reason's `return "<code>"`, and the walk's "no_<store>" literals. Sorted, no repeats.
+func _walk_codes() -> Array:
+	var src := FileAccess.get_file_as_string("res://scripts/sim/build_rules.gd")
+	var body := func(fn: String) -> String:
+		var i := src.find("static func %s(" % fn)
+		return "" if i < 0 else src.substr(i, src.find("\nstatic func ", i + 1) - i)
+	var out: Array = []
+	var grab := func(text: String, pattern: String) -> void:
+		var re := RegEx.new()
+		re.compile(pattern)
+		for m in re.search_all(text):
+			if not m.get_string(1).ends_with("_") and not out.has(m.get_string(1)):  # "no_" + never: its stores are the no_<store> literals
+				out.append(m.get_string(1))
+	for fn in ["queue_walk", "_queue_gate"]:
+		grab.call(body.call(fn), "why = \"([a-z_]+)\"")
+	grab.call(body.call("req_reason"), "return \"([a-z_]+)\"")
+	grab.call(body.call("queue_walk"), "\"(no_[a-z]+)\"")
+	out.sort()
+	return out
 
 
 ## The V-I3 round's 05b, live: midgame_2flips with the tour's eight builds queued. Five start at once on the fixture's
