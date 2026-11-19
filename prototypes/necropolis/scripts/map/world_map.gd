@@ -253,11 +253,15 @@ func _unhandled_input(e: InputEvent) -> void:
 ## F6 reloads the configs (ground handles the key): re-frame the map, unless the player moved it.
 func _input(e: InputEvent) -> void:
 	if e is InputEventKey and e.pressed and not e.echo and e.keycode == KEY_F6:
-		_refit.call_deferred()
+		_refit.call_deferred(true)
 
 
-func _refit() -> void:
-	MapLogic.configure(ConfigDb.data.get("map_view", {}))  # the deferred re-fit runs before MapNodes re-reads F6's tuning
+## Re-frames the map, unless the player moved it. `reload` (F6): map_view is re-read first, as the deferred re-fit
+## runs before MapNodes re-reads F6's tuning. The bar's inset changes need no re-read, and re-reading would drop
+## MapLogic's fit memo, which is what makes those re-fits cheap (economy P9 C-d's pre_vei frame spikes).
+func _refit(reload := false) -> void:
+	if reload:
+		MapLogic.configure(ConfigDb.data.get("map_view", {}))
 	if cam != null and not cam.user_moved:
 		_fit()
 

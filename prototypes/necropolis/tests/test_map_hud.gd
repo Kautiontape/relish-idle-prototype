@@ -883,6 +883,9 @@ func _wrap(t: TestUtil) -> void:
 	t.ok(right_edge <= 1600.0 - float(cfg["meter_reserve_px"]), "the bar's plate (%.0f) stops left of the ground meter's reserve (%.0f)" % [right_edge, 1600.0 - float(cfg["meter_reserve_px"])])
 	var hud_src := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
 	t.ok(hud_src.contains("HudLogic.wrap_rows("), "the bar lays its rows out with wrap_rows")
+	var wc := hud_src.substr(hud_src.find("func _wrap_cells("), hud_src.find("func _on_objective_pressed(") - hud_src.find("func _wrap_cells("))
+	t.ok(wc.contains("if cell.get_parent() != box:") and wc.contains("box.move_child(cell, k)") and not wc.contains("for c in row.get_children():"),
+		"a re-wrap keeps the row boxes and moves only the cells whose row changed (economy P9 C-d: rebuilding every row cost ~6.5 ms a time)")
 	t.ok(hud_src.contains('odds_name.text = str(cfg["cards"]["vei_odds_label"])') and not hud_src.contains('"ODDS"'), "the bar's odds label is the config's, not a literal")
 	t.ok(str(cfg["cards"]["vei_odds_label"]) == "YOUR ODDS", "and it says whose odds")
 	var bar_odds_w: float = ThemeDB.fallback_font.get_string_size(str(cfg["cards"]["vei_odds_label"]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(cfg["font_label"])).x
