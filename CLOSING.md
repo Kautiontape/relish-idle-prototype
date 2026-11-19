@@ -45,9 +45,9 @@ realm/dungeon-i's closing commits go on top: 116a56c (the V-I3 review's two shou
 
 ## The gate
 - **V-I3 signed off** (`RUN/reports/vision-i3.md`): 36 met, 14 partial and 1 miss over 51 rows. Its re-check after the V-I3 round (`RUN/reports/vision-i3-recheck.md`) found the top three fixed and checklist #8 answered, with nothing blocking Phase I's close.
-- **The suite at the final sha:** (filled at the gate, after realm/integration merges in)
+- **The suite at the final sha:** 18,816 PASS / 0 FAIL, rc 0, no SCRIPT ERROR or Parse Error, 1,607 s, on a git-archive snapshot of 36cefb3, which has realm/integration at 75faffc merged in. The commit that fills in these lines touches only this file, so it leaves `prototypes/necropolis` as 36cefb3 had it (tree 2f5678b). The eight headless boots ran on the same snapshot sha, each rc 0 with no error: the router (new, midgame_2flips, pre_vei won, pre_vei won=reload), the town (new and won), a raid (`RAID_RESULT exit=retreated valid=true`) and the Vei boss.
 - **The slow suites** were green at 2e786ed (`RUN/reports/slow-suites-2e786ed.md`): catchup_bench 402/0, catchup_accuracy 16/0, margin_truth 34/0, autoplay_away_risk 12/0, autoplay_away_risk_real 22/0 and boot_week 15/0, each rc 0 with no script error.
-- **The five deterministic bots** (the four wardens and Vei) are byte-identical to c5d3902 at this gate, as at dungeon-i's earlier gates.
+- **The five deterministic bots** (the four wardens and Vei), run on 36cefb3, are byte-identical to c5d3902 by `cmp`: bell 1,276, shieldwall 1,797, pyre 1,893, huntsman 1,644 and Vei 673 bytes.
 - **The code reviews:** Phase I's milestones and rounds were each reviewed before they merged (`RUN/reports/review-map-i-*.md`, `review-town-i-*.md`, `review-dungeon-i-*.md`, `review-economy-p*.md`, `review-economy-balance.md`, `review-batch-*.md`, `review-v-i2.md`). The last, of the V-I3 round (`review-dungeon-i-v-i3-round.md`), found no must-fix and two should-fixes. Both are fixed in 116a56c: the legend's and the valve's won wiring are now behaviour tests, and the queue's reason codes are read off the walk itself, so a new gate code fails until it has words.
 
 ## Balance misses, accepted
@@ -100,7 +100,7 @@ One list. The phylactery-charge mismatch is already under "Recorded for Phase II
 - **A win summary card:** time, clones used, forts held.
 - **04b's callout placement:** the retreat line prints over the fort's own label and collides with the WAR tooltip.
 - **11b's READY row and LOSSES list.** The unpaid-upkeep line is cut at the panel's edge, which hides its own "Build a Market". "Queue empty: plan the next build" under it then reads as a clash. Fix the clip first (rows that wrap), then drop the queue-empty line when the upkeep line shows. Until then it's the only lever on screen. The LOSSES list repeats seven near-identical "stopped for … gold ran out" lines; group them.
-- **The won map still says VEI'S** on the chip and the legend word for forts not taken, after her death. The tags, card lines and retreat lines are true now; the chip and legend word are the leftover.
+- **The won map still says VEI'S** for forts not taken, after her death. The legend's first row reads "VEI'S" on the won map in `RUN/reports/screens/v-i3-after/10c-won-map-end.png`; its line ("Not taken yet…") is true, only the word is left. The fort card's chip is the same word: `CardLogic.fort_state` takes `chips.veis` whether or not the game is won (no won shot of a card). The tags, card lines and retreat lines are true now.
 - **The #8 card's two nits:** "you don't need one here" (a big undead) right before "this raid can't be won yet" (any undead); and "Haul: none yet (auto)" above a live HAUL FROM HERE, which reads as nothing to haul though the button only sets the target.
 - **The neutral village line** has no shot. Its evidence is `test_away.gd`'s neutral and Vei-taken village cases (the exact line, kind and target) and economy's seed-3 run (`RUN/reports/economy/phase-i-balance.md` §12.2).
 
