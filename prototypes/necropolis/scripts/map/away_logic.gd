@@ -20,10 +20,11 @@ static func cfg() -> Dictionary:
 ## and the viewport's bottom, `margin` px in from each, so its edge never cuts the bar's rows. `body_h` is
 ## its content's height and `pad` the plate's padding. Returns {top, bottom (px up from the viewport's
 ## bottom), body_h (the scroll's height: the body's own, or less when it doesn't fit), scroll (whether it
-## scrolls then)}.
-static func panel_fit(vp_h: float, bar_bottom: float, body_h: float, pad: float, margin: float) -> Dictionary:
+## scrolls then)}. `foot` is the pinned footer's height under the scroll (DISMISS and the gap above it: the V-I3
+## round, 06a's DISMISS sat below the fold at the end of a scrolled body), taken off the body's room.
+static func panel_fit(vp_h: float, bar_bottom: float, body_h: float, pad: float, margin: float, foot := 0.0) -> Dictionary:
 	var top := bar_bottom + margin
-	var room := maxf(vp_h - margin - top - pad * 2.0, 0.0)
+	var room := maxf(vp_h - margin - top - pad * 2.0 - foot, 0.0)
 	return {"top": top, "bottom": margin, "body_h": minf(body_h, room), "scroll": body_h > room}
 
 
