@@ -269,8 +269,8 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
   frame, and chunking never changes the result (tested to the bit at chunks of 1, 7 and 150; the shipped
   chunk is 90, a median 30–33 ms since E2b-2 T3.3b2, Budget).
 
-**Budget.** 12 h in under 2 s and 7 days in under 10 s, on jenova, with a progress screen when it
-takes over 1 s.
+**Budget.** 12 h in under 2 s and 7 days in under 12 s (ruling 37, 2026-11-19, BALANCE §5; it was 10 s), on jenova,
+with a progress screen when it takes over 1 s.
 - **E2 benchmarks one substep first.** If 12 h takes over 2 s, raise `idle.catchup_dt_max_s` before
   touching the design.
 - **The step is exact in its pieces; accuracy sets `idle.catchup_dt_max_s`** (E2b T3.0, which

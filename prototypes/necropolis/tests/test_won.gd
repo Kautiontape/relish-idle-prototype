@@ -6,7 +6,8 @@ extends RefCounted
 ## - Vei's own lanes stop: no living vei->fort (shipping, reship) and no dead fort->vei (the undead her living destroy
 ##   stay at the fort as corpses);
 ## - FLOOD's share goes to WAR (the manager's call): view_hud's split reads flood 0 and WAR the war and flood shares;
-## - the player's side runs on: WAR reaches the held forts, the garrisons hold mass, held_for_s and grace count;
+## - the player's side runs on: WAR fills the held forts' garrisons to their caps (P9b, ruling 36: test_won_war has the
+##   rest), held_for_s and grace count;
 ## - the ledger balances, and a save after the win loads won (a warning saved in flight comes back idle).
 ## #21's measurement is the setup, cut to 30 min (about four tithe periods; 6 h of midgame costs ~14 min a run):
 ## midgame_2flips in 60 s ticks; #21 read 59 warnings, 59 waves and a retake in 6 h, identical with `won` set before P3b.
@@ -116,17 +117,22 @@ func _half_hour() -> void:
 				vei_in += float(l["rate"])
 		var ages := true
 		var mass := 0.0
+		var caps := 0.0
 		for f in s.realm.forts:
 			if held0.has(f["id"]):
 				ages = ages and RealmSim.is_held(f) and float(f["held_for_s"]) >= float(held0[f["id"]]) + SPAN_S - 1.0
 				mass += float(f["undead"])
+				caps += float(f["cap"])
 		t.ok(float(sp["flood"]) == 0.0 and absf(float(sp["war"]) - float(s._split["mint"]) * 0.6 - float(s._split["muster"])) <= 1e-9
 			and sp["muster_to"] == "war" and float(s.realm.r_flood) == 0.0,
 			"won: FLOOD's share goes to WAR (flood %.3f; war %.3f of a %.3f mint at 2:2:1, muster %.3f)" % [
 			float(sp["flood"]), float(sp["war"]), float(s._split["mint"]), float(s._split["muster"])])
 		t.ok(vei_in == 0.0, "won: view_lanes' living and dead lanes carry nothing (%.3f)" % vei_in)
-		t.ok(war_held > 0.0 and mass > 0.0 and ages,
-			"won: WAR still reaches the held forts (%.1f mass/s summed), their garrisons hold %.1f, held_for_s ran the 30 min" % [war_held, mass])
+		# (P9b, ruling 36) WAR fills a won fort's garrison to its cap and then takes none (test_won_war), so the held
+		# forts' r_in reads 0 once they are full; the garrisons are the check
+		t.ok(absf(mass - caps) <= 1e-9 * caps and ages,
+			"won: WAR fills the held forts' garrisons to their caps (%.1f of %.0f; %.1f mass/s summed at the ticks' ends), held_for_s ran the 30 min" % [
+			mass, caps, war_held])
 		var zero := true
 		for f in s.realm.forts:
 			var h: Dictionary = s.view_fort(f["id"])["hold"]

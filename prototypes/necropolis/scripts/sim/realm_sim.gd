@@ -135,8 +135,10 @@ var hold_mult := 1.0
 ## start and on a load; set_won). While it is set Vei does nothing of her own: no tithe (the clock idles, so no
 ## warning, wave or surge, and start_tithe can't restart it), no shipping or reship (living vei->fort), no retake (a
 ## held fort's zero clock doesn't run; grace and held_for_s still count), and the undead her living destroy stay at the
-## fort as corpses (no dead fort->vei). The player's WAR, the garrisons (their drain included) and the holds run as
-## before. Not saved: GameState's `won` is.
+## fort as corpses (no dead fort->vei). The player's WAR, the garrisons and the holds run, with three changes (P9b,
+## ruling 36): no garrison drains on to her queue (set_won zeroes _r_drain), every fort is a WAR target, and no
+## garrison is filled past its cap (_dispatch's limits, step 1's raise room), so WAR falls through to her queue (the
+## realm's sink) only once every garrison is at its cap. Not saved: GameState's `won` is.
 var won := false
 ## The one-wave need's tunables (E4 step 5, ruling B1 (ii); need_of) and the target rule's tie (_lowest_margin).
 var _need_tol := 0.0  # hold.need_tol: the bisection stops when its bracket is this narrow, mass/s
@@ -226,7 +228,7 @@ func setup(world: Dictionary, tunables: Dictionary) -> void:
 	_k_kill = _tf("k_kill")
 	_k_destroy = _tf("k_destroy")
 	_k_clear = _tf("k_clear")
-	_r_drain = _tf("r_drain")
+	_r_drain = 0.0 if won else _tf("r_drain")  # (P9b, ruling 36) beaten, no drain: set_won
 	_lc_dt = NAN  # the _load_cuts exp cache is keyed on dt alone and depends on _r_drain
 	_R_vei = _tf("R_vei")
 	_S_vei = _tf("S_vei")
@@ -410,9 +412,18 @@ func tithe_period() -> float:
 
 
 ## P3b (api-request #21): Vei beaten or not (the `won` field). Beaten, the tithe idles at once (a warning or a wave in
-## flight is dropped), so catch-up clips at no tithe event and no view names a target.
+## flight is dropped), so catch-up clips at no tithe event and no view names a target. P9b (ruling 36): beaten, the
+## garrisons stop draining on to her queue (r_drain 0 for every reader of _r_drain: the fort paths, the loads, the
+## fill), since her queue is the realm's sink and WAR in a garrison stays in the realm; _dispatch then fills every
+## fort's garrison to its cap. Unbeaten again (a new game, a load), the config's r_drain. The exp cache and the need
+## memo read _r_drain, so a change clears both.
 func set_won(on: bool) -> void:
 	won = on
+	var r := 0.0 if on else _tf("r_drain")
+	if r != _r_drain:
+		_r_drain = r
+		_lc_dt = NAN
+		_need_cache = {}
 	if on:
 		tithe = _tithe_idle()
 
@@ -659,6 +670,8 @@ func _step_part(dt: float, inputs: Dictionary, at: float) -> void:
 			w = float(raise_at[f["id"]][0])
 			for e in raise_at[f["id"]][1]:
 				w += float(e[1])
+			if won:
+				w = minf(w, _won_room(f, dt))  # (P9b, ruling 36) beaten, a raise fills the garrison to its cap, no further
 		want_r.append(w)
 
 	# ---- 2. Vei's shipping and the surge, from her pool plus what she can make this step
@@ -1305,6 +1318,28 @@ func _fill_rate(f: Dictionary, dt: float, shipped: float, rho: float) -> float:
 	return maxf(0.0, _fill_inflow(f, dt, shipped, rho) - rho)
 
 
+## P9b (ruling 36): beaten, the inflow (WAR plus the raises, mass/s) that brings a fort's garrison to its cap by the
+## step's end: (cap − U) / dt, never below 0. With no drain (set_won) and no living shipped in, nothing else adds to
+## the garrison and her living's pull only takes from it, so a step's inflow at most this ends at or under the cap.
+## The cap is the garrison's alone: the fort's corpses and her last living don't count against it (a fort that still
+## holds her living is fought at a full garrison).
+## Not the fort's load (cap − U − D): there the kills' corpses at a fort she still holds shrink the room while her
+## pull eats the garrison (midgame_2flips won 1 h: the tier-4 forts ended at 155–162 of 460–520), and corpses don't
+## clear once her living are gone.
+func _won_room(f: Dictionary, dt: float) -> float:
+	return maxf(0.0, (float(f["cap"]) - maxf(0.0, float(f["undead"]))) / dt)
+
+
+## P9b: the raise a beaten fort's room is kept for (_dispatch's limit is the room less this), mass/s. With no living
+## there the corpses only fall (no kills, no pull to destroy undead), so fort_step raises at most the corpses now
+## cover (_raise_rate); with living, their kills can add corpses inside the step, so the whole `want` (already cut to
+## the room: step 1) is kept for it.
+func _won_raise(f: Dictionary, dt: float, want: float) -> float:
+	if float(f["living"]) > 0.0:
+		return maxf(0.0, want)
+	return _raise_rate(f, dt, want, 0.0)
+
+
 ## Step 3. `war` is WAR mass/s this step. The forts with living (or living arriving this step: Vei's
 ## shipping or a surge) and every held fort (as staging) take it by weight, a fort counted once
 ## however many reasons it has. A fort whose only living is Vei's shipping (no living now, no
@@ -1326,6 +1361,13 @@ func _fill_rate(f: Dictionary, dt: float, shipped: float, rho: float) -> float:
 ## they die, so the fort stays at 0 living and full, its kills taking Vei's living. A fort WAR
 ## doesn't fill (too little WAR) keeps her living, as before; whether it fills is judged on the give
 ## cut to the kills (below).
+##
+## P9b (ruling 36): once won every fort is a target, held or not, with living or not, and each takes at most the
+## WAR that brings its garrison to its cap (_won_room, less the raise kept for: _won_raise). With no drain (set_won)
+## a full garrison takes nothing, so WAR falls through to her queue (the realm's sink, r_war_to_vei) only once every
+## garrison is at its cap, and the valve's overflow line is true whenever it shows. A garrison above its cap at the
+## win keeps it and takes nothing. war_route reads "vei" when all of it falls through, else "forts". Shipping is 0
+## once won, so the fill-cap re-split below never runs.
 func _dispatch(war: float, dt: float, held_i: Array[bool], arriving: Array[float], surge_fort: int,
 		tide_fort: String, tide_bias: float, want_r: Array[float]) -> Array[float]:
 	var n := forts.size()
@@ -1336,9 +1378,11 @@ func _dispatch(war: float, dt: float, held_i: Array[bool], arriving: Array[float
 	for i in n:
 		var f: Dictionary = forts[i]
 		var live: bool = f["living"] > 0.0 or arriving[i] > 0.0
-		var w := _war_weight(f, tide_fort, tide_bias) if live or held_i[i] else 0.0
+		var w := _war_weight(f, tide_fort, tide_bias) if live or held_i[i] or won else 0.0
 		var lim := INF
-		if w > 0.0 and not held_i[i] and not (f["living"] > 0.0) and i != surge_fort:
+		if won:
+			lim = maxf(0.0, _won_room(f, dt) - _won_raise(f, dt, want_r[i]))
+		elif w > 0.0 and not held_i[i] and not (f["living"] > 0.0) and i != surge_fort:
 			lim = _fill_rate(f, dt, arriving[i], _raise_rate(f, dt, want_r[i], arriving[i]))
 		any_target = any_target or w > 0.0
 		any_living = any_living or (live and w > 0.0)
@@ -1383,7 +1427,10 @@ func _dispatch(war: float, dt: float, held_i: Array[bool], arriving: Array[float
 	for i in n:
 		forts[i]["r_in"] = rates[i]
 		forts[i]["r_staged"] = rates[i] if held_i[i] else 0.0
-	war_route = ("forts" if any_living else "staged") if any_target else "vei"
+	if won:
+		war_route = "vei" if left > 0.0 and left >= war else "forts"  # (P9b) every fort is a target: "vei" when all are full
+	else:
+		war_route = ("forts" if any_living else "staged") if any_target else "vei"
 	vei["undead_queue"] += left * dt
 	r_war_to_vei = left
 	return rates

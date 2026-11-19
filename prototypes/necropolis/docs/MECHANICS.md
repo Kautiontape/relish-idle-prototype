@@ -707,9 +707,29 @@ corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
   `held_for_s` still count), and no forecast: `train_probe` sees no wave and every fort's `hold` reads zeros (need 0,
   margin 0, `fall_s` −1, `margin_cause` `""`). FLOOD's share and the muster go to WAR (`GameState._split_of` with
   `war_share`/`flood_share`, §3.2's split), so `split.flood` is 0 and `muster_to` `"war"`. Still running: the player's
-  WAR, the garrisons (their drain into her queue too), the hold timers, the town. (P9: the drain stays a sink, the run's
-  manager's call of 2026-11-18. A won map shows it only through Vei's queue count and the valve's overflow line, which
-  dungeon-i hides or rewords on the scene side.)
+  WAR, the garrisons, the hold timers, the town.
+  - **A won game's WAR goes to the forts** (P9b, ruling 36; reversible; it replaces P9's "the drain stays a sink",
+    which the run's manager reversed once the probe showed it). Before it a won pre_vei emptied every fort inside 20
+    min (Ashgate 71 undead to 0) while WAR fell through to her queue at 39/s, against the approved won lines ("WAR to
+    your forts", "stream to your forts"). Three changes, all gated on `won`:
+    - **No drain:** `set_won` sets `r_drain` to 0 for every reader (the fort paths, the loads, the fill), and back to
+      `realm.json`'s on a new game or a load that isn't won. Her queue is the realm's sink once she is beaten, so WAR in
+      a garrison stays in the realm.
+    - **Every fort is a WAR target** (`_dispatch`: held or not, with her last living or not), by the usual weight.
+    - **No garrison is filled past its cap:** each fort takes at most the WAR that brings its garrison to `cap` by
+      the step's end (`_won_room`, (cap − U) / dt, less the raise kept for: `_won_raise`), and a raise (Relish's,
+      a simulacrum's) is cut to the same room in step 1. The cap is the garrison's alone: corpses and her last living
+      don't count against it. The fort's load (cap − U − D) was tried and rejected: the corpses her living leave as
+      they die shrink the room while their pull eats the garrison, and with no living to clear them they never go
+      (midgame_2flips won 1 h: the tier-4 forts ended at 155–162 of 460–520).
+    So WAR falls through to her queue (`r_war_to_vei`, `split.war_overflow`, the valve's won line "lost: your forts
+    are full") only once every garrison is at its cap, and then all of it does; `war_route` reads `"vei"` then, else
+    `"forts"`. Measured (`test_won_war`: 20 min of live play, then the rest as a 10 s catch-up): pre_vei won 2 h,
+    every garrison is at its cap 120 s in and stays there, none falls; midgame_2flips won 1 h, every garrison reaches its
+    cap by 840 s, held Ashgate included (80 of 80, against 10 233 before). Pre-win play is bit-identical. Left as it is:
+    a garrison already above its cap at the win (a held fort with WAR to spare) keeps that mass and takes none; with
+    no drain it doesn't shrink. Once her living at a fort are dead its corpses stay (clearing is k_clear · L̄), so
+    a won fort's load can sit above its cap; nothing reads that once she ships nothing.
 
 ### 3.5 Readouts
 - **Differential:** `diff = inflow − digestion` each substep, where inflow is fort drain + FLOOD +
