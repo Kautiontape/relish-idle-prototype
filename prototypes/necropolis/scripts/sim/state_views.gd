@@ -1179,13 +1179,16 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 		for i in rows.size():
 			var row: Dictionary = rows[i]
 			if row["status"] == "waiting_funds":
-				ready.append(_away_line(afford_text(gs, rep, row, str(w["waits"][i]), BuildRules.queue_net(gs), _move_down_helps(gs, i)), "queue", "queue"))
+				# ruling B4: the player's read (shown_net), as the row's own time: the away's last minute, which the
+				# catch-up's steps fed (option (a)); the last step's only when the window is empty
+				ready.append(_away_line(afford_text(gs, rep, row, str(w["waits"][i]), BuildRules.shown_net(gs), _move_down_helps(gs, i)), "queue", "queue"))
 			elif BuildRules.never_row(row):
 				# Phase I P3 (ruling 3): a head no income can pay is skipped and holds nothing, so its line is the never
 				# form without the move down (it is passed already): its store's rate and the lever that raises it. Only
 				# the first such entry on each store gets one: the ones behind it name the same rate and lever
 				if not never_said.has(str(row["reason"])):
 					never_said[str(row["reason"])] = true
+					# ruling B4: a row the core skipped reads the core's own net (queue_net), as its time does
 					ready.append(_away_line(afford_text(gs, rep, row, str(w["waits"][i]), BuildRules.queue_net(gs), false), "queue", "queue"))
 			elif i == wall and stuck:
 				ready.append(_away_line(afford_text(gs, rep, row, "relics", {}, false), "queue", "queue"))

@@ -476,6 +476,14 @@ from `BALANCE.md` §0.
       the save is refused; §9.1): the results that earn no credit. No shape change for a game with no empty raid.
     - **Grow waits while any building is unpaid (shed)** (the run's manager's ruling 12, changed; §10 A17's
       amendment): `view_stances.grow` then names no pick (§5.11).
+  - **The close-out** (Phase I, ruling B4 and its option (a), the run's manager, 2026-11-19; BALANCE §5). `api_version`
+    stays 14, no key leaves a shape, and `SAVE_VERSION` stays 2.
+    - `view_town().queue[].affordable_in_s` reads its bone at the shown net, `BuildRules.shown_net`: the Bone Mill's
+      bone over its last `economy.json` `queue.shown_window_s` (60 s) of game time, live or caught up, less the bone
+      upkeep. It used to read the last step's.
+    - So do the row's `starved` and `lever`, `cmd_queue_build`'s `affordable_in_s`, and the away report's waiting line.
+    - A new key, `view_town().queue[].affordable_in_s_step` (float): the same walk at the last step's net
+      (`BuildRules.queue_net`), the read the bots and the catch-up keep (§5.9).
 - Consumers ignore keys they don't know and treat an unknown `reason` as a generic refusal.
 - **Milestones.** At E1 every entry exists. Entries not yet real are backed by a stub that returns
   the documented shape. The tag on each entry is the milestone where its values or effects become
@@ -1904,7 +1912,8 @@ in it: that is correct, not a mismatch.
 | `status` | String | `"next"` (the first entry that isn't gated, and the stocks cover it; several can be `next` in a row, each paid for in turn, and all of them start in the next step), `"waiting_funds"` (that head, short of gold or bone: it holds the queue), `"skipped_gate"` (a gate holds it; the walk goes on past it), `"queued"` (behind a waiting head, or behind an entry for its lot that hasn't started) |
 | `reason` | String | `""` for `next` and `queued`; `no_gold`/`no_bone` for `waiting_funds`; for `skipped_gate` the gate: `needs_tier`, `needs_blueprint`, `needs_building`, `lot_locked`, `no_relics` (`view_catalog`'s key for a row the relics can't pay, with the same `cost.relics`, when gold and bone are covered; short of gold or bone too, the catalog says `no_gold`/`no_bone` while the queue still reads `no_relics`, a gate there), `lot_taken` (another entry or `cmd_build` took its lot first), `empty_lot` (an upgrade whose building is gone), `under_construction`, `unpaid`, `max_level`, `unique`, `lot_too_small`, `cost_exceeds_cap` (a cost now above its cap, after a cap building went), `wait_slot` (Phase I P3, §10 A14's amendment: past the first `queue_max` entries no gate holds), and `no_gold`/`no_bone` (Phase I P3, §10 A15: a head no income can pay, skipped at once when its store's producer has no staffed hands or after `queue.never_hold_s` when it has some; `affordable_in_s` −1.0, with `short`, `starved` and `lever` as a waiting head's) |
 | `waited_on` | String | the last reason that kept it from starting (a gate, or `no_gold`/`no_bone`), `""` if it never waited; set when queued and by each step's processing, never by a view. An entry `queued` behind a head waiting on funds takes the head's `no_gold`/`no_bone`. Saved. `queue_started.waited_on` carries it (§6) |
-| `affordable_in_s` | float | v7 (R2): when its funds come at the current net rates, in sim seconds from now: `0.0` when the stocks cover it now, the seconds until they do, or `-1.0` when they never will at these rates. Set by the same walk as `status` (below), so the two never disagree: a `next` entry reads `0.0` and a `waiting_funds` head never does. Never saved; a view changes nothing |
+| `affordable_in_s` | float | v7 (R2): when its funds come at the current net rates, in sim seconds from now: `0.0` when the stocks cover it now, the seconds until they do, or `-1.0` when they never will at these rates. Set by the same walk as `status` (below), so the two never disagree: a `next` entry reads `0.0` and a `waiting_funds` head never does. Since ruling B4 (v14's close-out) its bone net is the shown net, the mill's last minute (below). Never saved; a view changes nothing |
+| `affordable_in_s_step` | float | v14 (ruling B4): the same walk's time at the last step's net (`BuildRules.queue_net`), what `affordable_in_s` read before B4. The bots and `Catchup.build_start_s` (F1) read it. It equals `affordable_in_s` when the mill's window is empty, when no mill is staffed, and on a never row (`skipped_gate` `no_gold`/`no_bone`: both `-1.0`) |
 | `short` | Dictionary | v11 (the A1 day-1 ruling): `{gold, bone}`, what a `waiting_funds` head is short of at the walk's stocks (its cost less what is left once the `next` entries ahead are paid); `0.0` each for every other status. With `affordable_in_s` at `-1.0` it names what a "never" waits on |
 | `starved`, `lever` | String | Why this row's store can't pay it, and the lever that fixes it. **The row's own reason** (the E4 close-out, the final review's item 5): only the head waiting on funds that can never be afforded (`affordable_in_s` −1.0) reads a reason, from the store it is never on (the one its away line names). A timed wait reads `""` whatever the town-wide flags say, since it will be afforded at the current income, and so does every other row. On bone (v11, the A1 day-1 ruling): the mills' `starved` reason (as on the mill's building row) and its `lever`, so a never on bone while the pits eat every body reads `"pits_first"` and `"raise_war"`. On gold (E4 step 10, review-t7r1r2 §5, the Market side): the stalls' reason (`TownSim.trade_starved`), `"living_first"` when the living buy less than the staffed stalls can sell (living · `market.shop_rate` under staffed · `stall.rate`), with the lever `"raise_living"` (housing, or an Inn). `""` otherwise. Per step, never saved |
 
@@ -1915,6 +1924,15 @@ queue never stalls or jumps, so the player gets the data instead, and E3's autop
   net `view_rates` and the HUD show for gold and bone. At the cap those clip the income down to the upkeep and
   read 0; the time uses the income before that clip (`rates.gold.trade` or `.bone.mill`, less `.out`), since
   an entry ahead that spends the store brings the income back. Relics have no idle income (0).
+- **The bone, shown** (ruling B4, the run's manager, 2026-11-19; BALANCE §5):
+  - `affordable_in_s` holds the bone at `BuildRules.shown_net`: the Bone Mill's mean bone over its last
+    `queue.shown_window_s` (60 s) of game time, less the bone upkeep (`GameState.mill_mean`).
+  - Each live substep and, since option (a), each catch-up step feeds the window, so the away report reads the away's
+    last minute.
+  - The last step alone flickers. A convoy-fed mill mills nothing in a step whose body store stands empty between
+    landings (the pits take bodies first), so it read `-1.0` for a build an hour off.
+  - With no staffed mill, or an empty window (a new game, or a load before any step), it is the last step's.
+  - `affordable_in_s_step` keeps the last step's bone, as do the core's never check, Grow's pick and the catch-up.
 - **Entries ahead start first.** The entries that aren't gated (`next`, `waiting_funds`, `queued`) start in
   queue order, each when the stocks, grown at those rates (each up to its cap) and less what the entries ahead
   paid at their own starts, cover its gold, bone and relics. So an entry never reads earlier than the one
@@ -2450,7 +2468,9 @@ The "While you were away" report, for the map's panel (`AwayLogic`, Phase I).
   `affordable_in_s` and the store that sets it, `"Inn is waiting on gold: affordable in 6 m"` (the wait rounded
   up to the minute, `when_hm_fmt` / `when_m_fmt`), or at `-1.0` `"House can't be afforded at the current income
   of 0/s bone: move it down, or build a Bone Mill"` (that store's net rate now, `BuildRules.queue_net`, the HUD's
-  below the cap, and what raises it, `idle.report.afford_raise`), and short of relics, Shawn's words with no rate,
+  below the cap, and what raises it, `idle.report.afford_raise`; since ruling B4 the waiting head's time and rate are
+  at `BuildRules.shown_net`, the mill's bone over the away's last minute, while a never row's line keeps `queue_net`),
+  and short of relics, Shawn's words with no rate,
   `"Crypt level 2 needs relics: raid a fort"` (W; no head reaches it, since the walk gates a relic shortfall as
   `no_relics` first; W2: the line instead shows for the first `no_relics` entry when no entry can start (no row `next`,
   no `waiting_funds` head with `affordable_in_s` >= 0; an entry `queued` behind a `-1.0` head can't start either), with the stores full or not, in queue order after or

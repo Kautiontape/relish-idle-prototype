@@ -129,7 +129,9 @@ func _starved_hold() -> void:
 		s.tick(s.substep_s())
 	var since := float(s.build_queue[0].get("never_since", -1.0))
 	var r0: Dictionary = s.view_town()["queue"][0]
-	t.ok(since >= 0.0 and r0["status"] == "waiting_funds" and r0["starved"] == "pits_first" and float((s.town_sim.staffing["jobs"]["mill"] as Dictionary)["staffed"]) > 0.0,
+	# ruling B4: the core's dry read is the last step's (affordable_in_s_step, and TownSim's flag its starved echoes)
+	t.ok(since >= 0.0 and r0["status"] == "waiting_funds" and float(r0["affordable_in_s_step"]) < 0.0 and s.town_sim.mill_starved == "pits_first"
+		and float((s.town_sim.staffing["jobs"]["mill"] as Dictionary)["staffed"]) > 0.0,
 		"(setup) the mill staffed, its pits first: the head reads dry and holds, never_since %.1f" % since)
 	s.drain_events()
 	# P3b (the P3 review's should-fix 2): an edited save whose never_since is ahead of its t loads at t, so the head

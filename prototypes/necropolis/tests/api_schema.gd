@@ -205,8 +205,11 @@ const TOWN_BUILDING := {
 const QUEUE_ENTRY := {
 	"building_id": S, "lot_id": S, "upgrade": B, "level": I, "cost": COST, "work": F, "status": S, "reason": S,
 	"waited_on": S,
-	# api_version 7 (R2): when its funds come at today's net rates (0.0 now, −1.0 never)
+	# api_version 7 (R2): when its funds come at today's net rates (0.0 now, −1.0 never); from ruling B4 (v14, the
+	# close-out) at the player's read, BuildRules.shown_net (the mill's bone over its last live minute)
 	"affordable_in_s": F,
+	# ruling B4 (v14): the same walk at the last step's net (BuildRules.queue_net): the bots' read and F1's
+	"affordable_in_s_step": F,
 	# api_version 11 (E4, the A1 day-1 ruling): what a head waiting on funds is short of, and while short of bone the
 	# mills' starved reason and its lever
 	"short": {"gold": F, "bone": F}, "starved": S, "lever": S,

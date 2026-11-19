@@ -1053,6 +1053,9 @@ static func _funds_head(q: Array) -> int:
 
 ## The reorder rule: when the head's affordable_in_s is -1, or later than another entry's, the soonest-affordable entry
 ## (ties in queue order; gated entries hold nothing and are left where they are) moves to the head.
+## Ruling B4 (2026-11-19): every bot read of a queue time (here, _observe, _queue_wall, _next_afford and the rows' head)
+## is affordable_in_s_step, the walk at the last step's net (BuildRules.queue_net), so the bots and the batch are the
+## ones before B4 while the player's affordable_in_s reads the mill's live minute (shown_net). Moving the bots is Phase II.
 func _reorder() -> void:
 	for _guard in 8:
 		var q: Array = s.view_town()["queue"]
@@ -1063,13 +1066,13 @@ func _reorder() -> void:
 				continue
 			if h < 0:
 				h = i
-			var a := float(q[i]["affordable_in_s"])
-			if a >= 0.0 and (best < 0 or a < float(q[best]["affordable_in_s"])):
+			var a := float(q[i]["affordable_in_s_step"])
+			if a >= 0.0 and (best < 0 or a < float(q[best]["affordable_in_s_step"])):
 				best = i
 		if h < 0 or best < 0 or best == h:
 			return
-		var ah := float(q[h]["affordable_in_s"])
-		if ah >= 0.0 and float(q[best]["affordable_in_s"]) >= ah:
+		var ah := float(q[h]["affordable_in_s_step"])
+		if ah >= 0.0 and float(q[best]["affordable_in_s_step"]) >= ah:
 			return
 		var order: Array = [best]
 		for i in q.size():
@@ -1092,7 +1095,7 @@ func _observe() -> void:
 		var why := str(q[h]["reason"])
 		if why == "no_bone" and first["bone_wait_seen"] < 0.0:
 			first["bone_wait_seen"] = s.t
-		if float(q[h]["affordable_in_s"]) < 0.0:
+		if float(q[h]["affordable_in_s_step"]) < 0.0:
 			var producer := "market" if why == "no_gold" else "bone_mill"
 			if _stands(tn, producer):
 				var key := "%s/%s/%d/%s" % [q[h]["building_id"], q[h]["lot_id"], int(q[h]["level"]), why]
@@ -1118,7 +1121,7 @@ static func _queue_wall(q: Array) -> bool:
 	var relic := false
 	for e in q:
 		var st := str(e["status"])
-		if st == "next" or (st == "waiting_funds" and float(e["affordable_in_s"]) >= 0.0):
+		if st == "next" or (st == "waiting_funds" and float(e["affordable_in_s_step"]) >= 0.0):
 			return false
 		relic = relic or (st == "skipped_gate" and str(e["reason"]) == "no_relics")
 	return relic
@@ -1129,7 +1132,7 @@ static func _next_afford(q: Array) -> float:
 	for e in q:
 		if str(e["status"]) == "skipped_gate":
 			continue
-		var a := float(e["affordable_in_s"])
+		var a := float(e["affordable_in_s_step"])
 		if a >= 0.0 and (best < 0.0 or a < best):
 			best = a
 	return best
@@ -2080,7 +2083,7 @@ func _row(kind: String) -> Dictionary:
 	var head := {}
 	if h >= 0:
 		head = {"b": str(q[h]["building_id"]), "level": int(q[h]["level"]), "status": str(q[h]["status"]),
-			"reason": str(q[h]["reason"]), "affordable_in_s": _r(float(q[h]["affordable_in_s"]))}
+			"reason": str(q[h]["reason"]), "affordable_in_s": _r(float(q[h]["affordable_in_s_step"]))}
 	_observe()
 	ledger_max = maxf(ledger_max, GameState.Ledger.error(s.ledger()))
 	var row := {"profile": profile, "kind": kind, "t": s.t, "day": _r(s.t / DAY), "band": _band(s.t),

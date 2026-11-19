@@ -121,7 +121,8 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
   arrival, her respawn while she is dead (her `dead_s_left`, E3-2: a save closed while she is dead wakes her at
   the right `t`, and the home stance slot and Vigil follow from there), an unpaid building's resume, a construction finishing, the build queue's head starting on
   funds (its shortfall over the net income, for each currency it lacks; since F1 the net its
-  `affordable_in_s` uses, `BuildRules.queue_net`: the HUD's below the cap, and at a full store the income
+  `affordable_in_s` uses, `BuildRules.queue_net`, and since ruling B4 `affordable_in_s_step`'s, the last step's,
+  while the player's `affordable_in_s` reads the mill's last minute: the HUD's below the cap, and at a full store the income
   before the cap's clip, so a head behind an entry that just spent the store is clipped at its start, not
   read as never), gold or bone reaching its floor,
   a tithe warning, a wave starting or ending, and (E3-4) a simulacrum running out of charges, guarded (below)
@@ -269,7 +270,7 @@ toward 1 over `loot.recover_s`. Being away refills raids, not only losing forts.
   frame, and chunking never changes the result (tested to the bit at chunks of 1, 7 and 150; the shipped
   chunk is 90, a median 30–33 ms since E2b-2 T3.3b2, Budget).
 
-**Budget.** 12 h in under 2 s and 7 days in under 12 s (ruling 37, 2026-11-19, BALANCE §5; it was 10 s), on jenova,
+**Budget.** 12 h in under 2 s and 7 days in under 12 s (ruling 37, 2026-11-18, BALANCE §5; it was 10 s), on jenova,
 with a progress screen when it takes over 1 s.
 - **E2 benchmarks one substep first.** If 12 h takes over 2 s, raise `idle.catchup_dt_max_s` before
   touching the design.
