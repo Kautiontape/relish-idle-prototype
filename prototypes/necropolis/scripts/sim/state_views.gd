@@ -1039,9 +1039,12 @@ static func away_before(gs: GameState) -> Dictionary:
 			unpaid.append(str(lot_id))
 		elif gs.town_sim.buildings[lot_id]["state"] == "thrift":
 			thrift.append(str(lot_id))
-	# backups (Phase I P3's odds split): the count the away's starting odds read (GameState.vei_backups)
+	# backups (Phase I P3's odds split) and raid_credit (P9, the P3b review's should-fix 3): the count and the credit the
+	# away's starting odds read (GameState.vei_backups, raid_credit). A gap's or a load's end of an open run is applied
+	# before this snapshot (end_for_gap, apply_pending: its events are queued as live, before the time away), so its
+	# raid is in the credit here as its chaff is in the backlog and a spent clone in the backups
 	return {"t": gs.t, "streams": away_streams(gs), "overflow": _overflow(gs), "forts": forts, "villages": villages,
-		"unpaid": unpaid, "thrift": thrift, "backups": gs.vei_backups()}
+		"unpaid": unpaid, "thrift": thrift, "backups": gs.vei_backups(), "raid_credit": gs.raid_credit()}
 
 
 static func _overflow(gs: GameState) -> Dictionary:
@@ -1068,7 +1071,7 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 	var now := away_streams(gs)
 	var k_odds := gs._req_f("realm.K")
 	var b0 := float(b["streams"]["backlog"])
-	var odds_from := gs.first_odds(gs.win_odds(float(b["t"]), b0 / (b0 + k_odds)), int(b["backups"]))
+	var odds_from := gs.first_odds(gs.win_odds(float(b["t"]), b0 / (b0 + k_odds), float(b["raid_credit"])), int(b["backups"]))
 	var odds_to := float(gs._vei_readout()["odds"])
 	for id in rep["streams"]:
 		var total := float(now[id]) - float(b["streams"][id])
