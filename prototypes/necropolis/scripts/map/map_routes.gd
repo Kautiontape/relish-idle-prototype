@@ -504,7 +504,7 @@ func _outer(id: String) -> float:
 	if id == MapModel.COVINGTON:
 		return NodeLogic.outer_radius("covington", 0, 0.0)
 	if id == MapModel.VEI:
-		return NodeLogic.outer_radius("vei", 0, float(model.realm.get("vei", {}).get("radius", 0.0)), float(model.vei.get("backlog", 0.0)))
+		return NodeLogic.outer_radius("vei", 0, float(model.realm.get("vei", {}).get("radius", 0.0)), model.drawn_backlog())
 	if model.forts_by_id.has(id):
 		return NodeLogic.outer_radius("fort", int(model.fort(id)["tier"]), 0.0)
 	return 0.0

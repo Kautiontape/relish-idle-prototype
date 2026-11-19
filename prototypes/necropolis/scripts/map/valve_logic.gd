@@ -204,11 +204,22 @@ static func war_overflow(hud: Dictionary, proj: Dictionary, dragging: bool) -> f
 	return float(hud.get("war_overflow", 0.0))
 
 
-## The WAR row's overflow line, {rate: "+3.1/s", text: "overflows to Vei"}, or {} with none.
-static func overflow_parts(overflow: float) -> Dictionary:
+## The WAR row's overflow line, {rate: "+3.1/s", text: "overflows to Vei"}, or {} with none. Once `hud` says
+## the game is won (view_hud.won) the rate stays and the text is valve_overflow_text_won ("lost: your forts are
+## full"): the WAR still goes into her queue (the sim's sink), but no one fights it now and her lanes are hidden
+## (the manager's ruling on Session 3's open 2).
+static func overflow_parts(overflow: float, hud := {}) -> Dictionary:
 	if overflow <= 0.0:
 		return {}
-	return {"rate": MapLogic.fmt_rate(overflow), "text": str(_c().get("valve_overflow_text", ""))}
+	var key := "valve_overflow_text_won" if bool(hud.get("won", false)) else "valve_overflow_text"
+	return {"rate": MapLogic.fmt_rate(overflow), "text": str(_c().get(key, ""))}
+
+
+## Whether the WAR overflow line sits on its own line under WAR's feed ("→ the forts"), not beside it: once won
+## (view_hud.won). Its won words don't fit beside the feed in the rows' width (valve_rows_w_px); the FLOOD row is
+## gone then, so the line's height is kept while won and the panel never jumps as the overflow comes and goes.
+static func overflow_own_line(hud: Dictionary) -> bool:
+	return bool(hud.get("won", false))
 
 
 # --- the payoff ---------------------------------------------------------------------

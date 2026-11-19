@@ -134,6 +134,7 @@ func show_catalog(lot_id: String, lot_size: int, items: Array, st: Dictionary, s
 		_rows_won = bool(st.get("won", false))
 		TownUI.clear(_rows_box)
 		_rows.clear()
+		_set_hover("")  # the hovered row is freed and fires no mouse_exited: so the same row's next hover is sent again
 	var shown := {}
 	for i in items.size():
 		var it: Dictionary = items[i]

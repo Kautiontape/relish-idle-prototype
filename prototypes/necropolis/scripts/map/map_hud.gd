@@ -560,18 +560,29 @@ func _wrap_cells() -> void:
 	if str(rows) == _row_sig:
 		return
 	_row_sig = str(rows)
-	for row in _bar.get_children():
-		for c in row.get_children():
-			row.remove_child(c)
-		_bar.remove_child(row)
-		row.queue_free()
-	for r in rows:
+	# The row boxes are kept and only the cells whose row changed are moved: a moved cell re-themes and re-shapes
+	# every Label in it, and rebuilding every row on each re-wrap cost ~12 ms a time (economy P9 C-d's pre_vei frame
+	# spikes: the BONE cell's stall warning comes and goes there, re-wrapping the bar every few seconds).
+	var boxes: Array = _bar.get_children()
+	while boxes.size() < rows.size():
 		var row := HBoxContainer.new()
 		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		row.add_theme_constant_override("separation", int(cfg["topbar_gap_px"]))
 		_bar.add_child(row)
-		for i in r:
-			row.add_child(_cells[i])
+		boxes.append(row)
+	for ri in rows.size():  # each cell is in exactly one row, so once every row is placed no box holds a stray
+		var box: Node = boxes[ri]
+		var r: Array = rows[ri]
+		for k in r.size():
+			var cell: Control = _cells[r[k]]
+			if cell.get_parent() != box:
+				if cell.get_parent() != null:
+					cell.get_parent().remove_child(cell)
+				box.add_child(cell)
+			box.move_child(cell, k)
+	for ri in range(rows.size(), boxes.size()):  # rows no longer needed: empty by now
+		_bar.remove_child(boxes[ri])
+		(boxes[ri] as Node).queue_free()
 
 
 ## A strip click: the pick's action, except that an opening ask with nothing to select (the valve)

@@ -395,7 +395,7 @@ func _chips_key(z: float, tier: String) -> Array:
 	var tok := ctx.relish_pos * ctx.zoom
 	var travelling := str(ctx.relish.get("state", "")) == "travelling"
 	var shares: Dictionary = ctx.valve_shares if not ctx.valve_shares.is_empty() else model.hud.get("valve_target", model.hud.get("valve", {}))  # as MapFortIdle._layout
-	var extra := [model.forts.size(), travelling, ctx.relish_pos if not travelling else Vector2.ZERO, roundi(float(ctx.vei.get("backlog", 0.0)) * 1000.0),
+	var extra := [model.forts.size(), travelling, ctx.relish_pos if not travelling else Vector2.ZERO, roundi(model.drawn_backlog() * 1000.0),
 		roundi(ctx.vei_radius * 10.0), ctx.cov_pos, ctx.vei_pos]
 	var sig := SetpieceLogic.chips_sig(model.rev, z, tier, model.margin_sig, ctx.chip_fx, Vector2(roundi(tok.x / grid), roundi(tok.y / grid)), NodeLogic.panel_key(ctx.panel), shares, extra)
 	if sig == _chips_sig:
