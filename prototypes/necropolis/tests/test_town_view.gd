@@ -1666,7 +1666,7 @@ func _build_sort(day1: Dictionary) -> void:
 const ALL_REASONS := ["unknown_building", "unknown_lot", "lot_locked", "lot_taken", "lot_too_small", "empty_lot",
 	"under_construction", "needs_tier", "needs_blueprint", "needs_building", "no_lot", "no_gold", "no_bone", "no_relics",
 	"max_level", "protected", "not_building", "queue_full", "cost_exceeds_cap", "unknown_index", "bad_order", "unpaid", "unique",
-	"wait_slot"]
+	"wait_slot", "upkeep"]  # upkeep: the queue's upkeep gate (STATE-API §4.3, E4 step 4); worded since the V-I3 round
 
 
 func _build_reasons(day1: Dictionary) -> void:

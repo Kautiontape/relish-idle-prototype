@@ -27,6 +27,8 @@ func run() -> int:
 	_review_m2()
 	_vat_costed()
 	_p2_counts()
+	_every_reason()
+	_upkeep_live()
 	_second_click()
 	_queue_upgrade_click()
 	_debug_flags()
@@ -207,7 +209,12 @@ func _p2_counts() -> void:
 	t.ok(not BuildSort.queue_list_full(p2), "P2: 3 rows of a 4-row list: not full, whatever the slots say (a gated add holds none)")
 	p2["queue"] = rows + [{"status": "skipped_gate"}]
 	t.ok(BuildSort.queue_list_full(p2), "P2: the list at queue_list_max is full")
-	t.ok(BuildSort.queue_slots_text(p2, vcfg) == "2 of 2 slots", "P2: the title counts slot-holding rows (%s)" % BuildSort.queue_slots_text(p2, vcfg))
+	t.ok(BuildSort.queue_slots_text(p2, vcfg) == "2 of 2 slots held; 2 wait without one",
+		"P2: the title counts slot-holding rows, and (the V-I3 round) says the gated rows hold none (%s)" % BuildSort.queue_slots_text(p2, vcfg))
+	p2["queue"] = rows
+	t.ok(BuildSort.queue_slots_text(p2, vcfg) == "2 of 2 slots held; 1 waits without one", "one gated row: '%s'" % BuildSort.queue_slots_text(p2, vcfg))
+	p2["queue"] = rows.slice(1)
+	t.ok(BuildSort.queue_slots_text(p2, vcfg) == "2 of 2 slots held", "no gated row: just the slots held: '%s'" % BuildSort.queue_slots_text(p2, vcfg))
 	var no_p2 := {"queue": rows, "queue_max": 3}
 	t.ok(not BuildSort.queue_list_full(no_p2) and BuildSort.queue_slots_text(no_p2, vcfg) == "",
 		"a view without P2's fields: no count of ours (the old every-row rule is gone)")
@@ -220,8 +227,61 @@ func _p2_counts() -> void:
 	var s := _state("day1")
 	var town := s.view_town()
 	t.ok(town.has("queue_slots") and town.has("queue_list_max"), "the live view has P2's fields")
-	t.ok(BuildSort.queue_slots_text(town, vcfg) == "0 of %d slots" % int(town["queue_max"]) and not BuildSort.queue_list_full(town),
+	t.ok(BuildSort.queue_slots_text(town, vcfg) == "0 of %d slots held" % int(town["queue_max"]) and not BuildSort.queue_list_full(town),
 		"the live view: '%s'" % BuildSort.queue_slots_text(town, vcfg))
+
+
+## The V-I3 round, ruling 3: every reason the queue's walk can give a row (BuildRules._queue_gate's codes, the never
+## head's no_gold/no_bone, wait_slot: GameState.REPORT_WAITED_ON plus max_level, unique and lot_too_small, which
+## _queue_gate also returns) reads as its own words on the row, skipped or saving, never reasons._unknown ("can't do
+## that right now", 05b's two upkeep rows). Revert proof: the upkeep keys dropped.
+func _every_reason() -> void:
+	var unknown := String(vcfg["reasons"]["_unknown"])
+	var codes: Array = GameState.REPORT_WAITED_ON + ["max_level", "unique", "lot_too_small"]
+	var bad: Array = []
+	for code in codes:
+		var e := {"status": "skipped_gate", "reason": code, "building_id": "house", "lot_id": "lot-05", "upgrade": false, "level": 1,
+			"cost": {"gold": 40.0, "bone": 10.0, "relics": 1}}
+		var line := String(BuildSort.queue_detail(e, {}, {}, cfg["buildings_view"], vcfg)["text"])
+		if line.contains(unknown) or line.contains("{") or line.strip_edges() == "" or not (vcfg["reasons"] as Dictionary).has(code):
+			bad.append("%s: '%s'" % [code, line])
+	for code in ["no_gold", "no_bone"]:
+		var e := {"status": "waiting_funds", "reason": code, "building_id": "house", "lot_id": "lot-05", "upgrade": false, "level": 1,
+			"cost": {"gold": 40.0, "bone": 10.0, "relics": 0}}
+		var line := String(BuildSort.queue_detail(e, {}, {}, cfg["buildings_view"], vcfg)["text"])
+		if line.contains(unknown) or line.contains("{"):
+			bad.append("%s (saving): '%s'" % [code, line])
+	t.ok(bad.is_empty(), "every reason a queue row can carry (%d) has its own words, none '%s': %s" % [codes.size(), unknown, str(bad)])
+	var upk := {"status": "skipped_gate", "reason": "upkeep", "building_id": "stables", "lot_id": "lot-15", "upgrade": false, "level": 1, "cost": {}}
+	var d := BuildSort.queue_detail(upk, {}, {}, cfg["buildings_view"], vcfg)
+	t.ok(BuildSort.is_gate_wait(upk, vcfg) and d["text"] == "queued: waits until your gold income can pay its upkeep" and d["key"] == "text_dim",
+		"an upkeep row waits in its place, in its own words, queued rather than struck: '%s'" % d["text"])
+	var up := upk.duplicate()
+	up["upgrade"] = true  # build_rules: an upgrade of an unpaid building the income test holds off; the same words hold
+	t.ok(BuildSort.queue_detail(up, {}, {}, cfg["buildings_view"], vcfg)["text"] == d["text"], "an upgrade held by the income test reads the same")
+	t.ok(String(BuildSort.ghosts([upk], {}, {}, cfg["buildings_view"], vcfg)[0]["shape"]) == "plain", "its ghost is plain, not struck")
+
+
+## The V-I3 round's 05b, live: midgame_2flips with the tour's eight builds queued. Five start at once on the fixture's
+## stock; their upkeep turns net gold negative, so the Stables and the House behind them are skipped_gate `upkeep`,
+## and their rows say so.
+func _upkeep_live() -> void:
+	var s := _state("midgame_2flips")
+	for pair in [["house", "lot-08"], ["house", "lot-09"], ["bakery", "lot-10"], ["inn", "lot-13"], ["graveyard", "lot-14"],
+			["stables", "lot-15"], ["house", "lot-16"], ["bakery", "lot-17"]]:
+		s.cmd_queue_build(pair[0], pair[1])
+	s.tick(5.0)
+	var town := s.view_town()
+	var cat := _catalog(s)
+	var st := BuildSort.stocks({"town": town, "hud": s.view_hud(), "catalog": s.view_catalog(), "inventory": s.view_inventory()})
+	var upk: Array = (town["queue"] as Array).filter(func(e): return String(e["status"]) == "skipped_gate" and String(e["reason"]) == "upkeep")
+	t.ok(not upk.is_empty(), "(setup) the tour's 05b queue has rows held by upkeep: %s" % str((town["queue"] as Array).map(func(e): return "%s %s %s" % [e["building_id"], e["status"], e["reason"]])))
+	var lines: Array = (town["queue"] as Array).map(func(e): return String(BuildSort.queue_detail(e, cat, st, cfg["buildings_view"], vcfg)["text"]))
+	t.ok(not lines.any(func(l): return String(l).contains(String(vcfg["reasons"]["_unknown"]))), "no row of it reads '_unknown': %s" % str(lines))
+	var head := BuildSort.queue_slots_text(town, vcfg)
+	var gated := (town["queue"] as Array).filter(func(e): return String(e["status"]) == "skipped_gate").size()
+	t.ok(gated > 0 and head.ends_with("wait without one") == (gated > 1) and head.begins_with("%d of %d slots held" % [int(town["queue_slots"]), int(town["queue_max"])]),
+		"the header says what it counts: '%s'" % head)
 
 
 ## C-c: away_report makes the shell re-read every view; a catching_up refusal reads as a wait in every reason map.

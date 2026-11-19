@@ -1256,11 +1256,16 @@ static func queue_list_full(town: Dictionary) -> bool:
 	return town.has("queue_list_max") and (town.get("queue", []) as Array).size() >= int(town["queue_list_max"])
 
 
-## "Queue: 3 of 8 slots": the slot-holding entries (`queue_slots`) against `queue_max`; "" when the view lacks either.
+## "3 of 8 slots held": the slot-holding entries (`queue_slots`) against `queue_max`; with rows that hold none (a gate
+## they wait out, or a skip), "0 of 8 slots held; 3 wait without one" (the V-I3 round: 05b's "(0 of 8 slots)" sat over
+## three rows and didn't say what it counted). "" when the view lacks either field.
 static func queue_slots_text(town: Dictionary, vcfg: Dictionary) -> String:
 	if not town.has("queue_max") or not town.has("queue_slots"):
 		return ""
-	return fmt(String((vcfg.get("queue_text", {}) as Dictionary).get("slots", "")), {"used": int(town["queue_slots"]), "max": int(town["queue_max"])})
+	var used := int(town["queue_slots"])
+	var gated := maxi((town.get("queue", []) as Array).size() - used, 0)  # the V-I3 round: the rows that hold no slot
+	var key := "slots" if gated == 0 else ("slots_gated_one" if gated == 1 else "slots_gated")
+	return fmt(String((vcfg.get("queue_text", {}) as Dictionary).get(key, "")), {"used": used, "max": int(town["queue_max"]), "gated": gated})
 
 
 ## cmd_reorder_queue's order for moving entry `index` by `delta` (±1) in a queue of `n`: `order[k]` is the old index
