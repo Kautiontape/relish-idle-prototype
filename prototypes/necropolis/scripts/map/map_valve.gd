@@ -235,6 +235,7 @@ func refresh(force := false) -> void:
 	_explain.visible = explain_on
 	(_rows["flood"]["box"] as Control).visible = flood_on  # won: the FLOOD row and its corner go
 	(_corner_btns["flood"] as Control).visible = flood_on
+	tooltip_text = HudLogic.tip("mint", model.hud)  # won (flood_on is in the sig): the mint's won line, no FLOOD
 	_payoff_rows(pay_parts)
 	queue_redraw()
 

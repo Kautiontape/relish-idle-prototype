@@ -58,7 +58,7 @@ func _process(_delta: float) -> void:
 
 ## Victory's END (MapSetpieces): no callout for a lane with Vei at either end from now on, the same
 ## lanes the routes stop drawing (LaneStyle.without_vei), so no "why" plate points at a hidden lane.
-## TODO(api-request #21): a stand-in, as MapRoutes.set_vei_hidden.
+## Kept after #21, as MapRoutes.set_vei_hidden says.
 func set_vei_hidden(on: bool) -> void:
 	if on == _vei_hidden:
 		return

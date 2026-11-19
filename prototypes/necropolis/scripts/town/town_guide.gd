@@ -9,7 +9,7 @@ extends RefCounted
 
 ## One line: what building `bid` does for you → the part of the loop it feeds ("" for an unknown id). Once the
 ## game is `won` (view_hud.won), `why_won`'s line where it has one: the Raising Pit's mint no longer goes to Vei.
-## TODO(api-request #21): won-keyed while the sim still sends FLOOD to Vei after a win; the won wording stays after #21.
+## (Since #21 a won game sends nothing to Vei: FLOOD's share and the muster go to WAR.)
 static func why(bid: String, gcfg: Dictionary, won := false) -> String:
 	var w: Dictionary = gcfg.get("why_won", {})
 	if won and w.has(bid):

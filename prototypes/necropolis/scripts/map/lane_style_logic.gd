@@ -196,7 +196,7 @@ static func touches_vei(row: Dictionary) -> bool:
 
 
 ## `rows` without the lanes at Vei when `hide_vei` (the victory's END state), else `rows` as they are.
-## TODO(api-request #21): a stand-in (MapRoutes.set_vei_hidden says why); the identity once #21 stops her lanes.
+## Kept after #21: two lanes into her queue still carry a rate once won (MapRoutes.set_vei_hidden says which).
 static func without_vei(rows: Array, hide_vei: bool) -> Array:
 	if not hide_vei:
 		return rows

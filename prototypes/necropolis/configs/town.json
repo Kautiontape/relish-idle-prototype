@@ -508,6 +508,10 @@
         "husk": "Husk: the frame a big undead is raised in. Lay it on the crypt slab and slot remnants to shape it. Raids bring husks home, or you can craft one from bone and remnants.",
         "phylactery": "Phylactery charge: revives Relish in place, at most once per dungeon. The Ossuary Tower crafts it from essence."
       },
+      "jargon_won": {
+        "_doc": "Once Vei is beaten (view_hud.won), a jargon word's tooltip reads its line here instead of jargon's, where it has one (TownUI.jargon_tip). The words matched are always jargon's.",
+        "mint": "Mint: the undead your Raising Pits make each second. Once Vei is beaten, the map's valve splits it between WORK (your town's jobs) and WAR (your forts)."
+      },
       "goal": {
         "_doc": "The goal plate, at every tier (TownGuide.goal/step, V-I1): the game's goal (head, head_px) over the step due now (its own lead, else lead; px). The top bar's next: line shows the same step's `short`. steps: the first steps, at `tiers` only, while one isn't met; then the next tier (tier, with tier_missing; relics while relics hold it back; the top bar's own line is its short); then at the top tier forts (any fort not held) or vei (forts_any with no forts digest to count). Every step's text stays one line inside the town view (test_town_vi1 _plate_fits).",
         "head": "Your goal: take Vei's forts, then beat Vei. Beating Vei wins the game.",

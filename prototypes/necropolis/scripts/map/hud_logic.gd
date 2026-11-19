@@ -89,16 +89,14 @@ static func objective_text(hud: Dictionary) -> String:
 
 ## Whether Vei's odds / strain / drain show (her node's readout and the top bar's group): not once the game
 ## is won. The tithe line and its telegraph are not keyed on this: they follow view data.
-## TODO(api-request #21): keyed on `won` while the sim still runs her odds after a win; permanent design (a beaten
-## Vei has no odds to read), so it stays after #21.
+## A beaten Vei has no odds to read (P7's design, kept after #21).
 static func vei_readout_shown(hud: Dictionary) -> bool:
 	return not bool(hud.get("won", false))
 
 
 ## Whether the valve panel shows its FLOOD row and corner button: not once the game is won. The panel, its
 ## drag and Covington's stems then show FLOOD's share as WAR's (ValveLogic.won_valve).
-## TODO(api-request #21): a stand-in until economy reroutes FLOOD's share to WAR after a win; hiding FLOOD once
-## won stays the design after #21.
+## Since #21 the sim sends FLOOD's share to WAR once won, so the fold is what it does.
 static func flood_shown(hud: Dictionary) -> bool:
 	return not bool(hud.get("won", false))
 
@@ -224,9 +222,14 @@ static func sidebar_top(viewport_w: float, card_w: float, plates_right: float, g
 
 
 ## The hover line of a jargon word (the bar's MINT, ODDS, STRAIN, DRAIN; the valve's WORK, WAR,
-## FLOOD), from config; "" for a word with none.
-static func tip(id: String) -> String:
-	return str(MapLogic.cfg().get("clarity", {}).get("tips", {}).get(id, ""))
+## FLOOD), from config; "" for a word with none. Once `hud` says the game is won (view_hud.won), clarity.tips_won's
+## line where it has one (the mint's: no FLOOD then).
+static func tip(id: String, hud := {}) -> String:
+	var c: Dictionary = MapLogic.cfg().get("clarity", {})
+	var tw: Dictionary = c.get("tips_won", {})
+	if bool(hud.get("won", false)) and tw.has(id):
+		return str(tw[id])
+	return str(c.get("tips", {}).get(id, ""))
 
 
 ## Which ODDS tip the bar shows: "odds_backups" once view_hud reports backups (economy P3; `backups` is
@@ -235,10 +238,10 @@ static func odds_tip_id(backups: int) -> String:
 	return "odds_backups" if backups >= 0 else "odds"
 
 
-## The hover line `id` on a Label or Button: its tooltip is tip(id) and it passes the mouse on (a Control
+## The hover line `id` on a Label or Button: its tooltip is tip(id, hud) and it passes the mouse on (a Control
 ## that ignores the mouse shows no tooltip). A word with no line is left as it was.
-static func apply_tip(c: Control, id: String) -> void:
-	var text := tip(id)
+static func apply_tip(c: Control, id: String, hud := {}) -> void:
+	var text := tip(id, hud)
 	if text != "":
 		c.tooltip_text = text
 		c.mouse_filter = Control.MOUSE_FILTER_PASS

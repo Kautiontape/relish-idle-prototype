@@ -233,6 +233,19 @@ func _clarity(t: TestUtil) -> void:
 	var mint_line := "Mint: the undead your Raising Pits make each second. The map's valve splits it into WORK (your town's jobs), WAR (your forts) and FLOOD (Vei's queue)."
 	var war_line := "WAR sends undead to your forts, spread by distance, with Relish's fort drawing 3× its share. FLOOD sends them into Vei's queue, which raises your odds against her."
 	t.ok(HudLogic.tip("mint") == mint_line, "the mint tip is the glossary's line verbatim")
+	# once won (the glossary's "After Vei is beaten", approved 16:15): the top bar's MINT and the valve's tooltip
+	var mint_won := "Mint: the undead your Raising Pits make each second. Once Vei is beaten, the map's valve splits it between WORK (your town's jobs) and WAR (your forts)."
+	t.ok(HudLogic.tip("mint", {"won": true}) == mint_won and HudLogic.tip("mint", {"won": false}) == mint_line and HudLogic.tip("mint", {}) == mint_line,
+		"won: the mint tip is the glossary's won line verbatim; not won (or no hud), the plain one")
+	t.ok(HudLogic.tip("drain", {"won": true}) == HudLogic.tip("drain") and HudLogic.tip("war", {"won": true}) == war_line, "won: a word with no won line keeps its line")
+	var wl := Label.new()
+	HudLogic.apply_tip(wl, "mint", {"won": true})
+	t.ok(wl.tooltip_text == mint_won, "apply_tip passes the hud on")
+	wl.free()
+	var hwon := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
+	t.ok(hwon.contains("var retip := bool(hud.get(\"won\", false)) != _tips_won") and hwon.contains("if retip:\n\t\t\tHudLogic.apply_tip(w[\"name\"], str(it[\"id\"]), hud)"),
+		"the bar re-tips its stream words (MINT) when won flips")
+	t.ok(FileAccess.get_file_as_string("res://scripts/map/map_valve.gd").contains("tooltip_text = HudLogic.tip(\"mint\", model.hud)"), "the valve's tooltip reads the hud (its sig holds flood_on, so a flip re-renders it)")
 	t.ok(not MapLogic.cfg()["clarity"].has("valve_tip"), "the mint line lives under clarity.tips.mint only")
 	_tips_on_nodes(t)
 	t.ok(HudLogic.tip("war") == war_line and HudLogic.tip("flood") == war_line, "the WAR and FLOOD tips are the glossary's full line verbatim")

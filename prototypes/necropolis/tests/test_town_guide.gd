@@ -61,6 +61,28 @@ func _jargon() -> void:
 	t.ok(TownUI.jargon_tip("Lay a husk, slot remnants", vcfg) == String(j["husk"]), "the husk line where a husk shows")
 	t.ok(TownUI.jargon_tip("+0.30/s gold now", vcfg) == "", "a line with no jargon has no tooltip")
 	t.ok(TownUI.jargon_tip("Crafts phylactery charges and husks", vcfg).split("\n").size() == 2, "two words, two lines")
+	# once won (the glossary's "After Vei is beaten", approved 16:15): the mint's won line, the others as they are
+	var mint_won := "Mint: the undead your Raising Pits make each second. Once Vei is beaten, the map's valve splits it between WORK (your town's jobs) and WAR (your forts)."
+	t.ok(String(gcfg.get("jargon_won", {}).get("mint", "")) == mint_won, "guide.jargon_won.mint is the glossary's won line verbatim")
+	t.ok(TownUI.jargon_tip("+9.60/s mint now", vcfg, true) == mint_won and TownUI.jargon_tip("+9.60/s mint now", vcfg, false) == String(j["mint"]),
+		"won: a Pit rate's tooltip is the won mint line; not won, the plain one")
+	t.ok(TownUI.jargon_tip("Lay a husk, slot remnants", vcfg, true) == String(j["husk"]) and TownUI.jargon_tip("_doc", vcfg, true) == "",
+		"won: a word with no won line keeps its line, and jargon_won's own keys are never matched")
+	var lbl := Label.new()
+	TownUI.set_jargon_tip(lbl, "+6.00 mint/s", vcfg, true)
+	t.ok(lbl.tooltip_text == mint_won and lbl.mouse_filter == Control.MOUSE_FILTER_STOP, "set_jargon_tip passes won on")
+	lbl.free()
+	var pb := FileAccess.get_file_as_string("res://scripts/town/panel_build.gd")
+	var tc := FileAccess.get_file_as_string("res://scripts/town/town_card.gd")
+	t.ok(pb.count("_vcfg, bool(_st.get(\"won\", false)))") == 2 and tc.contains("w[\"rates\"][k].text, vcfg, bool(st.get(\"won\", false)))")
+		and tc.contains("String(p[0]))), vcfg, won)") and tc.contains("if parts == _status_parts and won == _status_won:")
+		and FileAccess.get_file_as_string("res://scripts/town/town_view.gd").contains("get(\"status_parts\", []), model.won)"),
+		"every jargon tooltip in the town passes won: the Build tab's rates and projection, the lot card's rates and its status line (TownModel.won)")
+	var m := TownModel.new()
+	m.update({"town": {}, "hud": {"won": true}}, Rect2(0, 0, 100, 100))
+	var m2 := TownModel.new()
+	m2.update({"town": {}}, Rect2(0, 0, 100, 100))
+	t.ok(m.won and not m2.won, "TownModel.won is view_hud.won (false without a hud)")
 	var why: Dictionary = gcfg["why"]
 	t.ok(String(why["raising_pit"]).contains("mint") and String(why["raising_pit"]).contains("WAR") and String(why["raising_pit"]).contains("FLOOD"),
 		"the Pit's why says its undead are the mint, and where they go: '%s'" % why["raising_pit"])

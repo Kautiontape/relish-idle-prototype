@@ -11,6 +11,7 @@ var ended := false      # run is over; gameplay stops (raid._ended forwards here
 var finished := false   # `finished` already emitted
 var win_result := {}    # the warden's win, built once at chest open on the clear-card path ({} for the bot); what the card shows and every exit emits
 var pending_exit := ""  # the exit an ending beat will emit (relish_died, warden_beaten); a close keeps it
+var win_recorded := false  # the Vei fight's win is recorded with the state (VeiBoss._record_win, cmd_boss_won): a gap keeps it
 
 var banked := {}                 # the last checkpoint snapshot (full loot shape)
 var _ending_loot := {}           # the loot checkpoint_ending sent for the ending (sticky: every later send repeats it)
@@ -133,7 +134,9 @@ func gap_end(outcome: String) -> void:
 	# A gap drops a still-pending checkpoint: that only matters if state_runs ever refuses a death or win checkpoint
 	# with catching_up (it does not today; see RaidLogic.checkpoint_pending_after).
 	_pending_cp = {}
-	var plan := RaidLogic.gap_plan(ended, pending_exit, _raid.is_boss())
+	# a boss win the state holds (the gap applied it, run_ended outcome "won"; or we recorded it, which an away_report
+	# backstop, with no outcome, can't say) keeps the Vei fight's set piece and card: P3b, api-request #22
+	var plan := RaidLogic.gap_plan(ended, pending_exit, _raid.is_boss(), outcome == "won" or win_recorded)
 	if bool(plan["leave"]):
 		return   # a death or victory beat is running and already matches the state: it keeps its card and its one finish
 	if bool(plan["cut_end"]):

@@ -113,7 +113,7 @@ func refresh() -> void:
 			ConfigDb.data.get("vei", {}), model.big_undead))
 		var acts := RelishLogic.vei_actions(model.vei, model.relish)
 		var at := acts.find_custom(func(i): return str(i["act"]) == "begin")
-		# P7: no odds pinned beside a beaten Vei. TODO(api-request #21): won-keyed; permanent design, stays after #21
+		# P7: no odds pinned beside a beaten Vei (design, kept after #21)
 		if HudLogic.vei_readout_shown(model.hud):
 			acts.insert(maxi(at, 0), {"kind": "line", "text": CardLogic.pinned_odds(model.readout()), "act": "", "enabled": true})
 		_flush_actions(acts)

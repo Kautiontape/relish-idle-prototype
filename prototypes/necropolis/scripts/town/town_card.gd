@@ -25,9 +25,11 @@ var _scroll: ScrollContainer
 var _body: VBoxContainer
 var _rows_box: VBoxContainer
 var _rows := {}
+var _rows_won := false  # whether _rows were built for a won game (their why lines read it): a flip rebuilds them
 var _hover := ""
 var _status: RichTextLabel
 var _status_parts: Array = []
+var _status_won := false  # the won the status line's jargon tooltip was set for
 
 
 func setup(vcfg_: Dictionary, bview_: Dictionary, bcfg_: Dictionary) -> void:
@@ -128,6 +130,10 @@ func show_catalog(lot_id: String, lot_size: int, items: Array, st: Dictionary, s
 	_title.text = "Empty lot (size %d)" % lot_size + ("\n" + note if note != "" else "")
 	_rows_box.visible = true
 	insp_host.visible = false
+	if bool(st.get("won", false)) != _rows_won:  # each row's why line was fixed at build (TownGuide.why reads won)
+		_rows_won = bool(st.get("won", false))
+		TownUI.clear(_rows_box)
+		_rows.clear()
 	var shown := {}
 	for i in items.size():
 		var it: Dictionary = items[i]
@@ -147,11 +153,12 @@ func show_catalog(lot_id: String, lot_size: int, items: Array, st: Dictionary, s
 
 
 ## The building's status line, first in the inspector form: parts [[text, oblique]]
-## (TownModel.status_of). Rebuilt only when it changed.
-func set_status(parts: Array) -> void:
-	if parts == _status_parts:
+## (TownModel.status_of). Rebuilt only when it changed. `won` (TownModel.won) picks the jargon tooltip's won line.
+func set_status(parts: Array, won := false) -> void:
+	if parts == _status_parts and won == _status_won:
 		return
 	_status_parts = parts.duplicate(true)
+	_status_won = won
 	_status.clear()
 	for p in parts:
 		if p[1]:
@@ -161,7 +168,7 @@ func set_status(parts: Array) -> void:
 		else:
 			_status.add_text(String(p[0]))
 	_status.visible = not parts.is_empty()
-	TownUI.set_jargon_tip(_status, " ".join(parts.map(func(p): return String(p[0]))), vcfg)  # "+6.00 mint/s": what mint is
+	TownUI.set_jargon_tip(_status, " ".join(parts.map(func(p): return String(p[0]))), vcfg, won)  # "+6.00 mint/s": what mint is
 
 
 ## The inspector form: the panel's inspector widgets are in `insp_host`.
@@ -259,7 +266,7 @@ func _update_row(w: Dictionary, it: Dictionary, lot_id: String, st: Dictionary, 
 	for k in 3:
 		w["rates"][k].visible = k < ben["rates"].size()
 		w["rates"][k].text = String(ben["rates"][k]) if k < ben["rates"].size() else ""
-		TownUI.set_jargon_tip(w["rates"][k], w["rates"][k].text, vcfg)  # "+9.60/s mint now": what mint is
+		TownUI.set_jargon_tip(w["rates"][k], w["rates"][k].text, vcfg, bool(st.get("won", false)))  # "+9.60/s mint now": what mint is
 	w["plain"].text = "  ".join(ben["plain"])
 	w["plain"].visible = not ben["plain"].is_empty()
 	var why := ""
