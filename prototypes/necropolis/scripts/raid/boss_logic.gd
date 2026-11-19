@@ -679,7 +679,8 @@ static func short_row(sf: Dictionary, words: Dictionary) -> Dictionary:
 ##     guards and starts weaves only in the break, so in play a final death always comes after it).
 ##   - else, on a final death: fix_backups (clones, the fight's backups a player can grow), then the skill tip for what
 ##     struck her last (`tip`, keyed as loss_change_key keys TRY NEXT: weave, living; none for any other cause), so a
-##     player who misplayed isn't only told to bring more (the manager's ruling of 2026-11-19).
+##     player who misplayed isn't only told to bring more (the manager's ruling of 2026-11-19). The guards tip names
+##     the fronts that held (_loss_tip).
 ## `facts`: last_hit_src, fronts_cleared, as loss_change takes them.
 static func short_fix(sf: Dictionary, reason: String, facts: Dictionary, words: Dictionary) -> Dictionary:
 	var items: Array = sf.get("items", [])
@@ -698,11 +699,31 @@ static func short_fix(sf: Dictionary, reason: String, facts: Dictionary, words: 
 	elif items.any(func(e: Dictionary) -> bool: return str(e["kind"]) == "backups"):
 		parts.append(str(words.get("fix_backups", "")))
 		if reason == "relish_unmade":
-			parts.append(str((words.get("tip", {}) as Dictionary).get(loss_change_key(reason, facts), "")))
+			parts.append(_loss_tip(loss_change_key(reason, facts), facts, words))
 	var text := " ".join(PackedStringArray(parts.filter(func(p: String) -> bool: return p != "")))
 	if text == "":
 		return {}
 	return {"label": str(words.get("fix_label", "")), "text": text, "key": "text"}
+
+
+## The tip after fix_backups (vei_loss.tip.<key>). tip.living names the fronts that held, the ones still sending
+## guards (the manager's ruling on Session 7): {fronts} is every front not in facts.fronts_cleared (the list frozen
+## when the break began), in FRONT_IDS order, named by front_names (the names the lane labels upper-case) and joined
+## by short_join, as FELL SHORT joins its entries. In play that is one front: the break begins at fronts_required (3)
+## of 4. With none held no guard is sent, so the tip is left out ("").
+static func _loss_tip(key: String, facts: Dictionary, words: Dictionary) -> String:
+	var tip := str((words.get("tip", {}) as Dictionary).get(key, ""))
+	if key != "living":
+		return tip
+	var cleared: Array = facts.get("fronts_cleared", [])
+	var names: Dictionary = words.get("front_names", {})
+	var held: Array = []
+	for id in FRONT_IDS:
+		if not cleared.has(id):
+			held.append(str(names.get(id, id)))
+	if held.is_empty():
+		return ""
+	return _fmt(tip, {"fronts": str(words.get("short_join", " · ")).join(PackedStringArray(held))})
 
 
 ## The loss card's advice row: short_fix when the fight fell short of something, else TRY NEXT (loss_change).

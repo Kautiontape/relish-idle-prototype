@@ -117,7 +117,7 @@ const FORMATS := {
 	"vei_loss.held_clause": ["{held}"], "vei_loss.pressure_text": ["{mult}", "{pool}", "{reserve}"], "vei_loss.tag": ["{mult}"],
 	"vei_loss.short_front": ["{name}", "{have}", "{need}"], "vei_loss.short_backups": ["{have}", "{need}"], "vei_loss.short_backups_one": ["{have}"],
 	"vei_loss.fix_fronts": ["{fronts}"], "vei_loss.fix_front.giants": ["{gap}"], "vei_loss.fix_front.swarm": ["{gap}"],
-	"vei_loss.fix_front.carvers": ["{gap}"], "vei_loss.fix_front.raw": ["{gap}"],
+	"vei_loss.fix_front.carvers": ["{gap}"], "vei_loss.fix_front.raw": ["{gap}"], "vei_loss.tip.living": ["{fronts}"],
 	"hud.goal.goal_break": ["%s", "%s"], "hud.goal.route_ahead_one": ["%d", "%s"], "hud.goal.route_ahead_many": ["%d", "%s"],
 	"hud.goal.route_next_door": ["%s"], "hud.goal.route_room": ["%d", "%d", "%s"], "hud.goal.rooms_seen": ["%d", "%d"],
 	"hud.goal.push_living": ["%d"], "hud.goal.push_exit": ["%s"], "hud.goal.push_exit_next": ["%s"], "hud.goal.push_exit_rooms": ["%s", "%d"],
