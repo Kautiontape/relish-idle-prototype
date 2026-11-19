@@ -632,6 +632,47 @@ the stand-in resolver's loot, so sessions makes no empty result (0 of 104–125 
 (of 149–169, the first an early greywall run). `raid_credit` 0.00075 and `time_s` 4.5 days stand. **To reverse it:**
 `raid_credit()` on `stats.raids` alone (test_results' `_credit_gate` then fails twice).
 
+**Ruling B2 (the run's manager's option (a), 2026-11-19; reversible): the relic trickle stays at 12 h, and
+ablation_held is recorded as missed** (34% against 20–25%; V-I2 (f) proposed a stronger held-fort trickle).
+Probe: `relic_trickle.period_s` on scratch copies of faaec49's tree, with ablation_held and sessions run.
+
+| `period_s` | ablation_held levels against sessions' (day 8) | cost | ablation_held fronts met | sessions at Vei-ready |
+|---|---|---|---|---|
+| 43 200 (12 h, shipped) | 83 against 126 | 34% | 1 of 3, never ready | day 5.1667, 1+6, odds 0.46 |
+| 21 600 (6 h) | 87 against 123 | 29% | 1 of 3, never ready | day 5.1667, 1+8, odds 0.68 |
+| 14 400 (4 h) | 107 against 129 | 17% | 1 of 3, never ready | day 5.1667, 1+8, odds 0.68 |
+
+- **The cause:** the giants front's have comes from held re-raids' husks, not relics. ablation_held's giants front
+  stays at 5.0 of 14 in every arm (sessions has 16.0 by day 5), and carvers at 8.6 of 9.2. So no trickle makes held
+  raids optional.
+- A faster trickle closes only the levels gap: the band falls near 4.5–5.3 h.
+- It also lifts sessions' first attempt from 1+6 toward 1+8 (odds 0.46 → 0.68), past the 40–60% band (P3's grade:
+  9/20 at 1+6, 16/20 at 1+10).
+- A husk source for a held fort would be dungeon's `loot.json`, a design change.
+- **To reverse it:** set `period_s` and re-grade the faithful seed at its new backups.
+
+**The balance pass's calibration list** (the 15 profiles on faaec49's tree, `git archive`-identical, one seed; the
+faithful grade at sessions' seed; `reports/economy/phase-i-balance.md` §4–§5 has the walls and the load). Against
+P3's batch above, the only rows that move are ruling 35's: continuous 5.0518 → 4.795; static 5.3334 → 6.0001;
+once_per_session 5.1667 → 6.0001 (1+2 → 1+4); ablation_skip_fill 5.1667 → 5.1767 (1+4 → 1+6).
+
+| target | measured | verdict |
+|---|---|---|
+| pure_idle grows 48–72 h | last build 50.1 h of game time | **Met** |
+| town_only plateaus at 2–3 days | 48.19 h (its batch lines are P3's to the digit) | **Met** |
+| next affordable: S0 10–40 min, S1 1–3 h, S2 4–10 h | sessions S0 11 min, S1 19 min, S2 1.6 h (medians) | **S0 met; S1, S2 missed** (as P3) |
+| away build value 70% or more | 87.2% | **Met** |
+| mint swing under 10% | windowed sessions 79, 6.6, 6.6, 18, 8.7, 4.6, 4.4, 5.4% | **Recorded, R-c** |
+| relics 6–12 a day | 14, 11, 4, 7, 15, 23, 6, 16, with the trickle's 13 | **Recorded, R-a** |
+| first Vei attempt 40–60% | the faithful grade, sessions' own 1+6 at score 65: 9/20 (45%), odds shown 0.46; demo 10/20 | **Met** |
+| continuous 5–10% sooner (P3b's aim) | seeds 1–4: 7.2, 9.6, 4.0, 1.3%, mean 5.5% (seed 1's batch 4.795 against 5.1667) | **Met on the mean**; seeds 3–4 under, recorded |
+| a prepared away loses 0 | prepared_72h 0 of 6, prepared 0 of 6, midgame_prepared 0 of 2 | **Met** |
+| an unprepared away loses some | default 1 of 6, midgame_default 1 of 2, war_cut 6 of 6, midgame_war_cut 2 of 2 | **Met** |
+| ablation_held costs 20–25% | 83 levels against 126 (34%), never Vei-ready | **Missed, ruling B2** |
+| I1 (sessions_open) | the known 3 FAIL | **No new FAIL** |
+| catchup_accuracy, margin_truth (slow) | 16 PASS / 0 FAIL; 34 PASS / 0 FAIL | **Pass** |
+| catchup_bench, alone (load 1.2–1.9) | 7 d 11.48 / 10.81 / 9.80 s (midgame_2flips, pre_vei, fresh); 12 h 1.85 / 1.50 / 1.41 s | **Within ruling 37's 12 s and 2 s** |
+
 ## 6. Known balance risks
 - **The knife edge** (systems review S5). Odds of 0.6 need a backlog of about 18,000 raw. Vei's undead
   capacity is about 42/s at q 1.2 and about 20/s at q 2.5, so the active run needs about 5–8 pits and

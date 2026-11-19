@@ -740,7 +740,8 @@ corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
     cap by 840 s, held Ashgate included (80 of 80, against 10 233 before). Pre-win play is bit-identical. Left as it is:
     a garrison already above its cap at the win (a held fort with WAR to spare) keeps that mass and takes none; with
     no drain it doesn't shrink. `test_won_war`'s `_cross_win` crosses the win mid-play: Ashgate set 50 over its cap
-    keeps 130.000 for 10 min and through a save and load, and un-won (`set_won(false)`) the drain is back and it drains. Once her living at a fort are dead its corpses stay (clearing is k_clear · L̄), so
+    keeps 130.000 for 10 min and through a save and load, and un-won (`set_won(false)`) the drain is back and it
+    drains. Once her living at a fort are dead its corpses stay (clearing is k_clear · L̄), so
     a won fort's load can sit above its cap; nothing reads that once she ships nothing.
 
 ### 3.5 Readouts
@@ -796,7 +797,8 @@ corpses (all the WAR stages there), Vei's pool full, and one full wave at once.
     retreats reaching the cap (at most (1 − `time_weight`) × `raid_credit_cap` = 0.036 of readiness).
     **The bots almost never make one:** the stand-in resolver opens the chest at yield 0, so every held re-raid banks
     loot. To day 7 on seeds 1–4, sessions makes 0 empty results in 104–125 raids and continuous 2 in 149–169, and both
-    modes' Vei-ready is P3b's to its last digit, so ruling 35's sizing stands (BALANCE §5, the balance pass's ruling B1).
+    modes' Vei-ready is P3b's to its last digit, so ruling 35's sizing stands (BALANCE §5, the balance pass's ruling
+    B1).
   - **The away report's start odds** (P9, the P3b review's should-fix 3): "odds A → B" reads A on the credit at the
     away's start (`StateViews.away_before`'s `raid_credit`), as it reads that start's backups. A gap's or a load's end
     of an open run is applied before that snapshot (its events are queued as live, before the time away), so its
