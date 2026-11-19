@@ -71,6 +71,8 @@ The **sum of all concepts** baseline: everything above composed into one playabl
 - **Stack:** Godot 4.7 (Compatibility renderer, desktop-first 1600×900, native run — not web-deployed)
 - **Key question:** Does the concept-stack cohere as ONE game — map necrosis + circle raids + town factory + hidden-number escalation against a single recycling enemy?
 - **Status:** Built in one overnight session (2026-08-29). Sim + pacing test-validated (idle never wins; an active factory crosses 60% odds ~2 sim-hours in). Map/town/raid/boss playable.
+- **Realm run (2026-11-13 to 11-19):** extended toward Shawn's vision as the full game. It ported the Realm look, added an idle economy over days with aways and catch-up, held forts and their contest, wardens and risk in raids, backups, Vei's fight as the final test, and a won game. **Phase I is closed:** the game teaches itself from a new game to a won one (V-I3: 36 of 51 vision rows met, 14 partial, 1 miss). What merged, the accepted balance misses, the Phase II backlog and what to play first are in `CLOSING.md`; the design docs are `prototypes/necropolis/docs/`.
+- **Key question now:** Is it the game in the vision: an idle necropolis that streams undead while you're away, raids worth playing by hand, real risk with backups, and Vei as the final test?
 - **Builds on:** everything — realm-sim + BRIEF (relish-realms), Raid & Raise (circle scorer, trance), Slab/Crypt (quality tiers, Vei fronts idea), Graveshift (yard + assignment), copied not shared.
 
 ## Separate
