@@ -380,7 +380,7 @@ func _build_start_on_time() -> void:
 		"the catch-up starts it at +%.3f s, within the live run's substep (+%.2f s)" % [cu_t - s.t, live_t - s.t])
 
 
-## F1: at a full store the queue's head is timed with the net affordable_in_s uses (BuildRules.queue_net: the income
+## F1: at a full store the queue's head is timed with the net affordable_in_s_step uses (BuildRules.queue_net: the income
 ## before the cap's clip, less the upkeep), not the HUD's in − out, which the clip holds at 0 there. A config with a
 ## 100-gold cap (the Market adding none): day1 full, then a House, a Bakery and a Well queued, and one substep. Its
 ## TownSim step ends at the cap (the gold income clipped down to the upkeep), then the House and the Bakery start
@@ -405,9 +405,11 @@ func _build_start_at_cap() -> void:
 		s.town_sim.gold, String.num_scientific(clipped), net])
 	var want := (30.0 - s.town_sim.gold) / net
 	var got := Catchup.build_start_s(s)
-	t.ok(absf(got - want) <= 1e-9 * want and got == float(rows[0]["affordable_in_s"]),
-		"build_start_s at a full store: %.3f s, (30 − %.3f) / %.4f, the Well's affordable_in_s (%.3f s) exactly; the HUD's clipped net would give %s" % [
-		got, s.town_sim.gold, net, float(rows[0]["affordable_in_s"]), "INF" if not (clipped > 0.0) else String.num_scientific((30.0 - s.town_sim.gold) / clipped) + " s"])
+	# ruling B4: F1's twin is affordable_in_s_step (the walk at queue_net, the last step); the player's affordable_in_s
+	# reads the mill's live minute, which a gold head never waits on, so it is the same number here
+	t.ok(absf(got - want) <= 1e-9 * want and got == float(rows[0]["affordable_in_s_step"]) and got == float(rows[0]["affordable_in_s"]),
+		"build_start_s at a full store: %.3f s, (30 − %.3f) / %.4f, the Well's affordable_in_s_step (%.3f s) exactly, and its affordable_in_s; the HUD's clipped net would give %s" % [
+		got, s.town_sim.gold, net, float(rows[0]["affordable_in_s_step"]), "INF" if not (clipped > 0.0) else String.num_scientific((30.0 - s.town_sim.gold) / clipped) + " s"])
 	t.ok(Catchup.next_event_s(s) <= got, "next_event_s clips at it or sooner: %.3f s" % Catchup.next_event_s(s))
 
 

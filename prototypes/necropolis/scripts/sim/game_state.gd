@@ -38,7 +38,7 @@ const REQUIRED := ["realm.relish.raise_rate", "realm.hold.clear_min_living", "lo
 	"economy.town.projection_refresh_s", "economy.town.projection_rows_per_call", "economy.town.projection_rows_per_frame",
 	"economy.town.projection_phase", "economy.town.projection_starve_frames", "economy.town.projection_tol.rel",
 	"economy.town.projection_tol.abs", "realm.flip.hold_s", "realm.flip.tier_mult", "economy.morale.death_shock", "vei.loss_backlog_keep",
-	"realm.relish.tide_bias", "economy.queue.max_len", "economy.queue.list_mult", "economy.queue.never_hold_s", "economy.save.level_sanity_max",
+	"realm.relish.tide_bias", "economy.queue.max_len", "economy.queue.list_mult", "economy.queue.never_hold_s", "economy.queue.shown_window_s", "economy.save.level_sanity_max",
 	"economy.relic_trickle.period_s", "economy.relic_trickle.hold_s",
 	"realm.hold.mint_ref", "realm.hold.mint_alpha",  # (E4 step 5, B1: hold_mult)
 	"realm.odds.time_weight", "realm.odds.time_s", "realm.odds.backlog_cap",  # (E4 step 9, option B: win_odds)
@@ -294,6 +294,13 @@ var _grow_order: Array = []  # economy.json stance.grow.order: the buildings Gro
 ## The reason of the queue head the last core step's processing left waiting on funds, "" when none (BuildRules.
 ## process_queue's return): Grow acts only when it is "", and catch-up's clip at Grow's pick reads it. Session only.
 var _queue_held := ""
+## Ruling B4 (the run's manager, 2026-11-19; the close-out's flag (c)): the Bone Mill's bone over the last economy.json
+## queue.shown_window_s of live time, [dt, bone milled] per live substep (_tick), oldest first: what the player's reads
+## of the queue's times hold fixed (BuildRules.shown_net). A convoy-fed mill mills nothing in a step whose store stands
+## empty between landings (the pits take bodies first), so the last step alone reads "never" for a build an hour off.
+## Live time only: the catch-up runs _core_step and never feeds it; a new game, every load (from_dict) and a
+## catch-up's begin empty it, so the first read after any of them is the last step's (queue_net). Derived, never saved.
+var _mill_win: Array = []
 ## view_stances' `grow` (Grow's pick), cached: [[rev, t, TownSim.structure_rev], {...}] (StateViews.grow_pick). Session only.
 var _grow_view: Array = []
 var _bone_war_share := 0.0  # economy.json opening.bone_edge.war_share (view_hud.bone_war_share)
@@ -666,6 +673,7 @@ func cmd_new_game(seed: int) -> Dictionary:
 	haul_target = "auto"
 	build_queue = []
 	_queue_held = ""
+	_mill_win = []  # (ruling B4) the shown read starts at the last step's
 	stances_on = ["grow"] if bool(_req("economy.stance.grow.default_on")) else []  # Phase I P3 (Q-b): Grow starts on
 	vats_staffed = []
 	town_tier = "hamlet"
@@ -2939,9 +2947,36 @@ func _emit_town(ev: Dictionary) -> void:
 ## One live substep (§3): the core step, then the presentation step, both at `dt`.
 func _tick(dt: float) -> void:
 	var evs := _core_step(dt)
+	_note_mill(dt)
 	_present_step(dt, evs)
 	rev += 1
 	_ticks += 1
+
+
+## Ruling B4: one live substep's mill bone (TownSim's rates.bone.mill, before the cap's clip, as queue_net reads it)
+## into _mill_win, trimmed to the newest economy.json queue.shown_window_s of live time. Only _tick calls it: the
+## catch-up's steps never do.
+func _note_mill(dt: float) -> void:
+	var b: Dictionary = town_sim.rates["bone"]
+	_mill_win.append([dt, float(b.get("mill", float(b["in"]) + float(b.get("overflow", 0.0)))) * dt])
+	var span := 0.0
+	for e in _mill_win:
+		span += float(e[0])
+	var w := _req_f("economy.queue.shown_window_s")
+	while _mill_win.size() > 1 and span - float(_mill_win[0][0]) >= w - 1e-9:
+		span -= float(_mill_win[0][0])
+		_mill_win.pop_front()
+
+
+## Ruling B4: the Bone Mill's mean bone income over _mill_win: {span: the live seconds it holds (0.0 when empty), mill:
+## bone/s over them}.
+func mill_mean() -> Dictionary:
+	var span := 0.0
+	var bone := 0.0
+	for e in _mill_win:
+		span += float(e[0])
+		bone += float(e[1])
+	return {"span": span, "mill": bone / span if span > 0.0 else 0.0}
 
 
 ## The sim's step, valid at any `dt` (IDLE §4: live play runs it at sim.substep_s, catch-up at
@@ -3211,6 +3246,7 @@ func from_dict(d: Dictionary) -> Dictionary:
 	_away = {}  # a load replaces the last report (the next catch-up's, if any, follows)
 	_tiers_seen = [-1, ""]
 	_queue_held = ""  # (Phase I P3) the next core step's processing sets it
+	_mill_win = []  # (ruling B4) the shown read starts at the last step's
 	# the vats come back after TownSim's own load: they open the tend slots (refilled, the saved
 	# states kept); a staffed vat holding a ready clone opens none (_tended_vats, E4 step 10), as live play left it
 	town_sim.set_vats(_tended_vats(), true)

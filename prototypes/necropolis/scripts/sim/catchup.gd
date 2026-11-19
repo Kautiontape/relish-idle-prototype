@@ -88,6 +88,7 @@ func begin(gs: GameState, seconds: float, with_report: bool) -> void:
 	field_n = clampi(int(floor(total_s / min_s)) if min_s > 0.0 else most, 1, maxi(1, most))
 	frame_acc = 0.0
 	_last_evs = []
+	gs._mill_win = []  # (ruling B4) the away isn't live time: the shown read restarts at the last step's
 	if with_report:
 		events = []
 		thrift_log = []
@@ -179,7 +180,7 @@ func _finish(gs: GameState) -> void:
 ## - a construction finishing (TownSim.construction_left's eta_s: the work left over its builders' rate);
 ## - the build queue's head waiting on funds starting: (cost − stock) / net income for each currency it
 ##   lacks, the later of them, while every one of those nets is positive (the last step's TownSim rates,
-##   before the cap's clip: BuildRules.queue_net, affordable_in_s's; build_start_s).
+##   before the cap's clip: BuildRules.queue_net, affordable_in_s_step's; build_start_s).
 ##   A gated entry starts on a tier rise or a building finishing, which are clipped already;
 ## - gold or bone reaching its floor (stock / −net, while the stock is above 1 and the net negative);
 ## - the tithe: its warning (next_s − tithe.warning_s), a wave starting (next_s) and a wave ending
@@ -298,7 +299,8 @@ static func simulacrum_out_s(gs: GameState) -> float:
 ## entry waits on funds or a currency it lacks isn't growing. The core step's processing leaves that head
 ## with waited_on no_gold or no_bone (BuildRules.process_queue; the entries queued behind it take the
 ## same, so the head is the first), and the stocks at a step boundary are those its walk read. F1: the net
-## is affordable_in_s's, BuildRules.queue_net (the income before the cap's clip, less the upkeep), so the two
+## is affordable_in_s_step's (ruling B4: the player's affordable_in_s reads shown_net), BuildRules.queue_net (the
+## income before the cap's clip, less the upkeep), so the two
 ## never drift: below the cap it is the HUD's in − out exactly; at a full store, where that clips to 0, an
 ## entry ahead that spent the store this step has brought the income back.
 ## Phase I P3 (ruling 3): a head with no path to its funds is skipped with the same no_gold or no_bone

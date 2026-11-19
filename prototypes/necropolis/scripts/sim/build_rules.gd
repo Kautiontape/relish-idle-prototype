@@ -486,6 +486,10 @@ static func queue_levels(gs: GameState, entries: Array) -> Array:
 ## in order, waits: per entry the store that sets its time ("gold", "bone", "relics"; "" when its stocks cover
 ## it at the clock: 0.0, or the start of the entry ahead)}. `timed` false (the core step's processing, which reads
 ## only the statuses, every step and every catch-up step) skips the times: no affordable_in_s, waits [].
+## Ruling B4: the timeline's net is shown_net (the player's read: the mill's bone over its last live minute), and each
+## row also carries `affordable_in_s_step`, the same walk at queue_net (the last step's), which the bots and F1 read; a
+## row the core skipped as never (never_row) reads its step time (−1.0) in both. The waits, starved and lever follow
+## the shown time.
 static func queue_walk(gs: GameState, entries: Array, timed := true) -> Dictionary:
 	var levels := queue_levels(gs, entries)
 	var gold := gs.town_sim.gold
@@ -501,7 +505,10 @@ static func queue_walk(gs: GameState, entries: Array, timed := true) -> Dictiona
 	var start: Array = []
 	# R2: the funds' timeline: `fund` the stocks at `clock` (the last timed start) after what the entries
 	# started by then paid; `starved` the stores an entry that never starts waits on
-	var tl := {"clock": 0.0, "fund": {"gold": gold, "bone": bone, "relics": float(relics)}, "net": queue_net(gs),
+	var tl := {"clock": 0.0, "fund": {"gold": gold, "bone": bone, "relics": float(relics)}, "net": shown_net(gs),
+		"cap": {"gold": gs.town_sim.gold_cap(), "bone": gs.town_sim.bone_cap(), "relics": float(gs._cap_of("relics"))}, "starved": {}} if timed else {}
+	# ruling B4: the same timeline at the last step's net (queue_net), for affordable_in_s_step (the bots' read, F1's)
+	var tl_step := {"clock": 0.0, "fund": {"gold": gold, "bone": bone, "relics": float(relics)}, "net": queue_net(gs),
 		"cap": {"gold": gs.town_sim.gold_cap(), "bone": gs.town_sim.bone_cap(), "relics": float(gs._cap_of("relics"))}, "starved": {}} if timed else {}
 	var waits: Array = []
 	var slots := 0  # Phase I P3 (A14's amendment): the rows so far that hold a slot (every one that isn't skipped_gate)
@@ -561,8 +568,12 @@ static func queue_walk(gs: GameState, entries: Array, timed := true) -> Dictiona
 		row["lever"] = ""
 		if timed:
 			var at := _afford_at(gs, cost, tl, status != "skipped_gate")
+			var at_step := _afford_at(gs, cost, tl_step, status != "skipped_gate")
+			if never_row(row):
+				at = at_step  # ruling B4: a head the core skipped as never (head_never, on the last step) reads never here too
 			waits.append(at[1])
 			row["affordable_in_s"] = float(at[0])
+			row["affordable_in_s_step"] = float(at_step[0])
 			# the row's own reason (the E4 final review's item 5): only a head waiting on funds that can never be
 			# afforded (−1.0) reads why the store it is never on makes less than it could, and the lever that fixes it:
 			# bone, the mills' (TownSim.mill_starved, the A1 day-1 ruling: "pits_first", "raise_war"); gold, the stalls'
@@ -651,6 +662,25 @@ static func queue_net(gs: GameState) -> Dictionary:
 	for k in [["gold", "trade"], ["bone", "mill"]]:
 		var s: Dictionary = r[k[0]]
 		out[k[0]] = float(s.get(k[1], float(s["in"]) + float(s.get("overflow", 0.0)))) - float(s["out"])
+	return out
+
+
+## Ruling B4 (the run's manager, 2026-11-19; the close-out's flag (c)): the net the player's reads of the queue's times
+## hold fixed. queue_net, with the bone's income the Bone Mill's mean over its last economy.json queue.shown_window_s of
+## live time (GameState.mill_mean) in place of its last step, less the same upkeep. A convoy-fed mill mills nothing in
+## a step whose store stands empty between landings (the pits take bodies first), so at the last step alone the head
+## read −1.0 ("can't be afforded at today's bone income ... raise WAR") in 662 of 1 200 live minutes of the batch's
+## sessions profile, for builds a median hour off. It reads queue_net when the window holds no live time (a new game, a
+## load, a catch-up's begin) or the mill has no staffed hands (producer_idle: its last bone would still be in the
+## window). Its readers: the timed walk's affordable_in_s, waits, starved and lever (view_town().queue, cmd_queue_build's
+## extra, the town row's never text, the map's stall line) and the away report's afford_text. queue_net (the last
+## step) stays the core's (head_dry and the hold), the catch-up's build_start_s (F1), Grow's pick and the bots'
+## (affordable_in_s_step); moving those is Phase II.
+static func shown_net(gs: GameState) -> Dictionary:
+	var out := queue_net(gs)
+	var m := gs.mill_mean()
+	if float(m["span"]) > 0.0 and not producer_idle(gs, "bone"):
+		out["bone"] = float(m["mill"]) - float(gs.town_sim.rates["bone"]["out"])
 	return out
 
 
