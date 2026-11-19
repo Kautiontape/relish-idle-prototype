@@ -673,6 +673,72 @@ once_per_session 5.1667 → 6.0001 (1+2 → 1+4); ablation_skip_fill 5.1667 → 
 | catchup_accuracy, margin_truth (slow) | 16 PASS / 0 FAIL; 34 PASS / 0 FAIL | **Pass** |
 | catchup_bench, alone (load 1.2–1.9) | 7 d 11.48 / 10.81 / 9.80 s (midgame_2flips, pre_vei, fresh); 12 h 1.85 / 1.50 / 1.41 s | **Within ruling 37's 12 s and 2 s** |
 
+### V-I2's measurements (Phase I, 2026-11-18; `reports/economy/phase-i-balance.md` §12)
+Measurement only: no sim or config change, no pin moved. The tree is 031f42b's (735a168's is the same). The tools are
+`reports/economy/wip/tools-bal/na_probe.gd`, `na_gaps.py` and `vil_probe2.gd`.
+
+**Next affordable across a close.** The run is the batch's sessions profile. Seed 1 is the batch's own run: its
+next_affordable matches the digest above to the digit. Seeds 2–4 show the spread.
+- The batch's gaps are between every queue or Grow start, live and away. So most of them fall inside an away:
+  - over seeds 1–4, 408 of 487 starts happen in a catch-up;
+  - of S1's 207 gaps, 196 lie inside one away and 1 inside a session.
+- The rows above that say "starts bunch inside the sessions" are wrong. The queue starts its builds in steps while
+  away, as the away's bone comes in.
+- "Across a close" means from the last start before the close to the queue's next start, live or away.
+
+| band (target) | the batch's gaps: median, max | in-session gaps: median (n) | across a close, day: median, max | across a close, night | away blocks: starts each |
+|---|---|---|---|---|---|
+| S0 (10–40 min) | seed 1 11.7 min, 21.7 min; seeds 1–4 10.9 min, 26 min | 2 min (4) | 23 min, 26 min (4 closes) | (none in S0) | 12–13 |
+| S1 (1–3 h) | 19 min, 1.9 h; 19 min, 2.0 h | 2 min (1) | 47 min, 52 min (4) | 54 min, 59 min (4) | day 7–8, night 24–34 |
+| S2 (4–10 h) | 1.55 h, 6.27 h; 1.45 h, 7.15 h | 3 min (27) | 1.7 h, 4.8 h (32) | 2.7 h, 6.9 h (16) | day median 2 (1 of 32 starts none), night median 5 (3 or more) |
+
+- **The head at every close is the cost curve, not the bot's queue.** At 59 of the 60 S0–S2 closes, the head waits
+  on bone (`no_bone`). The 60th has every entry gated (the relic wall).
+- **Reading: the targets measure the wrong gap.**
+  - The bands come from `reports/pacing-spine.md` §4: "S2 4–10 h (one per away block)", meaning one buy per away.
+  - The game makes several starts per away block, in small bone-priced steps: in S2 a median 2 a day block and 5 a
+    night block, in S1 7–34. So any gap between starts reads short.
+  - The intent holds: 59 of the 60 S0–S2 away blocks start at least one build. The miss is seed 3's 3.7 h block after
+    day 5's 00:00 session (t 96.3 h).
+- **Proposed rewording (the run's manager's call; not adopted here):** "next affordable: S0's first close starts the
+  next build within 10–40 min of the last; S1 and S2 (to day 5): every away block starts at least one build". S1 and
+  S2 would then read met (59 of 60 blocks).
+- S3 (days 6–8) has no target. There, 10 of 24 day blocks start none. Their heads wait on bone too, with the queue
+  thinned to 6–13 entries.
+
+**The neglected away's villages** (`vil_probe2.gd`).
+- **The setup is P3b §4's:** the lead-in to t 202 800, then 72 h away.
+  - Neglected: the new game's valve 0.25/0.60/0.15, with every stance off but Grow.
+  - Control: the bot's own valve and stances.
+- **On the harness field (8 × 6, the batch's), 12 seeds:**
+  - Forts match P3b on all 12 seeds (66 held). The neglected arm loses 20: per seed 2, 0, 1, 2, 2, 2, 3, 1, 1, 2, 3,
+    1. P3b's 21 differ only on seed 4, where it read 3. The control loses 0.
+  - The player holds 112 villages at the leave (P3b counted 88). The neglected arm loses 10, on 10 of 12 seeds, and
+    it is always Cobb. Every seed that holds Cobb at the leave loses it; on seeds 2 and 12 it was already Vei's. The
+    away report names each loss. The control loses 0.
+  - **P3b's 0 came from its deleted probe's count:** P3b's own path (an identity load at the leave) and P3b's tree
+    (7c30d1a) both give these 12 results to the digit.
+  - **The cause:** Cobb is the held village nearest Vei's seat (516 away; her pool is full, strength 2.000).
+    - Under the neglected valve the held garrisons shrink: the held forts' Σ undead/cap goes −1.4 to −6.9 over the
+      72 h, where the control's goes +1.4 to +8.3. One to three forts are retaken.
+    - So the front from her seat moves back across Cobb's cell.
+    - Briar End, 828 from her seat, is held more weakly on 8 seeds and still holds: the loss follows the distance to
+      her seat, not the margin.
+    - On all 10 seeds the loss stays after 900 s of live ticks: it's the sources', not the catch-up field's.
+- **On the shipped field (128 × 90, the whole run: `VIL_FULL=1`), neglected seeds 1–4: no village goes to Vei.**
+  - At the leave the player holds only 3 or 4 villages, all within 434 of home (Bellwether, Tarnish, Quiet Mill,
+    Saltcreek). The other 8–9 are neutral and Vei holds none. On the harness field it was 8–10 for the player.
+  - The forts are the harness run's: the same garrisons (seed 1) and the same losses (2, 0, 1, 2).
+  - Quiet Mill (434 from home) goes neutral: on seed 3 at the return, and on seeds 1, 3 and 4 within 900 s of live
+    play after it. The away report names it on none of them, because it names only a village lost to Vei.
+  - An identity load plus 900 s live (seed 1) keeps all 4: a load alone loses no village.
+  - So the "1 village (Cobb)" on a neglected away is a harness-field reading.
+  - In the game, the shipped field's reach decides the villages: 8 or 9 of 12 sit neutral on day 3, with 3–6 forts
+    held. That's the `field` block (ground's), and it's for the vision review.
+- **Not tuned.** A prepared away loses no fort (the batch, on the harness field). A neglected one loses about a
+  third: 20 of 66 on the harness field, 5 of 20 on the four shipped seeds. WAR 0 loses all 6 forts and, on the harness
+  field, every village but the home town's neighbour (§6.4 of the report).
+
 ## 6. Known balance risks
 - **The knife edge** (systems review S5). Odds of 0.6 need a backlog of about 18,000 raw. Vei's undead
   capacity is about 42/s at q 1.2 and about 20/s at q 2.5, so the active run needs about 5–8 pits and
