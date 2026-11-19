@@ -135,6 +135,15 @@ func _load() -> void:
 		"a load of the save: the win applied once (won, vei_result x%d, Relish at_vei, the fight reads won)" % _of(evs, "vei_result").size())
 	var p := n.apply_result("boss", _won(sd))
 	t.ok(not p["ok"] and p["reason"] == "duplicate_run", "the card's press after the load: duplicate_run (%s)" % str(p.get("reason", "")))
+	# (P9, the review's split-order nit) the load's split reads won before any substep: FLOOD and the muster to WAR.
+	# Revert proof: from_dict without the _restore_dispatch after apply_pending, 1 FAIL
+	var z := GameState.new(TestUtil.configs())
+	t.ok(z.from_dict(JSON.parse_string(JSON.stringify(d)))["ok"] and z.won, "(setup) from_dict applies the win")
+	var zs: Dictionary = z.view_hud()["split"]
+	var ss: Dictionary = s.view_hud()["split"]
+	t.ok(float(ss["flood"]) > 0.0 and float(zs["flood"]) == 0.0 and zs["muster_to"] == "war",
+		"the load's split reads won before its first substep: flood %.3f (unbeaten at the save %.3f), muster to %s" % [
+		float(zs["flood"]), float(ss["flood"]), str(zs["muster_to"])])
 	for bad in [{"won": false}, {"run_id": id + 3}]:
 		var x: Dictionary = JSON.parse_string(JSON.stringify(d))
 		(x["pending_retreat"]["won_result"] as Dictionary).merge(bad, true)

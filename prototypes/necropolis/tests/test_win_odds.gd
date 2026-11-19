@@ -27,6 +27,7 @@ func run() -> int:
 	_first_attempt()
 	_away_backups()
 	_raid_credit()
+	_away_credit()
 	return t.failures
 
 
@@ -328,3 +329,34 @@ func _raid_credit() -> void:
 	var ocz: Dictionary = cfg["realm"]["odds"]
 	t.ok(float(z.view_vei()["readiness"]) == GameState.win_odds_of(z.t, z.realm.strain(), float(ocz["time_weight"]), float(ocz["time_s"]), float(ocz["backlog_cap"])),
 		"raid_credit 0: the readiness is win_odds_of without the credit bit for bit (the revert proof)")
+
+
+## P9 (the P3b review's should-fix 3): the away report's "odds A → B" reads the raid credit at the away's start for A
+## (away_before's raid_credit), not today's, as it reads the start's backups (_away_backups). A start at 160 raids (the
+## credit at its cap) and a "now" at none: A is the odds the start showed. Revert proof: odds_from on today's credit
+## (gs.win_odds without the snapshot's) prints the second setup line's number, and the last check fails.
+func _away_credit() -> void:
+	var s := _game()
+	s.t = 4.0 * 86400.0
+	s.realm.vei["undead_queue"] = float(s._cfg()["K"])  # strain 0.5: strain + the capped credit stays under CAP
+	s._phylactery_charges = 1
+	s.clones_ready = 8
+	s.stats["raids"] = 160
+	var before := StateViews.away_before(s)
+	var o0 := float(s.view_vei()["odds"])
+	var c0 := s.raid_credit()
+	t.ok(c0 > 0.0 and float(before["raid_credit"]) == c0, "away_before keeps the raid credit (%.5f)" % float(before["raid_credit"]))
+	s.t += 8.0 * 3600.0
+	s.stats["raids"] = 0
+	var b0 := float(before["streams"]["backlog"])
+	var live := s.first_odds(s.win_odds(float(before["t"]), b0 / (b0 + float(s._cfg()["K"]))), int(before["backups"]))
+	t.ok(roundi(o0 * 100.0) != roundi(live * 100.0),
+		"(setup) the start's odds on today's credit print differently: %.3f against %.3f" % [o0, live])
+	var rep := StateViews.away_report(s, before, [], 8.0 * 3600.0, false)
+	var line := ""
+	for l in rep["gains"]:
+		if str(l["text"]).contains(" · your odds "):
+			line = str(l["text"])
+	var tail := line.get_slice(" · your odds ", 1)
+	t.ok(tail.get_slice(" → ", 0) == "%d%%" % roundi(o0 * 100.0) and tail.get_slice(" → ", 1) == "%d%%" % roundi(float(s.view_vei()["odds"]) * 100.0),
+		"A is the odds on the start's credit (%.3f), B on today's (none): %s (%.3f → %.3f)" % [c0, line, o0, float(s.view_vei()["odds"])])
