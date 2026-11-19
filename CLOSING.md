@@ -72,6 +72,13 @@ The cells, bots and method are D-e's, so the numbers compare with its grade on s
 ### What was not used
 No human capture was used for any number, pick or ruling in P8. Every rate and length above is a bot's. Shawn's nine records are listed for completeness and carry no death or length data.
 
+### Ruling (manager, 2026-11-18)
+P8 closes as recorded, and no knob changes. The typical human's 18.9% on seeds 60–79 is above the 10–15% exit, but it is within seed noise of D-e's 21.1% on seeds 40–59. Tuning to it without a human capture would tune the raids to the bot. The ruling can be reversed: a human capture that fires the trigger reopens the knobs listed below. That capture should check these first:
+- **t4 at 25%.** The typical human's 15/60 sits on line 58's trigger line, as it did on seeds 40–59.
+- **Vespers at 9/20,** the typical human's highest fort.
+- **Fire and toll as the top killers.** Of the typical human's 34 deaths at tier, the Pyre-priest's fire took 9 and the Bellringer's toll 8 (the grade rows' `killed_by`).
+- **The 2:30–3:00 gap between lines 58 and 114.** The typical human's 2:50 median falls in it, and no rule covers it.
+
 ### What a later capture should check
 A capture is three or more raids at Shawn's own tier, with `godot --path prototypes/necropolis --capture` (the flag before `--`). Each run appends one record to `~/.local/share/godot/app_userdata/Relish — Necropolis/raid_capture.jsonl`. Read it for:
 - **Death at tier:** against the 10–15% band and the 25% trigger (line 58). Count deaths, not retreats.
