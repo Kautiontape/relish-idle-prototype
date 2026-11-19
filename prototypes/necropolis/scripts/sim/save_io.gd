@@ -215,6 +215,12 @@ static func problem(m: Dictionary, cfgs: Dictionary) -> String:
 		return "shape"
 	if not (m["seed"] as String).is_valid_int() or not (m["rng"] as String).is_valid_int():
 		return "seed"
+	# (the balance pass, should-fix #2's gate) stats.raids_empty is optional: written once a raid result comes back
+	# empty, an int from 0 to stats.raids; absent it loads as 0
+	var sm: Dictionary = m["stats"]
+	if sm.has("raids_empty") and not (fits(sm["raids_empty"], _I) and int(sm["raids_empty"]) >= 0
+			and int(sm["raids_empty"]) <= int(sm["raids"])):
+		return "stats"
 	var world: Dictionary = cfgs.get("world", {})
 	var fort_ids := {}
 	for f in world.get("forts", []):
@@ -843,6 +849,8 @@ static func apply(gs: GameState, m: Dictionary) -> void:
 	var sm: Dictionary = m["stats"]
 	gs.stats = {"raised_total": float(sm["raised_total"]), "raids": int(sm["raids"]), "deaths": int(sm["deaths"]),
 		"sims_built": int(sm["sims_built"])}
+	if sm.has("raids_empty"):  # (should-fix #2's gate) optional, as problem() checks it
+		gs.stats["raids_empty"] = int(sm["raids_empty"])
 	gs.cleared_forts = {}
 	for id in m["cleared_forts"]:
 		gs.cleared_forts[str(id)] = true
