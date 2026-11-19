@@ -416,7 +416,13 @@ static func stalled_head(head: Dictionary) -> Dictionary:
 ## (`starved` pits_first), and nothing is short of it: not while BONE shows ▮ FULL (bone_full: the store is at its cap
 ## or over it, so no build waits on bone), and not on a won game (view_hud.won). `hud` {} reads as neither.
 static func mill_speaks(mill: Dictionary, hud: Dictionary) -> bool:
-	return str(mill.get("starved", "")) == "pits_first" and not bool(hud.get("won", false)) and not bone_full(hud)
+	return str(mill.get("starved", "")) == "pits_first" and not bone_quiet(hud)
+
+
+## Whether nothing can be short of bone (BONE at ▮ FULL, or the game won): the mill's line is silent then, and BONE's
+## warning drops a held line at once (BoneWarn.set_line's `quiet`).
+static func bone_quiet(hud: Dictionary) -> bool:
+	return bool(hud.get("won", false)) or bone_full(hud)
 
 
 ## Whether the pits-first stall is live: the Bone Mill row ({starved, lever}) while it speaks (mill_speaks, on `hud`),

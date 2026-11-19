@@ -590,9 +590,23 @@ func _bone_warn(t: TestUtil) -> void:
 		"paused, the hold past with no new rev: blank, not hidden, its room kept (%.1f s)" % (bw.clock - 30.5))
 	bw.set_line(head)
 	t.ok(bl.text == head, "and the next stall shows at once")
+	# the V-I3 round, ruling 1 (06a's after-shot): the stall ends because BONE filled (or the game is won): nothing is
+	# short, so the held line drops at once, blank with its room kept; a plain end of the stall still holds
+	bw.set_line(mill)
+	bw.tick(1.0)
+	bw.set_line("", false)
+	t.ok(bl.text == mill, "the stall gone with BONE below its cap: the line holds, as before")
+	bw.set_line("", true)
+	t.ok(bl.text == "" and bl.visible and maxf(bl.custom_minimum_size.x, bl.get_minimum_size().x) >= mill_w,
+		"the stall gone because BONE is FULL (quiet): blank at once, its room kept")
+	bw.tick(1.0)
+	t.ok(bl.text == "", "and it stays blank on the next tick")
+	t.ok(HudLogic.bone_quiet({"won": true}) and HudLogic.bone_quiet({"rates": [{"id": "bone", "stock": 300.0, "cap": 300.0}]})
+		and not HudLogic.bone_quiet({"rates": [{"id": "bone", "stock": 120.0, "cap": 300.0}]}) and not HudLogic.bone_quiet({}),
+		"quiet: won, or BONE at ▮ FULL; else not")
 	bl.free()
 	var src := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
-	t.ok(src.contains("_bone_warn.set_line(HudLogic.bone_line(model.mill, model.queue_stall, _building_names(), hud))")
+	t.ok(src.contains("_bone_warn.set_line(HudLogic.bone_line(model.mill, model.queue_stall, _building_names(), hud), HudLogic.bone_quiet(hud))")
 		and src.contains("_bone_warn = BoneWarn.new(parts[\"warn\"] as Label)") and src.contains("func tick(delta: float) -> void:\n\tif _bone_warn != null:")
 		and src.contains("\t\t_bone_warn.tick(delta)") and not src.contains("warn.visible = line != \"\""),
 		"map_hud.gd builds BONE's warning as a BoneWarn, gives it the model's line (with the hud, for FULL and won) on each rev and ticks it every frame (source pin: MapHud can't compile headless)")

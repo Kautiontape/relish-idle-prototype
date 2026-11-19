@@ -16,9 +16,13 @@ func _init(warn: Label) -> void:
 	label = warn
 
 
-## A new rev: the model's line now (HudLogic.bone_line; "" when nothing stalls).
-func set_line(line: String) -> void:
+## A new rev: the model's line now (HudLogic.bone_line; "" when nothing stalls). `quiet` (HudLogic.bone_quiet: BONE at
+## ▮ FULL, or the game won) with no line drops a held line at once: nothing is short, so there is no stall to bridge
+## (the V-I3 round, ruling 1: a catch-up's last minutes below the cap had held "no bone coming in" beside 300/300 FULL).
+func set_line(line: String, quiet := false) -> void:
 	_line = line
+	if quiet and line == "":
+		_held = {}
 	_held = HudLogic.show_bone_warn(label, _line, _held, clock)
 
 
