@@ -612,7 +612,7 @@ reverse it:** `odds.raid_credit` 0 with `time_s` 345 600 is P3's readiness bit f
 (test_backups, test_stances, test_big_undead) is re-pinned with it (its odds line moves; the state and events don't).
 024c11a's message has the proof that P3's whole odds block passes the pins from before P3b.
 
-**Ruling 37 (the run's manager, 2026-11-19, accepted; reversible): the 7-day catch-up budget is 12 s on jenova; 12 h
+**Ruling 37 (the run's manager, 2026-11-18, accepted; reversible): the 7-day catch-up budget is 12 s on jenova; 12 h
 stays under 2 s** (IDLE §4 Budget, which said 10 s). P9's bench (`catchup_bench`, best of 3 on the d470898 archive)
 read 7 days at 11.51 s (midgame_2flips), 11.08 s (pre_vei) and 9.71 s (fresh), and 12 h at 1.46–1.83 s. 80% of a
 core step is the two solvers, and the one structural lever, a longer step past 12 h, is closed (15 s is
@@ -621,7 +621,7 @@ away, and it runs in chunks of 90 core steps (median 31–39 ms) behind the catc
 responsive. **To reverse it:** 10 s again needs about 35 µs off each core step (`fort_step`, `_dispatch`,
 TownSim.step) with every catch-up pin re-proved bit for bit: the solver-speed unit, on the Phase II backlog.
 
-### The balance pass (Phase I, 2026-11-19; `reports/economy/phase-i-balance.md`)
+### The balance pass (Phase I, 2026-11-18; `reports/economy/phase-i-balance.md`)
 **Ruling B1 (reversible): the raid credit counts only a raid that did something** (the P9 review's should-fix #2,
 gated; MECHANICS §3.5). A result with nothing killed, beaten, raised or banked counts in `stats.raids` and in the
 optional `stats.raids_empty`, and earns no credit. **No re-size:** with the gate, vr_probe2 (P3's, to Vei-ready on
@@ -632,7 +632,7 @@ the stand-in resolver's loot, so sessions makes no empty result (0 of 104–125 
 (of 149–169, the first an early greywall run). `raid_credit` 0.00075 and `time_s` 4.5 days stand. **To reverse it:**
 `raid_credit()` on `stats.raids` alone (test_results' `_credit_gate` then fails twice).
 
-**Ruling B2 (the run's manager's option (a), 2026-11-19; reversible): the relic trickle stays at 12 h, and
+**Ruling B2 (the run's manager's option (a), 2026-11-18; reversible): the relic trickle stays at 12 h, and
 ablation_held is recorded as missed** (34% against 20–25%; V-I2 (f) proposed a stronger held-fort trickle).
 Probe: `relic_trickle.period_s` on scratch copies of faaec49's tree, with ablation_held and sessions run.
 

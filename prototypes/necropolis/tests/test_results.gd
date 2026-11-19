@@ -138,6 +138,8 @@ func _credit_gate() -> void:
 		"a save keeps stats.raids_empty (%s) and the credit" % str(n.stats.get("raids_empty")))
 	d["stats"]["raids_empty"] = 3
 	t.ok(not GameState.new(TestUtil.configs()).from_dict(d)["ok"], "a save with more empty raids than raids is refused")
+	d["stats"]["raids_empty"] = -1  # (the balance review's should-fix 2) the >= 0 arm of save_io's check
+	t.ok(not GameState.new(TestUtil.configs()).from_dict(d)["ok"], "a save with a negative raids_empty is refused")
 	var fresh := _mk()
 	var fd: Dictionary = JSON.parse_string(JSON.stringify(fresh.to_dict()))
 	t.ok(not (fd["stats"] as Dictionary).has("raids_empty"), "a game with no empty raid saves no raids_empty (the save as before)")
