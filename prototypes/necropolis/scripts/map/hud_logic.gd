@@ -366,6 +366,27 @@ static func pits_stalled(mill: Dictionary, head: Dictionary) -> bool:
 	return str(mill.get("starved", "")) == "pits_first" or not stalled_head(head).is_empty()
 
 
+## BONE's stall warning on its bar label (the manager's ruling 1 on Session 4, 2026-11-18, option b). `line` is bone_line's
+## text now, `now` the HUD's own clock (real seconds: MapHud.tick), `held` what the last call returned ({} at a mount). A
+## line shows at once; once the stall is gone, its last line stays up until bone_line.hold_s has passed since the stall was
+## last seen, so a stall that comes and goes every few seconds can't blink it. Once a line has shown, the label keeps the
+## room of the widest line it has held, blank when off, until the map reloads (a new MapHud), so the bar keeps its rows and
+## the camera its fit. On pre_vei the stall came and went every few seconds, and each re-wrap moved the camera (economy
+## P9 C-d's frame spikes). Returns the next `held`.
+static func show_bone_warn(warn: Label, line: String, held: Dictionary, now: float) -> Dictionary:
+	var out := held
+	if line != "":
+		out = {"text": line, "seen": now}
+	var on := out.has("seen") and now - float(out["seen"]) < float(MapLogic.cfg()["bone_line"]["hold_s"])
+	var text := str(out["text"]) if on else ""
+	if warn.text != text:
+		warn.text = text
+	if text != "":
+		warn.visible = true  # and it stays in the row from now on, blank when off
+		warn.custom_minimum_size.x = maxf(warn.custom_minimum_size.x, warn.get_minimum_size().x)
+	return out
+
+
 ## The lever the stall names: the head's, else the mill's.
 static func stall_lever(mill: Dictionary, head: Dictionary) -> String:
 	var h := stalled_head(head)

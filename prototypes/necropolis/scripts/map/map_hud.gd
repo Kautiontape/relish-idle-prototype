@@ -109,6 +109,8 @@ var _toast_t := 0.0
 var _last_inset := -1.0
 var _hint_default := ""
 var _rev := -2
+var _clock := 0.0  # real seconds since this HUD was built (tick): BONE's warning hold
+var _warn_held := {}  # HudLogic.show_bone_warn's last return: the line it holds and when the stall was last seen
 
 
 func _ready() -> void:
@@ -502,12 +504,8 @@ func refresh(force := false) -> void:
 		(w["rate"] as Label).text = it["rate_text"]
 		(w["stock"] as Label).text = it["stock_text"]
 		(w["cap"] as Label).text = it["cap_mark"]
-		if w.has("warn"):
-			var warn := w["warn"] as Label
-			var line := HudLogic.bone_line(model.mill, model.queue_stall, _building_names())
-			if warn.text != line:
-				warn.text = line
-				warn.visible = line != ""
+		if w.has("warn"):  # held 10 s and its room kept once shown, so it never re-wraps the bar or moves the camera
+			_warn_held = HudLogic.show_bone_warn(w["warn"] as Label, HudLogic.bone_line(model.mill, model.queue_stall, _building_names()), _warn_held, _clock)
 	var ro := model.readout()
 	var st := HudLogic.status(ro)
 	_odds.text = st["odds_text"]
@@ -650,6 +648,7 @@ func _sign_key(sign: int) -> String:
 
 
 func tick(delta: float) -> void:
+	_clock += delta
 	if _tip_word != null:  # a resting bar word: its plate after the delay, gone with the word
 		if not is_instance_valid(_tip_word) or not _tip_word.is_visible_in_tree():
 			_hide_tip()

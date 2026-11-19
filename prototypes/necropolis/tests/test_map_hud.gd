@@ -14,6 +14,7 @@ func run() -> int:
 	_status(t)
 	_tithe_line(t)
 	_bone_line(t)
+	_bone_warn(t)
 	_callout_text(t)
 	_callout_rows(t)
 	_placement(t)
@@ -496,6 +497,55 @@ func _bone_line(t: TestUtil) -> void:
 	var through := Palette.c("ground").lerp(Palette.c(bright), 1.0 - a)
 	var r := MapLogic.contrast_ratio(Palette.c(str(bl["key"])), through)
 	t.ok(r >= 4.5, "the bone warning (%s) reads 4.5:1 on the bar plate (%.1f)" % [bl["key"], r])
+
+
+## The manager's ruling 1 on Session 4 (option b): BONE's warning, on a real Label as map_hud builds it (hidden until a
+## line), stays up 10 s past the stall's last sighting, and once shown keeps the room of its widest line, blank when
+## off, so the bar's BONE cell never narrows and the bar never re-wraps or re-fits the camera (economy P9 C-d's pre_vei
+## spikes). The cell's width, which HudLogic.wrap_rows reads, follows the label's combined minimum width (an HBox outside
+## a tree sizes no children, so the label is read directly; the 20-min pre_vei run in reports/dungeon-i-p7.md "Session 5"
+## counts the re-wraps and refits in the scene). Outside a tree Godot doesn't refresh a Control's cached combined size
+## (update_minimum_size returns early; probed: it read 1 px with 338 px custom), so `room` works it out as Control does:
+## the larger of the custom and the label's own. Revert proofs: the hold off; the room not kept; hidden when off.
+func _bone_warn(t: TestUtil) -> void:
+	t.suite("map_hud-bone-warn")
+	var hold := float(MapLogic.cfg()["bone_line"]["hold_s"])
+	t.ok(hold == 10.0, "the warning's hold is the ruling's 10 s (bone_line.hold_s)")
+	var mill := "no bone: the pits eat every body. Raise WAR"
+	var head := "Inn: never, 7 bone short. The pits eat every body: raise WAR"
+	var w := Label.new()
+	w.visible = false
+	var room := func() -> float: return maxf(w.custom_minimum_size.x, w.get_minimum_size().x)
+	var held := HudLogic.show_bone_warn(w, "", {}, 0.0)
+	t.ok(not w.visible and w.text == "" and room.call() <= 1.0 and held.is_empty(), "no stall yet: hidden, no room taken")
+	held = HudLogic.show_bone_warn(w, mill, held, 1.0)
+	var mill_w := w.get_minimum_size().x
+	t.ok(w.visible and w.text == mill and mill_w > 100.0 and room.call() == mill_w, "a stall: the line shows at once (%.0f px)" % mill_w)
+	held = HudLogic.show_bone_warn(w, "", held, 5.0)
+	t.ok(w.visible and w.text == mill, "the stall gone 4 s later: the line stays up")
+	held = HudLogic.show_bone_warn(w, "", held, 1.0 + hold - 0.05)
+	t.ok(w.text == mill, "still up just short of the hold")
+	held = HudLogic.show_bone_warn(w, "", held, 1.0 + hold)
+	t.ok(w.text == "" and w.visible and room.call() == mill_w, "the hold past: blank, not hidden, its room kept (%.0f px)" % room.call())
+	held = HudLogic.show_bone_warn(w, mill, held, 12.0)
+	held = HudLogic.show_bone_warn(w, mill, held, 14.0)
+	held = HudLogic.show_bone_warn(w, "", held, 20.0)
+	held = HudLogic.show_bone_warn(w, "", held, 14.0 + hold - 0.05)
+	t.ok(w.text == mill, "a stall that comes and goes: the hold runs from its last sighting (14 s), so the line doesn't blink")
+	held = HudLogic.show_bone_warn(w, "", held, 14.0 + hold)
+	t.ok(w.text == "", "and ends a hold after it")
+	held = HudLogic.show_bone_warn(w, head, held, 30.0)
+	var head_w := w.get_minimum_size().x
+	t.ok(w.text == head and head_w > mill_w and room.call() == head_w, "a wider line widens the room (%.0f px)" % head_w)
+	held = HudLogic.show_bone_warn(w, mill, held, 31.0)
+	t.ok(w.text == mill and room.call() == head_w, "a narrower line keeps the widest room: the cell never narrows")
+	HudLogic.show_bone_warn(w, "", held, 31.0 + hold)
+	t.ok(w.text == "" and w.visible and room.call() == head_w, "blank again, the widest room kept")
+	w.free()
+	var src := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
+	t.ok(src.contains("_warn_held = HudLogic.show_bone_warn(w[\"warn\"] as Label, HudLogic.bone_line(model.mill, model.queue_stall, _building_names()), _warn_held, _clock)")
+		and src.contains("func tick(delta: float) -> void:\n\t_clock += delta") and not src.contains("warn.visible = line != \"\""),
+		"map_hud.gd sets BONE's warning through show_bone_warn on the HUD's own clock (source pin: MapHud can't compile headless)")
 
 
 func _hud(rates: Array, extra := {}) -> Dictionary:
