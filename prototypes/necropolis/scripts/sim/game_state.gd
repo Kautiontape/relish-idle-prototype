@@ -295,11 +295,13 @@ var _grow_order: Array = []  # economy.json stance.grow.order: the buildings Gro
 ## process_queue's return): Grow acts only when it is "", and catch-up's clip at Grow's pick reads it. Session only.
 var _queue_held := ""
 ## Ruling B4 (the run's manager, 2026-11-19; the close-out's flag (c)): the Bone Mill's bone over the last economy.json
-## queue.shown_window_s of live time, [dt, bone milled] per live substep (_tick), oldest first: what the player's reads
-## of the queue's times hold fixed (BuildRules.shown_net). A convoy-fed mill mills nothing in a step whose store stands
-## empty between landings (the pits take bodies first), so the last step alone reads "never" for a build an hour off.
-## Live time only: the catch-up runs _core_step and never feeds it; a new game, every load (from_dict) and a
-## catch-up's begin empty it, so the first read after any of them is the last step's (queue_net). Derived, never saved.
+## queue.shown_window_s of game time, [dt, bone milled] per core step, oldest first: what the player's reads of the
+## queue's times hold fixed (BuildRules.shown_net). A convoy-fed mill mills nothing in a step whose store stands empty
+## between landings (the pits take bodies first), so the last step alone reads "never" for a build an hour off.
+## Fed by each live substep (_tick) and, since the manager's option (a) of 2026-11-19, each catch-up step
+## (Catchup.run), so the away report, built at a reporting catch-up's end, reads the away's last minute. A new game and
+## every load (from_dict) empty it, so the first read after a load with no catch-up is the last step's (queue_net).
+## Derived, never saved; nothing in the sim or the bots reads it.
 var _mill_win: Array = []
 ## view_stances' `grow` (Grow's pick), cached: [[rev, t, TownSim.structure_rev], {...}] (StateViews.grow_pick). Session only.
 var _grow_view: Array = []
@@ -2953,9 +2955,10 @@ func _tick(dt: float) -> void:
 	_ticks += 1
 
 
-## Ruling B4: one live substep's mill bone (TownSim's rates.bone.mill, before the cap's clip, as queue_net reads it)
-## into _mill_win, trimmed to the newest economy.json queue.shown_window_s of live time. Only _tick calls it: the
-## catch-up's steps never do.
+## Ruling B4: one core step's mill bone (TownSim's rates.bone.mill, before the cap's clip, as queue_net reads it, times
+## its `dt`) into _mill_win, trimmed to the newest steps that cover economy.json queue.shown_window_s of game time. _tick
+## calls it after each live substep, Catchup.run after each catch-up step (option (a): a catch-up step is up to
+## idle.catchup_dt_long_s, so the window then holds a whole step or more of the away's end). It writes only the window.
 func _note_mill(dt: float) -> void:
 	var b: Dictionary = town_sim.rates["bone"]
 	_mill_win.append([dt, float(b.get("mill", float(b["in"]) + float(b.get("overflow", 0.0)))) * dt])

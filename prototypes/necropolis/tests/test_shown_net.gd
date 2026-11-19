@@ -6,10 +6,12 @@ extends RefCounted
 ## for a build a median hour off, in 662 of 1 200 live minutes of the batch's sessions profile (BALANCE §5, B4). "Never"
 ## now shows only when that mean, less the upkeep, is at or below 0. The core (head_dry and the hold), the catch-up's
 ## build_start_s (F1), Grow's pick and the bots keep the last step (queue_net, view_town().queue[].affordable_in_s_step),
-## so the bots, the batch and the sim are bit-identical; moving those is Phase II. Headless, no autoloads. Economy's
-## suite. Revert proofs (each alone): shown_net returning queue_net(gs); _tick not calling _note_mill; Catchup.begin not
-## emptying the window; from_dict not emptying it; the walk's never_row line removed; shown_net without its
-## producer_idle check (the counts are in BALANCE §5, ruling B4).
+## so the bots, the batch and the sim are bit-identical; moving those is Phase II. The manager's option (a) (2026-11-19):
+## the catch-up's own steps feed the window too, so the away report reads the away's last minute. Headless, no
+## autoloads. Economy's suite. Revert proofs (each alone): shown_net returning queue_net(gs); _tick not calling
+## _note_mill; Catchup.run not calling it; from_dict not emptying the window; the walk's never_row line removed;
+## shown_net without its producer_idle check; the away report's waiting line at queue_net (the counts are in BALANCE
+## §5, ruling B4).
 
 var t: TestUtil
 var vcfg: Dictionary
@@ -21,6 +23,7 @@ func run() -> int:
 	_gap()
 	_window_rule()
 	_never_row()
+	_away_report()
 	_producer_idle()
 	_fallback()
 	_reads()
@@ -171,6 +174,40 @@ func _never_row() -> void:
 		str(row["reason"]), float(row["affordable_in_s"]), float(row["affordable_in_s_step"])])
 
 
+## Option (a): the away report, built at a reporting catch-up's end, reads the window (the away's last minute, which
+## the catch-up's steps fed): at a step that milled nothing, a minute at 0.5 bone/s gives the head's waiting line with a
+## time, and an empty window (a load with no catch-up) the last step's never line.
+func _away_report() -> void:
+	t.suite("shown_net-away-report")
+	var s := _waiting_pit()
+	var dry := false
+	for i in 2400:
+		if float(BuildRules.queue_net(s)["bone"]) <= BuildRules.NET_EPS and _mill_staffed(s):
+			dry = true
+			break
+		s.tick(s.substep_s())
+	t.ok(dry and str(s.view_town()["queue"][0]["status"]) == "waiting_funds",
+		"(setup) a step whose bone net reads 0 with the mill staffed and the Pit waiting (t %.1f)" % s.t)
+	var w := s._req_f("economy.queue.shown_window_s")
+	var b := StateViews.away_before(s)
+	s._mill_win = [[w, 0.5 * w]]
+	var lines := _queue_lines(StateViews.away_report(s, b, [], 700.0, false))
+	t.ok(lines.size() == 1 and lines[0].contains(" is waiting on bone: affordable in ") and not lines[0].contains("can't be afforded"),
+		"the away's last minute at 0.5 bone/s: the waiting line with a time (%s)" % str(lines))
+	s._mill_win = []
+	lines = _queue_lines(StateViews.away_report(s, b, [], 700.0, false))
+	t.ok(lines.size() == 1 and lines[0].contains("can't be afforded"),
+		"an empty window: the last step's never line (%s)" % str(lines))
+
+
+func _queue_lines(rep: Dictionary) -> Array:
+	var out: Array = []
+	for ln in rep["ready"]:
+		if str(ln["kind"]) == "queue":
+			out.append(str(ln["text"]))
+	return out
+
+
 ## With no staffed mill the minute's bone is the hands' that left: shown_net reads the last step's net.
 func _producer_idle() -> void:
 	t.suite("shown_net-producer-idle")
@@ -201,10 +238,21 @@ func _fallback() -> void:
 	for i in 240:
 		s.tick(s.substep_s())
 	t.ok(float(s.mill_mean()["span"]) > 0.0, "(setup) live ticks fill it again")
+	# option (a) (the run's manager, 2026-11-19): a catch-up's own steps feed it, so the away report reads the away's
+	# last minute. A marker no mill makes (100 bone/s) before the gap must be gone after it
+	var w := s._req_f("economy.queue.shown_window_s")
+	s._mill_win = [[w, 100.0 * w]]
 	var gap := s._req_f("economy.idle.gap_s") * 4.0 + 60.0
 	s.tick(gap, s.max_substeps_per_frame())
-	t.ok(float(s.mill_mean()["span"]) == 0.0, "a gap (%.0f s) runs a catch-up, which empties it and doesn't feed it (catching up: %s)" % [
-		gap, str(s.catching_up())])
+	var guard := 0
+	while s.catching_up() and guard < 10000:
+		s.tick(s.substep_s(), s.max_substeps_per_frame())
+		guard += 1
+	var m := s.mill_mean()
+	t.ok(not s.catching_up() and float(m["span"]) >= w - 1e-9 and float(m["span"]) <= w + s.substep_s() + 1e-9
+		and float(m["mill"]) < 100.0,
+		"a gap (%.0f s) runs a catch-up whose own steps fill the window: after it %.1f s of it at %.3f bone/s (the marker's 100/s gone)" % [
+		gap, float(m["span"]), float(m["mill"])])
 
 
 ## The reads that keep the last step, pinned by source: every bot read of a queue time is affordable_in_s_step; Grow's

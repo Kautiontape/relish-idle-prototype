@@ -88,7 +88,6 @@ func begin(gs: GameState, seconds: float, with_report: bool) -> void:
 	field_n = clampi(int(floor(total_s / min_s)) if min_s > 0.0 else most, 1, maxi(1, most))
 	frame_acc = 0.0
 	_last_evs = []
-	gs._mill_win = []  # (ruling B4) the away isn't live time: the shown read restarts at the last step's
 	if with_report:
 		events = []
 		thrift_log = []
@@ -129,6 +128,7 @@ func run(gs: GameState, max_steps := -1) -> int:
 			(trace as Array).append([gs.t, h, e])
 		if h > 0.0:
 			_last_evs = gs._core_step(h)
+			gs._note_mill(h)  # ruling B4 (a): the away's own steps fill the mill's window, so its report reads its last minute
 			gs.rev += 1
 			steps += 1
 			n += 1

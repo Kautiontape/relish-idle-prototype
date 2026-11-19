@@ -1179,7 +1179,8 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 		for i in rows.size():
 			var row: Dictionary = rows[i]
 			if row["status"] == "waiting_funds":
-				# ruling B4: the player's read (shown_net), as the row's own time; right after a load it is the last step's
+				# ruling B4: the player's read (shown_net), as the row's own time: the away's last minute, which the
+				# catch-up's steps fed (option (a)); the last step's only when the window is empty
 				ready.append(_away_line(afford_text(gs, rep, row, str(w["waits"][i]), BuildRules.shown_net(gs), _move_down_helps(gs, i)), "queue", "queue"))
 			elif BuildRules.never_row(row):
 				# Phase I P3 (ruling 3): a head no income can pay is skipped and holds nothing, so its line is the never
