@@ -1020,6 +1020,21 @@ func _fit(t: TestUtil) -> void:
 	MapLogic.configure(MapLogic.cfg())
 	MapLogic.fit_view_clear(Rect2(0, 0, 1000, 1000), VP, inset + 1.0, mi, mo)
 	t.ok(MapLogic.fit_searches == n0 + 3, "configure (F6's reload) drops the kept answers")
+	# the case the memo is for: the bar going back and forth between two heights re-fits pre_vei's real camera inputs
+	# between the same two insets, and each answer is searched once (the review of c491b56: the memo keeps both)
+	var sp := GameState.new(TestUtil.configs())
+	sp.debug_enabled = true
+	sp.cmd_debug_load_fixture("pre_vei")
+	var mp := MapModel.new(sp)
+	mp.refresh(true)
+	MapLogic.configure(MapLogic.cfg())
+	var n1 := MapLogic.fit_searches
+	var fits: Array = []
+	for k in 6:
+		fits.append(MapLogic.fit_view_clear(mp.content_rect(), VP, 60.0 if k % 2 == 0 else 84.0, mp.fit_items(), rects))
+	t.ok(MapLogic.fit_searches == n1 + 2, "pre_vei's camera re-fit 6 times between two insets searches twice (%d)" % (MapLogic.fit_searches - n1))
+	t.ok(fits[0] == fits[2] and fits[2] == fits[4] and fits[1] == fits[3] and fits[3] == fits[5] and fits[0] != fits[1] and not fits[0].is_empty(),
+		"with each inset's own answer every time")
 	var wm := FileAccess.get_file_as_string("res://scripts/map/world_map.gd")
 	t.ok(wm.contains("_refit.call_deferred(true)") and wm.contains("func _refit(reload := false) -> void:\n\tif reload:\n\t\tMapLogic.configure(")
 		and wm.contains("hud.inset_changed.connect(func(_inset: float) -> void: _refit())"), "only F6's re-fit re-reads map_view; the bar's inset re-fits keep the memo")

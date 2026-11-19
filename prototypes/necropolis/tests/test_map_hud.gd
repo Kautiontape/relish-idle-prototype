@@ -24,6 +24,7 @@ func run() -> int:
 	_layer_keys(t)
 	_fit(t)
 	_wrap(t)
+	_wrap_place(t)
 	_clarity(t)
 	_tip_rect(t)
 	return t.failures
@@ -907,6 +908,75 @@ func _fit(t: TestUtil) -> void:
 	t.ok(vtop >= inset, "Vei's stack starts below the HUD (%.1f >= %.0f)" % [vtop, inset])
 
 
+## A bar cell that counts how often it is given a parent: once at the first placement, then once a move to another row.
+class CountCell extends HBoxContainer:
+	var parented := 0
+
+	func _notification(what: int) -> void:
+		if what == NOTIFICATION_PARENTED:
+			parented += 1
+
+
+## HudLogic.place_rows (the bar's re-wrap) on real boxes and cells, headless: map_hud names Game, so the bar itself
+## can't be built here, and the rows are passed in, as outside a tree no container sizes its children. 2 rows, then 3,
+## then 2, then 1: cells move down a row and back up, a cell keeps its row while its place in it changes, a box is
+## added and two are dropped. The review of c491b56: a cell lost or misordered in a row passed the source pin.
+func _wrap_place(t: TestUtil) -> void:
+	t.suite("map_hud-wrap-place")
+	var bar := VBoxContainer.new()
+	var cells: Array = []
+	for i in 5:
+		var c := CountCell.new()
+		var l := Label.new()
+		l.text = "cell %d" % i
+		c.add_child(l)
+		cells.append(c)
+	var row_of := func(rows: Array, i: int) -> int:
+		for ri in rows.size():
+			if (rows[ri] as Array).has(i):
+				return ri
+		return -1
+	var ids := func(nodes: Array) -> Array: return nodes.map(func(n: Node): return n.get_instance_id())
+	var prev: Array = []
+	var dropped: Array = []
+	for rows in [[[0, 1, 2], [3, 4]], [[0, 1], [2, 3], [4]], [[0, 1, 2], [3, 4]], [[0, 1, 2, 3, 4]]]:
+		var before_boxes: Array = bar.get_children()
+		var before_n: Array = cells.map(func(c: CountCell): return c.parented)
+		HudLogic.place_rows(bar, cells, rows, 7)
+		var boxes: Array = bar.get_children()
+		var tag := str(rows)
+		t.ok(boxes.size() == rows.size(), "%s: one box per row (%d)" % [tag, boxes.size()])
+		var order_ok: bool = boxes.size() == rows.size()
+		for ri in mini(rows.size(), boxes.size()):
+			if ids.call((boxes[ri] as Node).get_children()) != ids.call((rows[ri] as Array).map(func(i: int): return cells[i])):
+				order_ok = false
+		t.ok(order_ok, "%s: each row's box holds that row's cells, in order, and nothing else" % tag)
+		var n := mini(before_boxes.size(), boxes.size())
+		t.ok(ids.call(boxes.slice(0, n)) == ids.call(before_boxes.slice(0, n)), "%s: the rows that stay keep their boxes (%d of %d)" % [tag, n, before_boxes.size()])
+		var moved: Array = []
+		var want_moved: Array = []
+		for i in cells.size():
+			if (cells[i] as CountCell).parented != int(before_n[i]):
+				moved.append(i)
+			if row_of.call(prev, i) != row_of.call(rows, i):
+				want_moved.append(i)
+		t.ok(moved == want_moved, "%s: only the cells whose row changed are moved (%s; want %s)" % [tag, str(moved), str(want_moved)])
+		var new_ok := true
+		for b in boxes.slice(n):
+			var box := b as HBoxContainer
+			if box == null or box.mouse_filter != Control.MOUSE_FILTER_IGNORE or not box.has_theme_constant_override("separation") or box.get_theme_constant("separation") != 7:
+				new_ok = false
+		t.ok(new_ok, "%s: a new row is an HBoxContainer that ignores the mouse, with the gap between its cells" % tag)
+		var gone := before_boxes.slice(n)
+		t.ok(gone.all(func(b: Node): return b.get_parent() == null and b.is_queued_for_deletion() and b.get_child_count() == 0),
+			"%s: a row no longer needed leaves the bar empty and is freed (%d)" % [tag, gone.size()])
+		dropped.append_array(gone)
+		prev = rows
+	for b in dropped:
+		(b as Node).free()
+	bar.free()
+
+
 func _wrap(t: TestUtil) -> void:
 	t.suite("map_hud-wrap")
 	var cfg := MapLogic.cfg()
@@ -934,8 +1004,9 @@ func _wrap(t: TestUtil) -> void:
 	var hud_src := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
 	t.ok(hud_src.contains("HudLogic.wrap_rows("), "the bar lays its rows out with wrap_rows")
 	var wc := hud_src.substr(hud_src.find("func _wrap_cells("), hud_src.find("func _on_objective_pressed(") - hud_src.find("func _wrap_cells("))
-	t.ok(wc.contains("if cell.get_parent() != box:") and wc.contains("box.move_child(cell, k)") and not wc.contains("for c in row.get_children():"),
-		"a re-wrap keeps the row boxes and moves only the cells whose row changed (economy P9 C-d: rebuilding every row cost ~6.5 ms a time)")
+	t.ok(wc.contains("if str(rows) == _row_sig:\n\t\treturn") and wc.contains('HudLogic.place_rows(_bar, _cells, rows, int(cfg["topbar_gap_px"]))')
+		and not wc.contains("add_child(") and not wc.contains("queue_free()"),
+		"the bar moves its cells only when the rows changed, by place_rows (map_hud-wrap-place runs it on real boxes)")
 	t.ok(hud_src.contains('odds_name.text = str(cfg["cards"]["vei_odds_label"])') and not hud_src.contains('"ODDS"'), "the bar's odds label is the config's, not a literal")
 	t.ok(str(cfg["cards"]["vei_odds_label"]) == "YOUR ODDS", "and it says whose odds")
 	var bar_odds_w: float = ThemeDB.fallback_font.get_string_size(str(cfg["cards"]["vei_odds_label"]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(cfg["font_label"])).x

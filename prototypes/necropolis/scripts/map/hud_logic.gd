@@ -58,6 +58,33 @@ static func wrap_rows(widths: Array, gap: float, max_w: float) -> Array:
 	return rows
 
 
+## Lays `cells` into `bar` (a VBoxContainer of HBoxContainer rows) as `rows` (wrap_rows' answer) says: row ri's
+## box holds rows[ri]'s cells in order. The row boxes are kept and only the cells whose row changed are moved: a
+## moved cell re-themes and re-shapes every Label in it, and rebuilding every row on each re-wrap cost ~12 ms a time
+## (economy P9 C-d's pre_vei frame spikes). New rows get `gap` px between cells; rows no longer needed are freed.
+static func place_rows(bar: Node, cells: Array, rows: Array, gap: int) -> void:
+	var boxes: Array = bar.get_children()
+	while boxes.size() < rows.size():
+		var row := HBoxContainer.new()
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		row.add_theme_constant_override("separation", gap)
+		bar.add_child(row)
+		boxes.append(row)
+	for ri in rows.size():  # each cell is in exactly one row, so once every row is placed no box holds a stray
+		var box: Node = boxes[ri]
+		var r: Array = rows[ri]
+		for k in r.size():
+			var cell: Node = cells[r[k]]
+			if cell.get_parent() != box:
+				if cell.get_parent() != null:
+					cell.get_parent().remove_child(cell)
+				box.add_child(cell)
+			box.move_child(cell, k)
+	for ri in range(rows.size(), boxes.size()):  # rows no longer needed: empty by now
+		bar.remove_child(boxes[ri])
+		(boxes[ri] as Node).queue_free()
+
+
 ## Whether they are winning, from MapModel.readout() (the same one Vei's node draws):
 ## {odds_text, sign, sign_text, drain_text}. An empty backlog reads as Vei's node does.
 static func status(readout: Dictionary) -> Dictionary:

@@ -203,7 +203,10 @@ static func item_rect(it: Dictionary, zoom: float, centre: Vector2, viewport: Ve
 ## the one with the fewest items in the way. Returns {zoom, centre} ({} for degenerate input).
 ## The answer is kept by its inputs (the config only changes through configure, which drops them): the search costs
 ## ~5 ms, and on pre_vei the top bar re-wraps every few seconds (BONE's stall warning comes and goes), so the
-## camera re-fits between the same two insets (economy P9 C-d's frame spikes).
+## camera re-fits between the same two insets (economy P9 C-d's frame spikes). The key is the inputs' var_to_str:
+## ~25 µs on pre_vei's (13 items, 1,354 chars) against ~1.1 ms a search (headless), and it is built once a fit,
+## which is boot, an inset change and F6 (on pre_vei: 2 re-fits in the first 300 frames, none in the 72,000 after),
+## so it stays a string.
 static func fit_view_clear(content: Rect2, viewport: Vector2, inset_top: float, items: Array, obstacles: Array) -> Dictionary:
 	var key := var_to_str([content, viewport, inset_top, items, obstacles])
 	if _fit_memo.has(key):

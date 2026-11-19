@@ -549,8 +549,8 @@ func _fort_names() -> Dictionary:
 	return names
 
 
-## Lays the bar's cells into rows by HudLogic.wrap_rows (the one wrapping rule), rebuilding the
-## row boxes only when the rows changed.
+## Lays the bar's cells into rows by HudLogic.wrap_rows (the one wrapping rule), moving them only when the rows
+## changed (HudLogic.place_rows keeps the row boxes and moves only the cells whose row changed).
 func _wrap_cells() -> void:
 	var cfg := MapLogic.cfg()
 	var widths: Array = _cells.map(func(c): return (c as Control).get_combined_minimum_size().x)
@@ -558,29 +558,7 @@ func _wrap_cells() -> void:
 	if str(rows) == _row_sig:
 		return
 	_row_sig = str(rows)
-	# The row boxes are kept and only the cells whose row changed are moved: a moved cell re-themes and re-shapes
-	# every Label in it, and rebuilding every row on each re-wrap cost ~12 ms a time (economy P9 C-d's pre_vei frame
-	# spikes: the BONE cell's stall warning comes and goes there, re-wrapping the bar every few seconds).
-	var boxes: Array = _bar.get_children()
-	while boxes.size() < rows.size():
-		var row := HBoxContainer.new()
-		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		row.add_theme_constant_override("separation", int(cfg["topbar_gap_px"]))
-		_bar.add_child(row)
-		boxes.append(row)
-	for ri in rows.size():  # each cell is in exactly one row, so once every row is placed no box holds a stray
-		var box: Node = boxes[ri]
-		var r: Array = rows[ri]
-		for k in r.size():
-			var cell: Control = _cells[r[k]]
-			if cell.get_parent() != box:
-				if cell.get_parent() != null:
-					cell.get_parent().remove_child(cell)
-				box.add_child(cell)
-			box.move_child(cell, k)
-	for ri in range(rows.size(), boxes.size()):  # rows no longer needed: empty by now
-		_bar.remove_child(boxes[ri])
-		(boxes[ri] as Node).queue_free()
+	HudLogic.place_rows(_bar, _cells, rows, int(cfg["topbar_gap_px"]))
 
 
 ## A strip click: the pick's action, except that an opening ask with nothing to select (the valve)
