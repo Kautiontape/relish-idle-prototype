@@ -759,7 +759,8 @@
     "key": "danger",
     "levers": {"raise_war": "Raise WAR"},
     "mill_fmt": "no bone: the pits eat every body. %s",
-    "head_fmt": "%s: never, %s bone short. The pits eat every body: %s"
+    "head_fmt": "%s: never, %s bone short. The pits eat every body: %s",
+    "hold_s": 10
   },
   "cards": {
     "scroll_cue": "▼ scroll for more",

@@ -88,6 +88,9 @@ func _ready() -> void:
 	_debug_kind = str(dbg["kind"])
 	_committed = _target()
 	nodes.ctx.valve_shares = _committed
+	# A won game whose victory was seen settles at mount (note_mount): her queue stack is gone from the first frame,
+	# and from the mount's camera fit, which world_map runs before note_mount. A first play keeps it until END.
+	model.victory_ended = SetpieceLogic.victory_settle_at_mount(bool(model.hud.get("won", false)), seen.has(MapSeen.VICTORY))
 
 
 func _exit_tree() -> void:
@@ -650,11 +653,13 @@ func _garrison_tick(p: Dictionary, t: float, rm: bool, items: Array) -> bool:
 # --- victory ----------------------------------------------------------------------------------
 
 ## RUN, then STOP with the headline up, then END: the headline goes, the routes leave victory styling
-## and drop every lane at Vei (MapRoutes.set_vei_hidden). A settle is END at once.
+## and drop every lane at Vei (MapRoutes.set_vei_hidden), and her queue stack goes (model.victory_ended,
+## the manager's ruling 2 on Session 4: the headline shows over her drowned stack). A settle is END at once.
 ## END's lane hiding stays after #21 (MapRoutes.set_vei_hidden says why), as do the RUN / STOP / END beats.
 func _victory_tick(t: float, rm: bool, settle := false) -> bool:
 	var ph := SetpieceLogic.victory_phase(t, rm, settle)
 	if ph == SetpieceLogic.END:
+		model.victory_ended = true
 		hud.hide_victory()
 		routes.set_victory("")
 		routes.set_vei_hidden(true)
