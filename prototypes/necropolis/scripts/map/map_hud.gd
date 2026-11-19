@@ -505,7 +505,7 @@ func refresh(force := false) -> void:
 		(w["stock"] as Label).text = it["stock_text"]
 		(w["cap"] as Label).text = it["cap_mark"]
 		if w.has("warn"):  # held 10 s and its room kept once shown, so it never re-wraps the bar or moves the camera
-			_bone_warn.set_line(HudLogic.bone_line(model.mill, model.queue_stall, _building_names()))
+			_bone_warn.set_line(HudLogic.bone_line(model.mill, model.queue_stall, _building_names(), hud))
 	var ro := model.readout()
 	var st := HudLogic.status(ro)
 	_odds.text = st["odds_text"]
