@@ -425,6 +425,7 @@
       "not_building": "nothing is under construction there",
       "queue_full": "the queue is full",
       "cost_exceeds_cap": "that cost is over the store cap",
+      "upkeep": "waits until your gold income can pay its upkeep",
       "unknown_index": "no such queue entry",
       "bad_order": "that order isn't valid"
     },
@@ -582,7 +583,7 @@
       "join": " · ", "button": "To the realm"
     },
     "queue_text": {
-      "_doc": "The Build tab's queue (view_town().queue and its commands). A gated entry waits in its place (IDLE §5): gate_wait words its gate (wait_slot: a buildable entry past the first queue_max slot-holders, waiting for one), `skipped` any other skip (lot_taken and the like). affordable_in_s (R2) sets the start: 0 now, > 0 a wait, -1 never at today's income (with the row's starved/lever, starved_why). queued_ok (queued_up for an upgrade) reports a queued entry's own row: its gate, less gate_lead (the line already says Queued), or its affordable_in_s.",
+      "_doc": "The Build tab's queue (view_town().queue and its commands). A gated entry waits in its place (IDLE §5): gate_wait words its gate (wait_slot: a buildable entry past the first queue_max slot-holders, waiting for one; upkeep: a new building whose upkeep the gold income can't pay yet, or an upgrade of an unpaid building the income test holds off), `skipped` any other skip (lot_taken and the like). slots heads the list with the rows that hold a slot, and with slots_gated (slots_gated_one) the rows that hold none. affordable_in_s (R2) sets the start: 0 now, > 0 a wait, -1 never at today's income (with the row's starved/lever, starved_why). queued_ok (queued_up for an upgrade) reports a queued entry's own row: its gate, less gate_lead (the line already says Queued), or its affordable_in_s.",
       "title": "Queue: builds start on their own, in order, while you're away too",
       "not_queued": "Not queued: {why}.",
       "queue_moved": "The queue moved on (that entry started or changed place): nothing was sent. Look again.",
@@ -592,7 +593,8 @@
         "needs_blueprint": "queued: waits for the {label} blueprint (dungeon loot)",
         "needs_building": "queued: waits for a {building}",
         "no_relics": "queued: waits for {n} {unit}: raid a fort",
-        "wait_slot": "queued: waits for a slot"
+        "wait_slot": "queued: waits for a slot",
+        "upkeep": "queued: waits until your gold income can pay its upkeep"
       },
       "skipped": "skipped: {why}",
       "afford_in": "affordable in ~{t}",
@@ -606,7 +608,9 @@
       "queued_ok": "Queued {label} on {lot}: {when}.",
       "queued_up": "Queued the upgrade of {label} to Lv {level} on {lot}: {when}.",
       "gate_lead": "queued: ",
-      "slots": "{used} of {max} slots",
+      "slots": "{used} of {max} slots held",
+      "slots_gated": "{used} of {max} slots held; {gated} wait without one",
+      "slots_gated_one": "{used} of {max} slots held; 1 waits without one",
       "queued_now": "it starts now",
       "queued_never": "it can't be afforded at today's income yet (see the queue)",
       "unqueued": "Removed from the queue.",

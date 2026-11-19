@@ -471,6 +471,13 @@ func _panel_fit(t: TestUtil) -> void:
 	t.ok(is_equal_approx(float(tall["body_h"]), 900.0 - 8.0 - 100.0 - 44.0) and bool(tall["scroll"]), "too tall for the room: it scrolls, its plate ending margin px above the bottom (%s)" % str(tall))
 	t.ok(float(tall["top"]) + float(tall["body_h"]) + 44.0 <= 900.0 - 8.0 + 0.001, "the plate fits between the bar and the bottom")
 	t.ok(float(AwayLogic.panel_fit(400.0, 500.0, 300.0, 22.0, 8.0)["body_h"]) == 0.0, "no room at all: zero, never negative")
+	# the V-I3 round (06a): DISMISS is a footer under the scroll, so the body's room is less its height
+	var ft := AwayLogic.panel_fit(900.0, 92.0, 810.0, 22.0, 8.0, 54.0)
+	t.ok(is_equal_approx(float(ft["body_h"]), 900.0 - 8.0 - 100.0 - 44.0 - 54.0) and bool(ft["scroll"])
+		and float(ft["top"]) + float(ft["body_h"]) + 44.0 + 54.0 <= 900.0 - 8.0 + 0.001, "with the footer, the scroll leaves it room on screen (%s)" % str(ft))
+	var asrc := FileAccess.get_file_as_string("res://scripts/map/map_away.gd")
+	t.ok(asrc.contains("_col.add_child(_scroll)") and asrc.contains("_col.add_child(_foot)") and not asrc.contains("_body.add_child(b)")
+		and asrc.contains("float(c[\"top_gap_px\"]), foot)"), "DISMISS is the footer outside the scroll, and the fit takes its height (source pin: MapAway can't compile headless)")
 	t.ok(int(AwayLogic.cfg()["top_gap_px"]) > 0, "a gap under the bar")
 	var src := FileAccess.get_file_as_string("res://scripts/map/map_away.gd")
 	t.ok(src.contains("AwayLogic.panel_fit(vp.y, bar, body_h") and src.contains("_centre.offset_top = float(f[\"top\"])") and src.contains("_scroll.custom_minimum_size.y = float(f[\"body_h\"])"), "the panel sizes itself from panel_fit")

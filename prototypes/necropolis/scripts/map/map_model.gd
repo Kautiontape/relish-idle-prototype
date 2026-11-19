@@ -104,7 +104,9 @@ func refresh(force := false) -> bool:
 	forts = realm.get("forts", [])
 	forts_by_id.clear()
 	names = {COVINGTON: "Covington", VEI: "Vei"}
+	var won := bool(hud.get("won", false))
 	for f in forts:
+		f["won"] = won  # the V-I3 round, ruling 2: each fort carries the game's won (view_hud.won) for its words (name_tag, CardLogic.fort_state)
 		forts_by_id[f["id"]] = f
 		names[str(f["id"])] = str(f["name"])
 	_villages_by_id.clear()

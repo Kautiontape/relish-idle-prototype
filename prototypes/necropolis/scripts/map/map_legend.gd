@@ -19,6 +19,8 @@ var _shown_open := true
 var _rows_h_settled := 0.0  # the rows' wrapped height once it held still while shown; 0: not measured yet
 var _rows_h_last := 0.0
 var _legend_key: Array = []  # what refresh() last ran for (HudLogic.legend_key); empty: lay out on the next frame
+var _lines: Array = []  # [[row, Label]]: each row's line, re-worded when the game's won changes (HudLogic.legend_line)
+var _won := false
 
 
 ## One state's glyph in a small box: its ring and its shape, drawn as the fort layer draws them.
@@ -71,6 +73,7 @@ func _ready() -> void:
 	_rows = VBoxContainer.new()
 	_rows.add_theme_constant_override("separation", int(lc["row_gap_px"]))
 	vb.add_child(_rows)
+	_won = _model_won()
 	for row in lc["rows"]:
 		_rows.add_child(_row(row, lc))
 		if str(row["state"]) == "held":  # what the held fort's tag reads, right under HELD
@@ -95,7 +98,8 @@ func _row(row: Dictionary, lc: Dictionary) -> Control:
 	word.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	h.add_child(word)
 	var line := Label.new()
-	line.text = str(row["line"])
+	line.text = HudLogic.legend_line(row, _won)
+	_lines.append([row, line])
 	line.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	line.custom_minimum_size.x = 1.0
 	line.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -103,6 +107,22 @@ func _row(row: Dictionary, lc: Dictionary) -> Control:
 	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	h.add_child(line)
 	return h
+
+
+## The game's won (view_hud.won) as the model last read it; false without a model.
+func _model_won() -> bool:
+	return model != null and bool(model.hud.get("won", false))
+
+
+## The rows' lines once won changes under a mounted map (the legend is built at the mount, won or not).
+func _sync_won() -> void:
+	var w := _model_won()
+	if w == _won:
+		return
+	_won = w
+	for pair in _lines:
+		(pair[1] as Label).text = HudLogic.legend_line(pair[0], _won)
+	_legend_key = []  # a line's wrap may change: lay out again
 
 
 ## The line under HELD naming what its tag can read (HudLogic.held_tag_line), the width of the legend.
@@ -132,6 +152,7 @@ func is_open() -> bool:
 func _process(_delta: float) -> void:
 	if model == null:
 		return
+	_sync_won()
 	if _rows.visible:  # the same height two frames running while laid out: the wrap has settled
 		var live := _rows_min_h()
 		if live > 0.0 and is_equal_approx(live, _rows_h_last):

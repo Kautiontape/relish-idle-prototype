@@ -26,7 +26,7 @@ static func rate_items(hud: Dictionary) -> Array:
 		var stock := float(r.get("stock", -1.0))
 		var cap := float(r.get("cap", -1.0))
 		var has_stock := stock >= 0.0
-		var capped := has_stock and cap >= 0.0 and roundi(stock) >= roundi(cap)
+		var capped := row_capped(r)
 		var stock_text := ""
 		if has_stock:
 			stock_text = MapLogic.fmt_mass(stock)
@@ -171,6 +171,12 @@ static func legend_open(user: int) -> bool:
 ## flag, kept across saves and new games), else -1 (not chosen: open).
 static func legend_user(closed_by_player: bool) -> int:
 	return 0 if closed_by_player else -1
+
+
+## A legend row's line (clarity.legend.rows[]): its `line`, or once the game is won its `line_won` where it has one
+## (the V-I3 round, ruling 2: OVERRUN's "still Vei's" is not true after her death).
+static func legend_line(row: Dictionary, won: bool) -> String:
+	return str(row["line_won"]) if won and row.has("line_won") else str(row["line"])
 
 
 ## The legend's line under HELD: what the held fort's tag can read, in the chip's own words
@@ -376,6 +382,22 @@ static func tithe_line(vei_tithe: Dictionary, names: Dictionary) -> Dictionary:
 	return {"text": "", "fort_id": ""}
 
 
+## Whether a view_hud rate row shows the cap mark (▮ FULL): it has a stock and a cap, and the stock rounds to the cap or
+## over it, as the bar prints them. rate_items' `capped` and bone_full read this one rule.
+static func row_capped(r: Dictionary) -> bool:
+	var stock := float(r.get("stock", -1.0))
+	var cap := float(r.get("cap", -1.0))
+	return stock >= 0.0 and cap >= 0.0 and roundi(stock) >= roundi(cap)
+
+
+## Whether `hud`'s BONE row shows ▮ FULL (row_capped): false when the hud has no bone row.
+static func bone_full(hud: Dictionary) -> bool:
+	for r in hud.get("rates", []):
+		if str(r.get("id", "")) == "bone":
+			return row_capped(r)
+	return false
+
+
 ## The player's words for a view `lever` ("raise_war" -> "Raise WAR"), from bone_line.levers; an
 ## unknown lever reads as itself, "" as "".
 static func lever_text(lever: String) -> String:
@@ -390,9 +412,23 @@ static func stalled_head(head: Dictionary) -> Dictionary:
 	return {}
 
 
-## Whether the pits-first stall is live: the Bone Mill row ({starved, lever}) or the queue head says so.
-static func pits_stalled(mill: Dictionary, head: Dictionary) -> bool:
-	return str(mill.get("starved", "")) == "pits_first" or not stalled_head(head).is_empty()
+## Whether the Bone Mill row's own pits-first stall speaks (the V-I3 round, ruling 1): the mill gets no bone
+## (`starved` pits_first), and nothing is short of it: not while BONE shows ▮ FULL (bone_full: the store is at its cap
+## or over it, so no build waits on bone), and not on a won game (view_hud.won). `hud` {} reads as neither.
+static func mill_speaks(mill: Dictionary, hud: Dictionary) -> bool:
+	return str(mill.get("starved", "")) == "pits_first" and not bone_quiet(hud)
+
+
+## Whether nothing can be short of bone (BONE at ▮ FULL, or the game won): the mill's line is silent then, and BONE's
+## warning drops a held line at once (BoneWarn.set_line's `quiet`).
+static func bone_quiet(hud: Dictionary) -> bool:
+	return bool(hud.get("won", false)) or bone_full(hud)
+
+
+## Whether the pits-first stall is live: the Bone Mill row ({starved, lever}) while it speaks (mill_speaks, on `hud`),
+## or the queue head says so (stalled_head, whatever the store or the game).
+static func pits_stalled(mill: Dictionary, head: Dictionary, hud := {}) -> bool:
+	return mill_speaks(mill, hud) or not stalled_head(head).is_empty()
 
 
 ## BONE's stall warning on its bar label (the manager's ruling 1 on Session 4, 2026-11-18, option b). `line` is bone_line's
@@ -425,10 +461,11 @@ static func stall_lever(mill: Dictionary, head: Dictionary) -> String:
 
 ## The BONE item's one-line warning, or "". A stalled queue head is named with its ETA as never
 ## and what it is short of ("Inn: never, 7 bone short. The pits eat every body: raise WAR": never a
-## number of seconds); else the mill's own stall ("no bone: the pits eat every body. Raise WAR").
-## Only pits_first speaks: no_bodies has no lever and says nothing. `building_names` maps ids to
-## labels (buildings_view); an id without one is capitalised.
-static func bone_line(mill: Dictionary, head: Dictionary, building_names := {}) -> String:
+## number of seconds); else the mill's own stall while it speaks (mill_speaks on `hud`: not at ▮ FULL, not
+## once won): "no bone coming in: the pits eat every body. Raise WAR" (the V-I3 round, ruling 1: it is the
+## income that is nil, and BONE beside it may hold a store). Only pits_first speaks: no_bodies has no lever
+## and says nothing. `building_names` maps ids to labels (buildings_view); an id without one is capitalised.
+static func bone_line(mill: Dictionary, head: Dictionary, building_names := {}, hud := {}) -> String:
 	var c: Dictionary = MapLogic.cfg()["bone_line"]
 	var lever := lever_text(stall_lever(mill, head))
 	var h := stalled_head(head)
@@ -437,7 +474,7 @@ static func bone_line(mill: Dictionary, head: Dictionary, building_names := {}) 
 		var short := MapLogic.fmt_mass(float(ceili(float(h.get("short", {}).get("bone", 0.0)))))
 		var low := lever.substr(0, 1).to_lower() + lever.substr(1)
 		return str(c["head_fmt"]) % [str(building_names.get(id, id.capitalize())), short, low]
-	if str(mill.get("starved", "")) == "pits_first":
+	if mill_speaks(mill, hud):
 		return str(c["mill_fmt"]) % lever
 	return ""
 

@@ -21,6 +21,8 @@ var _panel: PanelContainer
 var _centre: CenterContainer
 var _scroll: ScrollContainer
 var _body: VBoxContainer
+var _col: VBoxContainer  # the scroll, then the pinned footer
+var _foot: Button  # DISMISS, pinned under the scroll so it is always on screen (the V-I3 round, 06a)
 var _fit_sig := []
 var _frame: Control
 var _rev := -1
@@ -44,14 +46,24 @@ func _ready() -> void:
 	_panel.mouse_filter = Control.MOUSE_FILTER_STOP
 	_panel.add_theme_stylebox_override("panel", MapUi.plate_box(float(c["plate_alpha"]), int(c["pad_px"])))
 	centre.add_child(_panel)
+	_col = VBoxContainer.new()
+	_col.add_theme_constant_override("separation", int(c["section_sep_px"]))
+	_panel.add_child(_col)
 	_scroll = ScrollContainer.new()  # the body scrolls only when it is taller than the room under the bar
 	_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
 	_scroll.mouse_filter = Control.MOUSE_FILTER_PASS
-	_panel.add_child(_scroll)
+	_col.add_child(_scroll)
 	_body = VBoxContainer.new()
 	_body.add_theme_constant_override("separation", int(c["sep_px"]))
 	_body.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_scroll.add_child(_body)
+	_foot = Button.new()  # DISMISS: a footer outside the scroll, so a tall report never scrolls it off screen
+	_foot.text = str(c["dismiss"])
+	_foot.custom_minimum_size = Vector2(float(c["dismiss_w_px"]), float(c["line_min_h_px"]))
+	_foot.size_flags_horizontal = Control.SIZE_SHRINK_END
+	MapUi.style_button(_foot)
+	_foot.pressed.connect(_dismiss)
+	_col.add_child(_foot)
 	_frame = Control.new()  # the glowing frame, over the plate's own hairline
 	_frame.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_frame.draw.connect(_draw_frame)
@@ -106,21 +118,14 @@ func _open(rep: Dictionary) -> void:
 		for line in sec["lines"]:
 			_body.add_child(_ready_row(line) if sec["key"] != "gains" and line["action"]["kind"] != "none" else _line_row(line["spans"]))
 	_build_tithe_row(int(c["section_sep_px"]))
-	_body.add_child(_spacer(int(c["section_sep_px"])))
-	var b := Button.new()
-	b.text = str(c["dismiss"])
-	b.custom_minimum_size = Vector2(float(c["dismiss_w_px"]), float(c["line_min_h_px"]))
-	b.size_flags_horizontal = Control.SIZE_SHRINK_END
-	MapUi.style_button(b)
-	b.pressed.connect(_dismiss)
-	_body.add_child(b)
 	visible = true
 	_fit_sig = []
 	_fit()
 
 
 ## Sizes the panel to the room under the top bar (AwayLogic.panel_fit): the centring box starts below the
-## bar's plate, and the body's scroll is its own height, or the room left when that is less. Runs on open
+## bar's plate, and the body's scroll is its own height, or the room left under it and DISMISS's footer when that is
+## less. Runs on open
 ## and whenever the viewport, the bar or the body's height changes.
 func _fit() -> void:
 	var c := AwayLogic.cfg()
@@ -131,7 +136,8 @@ func _fit() -> void:
 	if sig == _fit_sig:
 		return
 	_fit_sig = sig
-	var f := AwayLogic.panel_fit(vp.y, bar, body_h, float(c["pad_px"]), float(c["top_gap_px"]))
+	var foot := _foot.get_combined_minimum_size().y + float(c["section_sep_px"])  # DISMISS and the gap above it
+	var f := AwayLogic.panel_fit(vp.y, bar, body_h, float(c["pad_px"]), float(c["top_gap_px"]), foot)
 	_centre.offset_top = float(f["top"])
 	_centre.offset_bottom = -float(f["bottom"])
 	_scroll.custom_minimum_size.y = float(f["body_h"])

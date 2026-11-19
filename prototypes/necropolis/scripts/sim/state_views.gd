@@ -1215,9 +1215,13 @@ static func away_report(gs: GameState, b: Dictionary, evs: Array, away_s: float,
 		var ev: Dictionary = retake_ev.get(id, {})
 		losses.append(_away_line(fmt.format({"fort": str(f.get("name", id)), "war": _fmt_abs(rep, float(ev.get("war_in", 0.0)), 1),
 			"mult": _fmt_abs(rep, float(ev.get("pressure_mult", 1.0)), 1)}), "retaken", id))
+	# the V-I3 round (economy §14.5 (b), the manager's grant: view-only, additive): a village of yours that went neutral
+	# is named too, in the same kind (on the shipped field it is the only village loss there is: Quiet Mill)
 	for tw in gs.towns:
 		if str(b["villages"].get(str(tw["id"]), "")) == "green" and str(tw["control"]) == "orange":
 			losses.append(_away_line(str(rep["village_lost_fmt"]).format({"village": str(tw["name"])}), "village_lost", ""))
+		elif str(b["villages"].get(str(tw["id"]), "")) == "green" and str(tw["control"]) == "none":
+			losses.append(_away_line(str(rep["village_neutral_fmt"]).format({"village": str(tw["name"])}), "village_lost", ""))
 	losses.append_array(_unpaid_lines(gs, rep, b, evs))
 	losses.append_array(_thrift_lines(gs, rep, b, gs._catchup.thrift_log))
 	return {"shown": true, "away_s": away_s, "capped": capped, "gains": gains, "ready": ready, "losses": losses}

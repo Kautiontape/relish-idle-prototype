@@ -331,6 +331,16 @@ func _clarity(t: TestUtil) -> void:
 	t.ok(not MapSeen.new(spath, true).get_global(MapSeen.LEGEND_CLOSED), "and never wrote it to the file")
 	MapSeen.forget_memory()
 	DirAccess.remove_absolute(spath)
+	# the V-I3 round, ruling 2: once won, OVERRUN's line is true after her death; the rows without a won line keep theirs
+	var rows: Array = MapLogic.cfg()["clarity"]["legend"]["rows"]
+	var orow: Dictionary = rows.filter(func(r): return str(r["state"]) == "overrun")[0]
+	t.ok(HudLogic.legend_line(orow, false) == str(orow["line"]) and str(orow["line"]).contains("still Vei's"), "OVERRUN's line, live: " + HudLogic.legend_line(orow, false))
+	t.ok(HudLogic.legend_line(orow, true) == "Your WAR killed its living and fills it, but it isn't yours until you break its warden."
+		and not HudLogic.legend_line(orow, true).contains("Vei's"), "OVERRUN's line once won: " + HudLogic.legend_line(orow, true))
+	t.ok(rows.all(func(r): return r.has("line_won") or HudLogic.legend_line(r, true) == str(r["line"])), "a row with no won line reads the same once won")
+	var lsrc := FileAccess.get_file_as_string("res://scripts/map/map_legend.gd")
+	t.ok(lsrc.contains("line.text = HudLogic.legend_line(row, _won)") and lsrc.contains("\t_sync_won()\n"),
+		"the legend words its rows with legend_line at the mount and re-words them when won changes (source pin: MapLegend can't compile headless)")
 	t.ok(HudLogic.legend_glyph_state("held") == IdleLogic.SAFE and HudLogic.legend_glyph_state("overrun") == NodeLogic.OVERRUN and HudLogic.legend_glyph_state("hers") == NodeLogic.HERS and HudLogic.legend_glyph_state("retaken") == NodeLogic.HERS, "each legend row draws the map's own state glyph")
 	t.ok(HudLogic.legend_glyph_retaken("retaken") and not HudLogic.legend_glyph_retaken("hers") and not HudLogic.legend_glyph_retaken("held") and not HudLogic.legend_glyph_retaken("overrun"), "only RETAKEN's glyph is cracked: VEI'S and RETAKEN differ by shape")
 	var lc: Dictionary = MapLogic.cfg()["clarity"]["legend"]
@@ -471,7 +481,7 @@ func _bone_line(t: TestUtil) -> void:
 		"short": {"gold": 0.0, "bone": 6.2}, "starved": "pits_first", "lever": "raise_war"}
 	t.ok(HudLogic.bone_line(none, {}, names) == "", "no stall: nothing to say")
 	t.ok(HudLogic.bone_line({}, {}, names) == "", "no mill row: nothing to say")
-	t.ok(HudLogic.bone_line(pits, {}, names) == "no bone: the pits eat every body. Raise WAR", "mill pits_first: the stall and the lever, as config words: " + HudLogic.bone_line(pits, {}, names))
+	t.ok(HudLogic.bone_line(pits, {}, names) == "no bone coming in: the pits eat every body. Raise WAR", "mill pits_first: the stall and the lever, as config words: " + HudLogic.bone_line(pits, {}, names))
 	var head := HudLogic.bone_line(pits, stalled, names)
 	t.ok(head == "Inn: never, 7 bone short. The pits eat every body: raise WAR", "a stalled head is named with a never ETA and what it lacks: " + head)
 	t.ok(not head.contains(":0") and not head.contains(" in ") and not head.contains("m "), "a never ETA carries no number of time")
@@ -480,13 +490,28 @@ func _bone_line(t: TestUtil) -> void:
 	timed["affordable_in_s"] = 90.0
 	timed["starved"] = ""
 	timed["lever"] = ""
-	t.ok(HudLogic.bone_line(pits, timed, names) == "no bone: the pits eat every body. Raise WAR", "a timed wait is not a stall: the mill's line stands")
+	t.ok(HudLogic.bone_line(pits, timed, names) == "no bone coming in: the pits eat every body. Raise WAR", "a timed wait is not a stall: the mill's line stands")
 	t.ok(HudLogic.bone_line(bodies, {}, names) == "", "no_bodies is not pits first: no raise WAR line")
 	var bod_head := stalled.duplicate()
 	bod_head["starved"] = "no_bodies"
 	bod_head["lever"] = ""
 	t.ok(HudLogic.bone_line(bodies, bod_head, names) == "", "a no_bodies head says nothing either")
 	t.ok(HudLogic.bone_line(pits, stalled, {}).begins_with("Inn: never"), "no name table: the id, capitalised")
+	# the V-I3 round, ruling 1: the mill's line speaks only while something can be short of bone, and on a live game
+	var full := {"rates": [{"id": "bone", "rate": 0.0, "stock": 300.0, "cap": 300.0}]}
+	var over := {"rates": [{"id": "bone", "rate": 0.0, "stock": 460.0, "cap": 300.0}]}
+	var near := {"rates": [{"id": "bone", "rate": 0.0, "stock": 299.6, "cap": 300.0}]}
+	var room := {"rates": [{"id": "bone", "rate": 0.0, "stock": 120.0, "cap": 300.0}]}
+	var won := {"won": true, "rates": room["rates"]}
+	t.ok(HudLogic.bone_line(pits, {}, names, room) == "no bone coming in: the pits eat every body. Raise WAR",
+		"room in the store: the mill's line, which says it's the income that is nil")
+	for k in [["at its cap (300/300)", full], ["over its cap (460/300, 10c)", over], ["rounding to its cap, as ▮ FULL does (299.6/300)", near], ["a won game", won]]:
+		t.ok(HudLogic.bone_line(pits, {}, names, k[1]) == "", "the mill's line is silent with BONE %s: nothing is short" % k[0])
+		t.ok(not HudLogic.pits_stalled(pits, {}, k[1]) and HudLogic.pits_stalled(pits, {}, room), "and the valve's stall reads the same (%s)" % k[0])
+		t.ok(HudLogic.bone_line(pits, stalled, names, k[1]) == head and HudLogic.pits_stalled(none, stalled, k[1]), "the stalled head's line is unchanged (%s)" % k[0])
+	var items := HudLogic.rate_items(near)
+	t.ok(bool(items[0]["capped"]) and HudLogic.bone_full(near) and HudLogic.bone_full(over) and not HudLogic.bone_full(room) and not HudLogic.bone_full({}),
+		"the line's FULL is the bar's ▮ FULL (row_capped), and no bone row is not full")
 	var bl: Dictionary = MapLogic.cfg()["bone_line"]
 	t.ok(HudLogic.lever_text("raise_war") == "Raise WAR" and bl["levers"]["raise_war"] == "Raise WAR", "the lever's words come from config, keyed by the view's lever")
 	var cfg := MapLogic.cfg()
@@ -512,7 +537,7 @@ func _bone_warn(t: TestUtil) -> void:
 	t.suite("map_hud-bone-warn")
 	var hold := float(MapLogic.cfg()["bone_line"]["hold_s"])
 	t.ok(hold == 10.0, "the warning's hold is the ruling's 10 s (bone_line.hold_s)")
-	var mill := "no bone: the pits eat every body. Raise WAR"
+	var mill := "no bone coming in: the pits eat every body. Raise WAR"
 	var head := "Inn: never, 7 bone short. The pits eat every body: raise WAR"
 	var w := Label.new()
 	w.visible = false
@@ -565,12 +590,29 @@ func _bone_warn(t: TestUtil) -> void:
 		"paused, the hold past with no new rev: blank, not hidden, its room kept (%.1f s)" % (bw.clock - 30.5))
 	bw.set_line(head)
 	t.ok(bl.text == head, "and the next stall shows at once")
+	# the V-I3 round, ruling 1 (06a's after-shot): the stall ends because BONE filled (or the game is won): nothing is
+	# short, so the held line drops at once, blank with its room kept; a plain end of the stall still holds
+	bw.set_line(mill)
+	bw.tick(1.0)
+	bw.set_line("", false)
+	t.ok(bl.text == mill, "the stall gone with BONE below its cap: the line holds, as before")
+	bw.set_line("", true)
+	t.ok(bl.text == "" and bl.visible and maxf(bl.custom_minimum_size.x, bl.get_minimum_size().x) >= mill_w,
+		"the stall gone because BONE is FULL (quiet): blank at once, its room kept")
+	bw.tick(1.0)
+	t.ok(bl.text == "", "and it stays blank on the next tick")
+	t.ok(HudLogic.bone_quiet({"won": true}) and HudLogic.bone_quiet({"rates": [{"id": "bone", "stock": 300.0, "cap": 300.0}]})
+		and not HudLogic.bone_quiet({"rates": [{"id": "bone", "stock": 120.0, "cap": 300.0}]}) and not HudLogic.bone_quiet({}),
+		"quiet: won, or BONE at ▮ FULL; else not")
 	bl.free()
 	var src := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
-	t.ok(src.contains("_bone_warn.set_line(HudLogic.bone_line(model.mill, model.queue_stall, _building_names()))")
+	t.ok(src.contains("_bone_warn.set_line(HudLogic.bone_line(model.mill, model.queue_stall, _building_names(), hud), HudLogic.bone_quiet(hud))")
 		and src.contains("_bone_warn = BoneWarn.new(parts[\"warn\"] as Label)") and src.contains("func tick(delta: float) -> void:\n\tif _bone_warn != null:")
 		and src.contains("\t\t_bone_warn.tick(delta)") and not src.contains("warn.visible = line != \"\""),
-		"map_hud.gd builds BONE's warning as a BoneWarn, gives it the model's line on each rev and ticks it every frame (source pin: MapHud can't compile headless)")
+		"map_hud.gd builds BONE's warning as a BoneWarn, gives it the model's line (with the hud, for FULL and won) on each rev and ticks it every frame (source pin: MapHud can't compile headless)")
+	var vsrc := FileAccess.get_file_as_string("res://scripts/map/map_valve.gd")
+	t.ok(vsrc.contains("HudLogic.pits_stalled(model.mill, model.queue_stall, model.hud)"),
+		"the valve's bone line reads the same stall, with the hud (source pin: MapValve can't compile headless)")
 
 
 func _hud(rates: Array, extra := {}) -> Dictionary:

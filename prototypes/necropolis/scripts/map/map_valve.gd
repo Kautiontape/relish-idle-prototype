@@ -261,9 +261,10 @@ func refresh(force := false) -> void:
 	queue_redraw()
 
 
-## The bone line for the valve `shown`: the live stall's lever, else "below the bone edge" in a drag under it.
+## The bone line for the valve `shown`: the live stall's lever, else "below the bone edge" in a drag under it. The
+## mill's own stall is silent at ▮ FULL and once won (HudLogic.mill_speaks), as BONE's warning is.
 func _bone_text(shown: Dictionary) -> String:
-	var stalled := HudLogic.pits_stalled(model.mill, model.queue_stall)
+	var stalled := HudLogic.pits_stalled(model.mill, model.queue_stall, model.hud)
 	var lever := HudLogic.lever_text(HudLogic.stall_lever(model.mill, model.queue_stall))
 	return ValveLogic.bone_readout(stalled, lever, _dragging, float(shown["war"]), ValveLogic.bone_edge(model.hud))
 

@@ -89,6 +89,7 @@ const REPORT_KEYS := ["streams", "stream_labels", "stream_fmt", "backlog_fmt", "
 	"plus", "minus", "rate_unit", "thousands", "rate_sig_digits", "rate_max_decimals", "builds_one_fmt", "builds_fmt",
 	"list_sep", "level_fmt", "started_fmt", "started_now_fmt", "when_hm_fmt", "when_m_fmt", "waited_on", "refilled_fmt",
 	"raid_fmt", "husk_one_fmt", "husks_fmt", "queue_empty", "retaken_fmt", "retaken_home_fmt", "village_lost_fmt",
+	"village_neutral_fmt",  # the V-I3 round (economy §14.5 (b)): a village of yours gone neutral, under LOSSES
 	"overflow_fmt", "store_labels", "overflow_min",
 	# R1: the losses' unpaid lines (one per building unpaid during the absence; StateViews.away_report)
 	"unpaid_fmt", "unpaid_sep", "unpaid_stopped", "unpaid_inert",
