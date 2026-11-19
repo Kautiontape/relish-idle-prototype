@@ -237,7 +237,12 @@ func _clarity(t: TestUtil) -> void:
 	var mint_won := "Mint: the undead your Raising Pits make each second. Once Vei is beaten, the map's valve splits it between WORK (your town's jobs) and WAR (your forts)."
 	t.ok(HudLogic.tip("mint", {"won": true}) == mint_won and HudLogic.tip("mint", {"won": false}) == mint_line and HudLogic.tip("mint", {}) == mint_line,
 		"won: the mint tip is the glossary's won line verbatim; not won (or no hud), the plain one")
-	t.ok(HudLogic.tip("drain", {"won": true}) == HudLogic.tip("drain") and HudLogic.tip("war", {"won": true}) == war_line, "won: a word with no won line keeps its line")
+	t.ok(HudLogic.tip("drain", {"won": true}) == HudLogic.tip("drain") and HudLogic.tip("work", {"won": true}) == HudLogic.tip("work"), "won: a word with no won line keeps its line")
+	# once won (the manager's ruling on Session 3's open 3): WAR's and FLOOD's line drops its FLOOD sentence, nothing else
+	var war_won := "WAR sends undead to your forts, spread by distance, with Relish's fort drawing 3× its share."
+	t.ok(HudLogic.tip("war", {"won": true}) == war_won and HudLogic.tip("flood", {"won": true}) == war_won and war_line.begins_with(war_won + " ")
+		and HudLogic.tip("war", {"won": false}) == war_line and HudLogic.tip("flood") == war_line,
+		"won: the WAR and FLOOD tips are the ruling's line verbatim (the glossary's without its FLOOD sentence); not won, the glossary's")
 	var wl := Label.new()
 	HudLogic.apply_tip(wl, "mint", {"won": true})
 	t.ok(wl.tooltip_text == mint_won, "apply_tip passes the hud on")
@@ -251,8 +256,9 @@ func _clarity(t: TestUtil) -> void:
 	t.ok(HudLogic.tip("war") == war_line and HudLogic.tip("flood") == war_line, "the WAR and FLOOD tips are the glossary's full line verbatim")
 	t.ok(HudLogic.tip("strain") == "How backed up Vei's queue is. ▲ means it's growing (FLOOD is clogging it); ▼ means she's working it down.", "the STRAIN tip is the glossary's line verbatim")
 	t.ok(HudLogic.tip("drain") == "How long until Vei's queue empties at this rate. ∞ means it isn't emptying.", "the DRAIN tip is the glossary's line verbatim")
-	t.ok(HudLogic.tip("odds") == "Your chance to beat Vei if you faced her now. It grows with time and with her clogged queue.", "the ODDS tip is the pre-P3 line verbatim")
-	t.ok(HudLogic.tip("odds_backups") == "Your chance to beat Vei if you faced her now. It grows with time, with her clogged queue and with your backups.", "the ODDS-with-backups tip is the glossary's line verbatim")
+	# with your raids (the manager's ruling on Session 3's open 4: the glossary's ODDS line, P3b; the raid credit)
+	t.ok(HudLogic.tip("odds") == "Your chance to beat Vei if you faced her now. It grows with time, with her clogged queue and with your raids.", "the ODDS tip is the ruling's line verbatim (the glossary's without backups)")
+	t.ok(HudLogic.tip("odds_backups") == "Your chance to beat Vei if you faced her now. It grows with time, with her clogged queue, with your raids and with your backups.", "the ODDS-with-backups tip is the glossary's line verbatim")
 	t.ok(not HudLogic.tip("odds").contains("backups"), "the plain ODDS tip never names backups")
 	t.ok(HudLogic.odds_tip_id(-1) == "odds" and HudLogic.odds_tip_id(0) == "odds_backups" and HudLogic.odds_tip_id(4) == "odds_backups", "odds_tip_id: backups unknown (-1) is the plain tip, any reported count the backups one")
 	var odds_src := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
@@ -877,6 +883,9 @@ func _wrap(t: TestUtil) -> void:
 	t.ok(right_edge <= 1600.0 - float(cfg["meter_reserve_px"]), "the bar's plate (%.0f) stops left of the ground meter's reserve (%.0f)" % [right_edge, 1600.0 - float(cfg["meter_reserve_px"])])
 	var hud_src := FileAccess.get_file_as_string("res://scripts/map/map_hud.gd")
 	t.ok(hud_src.contains("HudLogic.wrap_rows("), "the bar lays its rows out with wrap_rows")
+	var wc := hud_src.substr(hud_src.find("func _wrap_cells("), hud_src.find("func _on_objective_pressed(") - hud_src.find("func _wrap_cells("))
+	t.ok(wc.contains("if cell.get_parent() != box:") and wc.contains("box.move_child(cell, k)") and not wc.contains("for c in row.get_children():"),
+		"a re-wrap keeps the row boxes and moves only the cells whose row changed (economy P9 C-d: rebuilding every row cost ~6.5 ms a time)")
 	t.ok(hud_src.contains('odds_name.text = str(cfg["cards"]["vei_odds_label"])') and not hud_src.contains('"ODDS"'), "the bar's odds label is the config's, not a literal")
 	t.ok(str(cfg["cards"]["vei_odds_label"]) == "YOUR ODDS", "and it says whose odds")
 	var bar_odds_w: float = ThemeDB.fallback_font.get_string_size(str(cfg["cards"]["vei_odds_label"]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(cfg["font_label"])).x

@@ -32,6 +32,9 @@ var _supports: Label
 var _bone: Label  # the bone line: the pits-first stall's lever, or "below the bone edge" while dragging under it
 var _over_rate: Label  # on WAR's feed line: "+3.1/s"
 var _over_text: Label  # "overflows to Vei"
+var _over_won_row: HBoxContainer  # once won, the overflow's own line under WAR's feed (ValveLogic.overflow_own_line); hidden before
+var _over_won_rate: Label  # "+58.8/s"
+var _over_won_text: Label  # "lost: your forts are full"
 var _payoff: VBoxContainer  # the payoff, the panel's last block: two rows reserved (the cost may wrap)
 var _explain: Label  # "WORK staffs your town · WAR garrisons your forts · FLOOD clogs Vei's queue", in the payoff's place
 var _payoff_w := 0.0  # the payoff's inner width: the panel's, less its padding
@@ -160,6 +163,17 @@ func _build_rows(c: Dictionary, x: float, inner: float) -> VBoxContainer:
 			MapType.style_rate(_over_rate, "text", MapType.size_of("size_label"))
 			feed_row.add_child(_over_rate)
 			_over_text = _label(feed_row, "text_dim")
+			# once won the overflow moves to its own line (its words don't fit beside the feed): hidden at build, so
+			# the panel's height is the pre-win one; its height is kept while won, so it never jumps as WAR's overflow
+			# comes and goes (the FLOOD row it replaces is taller)
+			_over_won_row = _hbox(box, int(c["valve_row_hsep_px"]))
+			_over_won_row.custom_minimum_size.y = MapType.label_font().get_height(MapType.size_of("size_label"))
+			_over_won_row.visible = false
+			_over_won_rate = Label.new()
+			_over_won_rate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			MapType.style_rate(_over_won_rate, "text", MapType.size_of("size_label"))
+			_over_won_row.add_child(_over_won_rate)
+			_over_won_text = _label(_over_won_row, "text_dim")
 	_supports = _label(col, "text")
 	# the bone line (the stall's lever, or "below the bone edge" while dragging): two lines of room are
 	# always kept, so the panel never jumps when it shows
@@ -209,7 +223,7 @@ func refresh(force := false) -> void:
 		model.set_projection(proj)  # the fort chips and "N of M" follow the handle
 	var pay_parts := _payoff_parts_for(proj)
 	var payoff := " | ".join(PackedStringArray(pay_parts.map(func(q): return q["text"])))
-	var over := ValveLogic.overflow_parts(ValveLogic.war_overflow(model.hud, proj, _dragging))
+	var over := ValveLogic.overflow_parts(ValveLogic.war_overflow(model.hud, proj, _dragging), model.hud)  # its won words once won
 	var bone := _bone_text(shown)
 	var explain_on := HudLogic.valve_explain_shown(model.hud) and pay_parts.is_empty()
 	var flood_on := HudLogic.flood_shown(model.hud)
@@ -226,8 +240,12 @@ func refresh(force := false) -> void:
 		(parts["rate"] as Label).text = r["rate_text"]
 		(parts["feed"] as Label).text = r["feed_text"]
 	_workers.text = ValveLogic.workers_text(ValveLogic.workers_kept(float(proj["workers_steady"]), model.hud, model.job_slots, model.idle_cap, _dragging))
-	_over_rate.text = str(over.get("rate", ""))
-	_over_text.text = str(over.get("text", ""))
+	var own := ValveLogic.overflow_own_line(model.hud)  # won: on its own line (flood_on, in the sig, flips with it)
+	_over_rate.text = "" if own else str(over.get("rate", ""))
+	_over_text.text = "" if own else str(over.get("text", ""))
+	_over_won_rate.text = str(over.get("rate", "")) if own else ""
+	_over_won_text.text = str(over.get("text", "")) if own else ""
+	_over_won_row.visible = own
 	var sup := ValveLogic.supports_text(proj)
 	_supports.text = sup
 	_supports.visible = sup != ""
@@ -236,6 +254,9 @@ func refresh(force := false) -> void:
 	(_rows["flood"]["box"] as Control).visible = flood_on  # won: the FLOOD row and its corner go
 	(_corner_btns["flood"] as Control).visible = flood_on
 	tooltip_text = HudLogic.tip("mint", model.hud)  # won (flood_on is in the sig): the mint's won line, no FLOOD
+	for k in ValveLogic.KEYS:  # and WAR's and FLOOD's won line (no FLOOD sentence), on the names and the corners
+		HudLogic.apply_tip(_rows[k]["name"], k, model.hud)
+		(_corner_btns[k] as Control).tooltip_text = HudLogic.tip(k, model.hud)
 	_payoff_rows(pay_parts)
 	queue_redraw()
 

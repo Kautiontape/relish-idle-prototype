@@ -12,11 +12,15 @@ const MINUS := "−"
 
 static var _cfg := {}
 static var _pulse := {}
+static var _fit_memo := {}  # fit_view_clear's answers by their inputs (cleared by configure; at most FIT_MEMO_MAX)
+const FIT_MEMO_MAX := 16
+static var fit_searches := 0  # how many times fit_view_clear has searched (its memo missed): the tests read it
 
 
 ## Replace the map config (world_map passes ConfigDb's copy at _ready; tests pass the file).
 static func configure(d: Dictionary) -> void:
 	_cfg = d.duplicate(true)
+	_fit_memo.clear()
 
 
 static func cfg() -> Dictionary:
@@ -197,7 +201,23 @@ static func item_rect(it: Dictionary, zoom: float, centre: Vector2, viewport: Ve
 ## first), then the zoom times fit_shrink_step, at most fit_shrink_tries times and never under the
 ## mid tier's floor (zoom_far_below + zoom_hysteresis). The first clear camera wins; when none is,
 ## the one with the fewest items in the way. Returns {zoom, centre} ({} for degenerate input).
+## The answer is kept by its inputs (the config only changes through configure, which drops them): the search costs
+## ~5 ms, and on pre_vei the top bar re-wraps every few seconds (BONE's stall warning comes and goes), so the
+## camera re-fits between the same two insets (economy P9 C-d's frame spikes).
 static func fit_view_clear(content: Rect2, viewport: Vector2, inset_top: float, items: Array, obstacles: Array) -> Dictionary:
+	var key := var_to_str([content, viewport, inset_top, items, obstacles])
+	if _fit_memo.has(key):
+		return (_fit_memo[key] as Dictionary).duplicate()
+	var out := _fit_search(content, viewport, inset_top, items, obstacles)
+	if _fit_memo.size() >= FIT_MEMO_MAX:
+		_fit_memo.clear()
+	_fit_memo[key] = out.duplicate()
+	return out
+
+
+## fit_view_clear's search, uncached.
+static func _fit_search(content: Rect2, viewport: Vector2, inset_top: float, items: Array, obstacles: Array) -> Dictionary:
+	fit_searches += 1
 	var base := fit_view(content, viewport, inset_top)
 	if base.is_empty():
 		return base

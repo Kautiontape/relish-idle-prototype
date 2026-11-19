@@ -574,8 +574,8 @@
       "gold": "Gold: you build with it, and with bone. The Market makes it: your living buy there.",
       "bone": "Bone: you build with it, and with gold. The Bone Mill grinds bodies into bone.",
       "living": "Living: your town's people. They buy at the Market, which makes your gold; room and morale let more of them live here.",
-      "odds": "Your chance to beat Vei if you faced her now. It grows with time and with her clogged queue.",
-      "odds_backups": "Your chance to beat Vei if you faced her now. It grows with time, with her clogged queue and with your backups.",
+      "odds": "Your chance to beat Vei if you faced her now. It grows with time, with her clogged queue and with your raids.",
+      "odds_backups": "Your chance to beat Vei if you faced her now. It grows with time, with her clogged queue, with your raids and with your backups.",
       "strain": "How backed up Vei's queue is. ▲ means it's growing (FLOOD is clogging it); ▼ means she's working it down.",
       "drain": "How long until Vei's queue empties at this rate. ∞ means it isn't emptying.",
       "work": "WORK: your town's jobs",
@@ -583,8 +583,10 @@
       "flood": "WAR sends undead to your forts, spread by distance, with Relish's fort drawing 3× its share. FLOOD sends them into Vei's queue, which raises your odds against her."
     },
     "tips_won": {
-      "_doc": "Once Vei is beaten (view_hud.won), a word's hover line here instead of tips', where it has one (HudLogic.tip with the hud): the top bar's MINT and the valve's tooltip.",
-      "mint": "Mint: the undead your Raising Pits make each second. Once Vei is beaten, the map's valve splits it between WORK (your town's jobs) and WAR (your forts)."
+      "_doc": "Once Vei is beaten (view_hud.won), a word's hover line here instead of tips', where it has one (HudLogic.tip with the hud): the top bar's MINT and the valve's tooltip; the valve's WAR and FLOOD names and corners (no FLOOD sentence).",
+      "mint": "Mint: the undead your Raising Pits make each second. Once Vei is beaten, the map's valve splits it between WORK (your town's jobs) and WAR (your forts).",
+      "war": "WAR sends undead to your forts, spread by distance, with Relish's fort drawing 3× its share.",
+      "flood": "WAR sends undead to your forts, spread by distance, with Relish's fort drawing 3× its share."
     },
     "legend": {
       "open_text": "Legend −",
@@ -733,6 +735,7 @@
     "payoff_capped_backups": "; backups will",
     "payoff_window_text": "10 min",
     "valve_overflow_text": "overflows to Vei",
+    "valve_overflow_text_won": "lost: your forts are full",
     "valve_payoff_sep_px": 3,
     "valve_payoff_row_gap_px": 2,
     "payoff_sep": " · ",

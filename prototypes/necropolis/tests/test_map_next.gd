@@ -1005,6 +1005,24 @@ func _fit(t: TestUtil) -> void:
 	t.ok(MapLogic.fit_view_clear(Rect2(0, 0, 1000, 1000), VP, inset, [], []) == plain, "nothing in the way: fit_view's answer")
 	var cam := FileAccess.get_file_as_string("res://scripts/map/map_camera.gd")
 	t.ok(cam.contains("MapLogic.fit_view_clear("), "the camera fits around the panels")
+	# the fit memo (economy P9 C-d's pre_vei frame spikes: each re-fit searched again for ~5 ms, between the same two
+	# insets as the top bar re-wraps): the same inputs search once, with the same answer; configure drops the memo
+	var mi: Array = [{"pos": Vector2(500, 500), "r": 20.0, "below": 30.0, "text_px": 14.0, "half_px": 40.0}]
+	var mo: Array = [Rect2(0, 700, 400, 200)]
+	var n0 := MapLogic.fit_searches
+	var f1 := MapLogic.fit_view_clear(Rect2(0, 0, 1000, 1000), VP, inset + 1.0, mi, mo)
+	var f2 := MapLogic.fit_view_clear(Rect2(0, 0, 1000, 1000), VP, inset + 1.0, mi, mo)
+	t.ok(MapLogic.fit_searches == n0 + 1 and f1 == f2 and not f1.is_empty(), "the same fit asked twice searches once, with the same answer (%d searches)" % (MapLogic.fit_searches - n0))
+	f2["zoom"] = -1.0
+	t.ok(MapLogic.fit_view_clear(Rect2(0, 0, 1000, 1000), VP, inset + 1.0, mi, mo) == f1, "a caller can't change the kept answer")
+	MapLogic.fit_view_clear(Rect2(0, 0, 1000, 1000), VP, inset + 2.0, mi, mo)
+	t.ok(MapLogic.fit_searches == n0 + 2, "another inset searches")
+	MapLogic.configure(MapLogic.cfg())
+	MapLogic.fit_view_clear(Rect2(0, 0, 1000, 1000), VP, inset + 1.0, mi, mo)
+	t.ok(MapLogic.fit_searches == n0 + 3, "configure (F6's reload) drops the kept answers")
+	var wm := FileAccess.get_file_as_string("res://scripts/map/world_map.gd")
+	t.ok(wm.contains("_refit.call_deferred(true)") and wm.contains("func _refit(reload := false) -> void:\n\tif reload:\n\t\tMapLogic.configure(")
+		and wm.contains("hud.inset_changed.connect(func(_inset: float) -> void: _refit())"), "only F6's re-fit re-reads map_view; the bar's inset re-fits keep the memo")
 
 
 func _callouts(t: TestUtil) -> void:

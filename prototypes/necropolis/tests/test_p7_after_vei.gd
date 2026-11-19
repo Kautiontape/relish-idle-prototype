@@ -25,8 +25,169 @@ func run() -> int:
 	_won_town_words()
 	_catalog_rows_refresh()
 	_after_21()
+	_won_away()
+	_won_queue()
+	_won_overflow()
+	_won_valve()
+	_odds_tip()
 	_clean()
 	return t.failures
+
+
+## Ruling 4 (Session 3's open 4): the ODDS hover adds "with your raids" (test_map_hud pins both lines verbatim). On
+## pre_vei the bar's ODDS word carries the backups line (view_hud reports backups), raids and all; once won the ODDS
+## readout is hidden (HudLogic.vei_readout_shown), so there is no won ODDS hover to word.
+func _odds_tip() -> void:
+	MapLogic.configure(cfg["map_view"])
+	var s := GameState.new(cfg)
+	s.debug_enabled = true
+	s.cmd_debug_load_fixture("pre_vei")
+	var m := MapModel.new(s)
+	m.refresh(true)
+	var id := HudLogic.odds_tip_id(int(m.readout()["backups"]))
+	t.ok(id == "odds_backups" and HudLogic.tip(id, m.hud).contains("with your raids and with your backups"), "pre_vei: the bar's ODDS hover names your raids: '%s'" % HudLogic.tip(id, m.hud))
+	t.ok(not HudLogic.vei_readout_shown(_won_state().view_hud()), "won: no ODDS readout, so no ODDS hover")
+
+
+## Rulings 2 and 3 on the real valve (built headless, as test_map_hud's tips-on-nodes): pre_vei's valve, not won,
+## carries the glossary's WAR / FLOOD line; the same valve after the flip (cmd_debug_set_state won, then a refresh)
+## re-tips its WAR and FLOOD names and corners with the won line, and its overflow label, with WAR overflowing, reads
+## the won words. Revert proofs: the valve's re-tip loop off; overflow_parts ignoring the hud.
+func _won_valve() -> void:
+	MapLogic.configure(cfg["map_view"])
+	var war_line := str(cfg["map_view"]["clarity"]["tips"]["war"])
+	var war_won := "WAR sends undead to your forts, spread by distance, with Relish's fort drawing 3× its share."
+	var s := GameState.new(cfg)
+	s.debug_enabled = true
+	s.cmd_debug_load_fixture("pre_vei")
+	var m := MapModel.new(s)
+	m.refresh(true)
+	var v := MapValve.new()
+	v.model = m
+	v._ready()  # not in a tree: the scene's own build, run by hand
+	var tips := func() -> Array:
+		var out: Array = []
+		for k in ["war", "flood"]:
+			out.append((v._rows[k]["name"] as Label).tooltip_text)
+			out.append((v._corner_btns[k] as Control).tooltip_text)
+		return out
+	t.ok((tips.call() as Array).all(func(x): return x == war_line), "the control: not won, the valve's WAR and FLOOD names and corners carry the glossary's line")
+	t.ok(not v._over_won_row.visible, "the control: not won, the overflow has no line of its own (it sits beside WAR's feed)")
+	s.cmd_debug_set_state({"won": true})
+	for i in 10:
+		s.tick(60.0, s.max_substeps_per_frame())
+	s.drain_events()
+	m.refresh(true)
+	v.refresh()
+	t.ok(bool(m.hud.get("won", false)) and (tips.call() as Array).all(func(x): return x == war_won), "won: the same valve re-tips them with the won line (%s)" % str(tips.call()[0]))
+	t.ok(float(m.hud.get("war_overflow", 0.0)) > 0.0 and v._over_won_rate.text == MapLogic.fmt_rate(float(m.hud["war_overflow"])) and v._over_won_text.text == "lost: your forts are full",
+		"won: the valve's overflow line reads '%s %s'" % [v._over_won_rate.text, v._over_won_text.text])
+	# its words don't fit beside "→ the forts" in the rows' width (a 1600×900 shot had "are full" past the plate), so
+	# once won the line is its own, under the feed. The fit is read from the shot: headless font metrics run ~1.4× the
+	# window's here, so a pixel check would not mean what it says.
+	t.ok(v._over_won_row.visible and v._over_won_row.custom_minimum_size.y > 0.0 and v._over_rate.text == "" and v._over_text.text == "",
+		"won: the overflow is on its own line, its height kept, none beside the feed")
+	m.hud["war_overflow"] = 0.0  # the overflow flickers to 0 between steps (a won pre_vei: about a third of reads)
+	v.refresh()
+	t.ok(v._over_won_row.visible and v._over_won_text.text == "", "won with no overflow: the line stays, empty, so the panel doesn't jump")
+	v.free()
+
+
+## Ruling 2 (Session 3's open 2): on a won map the valve's WAR overflow line keeps its rate and reads "lost: your
+## forts are full" (valve_overflow_text_won), not "overflows to Vei". On the won pre_vei 10 min on, WAR has no
+## target and view_hud.war_overflow is above 0 (the sim's sink, unchanged); the same rate with a not-won hud is
+## the control. Revert proof: overflow_parts ignoring the hud.
+func _won_overflow() -> void:
+	MapLogic.configure(cfg["map_view"])
+	var s := _won_state()
+	for i in 10:
+		s.tick(60.0, s.max_substeps_per_frame())
+	s.drain_events()
+	var hud := s.view_hud()
+	var over := ValveLogic.war_overflow(hud, {}, false)
+	var won_p := ValveLogic.overflow_parts(over, hud)
+	t.ok(bool(hud.get("won", false)) and over > 0.0 and str(won_p.get("rate", "")) == MapLogic.fmt_rate(over) and str(won_p.get("text", "")) == "lost: your forts are full",
+		"won: WAR's overflow (%s) keeps its rate and reads '%s'" % [MapLogic.fmt_rate(over), won_p.get("text", "")])
+	t.ok(str(ValveLogic.overflow_parts(over, {"won": false}).get("text", "")) == "overflows to Vei", "the control: not won, the same rate overflows to Vei")
+	t.ok(FileAccess.get_file_as_string("res://scripts/map/map_valve.gd").contains("ValveLogic.overflow_parts(ValveLogic.war_overflow(model.hud, proj, _dragging), model.hud)"),
+		"the valve passes its view_hud")
+
+
+## Ruling 1 (Session 3's open 1): once won, Vei's queue stack is drawn from no backlog: no rings, no "+N", and no
+## room kept for them. The control is pre_vei before the win (her stack drawn from her backlog); won and 10 min on,
+## her queue is still past a ring (#21: it grows) but MapModel.drawn_backlog is 0, so her reach is her structure's
+## and beat ring's alone. Every site that drew the stack or kept room for it reads drawn_backlog (source pins: the
+## scenes can't load headless). Revert proof: vei_queue_shown always true.
+func _won_queue() -> void:
+	MapLogic.configure(cfg["map_view"])
+	var c := GameState.new(cfg)
+	c.debug_enabled = true
+	c.cmd_debug_load_fixture("pre_vei")
+	var cm := MapModel.new(c)
+	cm.refresh(true)
+	var cb := NodeLogic.backlog_rings(cm.drawn_backlog())
+	t.ok(cm.drawn_backlog() == float(cm.vei["backlog"]) and int(cb["rings"]) > 0,
+		"the control: before the win her stack is drawn from her backlog (%d rings, +%d)" % [cb["rings"], cb["overflow"]])
+	var s := _won_state()
+	for i in 10:
+		s.tick(60.0, s.max_substeps_per_frame())
+	s.drain_events()
+	var m := MapModel.new(s)
+	m.refresh(true)
+	var backlog := float(m.vei["backlog"])
+	var full := NodeLogic.backlog_rings(backlog)
+	var b := NodeLogic.backlog_rings(m.drawn_backlog())
+	t.ok(bool(m.hud.get("won", false)) and int(full["rings"]) > 0 and m.drawn_backlog() == 0.0 and int(b["rings"]) == 0 and int(b["overflow"]) == 0,
+		"won: her queue (%.0f: %d rings, +%d) is drawn from 0: no rings, no '+N'" % [backlog, full["rings"], full["overflow"]])
+	var r := float(m.realm["vei"]["radius"])
+	t.ok(NodeLogic.vei_reach(r, m.drawn_backlog()) == NodeLogic.vei_reach(r, 0.0) and NodeLogic.vei_reach(r, 0.0) < NodeLogic.vei_reach(r, backlog),
+		"won: her reach keeps no room for the stack (%.1f, not %.1f)" % [NodeLogic.vei_reach(r, 0.0), NodeLogic.vei_reach(r, backlog)])
+	var sites := {"map_vei": 3, "map_fort_idle": 2, "map_nodes": 1, "map_routes": 1, "map_setpieces": 1}
+	var missed: Array = []
+	for f in sites:
+		var src := FileAccess.get_file_as_string("res://scripts/map/%s.gd" % f)
+		if src.count("drawn_backlog()") != int(sites[f]) or src.contains("vei.get(\"backlog\"") or src.contains("vei[\"backlog\"]"):
+			missed.append(f)
+	var model_src := FileAccess.get_file_as_string("res://scripts/map/map_model.gd")
+	if not model_src.contains("float(realm[\"vei\"].get(\"radius\", 0.0)), drawn_backlog()) + float(cfg[\"fit_pad_px\"])"):
+		missed.append("map_model (_vei_rect)")
+	t.ok(missed.is_empty(), "every site that draws her stack or keeps room for it reads drawn_backlog (missed: %s)" % str(missed))
+
+
+## The away panel on a won game (handoff-10 item 1; reports/screens/after/p7-map-reload-vei.png had "Vei's queue ▲
+## +34/s · +34 · your odds 1% → 1%"): a won pre_vei, saved and loaded 30 min later, reports her queue (the sim's
+## report is unchanged) and the panel, built with the won view_hud, leaves that row out, as P7 hides her odds
+## elsewhere; the same report with a not-won hud keeps it. Revert proof: gains_row_shown always true.
+func _won_away() -> void:
+	MapLogic.configure(cfg["map_view"])
+	var s := _won_state()
+	s.clock_override = 1_800_000_000
+	t.ok(bool(s.cmd_save("p7_away").get("ok", false)), "(setup) the won game saves")
+	var n := GameState.new(cfg)
+	n.debug_enabled = true
+	n.save_dir = _dir
+	n.clock_override = 1_800_000_000 + 1800
+	t.ok(bool(n.cmd_load("p7_away").get("ok", false)) and bool(n.view_hud().get("won", false)), "(setup) the won game loads 30 min later, still won")
+	var rep := n.view_away()
+	var label := AwayLogic.queue_label(cfg["economy"])
+	var queue_rows: Array = (rep.get("gains", []) as Array).filter(func(r): return str(r.get("text", "")).begins_with(label + " "))
+	t.ok(label == "Vei's queue" and bool(rep.get("shown", false)) and queue_rows.size() == 1 and str(queue_rows[0]["text"]).contains(" · your odds "),
+		"the won game's away report has Vei's queue row, odds and all (%s)" % str(queue_rows.map(func(r): return r["text"])))
+	var texts := func(b: Dictionary) -> Array:
+		var out: Array = []
+		for sec in b["sections"]:
+			for l in sec["lines"]:
+				out.append(str(l["text"]))
+		return out
+	var won_lines: Array = texts.call(AwayLogic.build(rep, [], {}, {}, n.view_hud(), label))
+	t.ok(not won_lines.is_empty() and won_lines.filter(func(x): return x.contains(label) or x.contains("your odds")).is_empty(),
+		"won: the panel has no Vei's queue row and no odds (%s)" % str(won_lines.slice(0, 3)))
+	t.ok(won_lines.size() == (texts.call(AwayLogic.build(rep, [])) as Array).size() - 1, "won: only that one row is left out")
+	var plain_lines: Array = texts.call(AwayLogic.build(rep, [], {}, {}, {"won": false}, label))
+	t.ok(plain_lines.has(str(queue_rows[0]["text"])), "the control: not won, the same report keeps the row")
+	var src := FileAccess.get_file_as_string("res://scripts/map/map_away.gd")
+	t.ok(src.contains("AwayLogic.build(rep, fort_ids, {}, {}, model.hud, AwayLogic.queue_label(ConfigDb.data.get(\"economy\", {})))"),
+		"the panel builds with the model's view_hud and economy's queue label")
 
 
 ## P7 review 4: the town's FLOOD words after the win. The muster lines (the Build tab's "N idle hands muster to …",
@@ -89,10 +250,17 @@ func _catalog_rows_refresh() -> void:
 	card.setup(vcfg, bview, cfg["buildings"])
 	card.show_catalog("lot-05", 9, items, st, "", true)
 	var before := _row_texts(card, "raising_pit")
+	var hovers: Array = []
+	card.connect("hover_building", func(bid): hovers.append(bid))
+	card.call("_set_hover", "raising_pit")  # the pointer on the Raising Pit's row (its mouse_entered)
 	var wst := st.duplicate(true)
 	wst["won"] = true
 	card.show_catalog("lot-05", 9, items, wst, "", true)
 	var after := _row_texts(card, "raising_pit")
+	# the #22 review's should-fix 3: the flip frees the hovered row (no mouse_exited), so the hover is cleared with it
+	t.ok(String(card.get("_hover")) == "" and hovers == ["raising_pit", ""], "the flip's rebuild clears the hover and says so (%s)" % str(hovers))
+	card.call("_set_hover", "raising_pit")
+	t.ok(hovers == ["raising_pit", "", "raising_pit"], "the rebuilt row's hover is sent again for the same building")
 	var unwon := TownGuide.why("raising_pit", gcfg)
 	var won_l := TownGuide.why("raising_pit", gcfg, true)
 	t.ok(before.has(unwon) and not before.has(won_l), "the lot card before the win: the Raising Pit's row reads '%s'" % unwon)

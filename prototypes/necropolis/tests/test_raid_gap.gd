@@ -210,15 +210,35 @@ func _boss_won_tests(t: TestUtil) -> void:
 		"a 100 s gap: one run_ended for our run, read as won, and the game is won (%s)" % str(ended))
 	var plan := RaidLogic.gap_plan(true, "", true, RaidLogic.gap_outcome(ended[0]) == "won" if not ended.is_empty() else false)
 	t.ok(plan["leave"] and not plan["cut_end"], "the scene leaves the unravel or the win card up: no AWAY TOO LONG, no cut")
-	var away := q.filter(func(e): return e["type"] == "away_report")
-	t.ok(away.is_empty() or (RaidLogic.gap_ends_run(away[0], rid, int(s.view_relish().get("run_id", -1)))
-		and RaidLogic.gap_outcome(away[0], "") == "retreated" and RaidLogic.gap_plan(true, "", true, true)["leave"]),
-		"the backstop away_report says no outcome; the scene's own record (win_recorded) keeps the card")
+	# the backstop (the #22 review's should-fix 2: this check passed with no away_report, as a 100 s gap queues none):
+	# a 900 s gap (above idle.report_min_s) after a recorded win queues the away_report; the scene reads it as ending
+	# our run with no outcome (RaidEndings.gap_end(gap_outcome)), so only its own record (win_recorded) keeps the card
+	var g := _boss_state(t)
+	var gsd := g.view_boss_seed()
+	var gid := int(gsd.get("run_id", -1))
+	var recorded := bool(g.cmd_boss_won(gid, BossLogic.result_of({"seed": gsd, "p1": {}, "fronts_cleared": [], "phase1_s": 40.0, "deaths": 0,
+		"spent": {"phylactery": 0, "clones": 0}, "party_lost": [], "horde0": 100.0, "horde": 0.0}, true)).get("ok", false))
+	g.drain_events()
+	var gq: Array = []
+	g.tick(900.0, g.max_substeps_per_frame())
+	while g.catching_up():
+		gq.append_array(g.drain_events())
+		g.tick(1.0 / 60.0, g.max_substeps_per_frame())
+	gq.append_array(g.drain_events())
+	var away := gq.filter(func(e): return e["type"] == "away_report")
+	var away_out := RaidLogic.gap_outcome(away[0], "") if not away.is_empty() else ""
+	t.ok(recorded and away.size() == 1 and RaidLogic.gap_ends_run(away[0], gid, int(g.view_relish().get("run_id", -1))) and away_out == "retreated",
+		"a 900 s gap after a recorded win queues one away_report (%d), which ends our run with no outcome ('%s')" % [away.size(), away_out])
+	t.ok(RaidLogic.gap_plan(true, "", true, away_out == "won" or recorded)["leave"] and RaidLogic.gap_plan(true, "", true, away_out == "won" or false)["cut_end"],
+		"on that backstop the scene's own record keeps the card; without the record it would be cut")
 	var press := s.apply_result("boss", won)
-	t.ok(not bool(press.get("ok", true)) and str(press.get("reason", "")) == "duplicate_run" and RouterLogic.result_done(press),
+	t.ok(not bool(press.get("ok", true)) and str(press.get("reason", "")) == "duplicate_run" and RouterLogic.result_done("boss", press),
 		"the card's press of the same dict after the gap: duplicate_run, which the router takes as done (%s)" % str(press.get("reason", "")))
-	t.ok(RouterLogic.result_done({"ok": true, "reason": ""}) and not RouterLogic.result_done({"ok": false, "reason": "wrong_run"})
-		and not RouterLogic.result_done({}), "result_done: ok or duplicate_run only; a forfeited run's wrong_run is still a refusal")
+	t.ok(RouterLogic.result_done("boss", {"ok": true, "reason": ""}) and not RouterLogic.result_done("boss", {"ok": false, "reason": "wrong_run"})
+		and not RouterLogic.result_done("boss", {}), "result_done: ok or duplicate_run only; a forfeited run's wrong_run is still a refusal")
+	# the #22 review's should-fix 1: duplicate_run is done for the boss only; a raid's is a refusal again (warned, forfeited)
+	t.ok(not RouterLogic.result_done("raid", {"ok": false, "reason": "duplicate_run"}) and RouterLogic.result_done("raid", {"ok": true, "reason": ""}),
+		"a raid's duplicate_run is a refusal the router warns about and forfeits; a raid's ok is done")
 	t.ok(not RouterLogic.result_stale("boss", s.view_relish()), "a boss result is still never stale (the stale toast names a raid)")
 	# the control: no record, so the gap forfeits the fight and the card is cut
 	var f := _boss_state(t)
@@ -245,7 +265,7 @@ func _boss_won_tests(t: TestUtil) -> void:
 		and _func_src(vb, "func close_result(").contains("var r := _win_r if bool(f[\"won\"]) and not _win_r.is_empty() else _result(bool(f[\"won\"]))"),
 		"the press, its self-press and a window close send the recorded dict")
 	t.ok(not vb.contains("TODO(api-request #22)") and _func_src(vb, "func _win_card(").contains("win_card_auto_s"), "the #22 TODO is gone; the card still presses itself")
-	t.ok(_func_src(_src("res://scripts/main.gd"), "func _apply(").contains("if not RouterLogic.result_done(out):"), "the router asks result_done before it warns and forfeits")
+	t.ok(_func_src(_src("res://scripts/main.gd"), "func _apply(").contains("if not RouterLogic.result_done(kind, out):"), "the router asks result_done, with the result's kind, before it warns and forfeits")
 	var gdoc := str(TestUtil.load_json("res://configs/raid.json").get("gap_end", {}).get("_doc", ""))
 	t.ok(gdoc.contains("the moment Vei breaks") and not gdoc.contains("Only the press keeps the win"), "gap_end._doc says the win is kept from the break")
 

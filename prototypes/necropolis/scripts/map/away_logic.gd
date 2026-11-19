@@ -97,6 +97,22 @@ static func losses_count(losses: Array) -> String:
 	return str(c["count_sep"]).join(parts)
 
 
+## The label Vei's queue row starts with: economy.json's idle.report.stream_labels.backlog (`economy` is
+## economy.json's root), the label the sim's away report writes on that row.
+static func queue_label(economy: Dictionary) -> String:
+	return str(economy.get("idle", {}).get("report", {}).get("stream_labels", {}).get("backlog", ""))
+
+
+## Whether a gains row shows. Vei's queue row (a stream row whose text starts with `label`, queue_label) does
+## not once the game is won (`hud` is view_hud; HudLogic.vei_readout_shown): a beaten Vei has no odds to read,
+## and her queue, still climbing after #21, would read as a threat with nothing to do about it. With no
+## label every row shows.
+static func gains_row_shown(row: Dictionary, hud: Dictionary, label: String) -> bool:
+	if HudLogic.vei_readout_shown(hud) or label == "":
+		return true
+	return not (str(row.get("kind", "")) == "stream" and str(row.get("text", "")).begins_with(label + " "))
+
+
 ## The report as panel text: {away: "Away 9 h 12 m", capped: "capped at 7 days" or "", sections:
 ## [{key, title, lines: [{text, spans, action}]}]}. Sections run gains, ready, losses; gains and
 ## ready are left out when empty, losses always show ("Nothing lost." when there are none) and lead
@@ -104,7 +120,8 @@ static func losses_count(losses: Array) -> String:
 ## fort is clickable like a ready one); gains lines and the count do nothing. `tithe` is the live
 ## telegraph line after the sections: {text, fort_id, action} from HudLogic.tithe_line(vei_tithe,
 ## names) (the panel re-reads it each frame; "" text means no line), its action the same resolver.
-static func build(rep: Dictionary, fort_ids: Array, vei_tithe := {}, names := {}) -> Dictionary:
+## `hud` (view_hud) and `label` (queue_label): once won, Vei's queue row is left out (gains_row_shown).
+static func build(rep: Dictionary, fort_ids: Array, vei_tithe := {}, names := {}, hud := {}, label := "") -> Dictionary:
 	var c := cfg()
 	var out := {
 		"away": str(c.get("away_fmt", "%s")) % duration_text(float(rep.get("away_s", 0.0))),
@@ -118,6 +135,8 @@ static func build(rep: Dictionary, fort_ids: Array, vei_tithe := {}, names := {}
 		if count != "":
 			lines.append({"text": count, "spans": spans(count), "action": {"kind": "none"}})
 		for row in rep.get(key, []):
+			if key == "gains" and not gains_row_shown(row, hud, label):
+				continue
 			var text := str(row.get("text", ""))
 			lines.append({"text": text, "spans": spans(text), "action": action(str(row.get("target", "")), fort_ids) if key != "gains" else {"kind": "none"}})
 		if key == "losses" and lines.is_empty():

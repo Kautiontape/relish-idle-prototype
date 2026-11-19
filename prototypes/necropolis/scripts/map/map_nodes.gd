@@ -381,7 +381,7 @@ func _update_relish(rm: bool) -> void:
 ## structure, backlog stack and beat ring; a fort's rings out to its tithe ring; Covington's WORK ring.
 func _node_reach(id: String) -> float:
 	if id == "vei":
-		return NodeLogic.outer_radius("vei", 0, ctx.vei_radius, float(ctx.vei.get("backlog", 0.0)))
+		return NodeLogic.outer_radius("vei", 0, ctx.vei_radius, model.drawn_backlog())
 	if model.forts_by_id.has(id):
 		return NodeLogic.outer_radius("fort", int(model.fort(id)["tier"]), 0.0)
 	return float(MapLogic.cfg()["work_ring_radius_px"])
