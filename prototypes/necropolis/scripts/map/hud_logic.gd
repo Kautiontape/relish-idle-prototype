@@ -94,12 +94,14 @@ static func vei_readout_shown(hud: Dictionary) -> bool:
 	return not bool(hud.get("won", false))
 
 
-## Whether Vei's queue stack shows at her node (its rings and the "+N" past them): not once the game is won
-## (the manager's ruling on Session 3's open 1). After #21 her queue still grows on a won map (the forts' FLOOD
-## drain, WAR with no target), and a beaten Vei's climbing count reads as a threat with nothing to do about
-## it. NodeLogic.drawn_backlog applies it; the away panel's queue row goes too (AwayLogic.gains_row_shown).
-static func vei_queue_shown(hud: Dictionary) -> bool:
-	return not bool(hud.get("won", false))
+## Whether Vei's queue stack shows at her node (its rings and the "+N" past them): not once the game is won and
+## the victory set piece has ended (`victory_ended`, MapModel's; the manager's ruling on Session 3's open 1, then
+## ruling 2 on Session 4: through RUN and STOP "VEI HAS DROWNED IN THE DEAD" shows over her drowned stack, and the
+## stack goes at END, with her lanes). After #21 her queue still grows on a won map (the forts' FLOOD drain, WAR with
+## no target), and a beaten Vei's climbing count reads as a threat with nothing to do about it.
+## NodeLogic.drawn_backlog applies it; the away panel's queue row goes at the win (AwayLogic.gains_row_shown).
+static func vei_queue_shown(hud: Dictionary, victory_ended := true) -> bool:
+	return not bool(hud.get("won", false)) or not victory_ended
 
 
 ## Whether the valve panel shows its FLOOD row and corner button: not once the game is won. The panel, its

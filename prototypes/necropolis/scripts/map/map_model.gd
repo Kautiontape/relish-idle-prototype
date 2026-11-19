@@ -40,6 +40,7 @@ var margin_sig := ""  # the margins and clocks now shown (projected or committed
 var next_place := ""  # NextLogic.next_place: the fort the strip's standing line names ("" when every fort is held)
 var raids: Array = []  # NextLogic.raid_set, once per refresh: [{fort, why}] ranked and capped; the ring's tag and the strip's raid rule
 
+var victory_ended := false  # a won game's victory set piece reached END on this map, or settled at mount (MapSetpieces): her queue stack goes then (drawn_backlog)
 var built := {}  # SetpieceLogic.lot_levels of view_town().buildings: lot id -> {building_id, level}
 var mount_rises: Array = []  # the builds that finished since the map was last up (a build done in town, or away): found by this model's first refresh; [] on a new game
 
@@ -273,10 +274,10 @@ func readout() -> Dictionary:
 
 
 ## The backlog Vei's queue stack is drawn from, and every place that keeps room for it (her rings and "+N",
-## her name, her reach, the lanes' ends at her, the chips' obstacles, the camera fit): 0 once won
-## (NodeLogic.drawn_backlog).
+## her name, her reach, the lanes' ends at her, the chips' obstacles, the camera fit): 0 once won and the
+## victory set piece has ended on this map (victory_ended; NodeLogic.drawn_backlog).
 func drawn_backlog() -> float:
-	return NodeLogic.drawn_backlog(float(vei.get("backlog", 0.0)), hud)
+	return NodeLogic.drawn_backlog(float(vei.get("backlog", 0.0)), hud, victory_ended)
 
 
 static func to_vec(a) -> Vector2:
