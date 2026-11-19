@@ -39,9 +39,9 @@ Every Phase I unit and round, in merge order, from `git log --merges --first-par
 | 2ff25a7 | dungeon-i Session 7: a lost Vei attempt says what fell short; CLOSING.md opens with P8 | f7db397 |
 | 6694dea | economy close-out: V-I2's measurements, B3, B4 (the honest mill income on every read) | d7ced11 |
 | 2e786ed | dungeon-i's tip change: the guards tip names the fronts still standing; P8's ruling | 0550819 |
-| (merging) | dungeon-i V-I3 round: the won forts read "not taken", BONE's line silent at FULL and once won, the queue says why each build waits, the away report names a village gone neutral | 84dd639 |
+| 75faffc | dungeon-i V-I3 round: the won forts read "not taken", BONE's line silent at FULL and once won, the queue says why each build waits, the away report names a village gone neutral | 84dd639 |
 
-This branch's closing commits go on top: 116a56c (the V-I3 review's two should-fixes), ad57ee0 (the won retreat lines and the won strip), and this file with PROTOTYPES.md and DESIGN.md.
+realm/dungeon-i's closing commits go on top: 116a56c (the V-I3 review's two should-fixes), ad57ee0 (the won retreat lines and the won strip), 06ff5ea (this file, PROTOTYPES.md and DESIGN.md), e3b33a2 (realm/integration at 75faffc merged in, no file changed) and the commit that fills in the gate's numbers.
 
 ## The gate
 - **V-I3 signed off** (`RUN/reports/vision-i3.md`): 36 met, 14 partial and 1 miss over 51 rows. Its re-check after the V-I3 round (`RUN/reports/vision-i3-recheck.md`) found the top three fixed and checklist #8 answered, with nothing blocking Phase I's close.
