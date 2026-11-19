@@ -13,7 +13,9 @@ extends Control
 ## The loss card (D-e close-out) is the same plate with `info.lost` set (BossLogic.loss_card, built by
 ## vei_boss.gd `_lose_card`): VEI HOLDS over what ended the fight, the same FIGHT TIME, BACKUPS SPENT and
 ## BIG UNDEAD LOST rows, BACKLOG as the share that stays (a share, not a number: BossLogic.loss_card says
-## why) and, after a final death, an AFTER row; the same button, gate and keys. Static, like the win card.
+## why) and, after a final death, an AFTER row; the same button, gate and keys. Static, like the win card. Under the
+## cause row a loss reads FELL SHORT, what the fight needed and didn't have, biggest gap first (BossLogic.shortfall), and,
+## in TRY NEXT's place whenever something fell short, BEFORE YOU TRY AGAIN, what fills it (BossLogic.loss_advice).
 
 ## The rows' layout (all px): the plate's side padding, the first row's baseline under the plate's top, a one-line
 ## row's pitch, the space from the last row's pitch end to the plate's bottom (the button and its margins), the
@@ -84,15 +86,21 @@ static func value_w(cfg: Dictionary) -> float:
 
 
 ## The card's rows as [{label, text, key, id}], in order. `id` marks a row with an extra drawing ("backups").
-## A loss's `info.cause` and `info.pressure_row` ({label, text, key}, BossLogic.loss_cause / pressure_row) come first,
-## in that order. Add a row here and layout_rows sizes it. `words` is raid.json's `vei_fight` block.
+## A loss's `info.cause`, `info.short`, `info.pressure_row` and `info.change` ({label, text, key}, BossLogic.loss_cause /
+## short_row / pressure_row / loss_advice) come first, in that order; FELL SHORT (`short`) also carries its `items`,
+## which layout_rows keeps whole. Add a row here and layout_rows sizes it. `words` is raid.json's `vei_fight` block.
 static func rows_for(info: Dictionary, words: Dictionary) -> Array:
 	var rows: Array = []
-	# a loss names its cause first (BossLogic.loss_cause), then the guards' pressure when the break had any (BossLogic.pressure_row)
-	for k in ["cause", "pressure_row", "change"]:
+	# a loss names its cause first (BossLogic.loss_cause), then what fell short (BossLogic.short_row), the guards'
+	# pressure when the break had any (BossLogic.pressure_row) and the advice (BossLogic.loss_advice)
+	for k in ["cause", "short", "pressure_row", "change"]:
 		var extra: Dictionary = info.get(k, {})
 		if not extra.is_empty():
-			rows.append({"label": str(extra["label"]), "text": str(extra["text"]), "key": str(extra.get("key", "text")), "id": k})
+			var row := {"label": str(extra["label"]), "text": str(extra["text"]), "key": str(extra.get("key", "text")), "id": k}
+			if extra.has("items"):
+				row["items"] = (extra["items"] as Array).duplicate()
+				row["sep"] = str(extra.get("sep", " · "))
+			rows.append(row)
 	rows.append({"label": str(words.get("card_time", "")), "text": str(info["time_text"]), "key": "text", "id": "time"})
 	var total := int(info["backups_total"])
 	rows.append({"label": str(words.get("card_backups", "")), "text": RaidLogic.word_fmt(words, "card_of", [int(info["spent"]), total]) if total > 0 else str(words.get("card_none", "")), "key": "text", "id": "backups"})
@@ -121,6 +129,7 @@ static func _thousands(n: int) -> String:
 ## Measure each row for a value span of `vw` px. A value that fits beside its label stays one line on the label's
 ## baseline (h = ROW_STEP). A longer one is `stacked`: the label on its line and the value wrapped to `vw` under
 ## it (wrap_words), each line right-aligned, and the row grows to hold them.
+## A row with `items` (FELL SHORT) stacks its items packed whole into lines (pack_items), never one split across two.
 ## Returns each row plus `lines` (PackedStringArray), `stacked` and `h`.
 static func layout_rows(rows: Array, vw: float, font: Font) -> Array:
 	var out: Array = []
@@ -134,7 +143,7 @@ static func layout_rows(rows: Array, vw: float, font: Font) -> Array:
 			row["stacked"] = false
 			row["h"] = ROW_STEP
 		else:
-			var lines := wrap_words(text, font, VALUE_PX, vw)
+			var lines := pack_items(row["items"], str(row.get("sep", " · ")), font, VALUE_PX, vw) if row.has("items") else wrap_words(text, font, VALUE_PX, vw)
 			row["lines"] = lines
 			row["stacked"] = true
 			row["h"] = STACK_DROP + lh * float(maxi(0, lines.size() - 1)) + STACK_AFTER
@@ -154,6 +163,31 @@ static func wrap_words(text: String, font: Font, px: int, max_w: float) -> Packe
 			line = word
 		else:
 			line = trial
+	if line != "":
+		out.append(line)
+	return out
+
+
+## `items` packed into lines no wider than `max_w` at `px`, greedily and whole: a line takes items, joined by `sep` (the
+## row's short_join), while they fit; an item wider than `max_w` alone is word-wrapped (wrap_words).
+static func pack_items(items: Array, sep: String, font: Font, px: int, max_w: float) -> PackedStringArray:
+	var out := PackedStringArray()
+	var line := ""
+	for it in items:
+		var item := str(it)
+		var trial: String = item if line == "" else line + sep + item
+		if font.get_string_size(trial, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x <= max_w:
+			line = trial
+			continue
+		if line != "":
+			out.append(line)
+		if font.get_string_size(item, HORIZONTAL_ALIGNMENT_LEFT, -1, px).x <= max_w:
+			line = item
+		else:
+			var parts := wrap_words(item, font, px, max_w)
+			for i in parts.size() - 1:
+				out.append(parts[i])
+			line = parts[parts.size() - 1] if parts.size() > 0 else ""
 	if line != "":
 		out.append(line)
 	return out
