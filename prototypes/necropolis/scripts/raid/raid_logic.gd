@@ -1753,15 +1753,16 @@ static func death_rows_with_shut(words: Dictionary, rows: Array, shut: String) -
 ## result_loot builds it), and what stays: the fort stays Vei's (a held fort stays yours). `door_line`
 ## is held_door_retreat_line's text, its leading newline dropped ("" for none).
 ## The panel's left column ("RETREAT NOW"), lines [{text, key}]: what a retreat keeps, its counts, what
-## the loot is for (dim, only with something found), then what stays.
-static func retreat_keep_lines(words: Dictionary, uses_words: Dictionary, held: bool, keep: Dictionary, door_line: String) -> Array:
+## the loot is for (dim, only with something found), then what stays. Once the game is `won`, a fort not held reads
+## fort_vei_won: Vei is dead, and the fort isn't yours until you break its warden.
+static func retreat_keep_lines(words: Dictionary, uses_words: Dictionary, held: bool, keep: Dictionary, door_line: String, won := false) -> Array:
 	var out: Array = [{"text": str(words.get("keep_all", "")), "key": "text"}]
 	var now := loot_line(keep)
 	out.append({"text": (str(words.get("keep_prefix", "")) + now) if now != "" else str(words.get("keep_none", "")), "key": "text"})   # no indent: a wrapped line above made "  essence 8" read as a stray
 	var uses := loot_uses_line(uses_words, keep)
 	if uses != "":
 		out.append({"text": uses, "key": "text_dim"})
-	out.append({"text": str(words.get("fort_yours" if held else "fort_vei", "")), "key": "text"})
+	out.append({"text": str(words.get("fort_yours" if held else ("fort_vei_won" if won else "fort_vei"), "")), "key": "text"})
 	var d := door_line.strip_edges()
 	if d != "":
 		out.append({"text": d, "key": "text"})

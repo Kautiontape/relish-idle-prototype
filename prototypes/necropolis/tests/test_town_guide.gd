@@ -254,6 +254,7 @@ func _goal_fixtures() -> void:
 				and String(won["short"]) == String(gcfg["goal"]["won_short"]), "a won City: the won head, step and next: line: '%s'" % wtxt)
 			t.ok(not wtxt.contains("face Vei") and not wtxt.contains("take Vei's forts") and not wtxt.to_lower().contains("the run"),
 				"a won City's plate and next: line say neither 'face Vei' nor 'take Vei's forts' (nor 'the run')")
+			t.ok(not String(won["text"]).contains("forts"), "the won step claims no forts: a won game can hold none ('%s')" % won["text"])
 			for f in vw["forts"]:
 				f["held"] = true
 			t.ok(_goal(vw).get("id", "") == "won", "a won City holding every fort: still the won step, never 'face Vei'")

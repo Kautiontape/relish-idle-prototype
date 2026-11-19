@@ -871,7 +871,7 @@ func _retreat_lines() -> Array:
 	var rw: Dictionary = raid.rcfg().get("hud", {}).get("retreat", {})
 	var dw: Dictionary = raid.rcfg().get("death", {})
 	return [RaidLogic.retreat_keep_lines(rw, raid.rcfg().get("loot_uses", {}), raid.held, keep,
-			RaidLogic.held_door_retreat_line(raid.rcfg().get("held_door", {}), hd.state, hd.holder_name) if hd != null else ""),
+			RaidLogic.held_door_retreat_line(raid.rcfg().get("held_door", {}), hd.state, hd.holder_name) if hd != null else "", raid.won),
 		RaidLogic.retreat_fall_lines(rw, dw, raid.endings.phylactery_left(), di["unbanked"], int(di["party_n"]),
 			RaidLogic.death_next_row(raid.seed_data, dw), str(di["shut"]))]
 

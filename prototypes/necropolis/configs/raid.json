@@ -173,7 +173,7 @@
       "drag": "then drag a loop around essence to RAISE undead"
     },
     "retreat": {
-      "_doc": "The retreat panel (RaidRetreatPanel): two columns, RETREAT NOW and IF RELISH FALLS. w is the plate's width (at most the viewport less margin each side); margin the least space between the plate and the viewport's edges; gap the least space between the stat block's plate and the retreat plate's left edge (RaidLogic.retreat_panel_rect moves the centred plate right to keep it); pad its inner margin; title_px/head_px/line_px the title, column-head and line sizes (no text under 13 px); line_h one line's pitch; col_gap the space between the columns; btn_w/btn_h/btn_gap the RETREAT and STAY buttons (btn_h is at least 44, a touch target). The words are RaidLogic.retreat_keep_lines / retreat_fall_lines; keep_prefix leads the left column's count line ('so far: '). head_* are the column heads; keep_all, keep_none, fort_yours, fort_vei and fall_revive the lines. title is the panel's title, btn_retreat and btn_stay the two buttons' words, foot the line under them.",
+      "_doc": "The retreat panel (RaidRetreatPanel): two columns, RETREAT NOW and IF RELISH FALLS. w is the plate's width (at most the viewport less margin each side); margin the least space between the plate and the viewport's edges; gap the least space between the stat block's plate and the retreat plate's left edge (RaidLogic.retreat_panel_rect moves the centred plate right to keep it); pad its inner margin; title_px/head_px/line_px the title, column-head and line sizes (no text under 13 px); line_h one line's pitch; col_gap the space between the columns; btn_w/btn_h/btn_gap the RETREAT and STAY buttons (btn_h is at least 44, a touch target). The words are RaidLogic.retreat_keep_lines / retreat_fall_lines; keep_prefix leads the left column's count line ('so far: '). head_* are the column heads; keep_all, keep_none, fort_yours, fort_vei and fall_revive the lines (fort_vei_won is fort_vei once the game is won: Vei is dead, and the fort isn't yours until you break its warden). title is the panel's title, btn_retreat and btn_stay the two buttons' words, foot the line under them.",
       "title": "LEAVE THE RAID?",
       "btn_retreat": "RETREAT",
       "btn_stay": "STAY",
@@ -185,6 +185,7 @@
       "keep_none": "nothing found yet",
       "fort_yours": "The fort stays yours.",
       "fort_vei": "The fort stays Vei's · you can come back and break its warden.",
+      "fort_vei_won": "The fort isn't yours · you can come back and break its warden.",
       "fall_revive": "a phylactery charge revives her here (at most once per dungeon)",
       "plate_alpha": 1.0,
       "w": 820,

@@ -76,7 +76,8 @@ static func fort_card(fort: Dictionary, desc: String, backups: Dictionary, names
 	blocks.append(_para("comes_in", CardLogic.comes_in_text(ci), "text"))
 	blocks.append(_para("bring_more", CardLogic.bring_more_text(tide_bias), "text_dim"))
 	blocks.append(_para("raid", str(c.get("raid_again_fmt", "%d")) % hours if held else str(c.get("raid_take", "")), "select"))
-	blocks.append(_para("retreat", str(c.get("retreat_held" if held else "retreat_veis", "")), "text_dim"))
+	# once won (the fort's stamp) a fort not held no longer stays Vei's: retreat_veis_won
+	blocks.append(_para("retreat", str(c.get("retreat_held" if held else ("retreat_veis_won" if bool(fort.get("won", false)) else "retreat_veis"), "")), "text_dim"))
 	var warden: Dictionary = fort.get("warden", {})
 	var lines := CardLogic.warden_lines(warden)
 	blocks.append(_para("warden", str(lines[0]), "text", "mass"))

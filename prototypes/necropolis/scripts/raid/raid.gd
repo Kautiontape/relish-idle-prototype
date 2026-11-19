@@ -32,6 +32,7 @@ var moves := 0                   # RAID_TELEMETRY: Relish move clicks
 var raises := 0                  # RAID_TELEMETRY: successful raises (count > 0)
 var _carry_t := 0.0
 var held := false                # the fort is the player's (view_fort.held, or --raid-held)
+var won := false                 # the game is won (view_hud.won; false in the standalone demo): the retreat panel's words
 var found_loot := {}             # loot found this run, minus essence (dings + the chest)
 var detour_guard: Array = []      # the guarded detour's living (RaidPopulate; raid.json detour)
 var detour_cache: Array = []      # its cache's pickups
@@ -176,6 +177,7 @@ func _build() -> void:
 	var fort_id := str(seed_data.get("fort_id", "fort")) if boss else str(seed_data.get("fort", {}).get("id", "fort"))
 	var tier := int(seed_data.get("tier", 1)) if boss else fort_tier()
 	held = false if boss else _is_held(fort_id)
+	won = _from_run and not boss and bool(Game.state.view_hud().get("won", false))
 	layout = RaidLogic.gen_layout(fort_id, tier, boss, cfg, {"held": held, "first_dungeon": is_first_dungeon()})
 	if not boss:
 		held_door = RaidHeldDoor.make(self, layout, tier, cfg)   # carves its niche into the layout (no rng)

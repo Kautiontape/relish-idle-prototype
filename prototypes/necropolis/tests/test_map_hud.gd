@@ -733,7 +733,8 @@ func _status(t: TestUtil) -> void:
 	t.ok(HudLogic.objective_text(_hud([])) == cfg["objective_text"], "the objective line")
 	t.ok(HudLogic.objective_text(_hud([], {"won": true})) == cfg["objective_won_text"], "the victory line when won")
 	t.ok(cfg["objective_text"] != cfg["objective_won_text"], "the two differ")
-	t.ok(str(cfg["objective_won_text"]) == "You beat Vei: the game is won. Your town and forts are still yours: keep playing, or stop here." and not str(cfg["objective_won_text"]).contains("factory"), "the epilogue's words")
+	t.ok(str(cfg["objective_won_text"]) == "You beat Vei: the game is won. Your town is still yours: keep playing, or stop here."
+		and not str(cfg["objective_won_text"]).contains("forts") and not str(cfg["objective_won_text"]).contains("factory"), "the epilogue's words")
 	# it is drawn on one line in the strip (a Button at objective_size_px, left of the ground meter's reserve): measure it
 	var ep_w: float = ThemeDB.fallback_font.get_string_size(str(cfg["objective_won_text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(cfg["objective_size_px"])).x
 	var ep_room := 1600.0 - float(cfg["meter_reserve_px"]) - float(cfg["topbar_plate_pad_px"]) * 2.0 - 40.0

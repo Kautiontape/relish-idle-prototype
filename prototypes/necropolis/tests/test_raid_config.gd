@@ -14,7 +14,7 @@ const WORDS := [
 	"hud.stats.ward_head", "hud.stats.living_label", "hud.stats.enemy", "hud.stats.enemies",
 	"hud.legend.assist_label", "hud.legend.assist_off", "hud.legend.assist_on",
 	"hud.retreat.keep_prefix", "hud.retreat.head_keep", "hud.retreat.head_fall", "hud.retreat.keep_all", "hud.retreat.keep_none",
-	"hud.retreat.fort_yours", "hud.retreat.fort_vei", "hud.retreat.fall_revive",
+	"hud.retreat.fort_yours", "hud.retreat.fort_vei", "hud.retreat.fort_vei_won", "hud.retreat.fall_revive",
 	"hud.hint.trance_text", "hud.hint.exit_text", "hud.hint.idle_text", "hud.hint.idle_sub_text", "hud.hint.trance_sub_text",
 	"trace_notch.live_head", "trace_notch.live_head_keep", "trace_notch.live_tail", "trace_notch.live_ladder", "trace_notch.live_none",
 	"hud.cues.first_mote_text", "hud.cues.undead_text",
