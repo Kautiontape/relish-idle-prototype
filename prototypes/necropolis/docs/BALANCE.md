@@ -612,6 +612,15 @@ reverse it:** `odds.raid_credit` 0 with `time_s` 345 600 is P3's readiness bit f
 (test_backups, test_stances, test_big_undead) is re-pinned with it (its odds line moves; the state and events don't).
 024c11a's message has the proof that P3's whole odds block passes the pins from before P3b.
 
+**Ruling 37 (the run's manager, 2026-11-19, accepted; reversible): the 7-day catch-up budget is 12 s on jenova; 12 h
+stays under 2 s** (IDLE §4 Budget, which said 10 s). P9's bench (`catchup_bench`, best of 3 on the d470898 archive)
+read 7 days at 11.51 s (midgame_2flips), 11.08 s (pre_vei) and 9.71 s (fresh), and 12 h at 1.46–1.83 s. 80% of a
+core step is the two solvers, and the one structural lever, a longer step past 12 h, is closed (15 s is
+`idle.catchup_dt_long_s`'s accuracy cap). A week is the sanity cap (`idle.catchup_max_s`), reached once after a week
+away, and it runs in chunks of 90 core steps (median 31–39 ms) behind the catch-up progress screen, so the game stays
+responsive. **To reverse it:** 10 s again needs about 35 µs off each core step (`fort_step`, `_dispatch`,
+TownSim.step) with every catch-up pin re-proved bit for bit: the solver-speed unit, on the Phase II backlog.
+
 ## 6. Known balance risks
 - **The knife edge** (systems review S5). Odds of 0.6 need a backlog of about 18,000 raw. Vei's undead
   capacity is about 42/s at q 1.2 and about 20/s at q 2.5, so the active run needs about 5–8 pits and

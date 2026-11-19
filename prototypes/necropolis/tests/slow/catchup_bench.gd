@@ -1,6 +1,6 @@
 extends RefCounted
-## The catch-up's budget (IDLE §4 Budget, E2b-2 T3.3b): 12 h in under 2 s and 7 days in under 10 s on this
-## machine, field steps included, through the real runner (Catchup, as cmd_load runs it). Run with
+## The catch-up's budget (IDLE §4 Budget, E2b-2 T3.3b): 12 h in under 2 s and 7 days in under 12 s (ruling 37,
+## 2026-11-19; it was 10 s) on this machine, field steps included, through the real runner (Catchup, as cmd_load runs it). Run with
 ## tests/run.sh --slow --only=catchup_bench (a few minutes). Wall clock is printed, never asserted.
 ## - Starts: midgame_2flips, pre_vei and fresh (convergence.gd's: cmd_new_game(1) run 10 min), each saved
 ##   once to JSON with the shipped configs (the full 128 × 90 field) and loaded into a fresh GameState
@@ -15,7 +15,7 @@ extends RefCounted
 const STARTS := ["midgame_2flips", "pre_vei", "fresh"]
 const SPANS := [43200.0, 604800.0]
 const RUNS := 3
-const BUDGET := {43200.0: 2.0, 604800.0: 10.0}
+const BUDGET := {43200.0: 2.0, 604800.0: 12.0}
 
 var t := TestUtil.new()
 

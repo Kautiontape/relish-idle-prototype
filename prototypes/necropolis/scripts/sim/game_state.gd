@@ -3245,12 +3245,18 @@ func from_dict(d: Dictionary) -> Dictionary:
 ##   same step), or with a work share of 0 the next step's (_mint at the working pits and the feed now);
 ##   the muster from TownSim's saved rate; WAR, WORK and FLOOD as that step split them;
 ## - each fort's dispatch weight (RealmSim._war_weight, with her tide where the saved state puts her, as
-##   the step's inputs did), for every fort that step sent WAR (r_in > 0) and every held fort;
+##   the step's inputs did), for every fort that step sent WAR (r_in > 0) and every held fort. Once won every fort
+##   is a target (P9b, RealmSim._dispatch), and this needs no case of its own: with WAR above 0 a garrison below its
+##   cap took some (r_in > 0), and a full one took none, which is its limit, so leaving it out splits the same;
 ## - the limits: a fort whose r_in / weight is under the water level (the largest r_in / weight) took its
 ##   limit, so its limit is its r_in; the rest had room (no limit). With WAR left over for Vei every
 ##   target took its limit.
 ## Nothing saved changes (to_dict is the same) and no step runs; the first substep replaces all of it.
 ## view_rates' corpses and backlog and view_vei's raw diff still read 0 until then (STATE-API §9.1).
+## from_dict calls it twice on purpose when the load's open run ends in a recorded win (apply_pending, api-request
+## #22): the second call reads the state after that win, not the one saved (the split sends FLOOD and the muster to
+## WAR, every fort a target), off the saved r_in. That is the only case where a load doesn't read what the state read
+## before its save; keep the second call (the P9 review's should-fix 1).
 func _restore_dispatch() -> void:
 	_sync_won()  # (P3b, #21) a won save loads won: the tithe idles and the split below sends FLOOD to WAR
 	var wm := worker_mass()
